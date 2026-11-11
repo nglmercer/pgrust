@@ -45,10 +45,17 @@ pub enum FastVals<'a> {
     F64(&'a [f64]),
     /// PLAIN BYTE_ARRAY: value j = `buf[offs[j] + 4 .. offs[j + 1]]`
     /// (`offs` holds one more entry than the run has values).
-    Plain { buf: &'a [u8], offs: &'a [u32] },
+    Plain {
+        buf: &'a [u8],
+        offs: &'a [u32],
+    },
     /// Dictionary BYTE_ARRAY: value j = `arena[offs[ids[j]] .. offs[ids[j] + 1]]`
     /// (`ids` already bound-checked against the dictionary).
-    Dict { ids: &'a [u32], offs: &'a [u32], arena: &'a [u8] },
+    Dict {
+        ids: &'a [u32],
+        offs: &'a [u32],
+        arena: &'a [u8],
+    },
 }
 
 /// One contiguous slot run of a page.
@@ -68,7 +75,11 @@ enum FDict {
     F32(Vec<f32>),
     F64(Vec<f64>),
     /// `offs[0] = 0`, value i = `arena[offs[i]..offs[i + 1]]`.
-    Bytes { offs: Vec<u32>, arena: Vec<u8>, nul_free: bool },
+    Bytes {
+        offs: Vec<u32>,
+        arena: Vec<u8>,
+        nul_free: bool,
+    },
 }
 
 impl FDict {
@@ -136,6 +147,7 @@ pub struct FastCol {
 pub struct FastRowGroup {
     /// CONVERT wave 3 (cvwrite job 2): the loading statement's charge on the row group's column chunks. Declared
     /// first: it drops before the columns free the chunks.
+    #[allow(dead_code)]
     chunk_charge: HeldCharge,
     pub cols: Vec<FastCol>,
     pub num_rows: u64,
@@ -178,43 +190,46 @@ impl FastRowGroup {
             }
         }
         let mut chunk_charge = HeldCharge::new(owner);
-        let (mut loaded, compressed_bytes) = crate::load_rg_chunks(file, path, meta, rg_idx, columns, &mut chunk_charge)?;
+        let (mut loaded, compressed_bytes) =
+            crate::load_rg_chunks(file, path, meta, rg_idx, columns, &mut chunk_charge)?;
         let mut cols = Vec::new();
         cols.try_reserve_exact(loaded.len()).map_err(|_| oom())?;
         // memsig E-pub t5: the chunks move out of their charged list (lib.rs `LoadedChunks`) into the columns
-        loaded.with_vec(|loaded| for ((ch, bytes), &vutf8) in loaded.drain(..).zip(validate_utf8.iter()) {
-            let schema = &meta.columns[ch.column];
-            let chunk_len = bytes.bytes().len();
-            cols.push(FastCol {
-                charge: HeldCharge::new(owner),
-                chunk: bytes,
-                chunk_len,
-                codec: ch.codec,
-                phys: schema.phys,
-                max_def: schema.max_def,
-                validate_utf8: vutf8,
-                name: schema.name.clone(),
-                values_left: ch.num_values as u64,
-                walk: 0,
-                dict: None,
-                scratch: Vec::new(),
-                src_chunk: false,
-                kind: PgKind::None,
-                pg_n: 0,
-                pg_pos: 0,
-                has_nulls: false,
-                present: Vec::new(),
-                lv: Vec::new(),
-                ids: Vec::new(),
-                offs: Vec::new(),
-                i32s: Vec::new(),
-                i64s: Vec::new(),
-                f32s: Vec::new(),
-                f64s: Vec::new(),
-                vpos: 0,
-                vend: 0,
-                hyb: None,
-            });
+        loaded.with_vec(|loaded| {
+            for ((ch, bytes), &vutf8) in loaded.drain(..).zip(validate_utf8.iter()) {
+                let schema = &meta.columns[ch.column];
+                let chunk_len = bytes.bytes().len();
+                cols.push(FastCol {
+                    charge: HeldCharge::new(owner),
+                    chunk: bytes,
+                    chunk_len,
+                    codec: ch.codec,
+                    phys: schema.phys,
+                    max_def: schema.max_def,
+                    validate_utf8: vutf8,
+                    name: schema.name.clone(),
+                    values_left: ch.num_values as u64,
+                    walk: 0,
+                    dict: None,
+                    scratch: Vec::new(),
+                    src_chunk: false,
+                    kind: PgKind::None,
+                    pg_n: 0,
+                    pg_pos: 0,
+                    has_nulls: false,
+                    present: Vec::new(),
+                    lv: Vec::new(),
+                    ids: Vec::new(),
+                    offs: Vec::new(),
+                    i32s: Vec::new(),
+                    i64s: Vec::new(),
+                    f32s: Vec::new(),
+                    f64s: Vec::new(),
+                    vpos: 0,
+                    vend: 0,
+                    hyb: None,
+                });
+            }
         });
         drop(loaded);
         chunk_charge.sync(crate::chunks_held(cols.iter().map(|c| &c.chunk)));
@@ -245,7 +260,9 @@ fn screen(region: &[u8]) -> (bool, usize) {
     for c in it.by_ref() {
         let x = u64::from_le_bytes(c.try_into().expect("8"));
         hi |= x & 0x8080_8080_8080_8080;
-        let z = !(((x & 0x7f7f_7f7f_7f7f_7f7f).wrapping_add(0x7f7f_7f7f_7f7f_7f7f)) | x | 0x7f7f_7f7f_7f7f_7f7f);
+        let z = !(((x & 0x7f7f_7f7f_7f7f_7f7f).wrapping_add(0x7f7f_7f7f_7f7f_7f7f))
+            | x
+            | 0x7f7f_7f7f_7f7f_7f7f);
         zeros += z.count_ones() as usize;
     }
     for &b in it.remainder() {
@@ -258,7 +275,13 @@ fn screen(region: &[u8]) -> (bool, usize) {
 /// PLAIN BYTE_ARRAY length walk over `n` values from `pos`: `offs` gets
 /// n + 1 prefix positions (value j = buf[offs[j]+4 .. offs[j+1]]).
 /// Returns the zero bytes counted inside the length prefixes.
-fn walk_lengths(buf: &[u8], pos: usize, end: usize, n: usize, offs: &mut Vec<u32>) -> PgResult<usize> {
+fn walk_lengths(
+    buf: &[u8],
+    pos: usize,
+    end: usize,
+    n: usize,
+    offs: &mut Vec<u32>,
+) -> PgResult<usize> {
     offs.clear();
     offs.try_reserve(n + 1).map_err(|_| oom())?;
     if end > buf.len() || end > u32::MAX as usize {
@@ -291,7 +314,9 @@ fn walk_lengths(buf: &[u8], pos: usize, end: usize, n: usize, offs: &mut Vec<u32
 #[inline]
 fn copy_le<T: Copy>(src: &[u8], n: usize, out: &mut Vec<T>) -> PgResult<()> {
     let w = core::mem::size_of::<T>();
-    let need = n.checked_mul(w).ok_or_else(|| corrupt_page("value count overflow"))?;
+    let need = n
+        .checked_mul(w)
+        .ok_or_else(|| corrupt_page("value count overflow"))?;
     if need > src.len() {
         return Err(corrupt_page("values end before the declared count"));
     }
@@ -319,7 +344,9 @@ impl FastCol {
             Some(FDict::I64(v)) => cap_bytes(v.capacity(), v),
             Some(FDict::F32(v)) => cap_bytes(v.capacity(), v),
             Some(FDict::F64(v)) => cap_bytes(v.capacity(), v),
-            Some(FDict::Bytes { offs, arena, .. }) => cap_bytes(offs.capacity(), offs) + arena.capacity() as u64,
+            Some(FDict::Bytes { offs, arena, .. }) => {
+                cap_bytes(offs.capacity(), offs) + arena.capacity() as u64
+            }
         };
         dict + self.scratch.capacity() as u64
             + self.present.capacity() as u64
@@ -367,12 +394,17 @@ impl FastCol {
         let n = max.min(self.pg_n - self.pg_pos);
         let at = self.pg_pos;
         let nv = if self.has_nulls {
-            self.present[at..at + n].iter().map(|&b| b as usize).sum::<usize>()
+            self.present[at..at + n]
+                .iter()
+                .map(|&b| b as usize)
+                .sum::<usize>()
         } else {
             n
         };
         if n as u64 > self.values_left {
-            return Err(corrupt_page("pages hold more values than the chunk declares"));
+            return Err(corrupt_page(
+                "pages hold more values than the chunk declares",
+            ));
         }
         self.pg_pos += n;
         self.values_left -= n as u64;
@@ -384,11 +416,33 @@ impl FastCol {
     /// across runs: no per-page lane allocation).
     fn decode_run(&mut self, n: usize, at: usize, nv: usize) -> PgResult<FastRun<'_>> {
         let FastCol {
-            chunk, scratch, src_chunk, kind, vpos, vend, hyb, dict, ids, offs, i32s, i64s, f32s, f64s,
-            phys, validate_utf8, name, present, has_nulls, ..
+            chunk,
+            scratch,
+            src_chunk,
+            kind,
+            vpos,
+            vend,
+            hyb,
+            dict,
+            ids,
+            offs,
+            i32s,
+            i64s,
+            f32s,
+            f64s,
+            phys,
+            validate_utf8,
+            name,
+            present,
+            has_nulls,
+            ..
         } = self;
         let buf: &[u8] = if *src_chunk { chunk.bytes() } else { scratch };
-        let present: Option<&[bool]> = if *has_nulls { Some(&present[at..at + n]) } else { None };
+        let present: Option<&[bool]> = if *has_nulls {
+            Some(&present[at..at + n])
+        } else {
+            None
+        };
         let mut nul_free = false;
         let vals = match *kind {
             PgKind::PlainFixed => {
@@ -448,9 +502,17 @@ impl FastCol {
                         f64s.extend(ids.iter().map(|&i| dv[i as usize])); // alloc: Exec charged the cursor's charge (ColumnCursor / FastCol held_bytes)
                         FastVals::F64(f64s)
                     }
-                    FDict::Bytes { offs: doffs, arena, nul_free: nf } => {
+                    FDict::Bytes {
+                        offs: doffs,
+                        arena,
+                        nul_free: nf,
+                    } => {
                         nul_free = *nf;
-                        FastVals::Dict { ids, offs: doffs, arena }
+                        FastVals::Dict {
+                            ids,
+                            offs: doffs,
+                            arena,
+                        }
                     }
                 }
             }
@@ -471,7 +533,12 @@ impl FastCol {
             }
             _ => unreachable!("run from an unopened page"),
         };
-        Ok(FastRun { n, present, vals, nul_free })
+        Ok(FastRun {
+            n,
+            present,
+            vals,
+            nul_free,
+        })
     }
 
     /// Walk to the next data page and open it (levels decoded, value
@@ -479,12 +546,17 @@ impl FastCol {
     fn open_page(&mut self) -> PgResult<()> {
         loop {
             if self.values_left == 0 {
-                return Err(corrupt_page("column chunk ends before the declared row count"));
+                return Err(corrupt_page(
+                    "column chunk ends before the declared row count",
+                ));
             }
             if self.walk >= self.chunk_len {
-                return Err(corrupt_page("column chunk ends before the declared value count"));
+                return Err(corrupt_page(
+                    "column chunk ends before the declared value count",
+                ));
             }
-            let head = parse_page_header(&self.chunk.bytes()[..self.chunk_len], self.walk, &self.name)?;
+            let head =
+                parse_page_header(&self.chunk.bytes()[..self.chunk_len], self.walk, &self.name)?;
             let ps = head.payload_at;
             let pe = ps + head.compressed_size;
             if pe > self.chunk_len {
@@ -498,21 +570,31 @@ impl FastCol {
             }
             match head.kind {
                 PageKind::Skip => continue,
-                PageKind::Dict { num_values, encoding } => {
+                PageKind::Dict {
+                    num_values,
+                    encoding,
+                } => {
                     if self.dict.is_some() {
                         return Err(corrupt_page("second dictionary page in one column chunk"));
                     }
                     if !matches!(encoding, Enc::Plain | Enc::PlainDictionary) {
                         return Err(unsupported_fast("dictionary page encoding"));
                     }
-                    let (in_chunk, s, e) = self.payload(ps, head.compressed_size, head.uncompressed_size)?;
+                    let (in_chunk, s, e) =
+                        self.payload(ps, head.compressed_size, head.uncompressed_size)?;
                     self.src_chunk = in_chunk;
                     let d = self.decode_dict(s, e, num_values)?;
                     self.dict = Some(d);
                     continue;
                 }
-                PageKind::Data { num_values, encoding, def_encoding, rep_encoding: _ } => {
-                    let (in_chunk, s, e) = self.payload(ps, head.compressed_size, head.uncompressed_size)?;
+                PageKind::Data {
+                    num_values,
+                    encoding,
+                    def_encoding,
+                    rep_encoding: _,
+                } => {
+                    let (in_chunk, s, e) =
+                        self.payload(ps, head.compressed_size, head.uncompressed_size)?;
                     self.src_chunk = in_chunk;
                     let mut vpos = s;
                     if self.max_def > 0 {
@@ -535,9 +617,19 @@ impl FastCol {
                     self.decode_values(vpos, e, encoding, num_values)?;
                     return Ok(());
                 }
-                PageKind::DataV2 { num_values, num_nulls, num_rows, encoding, def_len, rep_len, compressed } => {
+                PageKind::DataV2 {
+                    num_values,
+                    num_nulls,
+                    num_rows,
+                    encoding,
+                    def_len,
+                    rep_len,
+                    compressed,
+                } => {
                     if num_rows != num_values {
-                        return Err(corrupt_page("data page v2 row count disagrees with its value count"));
+                        return Err(corrupt_page(
+                            "data page v2 row count disagrees with its value count",
+                        ));
                     }
                     let p = ps + rep_len;
                     if self.max_def > 0 {
@@ -549,7 +641,9 @@ impl FastCol {
                             num_values
                         };
                         if self.max_def == 1 && present + num_nulls != num_values {
-                            return Err(corrupt_page("data page v2 null count disagrees with its levels"));
+                            return Err(corrupt_page(
+                                "data page v2 null count disagrees with its levels",
+                            ));
                         }
                     } else {
                         if num_nulls != 0 {
@@ -587,7 +681,12 @@ impl FastCol {
     }
 
     /// (values in chunk?, start, end) of a v1 / dictionary page payload.
-    fn payload(&mut self, start: usize, compressed: usize, uncompressed: usize) -> PgResult<(bool, usize, usize)> {
+    fn payload(
+        &mut self,
+        start: usize,
+        compressed: usize,
+        uncompressed: usize,
+    ) -> PgResult<(bool, usize, usize)> {
         if self.codec == CodecId::Uncompressed {
             if compressed != uncompressed {
                 return Err(corrupt_page("uncompressed page sizes disagree"));
@@ -606,8 +705,21 @@ impl FastCol {
     /// Definition levels of the page -> presence mask (`has_nulls` false
     /// when every slot is present: no mask is kept).
     fn levels(&mut self, s: usize, e: usize, n: usize, in_chunk: bool) -> PgResult<()> {
-        let FastCol { chunk, scratch, lv, present, max_def, has_nulls, src_chunk, .. } = self;
-        let buf: &[u8] = if in_chunk || *src_chunk { chunk.bytes() } else { scratch };
+        let FastCol {
+            chunk,
+            scratch,
+            lv,
+            present,
+            max_def,
+            has_nulls,
+            src_chunk,
+            ..
+        } = self;
+        let buf: &[u8] = if in_chunk || *src_chunk {
+            chunk.bytes()
+        } else {
+            scratch
+        };
         decode_levels(Enc::Rle, buf, s, e, *max_def, n, lv)?;
         let md = *max_def;
         let all = lv.iter().fold(true, |a, &d| a & (d == md));
@@ -621,7 +733,11 @@ impl FastCol {
 
     /// Page open: the value cursors only (the values decode per run).
     fn decode_values(&mut self, s: usize, e: usize, encoding: Enc, n: usize) -> PgResult<()> {
-        let nv = if self.has_nulls { self.present.iter().filter(|&&b| b).count() } else { n };
+        let nv = if self.has_nulls {
+            self.present.iter().filter(|&&b| b).count()
+        } else {
+            n
+        };
         self.pg_n = n;
         self.pg_pos = 0;
         self.vpos = s;
@@ -630,7 +746,11 @@ impl FastCol {
         match encoding {
             Enc::Plain => match self.phys {
                 Phys::Int32 | Phys::Int64 | Phys::Float | Phys::Double => {
-                    let w = if matches!(self.phys, Phys::Int32 | Phys::Float) { 4 } else { 8 };
+                    let w = if matches!(self.phys, Phys::Int32 | Phys::Float) {
+                        4
+                    } else {
+                        8
+                    };
                     if nv.checked_mul(w).is_none_or(|need| s + need > e) {
                         return Err(corrupt_page("values end before the declared count"));
                     }
@@ -651,7 +771,11 @@ impl FastCol {
                     .dict
                     .as_ref()
                     .ok_or_else(|| corrupt_page("dictionary-encoded page without a dictionary"))?;
-                self.kind = if matches!(d, FDict::Bytes { .. }) { PgKind::DictBytes } else { PgKind::DictFixed };
+                self.kind = if matches!(d, FDict::Bytes { .. }) {
+                    PgKind::DictBytes
+                } else {
+                    PgKind::DictFixed
+                };
                 self.hyb = Some(HybridState::new(s + 1, e, w as usize)?);
             }
             _ => return Err(unsupported_fast("value encoding")),
@@ -713,7 +837,11 @@ impl FastCol {
                     }
                 }
                 let nul_free = !arena.contains(&0);
-                FDict::Bytes { offs, arena, nul_free }
+                FDict::Bytes {
+                    offs,
+                    arena,
+                    nul_free,
+                }
             }
             _ => return Err(unsupported_fast("dictionary physical type")),
         })
@@ -740,7 +868,10 @@ mod tests {
     /// bytes as hex); `nul_free` runs must hold no 0x00 byte.
     fn render_fast(run: &FastRun<'_>, j: usize) -> String {
         let bytes = |b: &[u8]| {
-            assert!(!run.nul_free || !b.contains(&0), "nul_free run holds a 0x00 byte");
+            assert!(
+                !run.nul_free || !b.contains(&0),
+                "nul_free run holds a 0x00 byte"
+            );
             format!("x{b:02x?}")
         };
         match &run.vals {
@@ -748,7 +879,9 @@ mod tests {
             FastVals::I64(v) => format!("l{}", v[j]),
             FastVals::F32(v) => format!("f{:08x}", v[j].to_bits()),
             FastVals::F64(v) => format!("d{:016x}", v[j].to_bits()),
-            FastVals::Plain { buf, offs } => bytes(&buf[offs[j] as usize + 4..offs[j + 1] as usize]),
+            FastVals::Plain { buf, offs } => {
+                bytes(&buf[offs[j] as usize + 4..offs[j + 1] as usize])
+            }
             FastVals::Dict { ids, offs, arena } => {
                 let id = ids[j] as usize;
                 bytes(&arena[offs[id] as usize..offs[id + 1] as usize])
@@ -789,14 +922,20 @@ mod tests {
         let (mut fused_rgs, mut files) = (0usize, 0usize);
         for name in &names {
             let path = format!("{dir}/{name}");
-            let Ok(mut fr) = crate::FileReader::open(&path) else { continue };
+            let Ok(mut fr) = crate::FileReader::open(&path) else {
+                continue;
+            };
             files += 1;
             let meta = fr.meta_arc();
             let file = fr.try_clone_file().expect("clone file");
             for c in 0..meta.columns.len() {
                 let schema = &meta.columns[c];
-                let vutf8 = [schema.phys == Phys::ByteArray &&
-                    matches!(schema.logical, Logical::String | Logical::Enum | Logical::Json)];
+                #[allow(clippy::possible_missing_comma)]
+                let vutf8 = [schema.phys == Phys::ByteArray
+                    && matches!(
+                        schema.logical,
+                        Logical::String | Logical::Enum | Logical::Json
+                    )];
                 for rg in 0..meta.row_groups.len() {
                     // The batch reader's slots (None = it refuses the row group).
                     let want: Option<Vec<Option<String>>> = (|| {
@@ -814,7 +953,10 @@ mod tests {
                         Some(out)
                     })();
                     for step in [1000usize, 7] {
-                        let Ok(mut frg) = FastRowGroup::open(&file, &path, &meta, rg, &[c], &vutf8) else { continue };
+                        let Ok(mut frg) = FastRowGroup::open(&file, &path, &meta, rg, &[c], &vutf8)
+                        else {
+                            continue;
+                        };
                         let rows = frg.num_rows as usize;
                         let col = &mut frg.cols[0];
                         let mut got: Vec<Option<String>> = Vec::with_capacity(rows);
@@ -847,6 +989,9 @@ mod tests {
             }
         }
         eprintln!("fixtures read {files}, fused leaf row groups compared {fused_rgs}");
-        assert!(files >= 20 && fused_rgs >= 600, "fixtures read {files}, fused leaf row groups compared {fused_rgs}");
+        assert!(
+            files >= 20 && fused_rgs >= 600,
+            "fixtures read {files}, fused leaf row groups compared {fused_rgs}"
+        );
     }
 }

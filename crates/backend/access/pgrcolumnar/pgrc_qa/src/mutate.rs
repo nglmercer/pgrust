@@ -67,6 +67,7 @@ fn parse_map(bytes: &[u8]) -> Option<PartMap> {
 /// editing the section table itself when `idx` is None): recompute the
 /// entry crc, rewrite the table, recompute `section_table_crc`, re-encode
 /// the footer (which recomputes `footer_crc`).
+#[allow(clippy::ptr_arg)]
 fn fix_crc_chain(bytes: &mut Vec<u8>, map: &mut PartMap, idx: Option<usize>) {
     if let Some(i) = idx {
         let e = &mut map.entries[i];
@@ -301,7 +302,11 @@ pub fn mutate(pristine: &[u8], seed: u64) -> (Vec<u8>, MutationDesc) {
                 }
             }
             fix_crc_chain(&mut bytes, &mut map, None);
-            ("sem_section_entry", map.section_table_off + i * SECTION_ENTRY_LEN, true)
+            (
+                "sem_section_entry",
+                map.section_table_off + i * SECTION_ENTRY_LEN,
+                true,
+            )
         }
     };
     (

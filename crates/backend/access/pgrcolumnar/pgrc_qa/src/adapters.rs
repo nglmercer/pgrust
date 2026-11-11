@@ -28,9 +28,9 @@ use pgrc_format::class::StorageClass;
 use pgrc_format::enc::Wrapper;
 use pgrc_format::part::StreamSectionHdr;
 use pgrc_format::FormatResult;
+use pgrc_read::cursor::{CodecBinding, SectionUnwrapper};
 use pgrc_read::io::MemTableDir;
 use pgrc_read::manifest_walk::CommitCheck;
-use pgrc_read::cursor::{CodecBinding, SectionUnwrapper};
 use pgrc_write::elect::{Candidate, CandidateSource, EncoderFactory, FullElectInput};
 use pgrc_write::publish::{TxnProbe, TxnVerdict};
 use pgrc_write::seal::VerifyResolver;
@@ -81,7 +81,6 @@ impl SectionUnwrapper for ZstdUnwrapper {
     }
 }
 
-
 /// pgrc format 2.2 dictionary layers (spec §6.4/§7): the front-coded DictPayload
 /// (id 3) expands against the resident index, the packed DictIndex (id 4)
 /// stands alone; both serve the whole-section and block faces.
@@ -96,7 +95,12 @@ impl SectionUnwrapper for FrontZstdUnwrapper {
         pgrc_codec::wrapper::unwrap_section(section, &mut out)?;
         Ok(out)
     }
-    fn unwrap_dict_payload_section(&self, _hdr: &StreamSectionHdr, section: &[u8], index: &[u8]) -> FormatResult<Vec<u8>> {
+    fn unwrap_dict_payload_section(
+        &self,
+        _hdr: &StreamSectionHdr,
+        section: &[u8],
+        index: &[u8],
+    ) -> FormatResult<Vec<u8>> {
         let mut out = Vec::new();
         pgrc_codec::wrapper::unwrap_dict_payload_section(section, index, &mut out)?;
         Ok(out)
@@ -107,14 +111,30 @@ impl SectionUnwrapper for FrontZstdUnwrapper {
         }
         let t = pgrc_codec::onpairwrap::decode_side(side)?;
         let bytes = t.bytes();
-        Ok(Some(pgrc_read::SideTable { table: Box::new(t), bytes }))
+        Ok(Some(pgrc_read::SideTable {
+            table: Box::new(t),
+            bytes,
+        }))
     }
-    fn unwrap_dict_payload_block_side(&self, side: &pgrc_read::SideTable, src: &[u8], dst: &mut [u8], records: &[u8]) -> FormatResult<bool> {
-        let Some(t) = side.table.downcast_ref::<pgrc_codec::onpair::DecodeTable>() else { return Ok(false) };
+    fn unwrap_dict_payload_block_side(
+        &self,
+        side: &pgrc_read::SideTable,
+        src: &[u8],
+        dst: &mut [u8],
+        records: &[u8],
+    ) -> FormatResult<bool> {
+        let Some(t) = side.table.downcast_ref::<pgrc_codec::onpair::DecodeTable>() else {
+            return Ok(false);
+        };
         pgrc_codec::onpairwrap::unwrap_frame_block(t, src, dst, records)?;
         Ok(true)
     }
-    fn unwrap_dict_payload_block(&self, src: &[u8], dst: &mut [u8], records: &[u8]) -> FormatResult<bool> {
+    fn unwrap_dict_payload_block(
+        &self,
+        src: &[u8],
+        dst: &mut [u8],
+        records: &[u8],
+    ) -> FormatResult<bool> {
         if self.0 != Wrapper::FrontZstd {
             return Ok(false);
         }
@@ -189,7 +209,10 @@ pub fn full_binding() -> &'static CodecBinding<'static> {
 pub enum ForcedPlan {
     /// BYTE_FOR at a fixed delta width (fixture data must fit it — the
     /// seal's mandatory round-trip verify catches a mis-sized fixture).
-    ByteFor { delta_width: u8, signed: bool },
+    ByteFor {
+        delta_width: u8,
+        signed: bool,
+    },
     DeltaFor,
     Alp,
     AlpRd,

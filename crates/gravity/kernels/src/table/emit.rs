@@ -156,6 +156,7 @@ impl Narrow {
         for i in 0..n {
             *(p as *mut *const u8).add(i) = (*p.add(i)).ptr();
         }
+        #[allow(clippy::unnecessary_cast)]
         (core::slice::from_raw_parts_mut(p as *mut *const u8, n), Narrow(p, n))
     }
 }
@@ -191,15 +192,18 @@ pub(crate) struct Work<T> {
     // perf: the values' base on either road, so a compare's access is a plain slice's (no branch per access)
     ptr: *mut T,
     len: usize,
+    #[allow(dead_code)]
     heap: Vec<T>,
     // LEDGER2 step 5: the scratch arena `ptr` was carved from (`Work::scratch`), this array's alone: dropped with it, after
     // the fields above (nothing reads `ptr` past the drop)
+    #[allow(dead_code)]
     scratch: Option<gravity_fn::arena::OpArena>,
 }
 
 impl<T> Work<T> {
     /// The block for `len` values; null for the allocator's road; `Err(ERROR)` when the block is refused (the refusal held by
     /// the driver for the emit's raise).
+    #[allow(dead_code)]
     pub(crate) unsafe fn take(ctx: *mut Ctx, len: usize) -> Result<*mut T, i64> {
         Work::<T>::take_on(ctx, len, Road::Take)
     }
@@ -334,6 +338,7 @@ impl<T> Drop for Work<T> {
     }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn desc_layout(desc: *const u8) -> RecordLayout {
     let mut w = [0u64; LAYOUT_WORDS];
     core::ptr::copy_nonoverlapping(desc.add(DESC_LAYOUT) as *const u64, w.as_mut_ptr(), LAYOUT_WORDS);
@@ -667,6 +672,7 @@ unsafe fn merge_runs(ctx: *mut Ctx, desc: *const u8, table: *mut u8, n: u64) -> 
         if out.is_null() {
             return 0;
         }
+        #[allow(clippy::unnecessary_cast)]
         let r = merge_runs_into(ctx, desc, runs, core::slice::from_raw_parts_mut(out as *mut *const u8, n));
         if r != 0 {
             return r;

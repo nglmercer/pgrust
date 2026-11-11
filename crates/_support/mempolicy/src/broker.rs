@@ -43,7 +43,11 @@ impl PolicyCfg {
     };
 
     fn unit_of(&self, c: Consumer) -> u64 {
-        if c == Consumer::SharedBuffers { self.unit_sb.max(1) } else { self.unit.max(1) }
+        if c == Consumer::SharedBuffers {
+            self.unit_sb.max(1)
+        } else {
+            self.unit.max(1)
+        }
     }
 }
 
@@ -183,11 +187,21 @@ fn round_up(x: u64, unit: u64) -> u64 {
 
 fn target_now(state: &PolicyState, s: &Signals, p: &Plan, k: usize) -> u64 {
     let slot = &state.slots[k];
-    if slot.seeded { slot.target } else { s.inputs[k].cap.clamp(p.floor[k], p.ceiling[k]) }
+    if slot.seeded {
+        slot.target
+    } else {
+        s.inputs[k].cap.clamp(p.floor[k], p.ceiling[k])
+    }
 }
 
 /// A cache gives only reclaimable bytes (above its in-use floor) in its tail; one over its target only through pins sits out.
-fn value_sides<'a>(state: &PolicyState, s: &Signals, cfg: &PolicyCfg, p: &Plan, worth: &'a [Worth; CONSUMERS]) -> [Option<Side<'a>>; CONSUMERS] {
+fn value_sides<'a>(
+    state: &PolicyState,
+    s: &Signals,
+    cfg: &PolicyCfg,
+    p: &Plan,
+    worth: &'a [Worth; CONSUMERS],
+) -> [Option<Side<'a>>; CONSUMERS] {
     let unit = cfg.unit.max(1);
     let mut sides = [None; CONSUMERS];
     for c in Consumer::ALL.into_iter().filter(|c| c.is_cache()) {
@@ -199,24 +213,45 @@ fn value_sides<'a>(state: &PolicyState, s: &Signals, cfg: &PolicyCfg, p: &Plan, 
         if i.current > at && i.floor >= at {
             continue;
         }
-        let give = i.current.saturating_sub(i.floor).min(worth[k].seen.tail_bytes).min(pct(at, cfg.shrink_pct).max(unit)).min(at.saturating_sub(p.floor[k]));
-        let take = p.ceiling[k].saturating_sub(at).min(pct(at, cfg.grow_pct).max(unit));
-        sides[k] = Some(Side { worth: &worth[k], give: give / unit * unit, take: take / unit * unit });
+        let give = i
+            .current
+            .saturating_sub(i.floor)
+            .min(worth[k].seen.tail_bytes)
+            .min(pct(at, cfg.shrink_pct).max(unit))
+            .min(at.saturating_sub(p.floor[k]));
+        let take = p.ceiling[k]
+            .saturating_sub(at)
+            .min(pct(at, cfg.grow_pct).max(unit));
+        sides[k] = Some(Side {
+            worth: &worth[k],
+            give: give / unit * unit,
+            take: take / unit * unit,
+        });
     }
     sides
 }
 
 pub fn plan(state: &PolicyState, s: &Signals, cfg: &PolicyCfg) -> (Plan, PolicyState) {
     let mut p = Plan::default();
-    let held = if s.pool_on_tick { s.inputs[Consumer::WorkPool as usize].current } else { 0 };
-    let room = s.b.saturating_sub(s.r_high).saturating_sub(s.fixed).saturating_sub(held);
+    let held = if s.pool_on_tick {
+        s.inputs[Consumer::WorkPool as usize].current
+    } else {
+        0
+    };
+    let room =
+        s.b.saturating_sub(s.r_high)
+            .saturating_sub(s.fixed)
+            .saturating_sub(held);
     for c in Consumer::ALL {
         let i = &s.inputs[c as usize];
         p.targeted[c as usize] = targeted(c, i, s.pool_on_tick);
         p.floor[c as usize] = i.floor.max(i.minimum);
     }
     let ix = |c: Consumer| c as usize;
-    let sum_floors = Consumer::ALL.iter().filter(|c| p.targeted[ix(**c)]).fold(0u64, |a, c| a.saturating_add(p.floor[ix(*c)]));
+    let sum_floors = Consumer::ALL
+        .iter()
+        .filter(|c| p.targeted[ix(**c)])
+        .fold(0u64, |a, c| a.saturating_add(p.floor[ix(*c)]));
     for c in Consumer::ALL {
         let k = ix(c);
         if !p.targeted[k] {
@@ -225,7 +260,9 @@ pub fn plan(state: &PolicyState, s: &Signals, cfg: &PolicyCfg) -> (Plan, PolicyS
             continue;
         }
         let floor = p.floor[k];
-        p.ceiling[k] = room.saturating_sub(sum_floors.saturating_sub(floor)).max(floor);
+        p.ceiling[k] = room
+            .saturating_sub(sum_floors.saturating_sub(floor))
+            .max(floor);
         let i = &s.inputs[k];
         let want = match (c, i.reused) {
             (Consumer::WorkPool, _) => s.work_demand,
@@ -249,19 +286,35 @@ pub fn plan(state: &PolicyState, s: &Signals, cfg: &PolicyCfg) -> (Plan, PolicyS
         let sides = value_sides(state, s, cfg, &p, &worth);
         moved = transfer::transfer(&sides, cfg.unit);
         for k in (0..CONSUMERS).filter(|&k| sides[k].is_some()) {
-            p.desired[k] = target_now(state, s, &p, k).saturating_add_signed(moved[k]).clamp(p.floor[k], p.ceiling[k]);
+            p.desired[k] = target_now(state, s, &p, k)
+                .saturating_add_signed(moved[k])
+                .clamp(p.floor[k], p.ceiling[k]);
             p.goal[k] = p.desired[k];
         }
     }
-    let order = if s.value { crate::reclaim::by_loss(CUT_ORDER, |c| p.loss[c as usize]) } else { CUT_ORDER };
-    let total = Consumer::ALL.iter().filter(|c| p.targeted[ix(**c)]).fold(0u64, |a, c| a.saturating_add(p.desired[ix(*c)]));
+    let order = if s.value {
+        crate::reclaim::by_loss(CUT_ORDER, |c| p.loss[c as usize])
+    } else {
+        CUT_ORDER
+    };
+    let total = Consumer::ALL
+        .iter()
+        .filter(|c| p.targeted[ix(**c)])
+        .fold(0u64, |a, c| a.saturating_add(p.desired[ix(*c)]));
     if total <= room {
         p.fits = true;
         let left = room - total;
-        let caches = Consumer::ALL.iter().filter(|c| c.is_cache() && p.targeted[ix(**c)]).fold(0u64, |a, c| a.saturating_add(p.desired[ix(*c)]));
+        let caches = Consumer::ALL
+            .iter()
+            .filter(|c| c.is_cache() && p.targeted[ix(**c)])
+            .fold(0u64, |a, c| a.saturating_add(p.desired[ix(*c)]));
         if caches > 0 {
-            for c in Consumer::ALL.into_iter().filter(|c| c.is_cache() && p.targeted[ix(*c)]) {
-                p.elastic[ix(c)] = ((left as u128 * p.desired[ix(c)] as u128) / caches as u128) as u64;
+            for c in Consumer::ALL
+                .into_iter()
+                .filter(|c| c.is_cache() && p.targeted[ix(*c)])
+            {
+                p.elastic[ix(c)] =
+                    ((left as u128 * p.desired[ix(c)] as u128) / caches as u128) as u64;
             }
         }
     } else {
@@ -335,24 +388,33 @@ pub fn plan(state: &PolicyState, s: &Signals, cfg: &PolicyCfg) -> (Plan, PolicyS
                 continue;
             }
             let most = pct(prev, cfg.grow_pct).max(band);
-            (1i8, round_up(diff.min(most), unit).min(p.ceiling[k].saturating_sub(prev)))
+            (
+                1i8,
+                round_up(diff.min(most), unit).min(p.ceiling[k].saturating_sub(prev)),
+            )
         };
         if bytes == 0 {
             p.hold[k] = Hold::DeadBand;
             continue;
         }
-        if slot.last_dir != 0 && dir != slot.last_dir && s.now < slot.last_move_at.saturating_add(cfg.cooldown_s) {
+        if slot.last_dir != 0
+            && dir != slot.last_dir
+            && s.now < slot.last_move_at.saturating_add(cfg.cooldown_s)
+        {
             p.hold[k] = Hold::Cooldown;
             continue;
         }
         step[k] = (dir, bytes);
     }
     // donors before recipients: the grows get the room this interval's shrinks leave, the dearest refill first
-    let base = Consumer::ALL.iter().filter(|c| p.targeted[ix(**c)]).fold(0u64, |a, c| {
-        let k = ix(*c);
-        let t = next.slots[k].target;
-        a.saturating_add(if step[k].0 < 0 { t - step[k].1 } else { t })
-    });
+    let base = Consumer::ALL
+        .iter()
+        .filter(|c| p.targeted[ix(**c)])
+        .fold(0u64, |a, c| {
+            let k = ix(*c);
+            let t = next.slots[k].target;
+            a.saturating_add(if step[k].0 < 0 { t - step[k].1 } else { t })
+        });
     let mut avail = room.saturating_sub(base);
     for c in order.into_iter().rev() {
         let k = ix(c);
@@ -360,7 +422,11 @@ pub fn plan(state: &PolicyState, s: &Signals, cfg: &PolicyCfg) -> (Plan, PolicyS
             continue;
         }
         let unit = cfg.unit_of(c);
-        let g = if step[k].1 <= avail { step[k].1 } else { avail / unit * unit };
+        let g = if step[k].1 <= avail {
+            step[k].1
+        } else {
+            avail / unit * unit
+        };
         avail -= g;
         if g == 0 {
             p.hold[k] = Hold::NoRoom;
@@ -376,10 +442,18 @@ pub fn plan(state: &PolicyState, s: &Signals, cfg: &PolicyCfg) -> (Plan, PolicyS
         if p.targeted[k] {
             if dir != 0 {
                 let reversal = slot.last_dir != 0 && dir != slot.last_dir;
-                slot.target = if dir < 0 { slot.target - bytes } else { slot.target + bytes };
+                slot.target = if dir < 0 {
+                    slot.target - bytes
+                } else {
+                    slot.target + bytes
+                };
                 slot.last_dir = dir;
                 slot.last_move_at = s.now;
-                slot.last_move_bytes = if dir < 0 { -(bytes as i64) } else { bytes as i64 };
+                slot.last_move_bytes = if dir < 0 {
+                    -(bytes as i64)
+                } else {
+                    bytes as i64
+                };
                 p.moved[k] = slot.last_move_bytes;
                 p.hold[k] = Hold::None;
                 if reversal {
@@ -387,7 +461,10 @@ pub fn plan(state: &PolicyState, s: &Signals, cfg: &PolicyCfg) -> (Plan, PolicyS
                     slot.reversal_at.copy_within(0..7, 1);
                     slot.reversal_at[0] = s.now;
                     let n = slot.reversals.min(8) as usize;
-                    let recent = slot.reversal_at[..n].iter().filter(|&&t| t.saturating_add(cfg.freeze_window_s) > s.now).count();
+                    let recent = slot.reversal_at[..n]
+                        .iter()
+                        .filter(|&&t| t.saturating_add(cfg.freeze_window_s) > s.now)
+                        .count();
                     if cfg.freeze_count > 0 && recent >= cfg.freeze_count as usize {
                         slot.frozen_until = s.now.saturating_add(cfg.freeze_s);
                     }
@@ -408,12 +485,50 @@ mod tests {
     const GIB: u64 = 1 << 30;
 
     fn signals() -> Signals {
-        let mut s = Signals { now: 10_000, b: 27 * GIB, r_high: 2 * GIB, fixed: GIB, work_demand: 2 * GIB, queued: 0, inputs: [Input::default(); CONSUMERS], pool_on_tick: false, value: false };
-        let mut set = |c: Consumer, current: u64, floor: u64, cap: u64, reused: Option<[u64; 3]>, minimum: u64| {
-            s.inputs[c as usize] = Input { registered: true, current, floor, cap, reused, reused_evicted: false, minimum, doors: None };
+        let mut s = Signals {
+            now: 10_000,
+            b: 27 * GIB,
+            r_high: 2 * GIB,
+            fixed: GIB,
+            work_demand: 2 * GIB,
+            queued: 0,
+            inputs: [Input::default(); CONSUMERS],
+            pool_on_tick: false,
+            value: false,
         };
-        set(Consumer::SharedBuffers, 2 * GIB, 2 * GIB, 2 * GIB, None, 2 * GIB);
-        set(Consumer::PartCache, 0, 0, 3 * GIB + GIB / 2, Some([0; 3]), 0);
+        let mut set = |c: Consumer,
+                       current: u64,
+                       floor: u64,
+                       cap: u64,
+                       reused: Option<[u64; 3]>,
+                       minimum: u64| {
+            s.inputs[c as usize] = Input {
+                registered: true,
+                current,
+                floor,
+                cap,
+                reused,
+                reused_evicted: false,
+                minimum,
+                doors: None,
+            };
+        };
+        set(
+            Consumer::SharedBuffers,
+            2 * GIB,
+            2 * GIB,
+            2 * GIB,
+            None,
+            2 * GIB,
+        );
+        set(
+            Consumer::PartCache,
+            0,
+            0,
+            3 * GIB + GIB / 2,
+            Some([0; 3]),
+            0,
+        );
         set(Consumer::FpTables, 0, 0, 3 * GIB, Some([0; 3]), 0);
         set(Consumer::BuildPool, 0, 0, 3 * GIB, None, 0);
         set(Consumer::ZoneStore, 0, 0, GIB / 2, None, 0);
@@ -430,8 +545,15 @@ mod tests {
 
     fn steady(s: &Signals) -> PolicyState {
         let (p, mut st) = run(&PolicyState::default(), s);
-        for c in Consumer::ALL.into_iter().filter(|c| p.targeted[*c as usize]) {
-            st.slots[c as usize] = Slot { seeded: true, target: p.goal[c as usize], ..Slot::default() };
+        for c in Consumer::ALL
+            .into_iter()
+            .filter(|c| p.targeted[*c as usize])
+        {
+            st.slots[c as usize] = Slot {
+                seeded: true,
+                target: p.goal[c as usize],
+                ..Slot::default()
+            };
         }
         st
     }
@@ -463,19 +585,34 @@ mod tests {
         assert_eq!(p.desired[Consumer::WorkPool as usize], 2 * GIB);
         assert_eq!(p.desired[Consumer::SharedBuffers as usize], 2 * GIB);
         let room = s.b - s.r_high - s.fixed;
-        let targeted: u64 = Consumer::ALL.iter().filter(|c| p.targeted[**c as usize]).map(|c| p.desired[*c as usize] + p.elastic[*c as usize]).sum();
+        let targeted: u64 = Consumer::ALL
+            .iter()
+            .filter(|c| p.targeted[**c as usize])
+            .map(|c| p.desired[*c as usize] + p.elastic[*c as usize])
+            .sum();
         assert!(targeted <= room, "{targeted} {room}");
-        assert!(room - targeted < 16, "the leftover is handed out: {}", room - targeted);
+        assert!(
+            room - targeted < 16,
+            "the leftover is handed out: {}",
+            room - targeted
+        );
         assert_eq!(p.elastic[Consumer::WorkPool as usize], 0);
         assert_eq!(p.elastic[Consumer::SharedBuffers as usize], 0);
-        assert!(!p.targeted[Consumer::ProgramCaches as usize] && !p.targeted[Consumer::PerBackend as usize]);
+        assert!(
+            !p.targeted[Consumer::ProgramCaches as usize]
+                && !p.targeted[Consumer::PerBackend as usize]
+        );
     }
 
     #[test]
     fn over_b_cuts_toward_the_floors_cheapest_refill_first_and_the_work_pool_last() {
         let mut s = signals();
         s.b = 12 * GIB;
-        for (c, cur) in [(Consumer::BuildPool, 2 * GIB), (Consumer::ZoneStore, GIB / 2), (Consumer::CondCache, GIB / 2)] {
+        for (c, cur) in [
+            (Consumer::BuildPool, 2 * GIB),
+            (Consumer::ZoneStore, GIB / 2),
+            (Consumer::CondCache, GIB / 2),
+        ] {
             s.inputs[c as usize].current = cur;
         }
         s.inputs[Consumer::PartCache as usize].reused = Some([4 * GIB; 3]);
@@ -485,13 +622,33 @@ mod tests {
         assert!(!p.fits && !p.floors_over);
         assert_eq!(p.goal[Consumer::BuildPool as usize], 0);
         assert_eq!(p.goal[Consumer::ZoneStore as usize], 0);
-        assert_eq!(p.goal[Consumer::CondCache as usize], GIB / 2, "the condition cache after the part cache (reclaim::ORDER)");
-        assert_eq!(p.goal[Consumer::SharedBuffers as usize], 2 * GIB, "shared_buffers never under its configured size");
+        assert_eq!(
+            p.goal[Consumer::CondCache as usize],
+            GIB / 2,
+            "the condition cache after the part cache (reclaim::ORDER)"
+        );
+        assert_eq!(
+            p.goal[Consumer::SharedBuffers as usize],
+            2 * GIB,
+            "shared_buffers never under its configured size"
+        );
         let part = p.goal[Consumer::PartCache as usize];
         assert!(part < pct(4 * GIB, 110) && part > 0, "{part}");
-        assert_eq!(p.goal[Consumer::FpTables as usize], pct(GIB, 110), "fp after the part cache");
-        assert_eq!(p.goal[Consumer::WorkPool as usize], 3 * GIB, "the work pool last");
-        let goals: u64 = Consumer::ALL.iter().filter(|c| p.targeted[**c as usize]).map(|c| p.goal[*c as usize]).sum();
+        assert_eq!(
+            p.goal[Consumer::FpTables as usize],
+            pct(GIB, 110),
+            "fp after the part cache"
+        );
+        assert_eq!(
+            p.goal[Consumer::WorkPool as usize],
+            3 * GIB,
+            "the work pool last"
+        );
+        let goals: u64 = Consumer::ALL
+            .iter()
+            .filter(|c| p.targeted[**c as usize])
+            .map(|c| p.goal[*c as usize])
+            .sum();
         assert_eq!(goals, s.b - s.r_high - s.fixed);
     }
 
@@ -499,20 +656,39 @@ mod tests {
     fn b0_the_plan_leaves_the_pool_to_the_tick_and_fits_the_caches_beside_what_it_holds() {
         let mut s = signals();
         s.b = 12 * GIB;
-        for (c, cur) in [(Consumer::BuildPool, 2 * GIB), (Consumer::ZoneStore, GIB / 2), (Consumer::CondCache, GIB / 2), (Consumer::WorkPool, 2 * GIB)] {
+        for (c, cur) in [
+            (Consumer::BuildPool, 2 * GIB),
+            (Consumer::ZoneStore, GIB / 2),
+            (Consumer::CondCache, GIB / 2),
+            (Consumer::WorkPool, 2 * GIB),
+        ] {
             s.inputs[c as usize].current = cur;
         }
         s.inputs[Consumer::PartCache as usize].reused = Some([4 * GIB; 3]);
         s.inputs[Consumer::FpTables as usize].reused = Some([GIB; 3]);
         s.work_demand = 3 * GIB;
         let today = run(&PolicyState::default(), &s).0;
-        assert!(today.targeted[Consumer::WorkPool as usize] && today.goal[Consumer::WorkPool as usize] == 3 * GIB);
+        assert!(
+            today.targeted[Consumer::WorkPool as usize]
+                && today.goal[Consumer::WorkPool as usize] == 3 * GIB
+        );
         s.pool_on_tick = true;
         let (p, _) = run(&PolicyState::default(), &s);
         let w = Consumer::WorkPool as usize;
-        assert!(!p.targeted[w] && (p.goal[w], p.moved[w]) == (2 * GIB, 0), "the plan never moves the pool");
-        let goals: u64 = Consumer::ALL.iter().filter(|c| p.targeted[**c as usize]).map(|c| p.goal[*c as usize]).sum();
-        assert_eq!(goals, s.b - s.r_high - s.fixed - 2 * GIB, "the caches fit beside the 2 GiB the pool holds");
+        assert!(
+            !p.targeted[w] && (p.goal[w], p.moved[w]) == (2 * GIB, 0),
+            "the plan never moves the pool"
+        );
+        let goals: u64 = Consumer::ALL
+            .iter()
+            .filter(|c| p.targeted[**c as usize])
+            .map(|c| p.goal[*c as usize])
+            .sum();
+        assert_eq!(
+            goals,
+            s.b - s.r_high - s.fixed - 2 * GIB,
+            "the caches fit beside the 2 GiB the pool holds"
+        );
     }
 
     #[test]
@@ -523,7 +699,11 @@ mod tests {
         s.inputs[Consumer::WorkPool as usize].floor = GIB;
         let (p, _) = run(&PolicyState::default(), &s);
         assert!(!p.fits && p.floors_over);
-        for c in [Consumer::PartCache, Consumer::WorkPool, Consumer::SharedBuffers] {
+        for c in [
+            Consumer::PartCache,
+            Consumer::WorkPool,
+            Consumer::SharedBuffers,
+        ] {
             assert_eq!(p.goal[c as usize], p.floor[c as usize], "{c:?}");
             assert!(p.target[c as usize] >= p.floor[c as usize], "{c:?}");
         }
@@ -538,7 +718,9 @@ mod tests {
         let ceiling = s.b - s.r_high - s.fixed - 2 * GIB - GIB;
         assert_eq!(p.ceiling[Consumer::PartCache as usize], ceiling);
         assert_eq!(p.desired[Consumer::PartCache as usize], ceiling);
-        assert!(p.ceiling[Consumer::PartCache as usize] > s.inputs[Consumer::PartCache as usize].cap);
+        assert!(
+            p.ceiling[Consumer::PartCache as usize] > s.inputs[Consumer::PartCache as usize].cap
+        );
     }
 
     #[test]
@@ -549,12 +731,20 @@ mod tests {
         let cap = s.inputs[Consumer::PartCache as usize].cap;
         let (p, _) = settle(&mut s, PolicyState::default(), 40);
         assert!(p.desired[Consumer::PartCache as usize] >= 47 * gb / 10);
-        assert!(at(&p, Consumer::PartCache) >= 47 * gb / 10, "{} from the seed {cap}", at(&p, Consumer::PartCache));
+        assert!(
+            at(&p, Consumer::PartCache) >= 47 * gb / 10,
+            "{} from the seed {cap}",
+            at(&p, Consumer::PartCache)
+        );
         assert!(at(&p, Consumer::PartCache) <= p.desired[Consumer::PartCache as usize] + 64 * MIB);
         let mut st = steady(&s);
         st.slots[Consumer::PartCache as usize].target = cap;
         let (p, _) = run(&st, &s);
-        assert!(at(&p, Consumer::PartCache) >= 47 * gb / 10, "first interval: {}", at(&p, Consumer::PartCache));
+        assert!(
+            at(&p, Consumer::PartCache) >= 47 * gb / 10,
+            "first interval: {}",
+            at(&p, Consumer::PartCache)
+        );
     }
 
     #[test]
@@ -567,7 +757,10 @@ mod tests {
         let ceiling = p.ceiling[Consumer::PartCache as usize];
         let slot = st.slots[Consumer::PartCache as usize];
         assert!(slot.seeded);
-        assert_eq!(p.moved[Consumer::PartCache as usize], -((ceiling - slot.target) as i64));
+        assert_eq!(
+            p.moved[Consumer::PartCache as usize],
+            -((ceiling - slot.target) as i64)
+        );
         assert!(slot.target >= ceiling - pct(ceiling, 20) && slot.target < ceiling);
     }
 
@@ -576,12 +769,22 @@ mod tests {
         let mut s = signals();
         s.value = true;
         let (part, fp) = (Consumer::PartCache as usize, Consumer::FpTables as usize);
-        (s.inputs[part].current, s.inputs[part].floor, s.inputs[part].reused) = (4 * GIB, pinned, None);
+        (
+            s.inputs[part].current,
+            s.inputs[part].floor,
+            s.inputs[part].reused,
+        ) = (4 * GIB, pinned, None);
         (s.inputs[fp].current, s.inputs[fp].reused) = (2 * GIB, None);
         let mut st = steady(&s);
         (st.slots[part].target, st.slots[fp].target) = (part_target, 2 * GIB);
         let read = |tail: u64, ghosts: u64| {
-            let mut d = Doors { tail_hits: tail, tail_bytes, cost_ns: 1_000_000, cost_samples: 1000, ..Doors::default() };
+            let mut d = Doors {
+                tail_hits: tail,
+                tail_bytes,
+                cost_ns: 1_000_000,
+                cost_samples: 1000,
+                ..Doors::default()
+            };
             d.ghosts[25..29].iter_mut().for_each(|g| *g = ghosts);
             d
         };
@@ -596,8 +799,17 @@ mod tests {
     fn b2_the_value_broker_moves_the_cold_caches_bytes_to_the_hot_one() {
         let (p, st) = value_plan(512 * MIB, 0, 4 * GIB);
         let (part, fp) = (Consumer::PartCache as usize, Consumer::FpTables as usize);
-        assert_eq!((p.moved[part], p.moved[fp]), (-512 * MIB as i64, 512 * MIB as i64), "{:?}", p.hold);
-        assert!(p.loss[part] < p.loss[fp] && p.loss[part].is_some(), "{:?}", p.loss);
+        assert_eq!(
+            (p.moved[part], p.moved[fp]),
+            (-512 * MIB as i64, 512 * MIB as i64),
+            "{:?}",
+            p.hold
+        );
+        assert!(
+            p.loss[part] < p.loss[fp] && p.loss[part].is_some(),
+            "{:?}",
+            p.loss
+        );
         assert_eq!(st.worth[fp].intervals, 2);
     }
 
@@ -606,15 +818,26 @@ mod tests {
         let (p, _) = value_plan(128 * MIB, 0, 4 * GIB);
         let (part, fp) = (Consumer::PartCache as usize, Consumer::FpTables as usize);
         assert_eq!((p.moved[part], p.moved[fp]), (0, 0));
-        assert_eq!((p.hold[part], p.hold[fp]), (Hold::DeadBand, Hold::DeadBand), "two units (128 MiB) under the 256 MiB band");
+        assert_eq!(
+            (p.hold[part], p.hold[fp]),
+            (Hold::DeadBand, Hold::DeadBand),
+            "two units (128 MiB) under the 256 MiB band"
+        );
     }
 
     #[test]
     fn b2_a_cache_over_its_target_only_through_pins_neither_gives_nor_takes() {
         let (p, _) = value_plan(512 * MIB, 4 * GIB, GIB);
         let (part, fp) = (Consumer::PartCache as usize, Consumer::FpTables as usize);
-        assert_eq!(p.moved[fp], 0, "no donor: the pinned part cache gives nothing");
-        assert!(p.target[part] >= 4 * GIB, "never under its in-use bytes: {}", p.target[part]);
+        assert_eq!(
+            p.moved[fp], 0,
+            "no donor: the pinned part cache gives nothing"
+        );
+        assert!(
+            p.target[part] >= 4 * GIB,
+            "never under its in-use bytes: {}",
+            p.target[part]
+        );
     }
 
     #[test]
@@ -624,10 +847,18 @@ mod tests {
         let mut st = steady(&s);
         st.slots[Consumer::FpTables as usize].target = pct(2 * GIB, 110) + 200 * MIB;
         let (p, _) = run(&st, &s);
-        assert_eq!(p.hold[Consumer::FpTables as usize], Hold::DeadBand, "200 MiB is under max(5%, 256 MiB)");
+        assert_eq!(
+            p.hold[Consumer::FpTables as usize],
+            Hold::DeadBand,
+            "200 MiB is under max(5%, 256 MiB)"
+        );
         st.slots[Consumer::FpTables as usize].target = pct(2 * GIB, 110) - 300 * MIB;
         let (p, _) = run(&st, &s);
-        assert_eq!(p.moved[Consumer::FpTables as usize], 320 * MIB as i64, "300 MiB rounds up to five 64 MiB units");
+        assert_eq!(
+            p.moved[Consumer::FpTables as usize],
+            320 * MIB as i64,
+            "300 MiB rounds up to five 64 MiB units"
+        );
     }
 
     #[test]
@@ -678,7 +909,11 @@ mod tests {
         s.b = 8 * GIB;
         s.inputs[Consumer::PartCache as usize].reused = Some([6 * GIB; 3]);
         let mut st = PolicyState::default();
-        st.slots[Consumer::PartCache as usize] = Slot { seeded: true, target: 6 * GIB, ..Slot::default() };
+        st.slots[Consumer::PartCache as usize] = Slot {
+            seeded: true,
+            target: 6 * GIB,
+            ..Slot::default()
+        };
         let (p, _) = run(&st, &s);
         assert!(p.goal[Consumer::PartCache as usize] < p.desired[Consumer::PartCache as usize]);
         assert!(p.moved[Consumer::PartCache as usize] < 0);
@@ -689,19 +924,50 @@ mod tests {
         let mut s = signals();
         s.b = 12 * GIB;
         let mut st = PolicyState::default();
-        st.slots[Consumer::SharedBuffers as usize] = Slot { seeded: true, target: 2 * GIB, ..Slot::default() };
-        st.slots[Consumer::PartCache as usize] = Slot { seeded: true, target: 2 * GIB, ..Slot::default() };
-        st.slots[Consumer::WorkPool as usize] = Slot { seeded: true, target: 5 * GIB, ..Slot::default() };
-        for c in [Consumer::FpTables, Consumer::BuildPool, Consumer::ZoneStore, Consumer::CondCache] {
-            st.slots[c as usize] = Slot { seeded: true, target: 0, ..Slot::default() };
+        st.slots[Consumer::SharedBuffers as usize] = Slot {
+            seeded: true,
+            target: 2 * GIB,
+            ..Slot::default()
+        };
+        st.slots[Consumer::PartCache as usize] = Slot {
+            seeded: true,
+            target: 2 * GIB,
+            ..Slot::default()
+        };
+        st.slots[Consumer::WorkPool as usize] = Slot {
+            seeded: true,
+            target: 5 * GIB,
+            ..Slot::default()
+        };
+        for c in [
+            Consumer::FpTables,
+            Consumer::BuildPool,
+            Consumer::ZoneStore,
+            Consumer::CondCache,
+        ] {
+            st.slots[c as usize] = Slot {
+                seeded: true,
+                target: 0,
+                ..Slot::default()
+            };
         }
         s.inputs[Consumer::PartCache as usize].reused = Some([4 * GIB; 3]);
         s.work_demand = 3 * GIB;
         let (p, _) = run(&st, &s);
-        let sum: u64 = Consumer::ALL.iter().filter(|c| p.targeted[**c as usize]).map(|c| p.target[*c as usize]).sum();
+        let sum: u64 = Consumer::ALL
+            .iter()
+            .filter(|c| p.targeted[**c as usize])
+            .map(|c| p.target[*c as usize])
+            .sum();
         assert!(sum <= s.b - s.r_high - s.fixed, "{sum}");
-        assert!(p.moved[Consumer::WorkPool as usize] < 0, "the donor shrinks");
-        assert!(p.moved[Consumer::PartCache as usize] > 0, "the recipient grows into what it freed");
+        assert!(
+            p.moved[Consumer::WorkPool as usize] < 0,
+            "the donor shrinks"
+        );
+        assert!(
+            p.moved[Consumer::PartCache as usize] > 0,
+            "the recipient grows into what it freed"
+        );
         assert!(p.moved[Consumer::PartCache as usize] <= -p.moved[Consumer::WorkPool as usize]);
     }
 
@@ -709,7 +975,13 @@ mod tests {
     fn no_reversal_inside_the_cooldown_and_three_reversals_freeze_the_consumer() {
         let mut s = signals();
         let mut st = steady(&s);
-        st.slots[Consumer::FpTables as usize] = Slot { seeded: true, target: 4 * GIB, last_dir: 1, last_move_at: s.now - 60, ..Slot::default() };
+        st.slots[Consumer::FpTables as usize] = Slot {
+            seeded: true,
+            target: 4 * GIB,
+            last_dir: 1,
+            last_move_at: s.now - 60,
+            ..Slot::default()
+        };
         s.inputs[Consumer::FpTables as usize].reused = Some([GIB; 3]);
         let (p, _) = run(&st, &s);
         assert_eq!(p.hold[Consumer::FpTables as usize], Hold::Cooldown);
@@ -717,7 +989,8 @@ mod tests {
         for k in 0..6u64 {
             s.now += 301;
             let up = k % 2 == 1;
-            s.inputs[Consumer::FpTables as usize].reused = Some(if up { [6 * GIB; 3] } else { [GIB; 3] });
+            s.inputs[Consumer::FpTables as usize].reused =
+                Some(if up { [6 * GIB; 3] } else { [GIB; 3] });
             let (p, next) = run(&st, &s);
             st = next;
             if p.moved[Consumer::FpTables as usize] != 0 {
@@ -745,26 +1018,48 @@ mod tests {
         let (p, st) = settle(&mut s, PolicyState::default(), 40);
         assert!(at(&p, Consumer::PartCache) >= 2 * GIB);
         assert!(at(&p, Consumer::SharedBuffers) >= 2 * GIB);
-        assert_eq!(st.slots[Consumer::SharedBuffers as usize].last_dir, 0, "6a: shared_buffers has no re-use signal and never moves");
+        assert_eq!(
+            st.slots[Consumer::SharedBuffers as usize].last_dir,
+            0,
+            "6a: shared_buffers has no re-use signal and never moves"
+        );
     }
 
     /// Run on a box: `MEMBROKER_REPLAY_TSV=<file> cargo test -p mempolicy --lib replay -- --ignored --nocapture`.
     #[test]
     #[ignore]
     fn replay_tsv() {
-        let Some(path) = std::env::var_os("MEMBROKER_REPLAY_TSV") else { return };
+        let Some(path) = std::env::var_os("MEMBROKER_REPLAY_TSV") else {
+            return;
+        };
         let text = std::fs::read_to_string(path).expect("read the TSV");
         let mut col: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
         let mut samples: Vec<Signals> = Vec::new(); // alloc: Cold
         for line in text.lines() {
             let f: Vec<&str> = line.split('\t').collect();
             if f.first() == Some(&"sampled_at") {
-                col = f.iter().enumerate().map(|(i, n)| (n.to_string(), i)).collect(); // alloc: Cold
+                col = f
+                    .iter()
+                    .enumerate()
+                    .map(|(i, n)| (n.to_string(), i))
+                    .collect(); // alloc: Cold
                 continue;
             }
-            let get = |n: &str| col.get(n).and_then(|&i| f.get(i)).and_then(|v| v.parse::<i64>().ok()).unwrap_or(0).max(0) as u64;
-            let name = col.get("consumer").and_then(|&i| f.get(i)).copied().unwrap_or("");
-            let Some(c) = Consumer::ALL.into_iter().find(|c| c.name() == name) else { continue };
+            let get = |n: &str| {
+                col.get(n)
+                    .and_then(|&i| f.get(i))
+                    .and_then(|v| v.parse::<i64>().ok())
+                    .unwrap_or(0)
+                    .max(0) as u64
+            };
+            let name = col
+                .get("consumer")
+                .and_then(|&i| f.get(i))
+                .copied()
+                .unwrap_or("");
+            let Some(c) = Consumer::ALL.into_iter().find(|c| c.name() == name) else {
+                continue;
+            };
             let now = get("sampled_at");
             if samples.last().is_none_or(|s| s.now != now) {
                 samples.push(Signals {
@@ -780,15 +1075,33 @@ mod tests {
                 });
             }
             let s = samples.last_mut().expect("pushed");
-            let reused = matches!(c, Consumer::PartCache | Consumer::FpTables).then(|| [get("reused_60s"), get("reused_300s"), get("reused_900s")]);
+            let reused = matches!(c, Consumer::PartCache | Consumer::FpTables)
+                .then(|| [get("reused_60s"), get("reused_300s"), get("reused_900s")]);
             let floor = get("floor_bytes");
-            let minimum = if c == Consumer::SharedBuffers { floor } else { 0 };
-            s.inputs[c as usize] = Input { registered: true, current: get("current_bytes"), floor, cap: get("cap_bytes"), reused, reused_evicted: false, minimum, doors: None };
+            let minimum = if c == Consumer::SharedBuffers {
+                floor
+            } else {
+                0
+            };
+            s.inputs[c as usize] = Input {
+                registered: true,
+                current: get("current_bytes"),
+                floor,
+                cap: get("cap_bytes"),
+                reused,
+                reused_evicted: false,
+                minimum,
+                doors: None,
+            };
         }
         println!("replay: {} intervals", samples.len());
         for mult in [100u64, 110, 125] {
             for band in [128 * MIB, 256 * MIB, 512 * MIB] {
-                let cfg = PolicyCfg { multiplier_pct: mult, dead_band_min: band, ..PolicyCfg::DEFAULT };
+                let cfg = PolicyCfg {
+                    multiplier_pct: mult,
+                    dead_band_min: band,
+                    ..PolicyCfg::DEFAULT
+                };
                 let mut st = PolicyState::default();
                 let (mut moves, mut frozen) = ([0u32; CONSUMERS], [0u32; CONSUMERS]);
                 let mut last = Plan::default();
@@ -801,7 +1114,10 @@ mod tests {
                     st = next;
                     last = p;
                 }
-                for c in Consumer::ALL.into_iter().filter(|c| last.targeted[*c as usize]) {
+                for c in Consumer::ALL
+                    .into_iter()
+                    .filter(|c| last.targeted[*c as usize])
+                {
                     let k = c as usize;
                     println!(
                         "mult {mult} band_mib {} {}: moves {} reversals {} frozen_intervals {} last_target_mib {}",

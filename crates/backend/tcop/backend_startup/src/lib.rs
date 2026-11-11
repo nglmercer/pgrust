@@ -141,8 +141,8 @@ pub fn backend_main(startup_data: &StartupData) -> ! {
 ///     AuthenticationOk goes out directly after the startup packet — hba
 ///     evaluation stays with the postmaster path;
 ///   * cac is always Ok (no postmaster state machine to consult).
-/// A refused startup (EOF, cancel packet, negotiation-only client) takes
-/// C's proc_exit(0), as backend_initialize does.
+///     A refused startup (EOF, cancel packet, negotiation-only client) takes
+///     C's proc_exit(0), as backend_initialize does.
 pub fn wire_session_initialize(mcx: Mcx<'_>) -> PgResult<()> {
     // Synthetic ClientSocket: the transport provider's pq_init ignores the
     // fd; all-zeros raddr = "client address unknown".

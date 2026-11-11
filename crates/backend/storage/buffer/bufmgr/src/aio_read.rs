@@ -41,6 +41,7 @@ fn buffer_readv_stage(ioh: u32, _cb_data: u8, is_temp: bool) {
         generation_lower: wref.generation_lower,
     };
 
+    #[allow(clippy::needless_range_loop)]
     for i in 0..len {
         let buffer = io_data[i] as Buffer;
         let desc = GetBufferDescriptor(buffer - 1);
@@ -217,6 +218,7 @@ fn shared_buffer_readv_complete(ioh: u32, prior_result: PgAioResult, cb_data: u8
     let mut checkfail_count: u8 = 0;
 
     let (io_data, len) = aio_core::pgaio_io_get_handle_data(ioh);
+    #[allow(clippy::needless_range_loop)]
     for buf_off in 0..len {
         let buf = io_data[buf_off] as Buffer;
 

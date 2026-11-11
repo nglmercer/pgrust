@@ -68,7 +68,10 @@ mod tests {
         assert!(pdir.omit_detached);
         pdir.pdir_hash.insert(
             rel.rd_id,
-            PartitionDirectoryEntry { rel: rel.alias(), pd: Rc::clone(&pd) },
+            PartitionDirectoryEntry {
+                rel: rel.alias(),
+                pd: Rc::clone(&pd),
+            },
         );
         // partdesc.c:472: the entry holds one relation reference.
         assert_eq!(Rc::strong_count(rel.data_rc()), before + 1);

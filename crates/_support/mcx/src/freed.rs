@@ -51,7 +51,10 @@ impl FreedSet {
 #[inline(never)]
 pub(crate) fn report(realloc: bool, name: &str, ptr: NonNull<u8>) -> ! {
     if realloc {
-        panic!("detected realloc of freed chunk in {name} {:p}", ptr.as_ptr());
+        panic!(
+            "detected realloc of freed chunk in {name} {:p}",
+            ptr.as_ptr()
+        );
     }
     panic!("detected double pfree in {name} {:p}", ptr.as_ptr());
 }

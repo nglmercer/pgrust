@@ -16,10 +16,10 @@
 //! pairs, first pair discarded, medians of the remaining three; the pool
 //! witness (worker ordinals seen) is printed with the verdict.
 
-use pgrc_write::testkit::*;
 use pgrc_write::ingest::RawDatum;
-use pgrc_write::writer::{PartCutPolicy, SealEnv};
 use pgrc_write::par::ParIngestOpts;
+use pgrc_write::testkit::*;
+use pgrc_write::writer::{PartCutPolicy, SealEnv};
 use runtime::{Runtime, RuntimeConfig, WorkerPool};
 use std::sync::Arc;
 use std::time::Instant;
@@ -55,12 +55,7 @@ fn bank_texts(i: u64) -> (Vec<u8>, Vec<u8>) {
 }
 
 fn bank_ints(i: u64) -> [u64; 4] {
-    [
-        i,
-        i % 97,
-        i.wrapping_mul(2654435761),
-        i / 64,
-    ]
+    [i, i % 97, i.wrapping_mul(2654435761), i / 64]
 }
 
 fn policy() -> PartCutPolicy {
@@ -203,7 +198,10 @@ fn ingest_scaling_probe_dop8() {
     let rt1 = Runtime::new(RuntimeConfig::new(1));
     let pool1 = WorkerPool::spawn_std(Arc::clone(&rt1)).expect("pool1");
     let (d1, _, _) = par_run(&rt1, &corpus);
-    eprintln!("par dop1 sanity ({n} rows): {:.0} ms", d1.as_secs_f64() * 1e3);
+    eprintln!(
+        "par dop1 sanity ({n} rows): {:.0} ms",
+        d1.as_secs_f64() * 1e3
+    );
     pool1.shutdown();
 
     let mut serial_ms = Vec::new();

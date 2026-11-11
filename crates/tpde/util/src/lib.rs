@@ -73,6 +73,7 @@ extern crate self as tpde_util;
 #[cfg(test)]
 extern crate std;
 #[cfg(all(test, tpde_address_sanitizer))]
+#[rustfmt::skip]
 #[path = "../../../_support/mcx/tests/asan_reuse/cases.rs"]
 mod mcx_asan_reuse;
 #[cfg(test)]

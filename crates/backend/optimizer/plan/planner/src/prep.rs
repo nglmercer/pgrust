@@ -22,7 +22,10 @@ pub fn replace_empty_jointree<'mcx>(mcx: Mcx<'mcx>, parse: &mut Query<'mcx>) -> 
 
     let eref = alloc_leak_in(
         mcx,
-        Alias { aliasname: Some("*RESULT*"), colnames: NodeList::nil() },
+        Alias {
+            aliasname: Some("*RESULT*"),
+            colnames: NodeList::nil(),
+        },
     )?;
     let mut rte = Node::build::<RangeTblEntry>(mcx)?;
     rte.rtekind = RTEKind::RTE_RESULT;
@@ -63,7 +66,10 @@ pub fn remove_useless_result_rtes<'mcx>(
     // directly and rebuild only when something dropped. A RESULT that
     // computes PHVs needed by a sibling must stay (C's
     // find_dependent_phvs_in_jointree gate against the whole FromExpr).
-    if f.fromlist.iter().all(|n| n.node_tag() == NodeTag::T_RangeTblRef) {
+    if f.fromlist
+        .iter()
+        .all(|n| n.node_tag() == NodeTag::T_RangeTblRef)
+    {
         let total = f.fromlist.len();
         // The dependent-PHV gate is C's lastPHId != 0 dynamic gate; its check
         // node is built lazily so SELECT 1 (and every no-join query) pays
@@ -108,13 +114,22 @@ pub fn remove_useless_result_rtes<'mcx>(
             if run.glob.last_ph_id != 0 {
                 let new_f_node = Node::mk(
                     mcx,
-                    FromExpr { fromlist: fromlist.clone_in(mcx)?, quals: f.quals },
+                    FromExpr {
+                        fromlist: fromlist.clone_in(mcx)?,
+                        quals: f.quals,
+                    },
                 )?;
                 for &varno in dropped.iter() {
                     crate::prepjointree::remove_result_refs(run, parse, varno, new_f_node)?;
                 }
             }
-            parse.jointree = Some(alloc_leak_in(mcx, FromExpr { fromlist, quals: f.quals })?);
+            parse.jointree = Some(alloc_leak_in(
+                mcx,
+                FromExpr {
+                    fromlist,
+                    quals: f.quals,
+                },
+            )?);
         }
         // Unconditional in C: marks on SURVIVING RESULT RTEs drop too.
         if !run.root.rowMarks.is_empty() {
@@ -123,7 +138,10 @@ pub fn remove_useless_result_rtes<'mcx>(
         return Ok(());
     }
     let mut dropped_outer_joins = types_nodes::bitmapset::Bitmapset::empty();
-    let mut slot = QualSlot { node: f.quals, changed: false };
+    let mut slot = QualSlot {
+        node: f.quals,
+        changed: false,
+    };
     let mut children: mcx::PgVec<'mcx, Option<Node<'mcx>>> = mcx::PgVec::new_in(mcx);
     let mut any_child_changed = false;
     for child in &f.fromlist {
@@ -145,7 +163,13 @@ pub fn remove_useless_result_rtes<'mcx>(
     let (fromlist, ndropped) =
         drop_result_children(run, parse, &mut children, baserels, slot.node)?;
     if any_child_changed || slot.changed || ndropped > 0 {
-        parse.jointree = Some(alloc_leak_in(mcx, FromExpr { fromlist, quals: slot.node })?);
+        parse.jointree = Some(alloc_leak_in(
+            mcx,
+            FromExpr {
+                fromlist,
+                quals: slot.node,
+            },
+        )?);
     }
 
     if !dropped_outer_joins.is_empty() {
@@ -209,7 +233,13 @@ fn drop_result_children<'mcx>(
             for c in children.iter().flatten() {
                 cur.lappend(mcx, *c)?;
             }
-            let f_node = Node::mk(mcx, FromExpr { fromlist: cur, quals })?;
+            let f_node = Node::mk(
+                mcx,
+                FromExpr {
+                    fromlist: cur,
+                    quals,
+                },
+            )?;
             if crate::prepjointree::find_dependent_phvs_in_jointree(
                 run, parse, f_node, varno, baserels,
             )? {
@@ -225,7 +255,13 @@ fn drop_result_children<'mcx>(
         fromlist.lappend(mcx, *c)?;
     }
     if !dropped.is_empty() && run.glob.last_ph_id != 0 {
-        let new_f = Node::mk(mcx, FromExpr { fromlist: fromlist.clone_in(mcx)?, quals })?;
+        let new_f = Node::mk(
+            mcx,
+            FromExpr {
+                fromlist: fromlist.clone_in(mcx)?,
+                quals,
+            },
+        )?;
         for &varno in dropped.iter() {
             crate::prepjointree::remove_result_refs(run, parse, varno, new_f)?;
         }
@@ -234,13 +270,19 @@ fn drop_result_children<'mcx>(
 }
 
 fn get_result_relid<'mcx>(parse: &Query<'mcx>, jtnode: Node<'mcx>) -> i32 {
-    let Some(rtr) = jtnode.as_range_tbl_ref() else { return 0 };
+    let Some(rtr) = jtnode.as_range_tbl_ref() else {
+        return 0;
+    };
     let rte = parse
         .rtable
         .nth(rtr.rtindex as usize - 1)
         .as_range_tbl_entry()
         .expect("rtable cell");
-    if rte.rtekind == RTEKind::RTE_RESULT { rtr.rtindex } else { 0 }
+    if rte.rtekind == RTEKind::RTE_RESULT {
+        rtr.rtindex
+    } else {
+        0
+    }
 }
 
 // Pushed-up quals are implicit-AND T_List nodes; child quals go in front.
@@ -279,7 +321,10 @@ fn remove_useless_results_recurse<'mcx>(
         NodeTag::T_RangeTblRef => Ok(None),
         NodeTag::T_FromExpr => {
             let f = jtnode.as_from_expr().expect("FromExpr");
-            let mut slot = QualSlot { node: f.quals, changed: false };
+            let mut slot = QualSlot {
+                node: f.quals,
+                changed: false,
+            };
             let mut children: mcx::PgVec<'mcx, Option<Node<'mcx>>> = mcx::PgVec::new_in(mcx);
             let mut any_child_changed = false;
             for child in &f.fromlist {
@@ -310,11 +355,20 @@ fn remove_useless_results_recurse<'mcx>(
             if !any_child_changed && !slot.changed && ndropped == 0 {
                 return Ok(None);
             }
-            Ok(Some(Node::mk(mcx, FromExpr { fromlist, quals: slot.node })?))
+            Ok(Some(Node::mk(
+                mcx,
+                FromExpr {
+                    fromlist,
+                    quals: slot.node,
+                },
+            )?))
         }
         NodeTag::T_JoinExpr => {
             let j = jtnode.as_join_expr().expect("JoinExpr");
-            let mut slot = QualSlot { node: j.quals, changed: false };
+            let mut slot = QualSlot {
+                node: j.quals,
+                changed: false,
+            };
             let lres = match j.jointype {
                 JoinType::JOIN_INNER => remove_useless_results_recurse(
                     run,
@@ -438,9 +492,9 @@ fn remove_useless_results_recurse<'mcx>(
                     }
                 }
                 JoinType::JOIN_FULL | JoinType::JOIN_ANTI => {}
-                other => panic!(
-                    "remove_useless_results_recurse (prepjointree.c): join type {other:?}"
-                ),
+                other => {
+                    panic!("remove_useless_results_recurse (prepjointree.c): join type {other:?}")
+                }
             }
             if lres.is_none() && rres.is_none() && !slot.changed {
                 return Ok(None);
@@ -465,10 +519,7 @@ fn remove_useless_results_recurse<'mcx>(
 }
 
 // preprocess_rowmarks (planner.c); UPDATE/DELETE non-target marks stay loud.
-pub fn preprocess_rowmarks<'mcx>(
-    run: &mut PlannerRun<'mcx>,
-    parse: &Query<'mcx>,
-) -> PgResult<()> {
+pub fn preprocess_rowmarks<'mcx>(run: &mut PlannerRun<'mcx>, parse: &Query<'mcx>) -> PgResult<()> {
     use types_nodes::plannodes::PlanRowMark;
 
     if !parse.rowMarks.is_nil() {
@@ -498,7 +549,11 @@ pub fn preprocess_rowmarks<'mcx>(
 
     let mcx = run.mcx;
     let mut rels = types_nodes::bitmapset::Bitmapset::empty();
-    collect_jointree_relids(mcx, parse.jointree.expect("jointree is a FromExpr"), &mut rels)?;
+    collect_jointree_relids(
+        mcx,
+        parse.jointree.expect("jointree is a FromExpr"),
+        &mut rels,
+    )?;
     rels.del_member(parse.resultRelation);
 
     for rc_node in &parse.rowMarks {
@@ -575,8 +630,7 @@ fn add_rowmark_junk_columns<'mcx>(
                 0,
             )?;
             let resname = arena_str(mcx, &format!("ctid{}", rc.rowmarkId))?;
-            let tle =
-                Node::mk_target_entry(mcx, var, tlist.len() as i16 + 1, Some(resname), true)?;
+            let tle = Node::mk_target_entry(mcx, var, tlist.len() as i16 + 1, Some(resname), true)?;
             tlist.lappend(mcx, tle)?;
         }
         if rc.allMarkTypes & (1 << RowMarkType::ROW_MARK_COPY as i32) != 0 {
@@ -629,8 +683,7 @@ fn add_rowmark_junk_columns<'mcx>(
             };
             let var = Node::mk_var(mcx, rc.rti as i32, 0, vartype, -1, 0, 0)?;
             let resname = arena_str(mcx, &format!("wholerow{}", rc.rowmarkId))?;
-            let tle =
-                Node::mk_target_entry(mcx, var, tlist.len() as i16 + 1, Some(resname), true)?;
+            let tle = Node::mk_target_entry(mcx, var, tlist.len() as i16 + 1, Some(resname), true)?;
             tlist.lappend(mcx, tle)?;
         }
         if rc.isParent {
@@ -644,8 +697,7 @@ fn add_rowmark_junk_columns<'mcx>(
                 0,
             )?;
             let resname = arena_str(mcx, &format!("tableoid{}", rc.rowmarkId))?;
-            let tle =
-                Node::mk_target_entry(mcx, var, tlist.len() as i16 + 1, Some(resname), true)?;
+            let tle = Node::mk_target_entry(mcx, var, tlist.len() as i16 + 1, Some(resname), true)?;
             tlist.lappend(mcx, tle)?;
         }
     }
@@ -836,6 +888,7 @@ pub(crate) fn extract_update_targetlist_colnos<'mcx>(
 ) -> mcx::PgVec<'mcx, i16> {
     let mut update_colnos: mcx::PgVec<'mcx, i16> = mcx::PgVec::new_in(mcx);
     let mut nextresno: i16 = 1;
+    #[allow(clippy::explicit_counter_loop)]
     for tle_node in tlist {
         let resjunk = tle_node.as_target_entry().expect("tlist cell").resjunk;
         if !resjunk {
@@ -844,10 +897,8 @@ pub(crate) fn extract_update_targetlist_colnos<'mcx>(
         let resno = nextresno;
         nextresno += 1;
         // SAFETY: exclusive planner ownership of the preprocessed tlist.
-        unsafe {
-            tle_node.with_mut::<types_nodes::TargetEntry, _>(|t| t.resno = resno)
-        }
-        .expect("TargetEntry");
+        unsafe { tle_node.with_mut::<types_nodes::TargetEntry, _>(|t| t.resno = resno) }
+            .expect("TargetEntry");
     }
     update_colnos
 }
@@ -865,7 +916,10 @@ fn add_merge_junk_vars<'mcx>(
 ) -> PgResult<()> {
     let vars = vars::pull_var_clause(mcx, node, vars::PVC_INCLUDE_PLACEHOLDERS)?;
     'next_var: for var_node in &vars {
-        if var_node.as_var().is_some_and(|v| v.varno == result_relation) {
+        if var_node
+            .as_var()
+            .is_some_and(|v| v.varno == result_relation)
+        {
             continue;
         }
         for tle_node in tlist.iter() {
@@ -874,8 +928,7 @@ fn add_merge_junk_vars<'mcx>(
                 continue 'next_var;
             }
         }
-        let tle =
-            Node::mk_target_entry(mcx, var_node, tlist.len() as i16 + 1, None, true)?;
+        let tle = Node::mk_target_entry(mcx, var_node, tlist.len() as i16 + 1, None, true)?;
         tlist.lappend(mcx, tle)?;
     }
     Ok(())
@@ -895,13 +948,8 @@ fn add_row_identity_columns<'mcx>(
         let kind = foreigncmds_seams::get_fdw_routine_by_rel_id::call(mcx, rel.rd_id)?;
         if let Some(f) = crate::fdwplan::fdw_plan_routine(kind).add_foreign_update_targets {
             f(mcx, result_relation as u32, &mut |expr, name| {
-                let tle = Node::mk_target_entry(
-                    mcx,
-                    expr,
-                    new_tlist.len() as i16 + 1,
-                    Some(name),
-                    true,
-                )?;
+                let tle =
+                    Node::mk_target_entry(mcx, expr, new_tlist.len() as i16 + 1, Some(name), true)?;
                 new_tlist.lappend(mcx, tle)
             })?;
         }
@@ -913,8 +961,15 @@ fn add_row_identity_columns<'mcx>(
                     .is_some_and(|t| t.trig_delete_after_row || t.trig_delete_before_row)
         };
         if need_wholerow {
-            let var =
-                Node::mk_var(mcx, result_relation, 0, types_core::catalog::RECORDOID, -1, 0, 0)?;
+            let var = Node::mk_var(
+                mcx,
+                result_relation,
+                0,
+                types_core::catalog::RECORDOID,
+                -1,
+                0,
+                0,
+            )?;
             let tle = Node::mk_target_entry(
                 mcx,
                 var,
@@ -945,13 +1000,7 @@ fn add_row_identity_columns<'mcx>(
         0,
     )?;
     let mut new_tlist = tlist.clone_in(mcx)?;
-    let tle = Node::mk_target_entry(
-        mcx,
-        var,
-        new_tlist.len() as i16 + 1,
-        Some("ctid"),
-        true,
-    )?;
+    let tle = Node::mk_target_entry(mcx, var, new_tlist.len() as i16 + 1, Some("ctid"), true)?;
     new_tlist.lappend(mcx, tle)?;
     Ok(new_tlist)
 }
@@ -1033,8 +1082,7 @@ fn expand_insert_targetlist<'mcx>(
                 } else {
                     Node::mk_const(mcx, 23, -1, 0, 4, datum::Datum::null(), true, true)?
                 };
-                let name =
-                    core::str::from_utf8(att.attname.name_str()).expect("attname is UTF-8");
+                let name = core::str::from_utf8(att.attname.name_str()).expect("attname is UTF-8");
                 let name = mcx::slice_borrow_in(mcx, name.as_bytes())?;
                 // SAFETY: byte-for-byte copy of a &str.
                 let name = unsafe { core::str::from_utf8_unchecked(name) };
@@ -1047,6 +1095,7 @@ fn expand_insert_targetlist<'mcx>(
     // with resnos continuing past the last attribute (a flat copy only when
     // the resno changes).
     let mut attrno = numattrs as i16 + 1;
+    #[allow(clippy::explicit_counter_loop)]
     for tle_node in tlist_iter {
         let tle = tle_node.as_target_entry().expect("tlist cell");
         if !tle.resjunk {

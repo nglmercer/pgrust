@@ -133,7 +133,11 @@ impl Block {
 
     /// A new block of a context whose owner is `led`'s (a mapped one maps for it); a `kept` one (a keeper a reset keeps
     /// or a drop parks) never comes from the block source.
-    pub(crate) fn alloc_for(size: usize, led: &crate::owner::Led, kept: bool) -> Result<Block, AllocError> {
+    pub(crate) fn alloc_for(
+        size: usize,
+        led: &crate::owner::Led,
+        kept: bool,
+    ) -> Result<Block, AllocError> {
         #[cfg(feature = "aset-stats")]
         stats::BLOCK_MALLOCS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         let (ptr, served) = if kept {
@@ -141,7 +145,13 @@ impl Block {
         } else {
             crate::heap::allocate_served_for(Block::layout(size), led)?
         };
-        Ok(Block { ptr: ptr.cast(), size, used: 0, pooled: core::cell::Cell::new(0), served })
+        Ok(Block {
+            ptr: ptr.cast(),
+            size,
+            used: 0,
+            pooled: core::cell::Cell::new(0),
+            served,
+        })
     }
 
     /// # Safety: at most once per block, with no chunk in it still in use; its context's reset or drop resets the
@@ -195,7 +205,8 @@ impl Parked {
     }
 
     fn count(&self, on: bool) {
-        let n = self.blocks.iter().map(|b| b.size).sum::<usize>() + self.blocks.capacity() * core::mem::size_of::<Block>();
+        let n = self.blocks.iter().map(|b| b.size).sum::<usize>()
+            + self.blocks.capacity() * core::mem::size_of::<Block>();
         let d = if on { n as i64 } else { -(n as i64) };
         #[cfg(feature = "std")]
         memledger::keepers_moved(memledger::Acct(self.acct), d);
@@ -243,14 +254,17 @@ struct KeeperPool {
     stack: crate::PoolMutex<alloc::vec::Vec<Parked>>,
 }
 
+#[allow(dead_code)]
 static KEEPER_POOL: KeeperPool = KeeperPool {
     stack: crate::PoolMutex::new(alloc::vec::Vec::new()),
 };
 
+#[allow(dead_code)]
 static SMALL_KEEPER_POOL: KeeperPool = KeeperPool {
     stack: crate::PoolMutex::new(alloc::vec::Vec::new()),
 };
 
+#[allow(dead_code)]
 fn keeper_pool(class: KeeperClass) -> &'static KeeperPool {
     match class {
         KeeperClass::Default => &KEEPER_POOL,
@@ -263,7 +277,9 @@ impl KeeperPool {
     // direct free) — see PoolMutex::try_with.
     #[cfg(test)]
     fn with<R>(&self, f: impl FnOnce(&mut alloc::vec::Vec<Parked>) -> R) -> R {
-        self.stack.try_with(f).expect("uncontended in single-threaded test")
+        self.stack
+            .try_with(f)
+            .expect("uncontended in single-threaded test")
     }
 
     fn take(&self) -> alloc::vec::Vec<Block> {
@@ -286,11 +302,15 @@ impl KeeperPool {
             } else {
                 alloc::vec::Vec::new()
             };
-            stack.push(Parked::park(give.take().expect("closure runs at most once")));
+            stack.push(Parked::park(
+                give.take().expect("closure runs at most once"),
+            ));
             drained
         });
         match overflow {
-            Some(drained) => drained.into_iter().for_each(|p| free_blocks(p.leave(), None)),
+            Some(drained) => drained
+                .into_iter()
+                .for_each(|p| free_blocks(p.leave(), None)),
             // a contended pool: the entry never parked, so it was never counted
             None => free_blocks(give.take().expect("closure did not run"), None),
         }
@@ -407,7 +427,9 @@ mod growth {
 
         /// The oldest parked block's slot.
         fn oldest(&self) -> Option<usize> {
-            (0..SLOTS).filter(|&i| self.slots[i].is_some()).min_by_key(|&i| self.slots[i].as_ref().map_or(u64::MAX, |x| x.1))
+            (0..SLOTS)
+                .filter(|&i| self.slots[i].is_some())
+                .min_by_key(|&i| self.slots[i].as_ref().map_or(u64::MAX, |x| x.1))
         }
     }
 
@@ -438,7 +460,10 @@ mod growth {
                 if s.bytes == 0 || s.acct != memledger::current().0 {
                     return None;
                 }
-                let i = s.slots.iter().position(|x| x.as_ref().is_some_and(|(b, _)| b.size == size))?;
+                let i = s
+                    .slots
+                    .iter()
+                    .position(|x| x.as_ref().is_some_and(|(b, _)| b.size == size))?;
                 let (b, _) = s.slots[i].take()?;
                 s.bytes -= b.size;
                 memledger::growth_moved(memledger::Acct(s.acct), -(b.size as i64), -1);
@@ -465,7 +490,9 @@ mod growth {
         unbind_hook();
         let mut give = Some(b);
         let _ = SHELF.try_with(|s| {
-            let Ok(mut s) = s.try_borrow_mut() else { return };
+            let Ok(mut s) = s.try_borrow_mut() else {
+                return;
+            };
             let short = crate::memory_short_epoch();
             if s.short != short || s.acct != acct.0 {
                 // REACH: memory went short since the shelf last looked, so a shelf that holds blocks sheds them (and this
@@ -483,7 +510,9 @@ mod growth {
                 let Some(i) = s.oldest() else { return };
                 s.free_slot(i);
             }
-            let Some(i) = s.slots.iter().position(Option::is_none) else { return };
+            let Some(i) = s.slots.iter().position(Option::is_none) else {
+                return;
+            };
             let mut b = give.take().expect("parked once");
             b.used = 0;
             memledger::growth_moved(acct, size as i64, 1);
@@ -551,7 +580,11 @@ pub(crate) fn recycle_blocks(blocks: alloc::vec::Vec<Block>) {
 
 /// `life`: the keeper's context's `Led::pooled_life` (a pooled keeper goes back to the source, never parks).
 #[inline]
-pub(crate) fn recycle_keeper(class: KeeperClass, blocks: alloc::vec::Vec<Block>, life: Option<crate::heap::Lifetime>) {
+pub(crate) fn recycle_keeper(
+    class: KeeperClass,
+    blocks: alloc::vec::Vec<Block>,
+    life: Option<crate::heap::Lifetime>,
+) {
     #[cfg(test)]
     {
         let _ = class;
@@ -562,7 +595,9 @@ pub(crate) fn recycle_keeper(class: KeeperClass, blocks: alloc::vec::Vec<Block>,
     }
     #[cfg(not(test))]
     {
-        if crate::heap::source_set() && (!crate::heap::keepers_park() || blocks.iter().any(Block::pooled)) {
+        if crate::heap::source_set()
+            && (!crate::heap::keepers_park() || blocks.iter().any(Block::pooled))
+        {
             free_blocks(blocks, life);
             return;
         }
@@ -573,8 +608,11 @@ pub(crate) fn recycle_keeper(class: KeeperClass, blocks: alloc::vec::Vec<Block>,
             // Drop, so letting the Vec fall out of a dead closure would leak
             // the raw allocations.
             let mut give = Some(blocks);
-            let done = keeper_tls(class)
-                .try_with(|s| s.give_wholesale(Parked::park(give.take().expect("closure runs at most once"))));
+            let done = keeper_tls(class).try_with(|s| {
+                s.give_wholesale(Parked::park(
+                    give.take().expect("closure runs at most once"),
+                ))
+            });
             if done.is_err() {
                 // never parked, so never counted
                 free_blocks(give.take().expect("closure did not run"), None);
@@ -646,20 +684,35 @@ pub(crate) struct AllocSet {
 
 impl AllocSet {
     pub(crate) fn new() -> AllocSet {
-        Self::from_blocks(take_recycled_blocks(), INIT_BLOCK_SIZE, MAX_BLOCK_SIZE, Some(KeeperClass::Default))
+        Self::from_blocks(
+            take_recycled_blocks(),
+            INIT_BLOCK_SIZE,
+            MAX_BLOCK_SIZE,
+            Some(KeeperClass::Default),
+        )
     }
 
     // No recycled keeper: the first block is allocated by the first alloc,
     // so a context that is never used costs no block.
     pub(crate) fn new_sized(init_block_size: usize, max_block_size: usize) -> AllocSet {
         debug_assert!(init_block_size <= max_block_size);
-        Self::from_blocks(alloc::vec::Vec::new(), init_block_size, max_block_size, None)
+        Self::from_blocks(
+            alloc::vec::Vec::new(),
+            init_block_size,
+            max_block_size,
+            None,
+        )
     }
 
     pub(crate) fn new_small(max_block_size: usize) -> AllocSet {
         let init = crate::ALLOCSET_SMALL_INITSIZE;
         debug_assert!(init <= max_block_size);
-        Self::from_blocks(take_recycled_keeper(KeeperClass::Small), init, max_block_size, Some(KeeperClass::Small))
+        Self::from_blocks(
+            take_recycled_keeper(KeeperClass::Small),
+            init,
+            max_block_size,
+            Some(KeeperClass::Small),
+        )
     }
 
     // Session-root retirement: the keeper goes too; the next alloc grows one.
@@ -763,18 +816,23 @@ impl AllocSet {
             #[cfg(debug_assertions)]
             self.freed.note_alloc(head.as_ptr().addr());
             acct.free_chunks.set(acct.free_chunks.get() - 1);
-            acct.live_chunk_bytes.set(acct.live_chunk_bytes.get() + csize);
+            acct.live_chunk_bytes
+                .set(acct.live_chunk_bytes.get() + csize);
             return Some(NonNull::slice_from_raw_parts(head, csize));
         }
 
         let avail = self.cur_end as usize - self.cur_ptr as usize;
         if csize <= avail {
             let p = self.cur_ptr;
-            acct.live_chunk_bytes.set(acct.live_chunk_bytes.get() + csize);
+            acct.live_chunk_bytes
+                .set(acct.live_chunk_bytes.get() + csize);
             // SAFETY: csize <= avail keeps the bump within the active block; p non-null there.
             unsafe {
                 self.cur_ptr = p.add(csize);
-                return Some(NonNull::slice_from_raw_parts(NonNull::new_unchecked(p), csize));
+                return Some(NonNull::slice_from_raw_parts(
+                    NonNull::new_unchecked(p),
+                    csize,
+                ));
             }
         }
         None
@@ -783,7 +841,11 @@ impl AllocSet {
     // Reached from Mcx's out-of-line slow path only (D4483): the pool hit itself inlines at the sites through
     // Mcx::alloc_fast.
     #[inline(always)]
-    pub(crate) fn alloc(&mut self, layout: Layout, acct: &Acct) -> Result<NonNull<[u8]>, AllocError> {
+    pub(crate) fn alloc(
+        &mut self,
+        layout: Layout,
+        acct: &Acct,
+    ) -> Result<NonNull<[u8]>, AllocError> {
         // ZST: dangling aligned pointer, no pool state touched (as allocator_api2 expects).
         if layout.size() == 0 {
             let dangling = layout.align() as *mut u8;
@@ -810,7 +872,11 @@ impl AllocSet {
     // tracked, counted in mem_allocated, and freed at pfree/reset/delete.
     #[cold]
     #[inline(never)]
-    fn alloc_dedicated(&mut self, layout: Layout, acct: &Acct) -> Result<NonNull<[u8]>, AllocError> {
+    fn alloc_dedicated(
+        &mut self,
+        layout: Layout,
+        acct: &Acct,
+    ) -> Result<NonNull<[u8]>, AllocError> {
         acct.admit_block(layout.size());
         let (out, served) = crate::heap::allocate_served_for(layout, &acct.led)?;
         self.pool_life = acct.led.pooled_life();
@@ -818,7 +884,8 @@ impl AllocSet {
         self.mem_allocated += layout.size();
         crate::global_footprint::add(layout.size());
         // A single-chunk block has no free space (freeptr == endptr).
-        acct.live_chunk_bytes.set(acct.live_chunk_bytes.get() + layout.size());
+        acct.live_chunk_bytes
+            .set(acct.live_chunk_bytes.get() + layout.size());
         self.sync_blocks(acct);
         Ok(out)
     }
@@ -834,7 +901,8 @@ impl AllocSet {
         let (_, _, served) = self.dedicated.swap_remove(idx);
         self.mem_allocated -= layout.size();
         crate::global_footprint::sub(layout.size());
-        acct.live_chunk_bytes.set(acct.live_chunk_bytes.get() - layout.size());
+        acct.live_chunk_bytes
+            .set(acct.live_chunk_bytes.get() - layout.size());
         // SAFETY: tracked live dedicated allocation; caller guarantees layout. Freed before the sync: the Led's pooled and
         // mapped bytes leave with the block, so the door-1 part never reads the block as its own.
         unsafe { crate::heap::deallocate_served_for(ptr, layout, &acct.led, served) };
@@ -857,7 +925,13 @@ impl AllocSet {
             .position(|&(p, _, _)| p == ptr)
             .expect("dedicated realloc of an untracked chunk");
         acct.admit_block(new_layout.size().saturating_sub(old_layout.size()));
-        let (out, served) = crate::heap::resize_served_for(ptr, old_layout, new_layout, &acct.led, self.dedicated[idx].2)?;
+        let (out, served) = crate::heap::resize_served_for(
+            ptr,
+            old_layout,
+            new_layout,
+            &acct.led,
+            self.dedicated[idx].2,
+        )?;
         self.pool_life = acct.led.pooled_life();
         self.dedicated[idx] = (out.cast::<u8>(), new_layout, served);
         self.mem_allocated = self.mem_allocated - old_layout.size() + new_layout.size();
@@ -886,7 +960,10 @@ impl AllocSet {
     }
 
     pub(crate) fn dedicated_served(&self, p: NonNull<u8>) -> Option<bool> {
-        self.dedicated.iter().find(|e| e.0 == p).and_then(|e| e.2.known(p.as_ptr()))
+        self.dedicated
+            .iter()
+            .find(|e| e.0 == p)
+            .and_then(|e| e.2.known(p.as_ptr()))
     }
 
     fn free_all_dedicated(&mut self, life: Option<crate::heap::Lifetime>) {
@@ -910,7 +987,11 @@ impl AllocSet {
         };
         acct.admit_block(blksize);
         #[cfg(all(feature = "std", not(test)))]
-        let parked = if growth::on() { growth::take(blksize) } else { None };
+        let parked = if growth::on() {
+            growth::take(blksize)
+        } else {
+            None
+        };
         #[cfg(not(all(feature = "std", not(test))))]
         let parked: Option<Block> = None;
         // a growth-shelf block is never the source's (a pooled block never parks there), so it may be a kept one too
@@ -931,7 +1012,8 @@ impl AllocSet {
         self.cur_ptr = unsafe { p.as_ptr().add(csize) };
         self.cur_end = unsafe { p.as_ptr().add(blksize) };
         self.blocks.push(block);
-        acct.live_chunk_bytes.set(acct.live_chunk_bytes.get() + csize);
+        acct.live_chunk_bytes
+            .set(acct.live_chunk_bytes.get() + csize);
         self.sync_blocks(acct);
         Ok(NonNull::slice_from_raw_parts(p, csize))
     }
@@ -960,7 +1042,8 @@ impl AllocSet {
         self.freelist[idx] = Some(ptr);
         // aset.c AllocSetFree: the chunk parks on its freelist (AllocSetStats
         // counts it as a free chunk of its class size).
-        acct.live_chunk_bytes.set(acct.live_chunk_bytes.get() - chunk_size(idx));
+        acct.live_chunk_bytes
+            .set(acct.live_chunk_bytes.get() - chunk_size(idx));
         acct.free_chunks.set(acct.free_chunks.get() + 1);
     }
 
@@ -1016,7 +1099,8 @@ impl AllocSet {
             if start.add(old_c) == self.cur_ptr && new_c <= self.cur_end as usize - start as usize {
                 // SAFETY: new_c fits between the chunk's start and the active block's end.
                 self.cur_ptr = start.add(new_c);
-                acct.live_chunk_bytes.set(acct.live_chunk_bytes.get() + new_c - old_c);
+                acct.live_chunk_bytes
+                    .set(acct.live_chunk_bytes.get() + new_c - old_c);
                 return Ok(NonNull::slice_from_raw_parts(ptr, new_c));
             }
         }
@@ -1058,7 +1142,11 @@ impl AllocSet {
         self.freelist = [None; NUM_FREELISTS];
         self.next_block_size = self.init_block_size;
         debug_assert_eq!(self.mem_allocated, self.blocks[0].size);
-        let pooled = if self.blocks[0].pooled() { self.mem_allocated } else { 0 };
+        let pooled = if self.blocks[0].pooled() {
+            self.mem_allocated
+        } else {
+            0
+        };
         acct.led.reset_blocks(self.mem_allocated, pooled);
         self.sync_blocks(acct);
     }
@@ -1083,7 +1171,13 @@ impl Drop for AllocSet {
         let shelf = growth::on();
         for b in blocks.drain(1..) {
             #[cfg(all(feature = "std", not(test)))]
-            let Some(b) = (if shelf && !b.pooled() { growth::park(b) } else { Some(b) }) else { continue };
+            let Some(b) = (if shelf && !b.pooled() {
+                growth::park(b)
+            } else {
+                Some(b)
+            }) else {
+                continue;
+            };
             // SAFETY: Drop proves no chunk in these blocks is in use.
             unsafe { b.free(life) };
         }
@@ -1096,7 +1190,13 @@ impl Drop for AllocSet {
                 // D4679: a keeper no recycle class takes (a lazy context's first block sized by its first alloc) parks
                 // on the growth shelf too
                 #[cfg(all(feature = "std", not(test)))]
-                let Some(b) = (if shelf && !b.pooled() { growth::park(b) } else { Some(b) }) else { continue };
+                let Some(b) = (if shelf && !b.pooled() {
+                    growth::park(b)
+                } else {
+                    Some(b)
+                }) else {
+                    continue;
+                };
                 // SAFETY: as above; sole free of a non-default keeper.
                 unsafe { b.free(life) };
             }
@@ -1204,7 +1304,10 @@ mod tests {
         let keeper_base = a.blocks[0].ptr.as_ptr();
         assert_eq!(a.cur_ptr, keeper_base);
         let first = a.alloc(l, &acct).unwrap().cast::<u8>().as_ptr();
-        assert_eq!(first, keeper_base, "first post-reset chunk must start the keeper");
+        assert_eq!(
+            first, keeper_base,
+            "first post-reset chunk must start the keeper"
+        );
         for _ in 0..(INIT_BLOCK_SIZE / 64 + 10) {
             let _ = a.alloc(l, &acct).unwrap();
         }
@@ -1293,14 +1396,16 @@ mod tests {
             assert_eq!(a.mem_allocated(), 0);
             unsafe { a.dealloc(p.cast(), l, &acct) };
         }
-        let dangling = unsafe { NonNull::new_unchecked(1usize as *mut u8) };
+        let dangling = unsafe { NonNull::new_unchecked(core::ptr::dangling_mut::<u8>()) };
         unsafe { a.dealloc(dangling, Layout::from_size_align(0, 1).unwrap(), &acct) };
         assert!(a.freelist.iter().all(|h| h.is_none()));
     }
 
     #[test]
     fn keeper_pool_caps_and_recycles() {
-        let pool = KeeperPool { stack: crate::PoolMutex::new(alloc::vec::Vec::new()) };
+        let pool = KeeperPool {
+            stack: crate::PoolMutex::new(alloc::vec::Vec::new()),
+        };
         pool.recycle(alloc::vec::Vec::new());
         assert_eq!(pool.with(|s| s.len()), 1);
         let _ = pool.take();
@@ -1414,7 +1519,9 @@ mod tests {
         assert_eq!(acct.live_chunk_bytes.get(), live);
         assert!(holds(p3, 10, 7));
         let r = a.alloc(lay(8), &acct).unwrap();
-        assert_eq!(r.cast::<u8>().as_ptr(), unsafe { p.cast::<u8>().as_ptr().add(16) });
+        assert_eq!(r.cast::<u8>().as_ptr(), unsafe {
+            p.cast::<u8>().as_ptr().add(16)
+        });
         assert!(a.freelist.iter().all(Option::is_none));
     }
 

@@ -12,8 +12,17 @@ use types_nodes::{Node, NodeList, OptNodeList};
 use crate::{assign_expr_collations, assign_query_collations, select_common_collation};
 
 fn int_const<'mcx>(mcx: Mcx<'mcx>) -> Node<'mcx> {
-    Node::mk_const(mcx, INT4OID, -1, InvalidOid, 4, datum::Datum::from_i32(1), false, true)
-        .unwrap()
+    Node::mk_const(
+        mcx,
+        INT4OID,
+        -1,
+        InvalidOid,
+        4,
+        datum::Datum::from_i32(1),
+        false,
+        true,
+    )
+    .unwrap()
 }
 
 fn collated_var<'mcx>(mcx: Mcx<'mcx>, collid: Oid) -> Node<'mcx> {
@@ -30,6 +39,7 @@ fn leaf_nodes_walk_without_assignment() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn query_walk_covers_tlist_and_jointree() {
     let ctx = MemoryContext::new("t");
     let mcx = ctx.mcx();
@@ -39,9 +49,15 @@ fn query_walk_covers_tlist_and_jointree() {
     let mut query = Query::default();
     query.targetList = NodeList::make1(mcx, te).unwrap();
     query.jointree = Some(
-        Node::mk_mut(mcx, FromExpr { fromlist: NodeList::nil(), quals: None })
-            .unwrap()
-            .seal_ref(),
+        Node::mk_mut(
+            mcx,
+            FromExpr {
+                fromlist: NodeList::nil(),
+                quals: None,
+            },
+        )
+        .unwrap()
+        .seal_ref(),
     );
 
     assign_query_collations(mcx, &pstate, &query).unwrap();
@@ -53,9 +69,11 @@ fn common_collation_merge_rules() {
     let mcx = ctx.mcx();
     let pstate = make_parsestate(mcx, None);
 
-    let noncollatable =
-        NodeList::make2(mcx, int_const(mcx), int_const(mcx)).unwrap();
-    assert_eq!(select_common_collation(mcx, &pstate, &noncollatable, true).unwrap(), InvalidOid);
+    let noncollatable = NodeList::make2(mcx, int_const(mcx), int_const(mcx)).unwrap();
+    assert_eq!(
+        select_common_collation(mcx, &pstate, &noncollatable, true).unwrap(),
+        InvalidOid
+    );
 
     // Non-default implicit collation beats default.
     let default_vs_specific = NodeList::make2(
@@ -64,16 +82,23 @@ fn common_collation_merge_rules() {
         collated_var(mcx, 150),
     )
     .unwrap();
-    assert_eq!(select_common_collation(mcx, &pstate, &default_vs_specific, false).unwrap(), 150);
+    assert_eq!(
+        select_common_collation(mcx, &pstate, &default_vs_specific, false).unwrap(),
+        150
+    );
 
-    let agreeing =
-        NodeList::make2(mcx, collated_var(mcx, 150), collated_var(mcx, 150)).unwrap();
-    assert_eq!(select_common_collation(mcx, &pstate, &agreeing, false).unwrap(), 150);
+    let agreeing = NodeList::make2(mcx, collated_var(mcx, 150), collated_var(mcx, 150)).unwrap();
+    assert_eq!(
+        select_common_collation(mcx, &pstate, &agreeing, false).unwrap(),
+        150
+    );
 
     // Conflicting implicit collations: none_ok swallows the conflict.
-    let conflicting =
-        NodeList::make2(mcx, collated_var(mcx, 150), collated_var(mcx, 151)).unwrap();
-    assert_eq!(select_common_collation(mcx, &pstate, &conflicting, true).unwrap(), InvalidOid);
+    let conflicting = NodeList::make2(mcx, collated_var(mcx, 150), collated_var(mcx, 151)).unwrap();
+    assert_eq!(
+        select_common_collation(mcx, &pstate, &conflicting, true).unwrap(),
+        InvalidOid
+    );
 }
 
 #[test]
@@ -103,7 +128,10 @@ fn expr_set_collation_covers_c_arms_beyond_the_json_shapes() {
     .unwrap();
     // SAFETY: as above.
     unsafe { crate::expr_set_collation(case, DEFAULT_COLLATION_OID) };
-    assert_eq!(case.as_case_expr().unwrap().casecollid, DEFAULT_COLLATION_OID);
+    assert_eq!(
+        case.as_case_expr().unwrap().casecollid,
+        DEFAULT_COLLATION_OID
+    );
 }
 
 // Type-collation lookups for the non-leaf witnesses below: text is collatable
@@ -119,7 +147,11 @@ fn install_type_shape_fixture() {
                 typbyval: !is_text,
                 typalign: b'i' as i8,
                 typstorage: b'p' as i8,
-                typcollation: if is_text { DEFAULT_COLLATION_OID } else { InvalidOid },
+                typcollation: if is_text {
+                    DEFAULT_COLLATION_OID
+                } else {
+                    InvalidOid
+                },
             }))
         });
     });
@@ -166,7 +198,10 @@ fn subscripts_do_not_contribute_to_subscripting_ref_collation() {
     .unwrap();
 
     assign_expr_collations(mcx, &pstate, sbsref).unwrap();
-    assert_eq!(sbsref.as_subscripting_ref().unwrap().refcollid, DEFAULT_COLLATION_OID);
+    assert_eq!(
+        sbsref.as_subscripting_ref().unwrap().refcollid,
+        DEFAULT_COLLATION_OID
+    );
 
     // ... || ('x' COLLATE "POSIX"): the implicit default yields to the one
     // explicit collation; C never reports a C-vs-POSIX explicit mismatch here.
@@ -197,7 +232,10 @@ fn unrecognized_aggkind_is_an_internal_error() {
 
     let agg = Node::mk(
         mcx,
-        types_nodes::primnodes::Aggref { aggkind: b'x' as i8, ..Default::default() },
+        types_nodes::primnodes::Aggref {
+            aggkind: b'x' as i8,
+            ..Default::default()
+        },
     )
     .unwrap();
     let err = assign_expr_collations(mcx, &pstate, agg).unwrap_err();
@@ -212,7 +250,10 @@ fn unrecognized_aggkind_is_an_internal_error() {
     ] {
         let agg = Node::mk(
             mcx,
-            types_nodes::primnodes::Aggref { aggkind: kind, ..Default::default() },
+            types_nodes::primnodes::Aggref {
+                aggkind: kind,
+                ..Default::default()
+            },
         )
         .unwrap();
         assign_expr_collations(mcx, &pstate, agg).unwrap();

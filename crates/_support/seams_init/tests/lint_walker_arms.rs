@@ -1,4 +1,4 @@
-
+#[allow(unused_imports)]
 use std::path::Path;
 use std::process::Command;
 
@@ -19,7 +19,10 @@ fn walker_arms_lint_passes() {
         .unwrap_or_else(|_| repo.join("../internal/tools"));
     let tool = tools.join("walker-arms/walker_arms.py");
     if !tool.is_file() {
-        eprintln!("walker_arms_lint_passes: SKIP — {} not present (public tree)", tool.display());
+        eprintln!(
+            "walker_arms_lint_passes: SKIP — {} not present (public tree)",
+            tool.display()
+        );
         return;
     }
 
@@ -46,5 +49,9 @@ fn walker_arms_lint_passes() {
 /// env!()'s path baked in at compile time: a test binary reused from another checkout would read that checkout's files.
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)"))
+    DIR.get_or_init(|| {
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .map(Into::into)
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    })
 }

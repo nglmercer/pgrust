@@ -72,9 +72,18 @@ fn refit(charge: &'static std::thread::LocalKey<RefCell<memledger::Charge>>, byt
         if c.committed() == 0 {
             let (o, release) = match memledger::charge::context().0 {
                 o @ memledger::Owner::Cache(_) => (o, memledger::Release::Evict),
-                o => (memledger::Owner::Session(o.acct()), memledger::Release::Session),
+                o => (
+                    memledger::Owner::Session(o.acct()),
+                    memledger::Release::Session,
+                ),
             };
-            *c = memledger::Charge::open(o, release, memledger::Kind::Region, memledger::charge::Door::Heap, 0);
+            *c = memledger::Charge::open(
+                o,
+                release,
+                memledger::Kind::Region,
+                memledger::charge::Door::Heap,
+                0,
+            );
         }
         c.fit_committed(bytes as u64);
     });
@@ -87,7 +96,10 @@ pub fn record_publish_cid(slot: crate::catalog::RelSlot, gen: u64, cid: u32) {
         m.insert((slot, gen), cid); // alloc: Cold charged CIDS_CHARGE (the session: one entry each)
         m.len()
     });
-    refit(&CIDS_CHARGE, n * size_of::<((crate::catalog::RelSlot, u64), u32)>());
+    refit(
+        &CIDS_CHARGE,
+        n * size_of::<((crate::catalog::RelSlot, u64), u32)>(),
+    );
 }
 
 /// D339: the command id this transaction published generation `gen` of `slot` under, if it did.
@@ -100,7 +112,10 @@ pub(crate) fn with_placed<R>(f: impl FnOnce(&mut Vec<crate::ingest::Placement>) 
     let r = PLACED.with(|p| f(&mut p.borrow_mut()));
     let bytes = PLACED.with(|p| {
         let p = p.borrow();
-        p.capacity() * size_of::<crate::ingest::Placement>() + p.iter().map(crate::ingest::Placement::heap_bytes).sum::<usize>()
+        p.capacity() * size_of::<crate::ingest::Placement>()
+            + p.iter()
+                .map(crate::ingest::Placement::heap_bytes)
+                .sum::<usize>()
     });
     refit(&PLACED_CHARGE, bytes);
     r
@@ -114,14 +129,20 @@ pub(crate) fn with_front_exit_latch<R>(f: impl FnOnce(&Cell<bool>) -> R) -> R {
 /// This transaction's front writes (front_claim.rs).
 pub(crate) fn with_front_seen<R>(f: impl FnOnce(&mut Vec<(u32, u32, Option<u64>)>) -> R) -> R {
     let r = FRONT_SEEN.with(|s| f(&mut s.borrow_mut()));
-    refit(&SEEN_CHARGE, FRONT_SEEN.with(|s| s.borrow().capacity()) * size_of::<(u32, u32, Option<u64>)>());
+    refit(
+        &SEEN_CHARGE,
+        FRONT_SEEN.with(|s| s.borrow().capacity()) * size_of::<(u32, u32, Option<u64>)>(),
+    );
     r
 }
 
 /// Committed front registrations not yet promoted (front_claim.rs).
 pub(crate) fn with_front_pending<R>(f: impl FnOnce(&mut Vec<(u32, u64)>) -> R) -> R {
     let r = FRONT_PENDING.with(|s| f(&mut s.borrow_mut()));
-    refit(&PENDING_CHARGE, FRONT_PENDING.with(|s| s.borrow().capacity()) * size_of::<(u32, u64)>());
+    refit(
+        &PENDING_CHARGE,
+        FRONT_PENDING.with(|s| s.borrow().capacity()) * size_of::<(u32, u64)>(),
+    );
     r
 }
 
@@ -133,7 +154,15 @@ pub fn with_footer_facts<R>(
     let closed = FACTS_CHARGE.with(|c| c.borrow().committed() == 0);
     let r = FOOTER_FACTS.with(|c| f(&mut c.borrow_mut()));
     const NODE: usize = 2 * size_of::<usize>();
-    refit(&FACTS_CHARGE, FOOTER_FACTS.with(|c| c.borrow().values().map(|s| size_of::<(u64, crate::footer::SessionFacts)>() + NODE + s.heap_bytes()).sum()));
+    refit(
+        &FACTS_CHARGE,
+        FOOTER_FACTS.with(|c| {
+            c.borrow()
+                .values()
+                .map(|s| size_of::<(u64, crate::footer::SessionFacts)>() + NODE + s.heap_bytes())
+                .sum()
+        }),
+    );
     if FOOTER_FACTS.with(|c| !c.borrow().is_empty()) {
         if closed && memledger::bound().is_backend() {
             mcx::register_session_cleanup(Box::new(end_footer_facts)); // alloc: Cold
@@ -148,7 +177,11 @@ pub fn with_footer_facts<R>(
 /// park) is the backstop for a teardown that did not drain. The map goes and its charge closes, so a pooled thread
 /// carries neither into its next session nor leaves their bytes on UNBOUND while it waits.
 fn end_footer_facts() {
-    let facts = FOOTER_FACTS.try_with(|c| c.try_borrow_mut().map(|mut m| std::mem::take(&mut *m)).unwrap_or_default());
+    let facts = FOOTER_FACTS.try_with(|c| {
+        c.try_borrow_mut()
+            .map(|mut m| std::mem::take(&mut *m))
+            .unwrap_or_default()
+    });
     drop(facts);
     if FACTS_CHARGE.try_with(|_| ()).is_ok() {
         refit(&FACTS_CHARGE, 0);
@@ -168,7 +201,17 @@ pub fn with_candidates<R>(
 
 fn refit_candidates() {
     const NODE: usize = 2 * size_of::<usize>();
-    refit(&CANDS_CHARGE, CANDIDATES.with(|c| c.borrow().values().map(|v| size_of::<(u64, pgrc_write::elect::CodecCandidates)>() + NODE + v.heap_bytes()).sum()));
+    refit(
+        &CANDS_CHARGE,
+        CANDIDATES.with(|c| {
+            c.borrow()
+                .values()
+                .map(|v| {
+                    size_of::<(u64, pgrc_write::elect::CodecCandidates)>() + NODE + v.heap_bytes()
+                })
+                .sum()
+        }),
+    );
 }
 
 /// The inval-callback latch accessor (the cell lives in this crate's single
@@ -233,33 +276,49 @@ fn pgrc_xact_callback(event: XactEvent, _arg: datum::Datum) -> PgResult<()> {
     // D4809 (F1): the scan counts a served statement left unlanded (an error, a cancel) land at its own transaction's
     // end, not at a later idle flush: after a DROP TABLE that flush re-made the dead relid's shared pgstat entry, which
     // only DROP DATABASE retired
-    if matches!(event, XACT_EVENT_COMMIT | XACT_EVENT_ABORT | XACT_EVENT_PREPARE) {
+    if matches!(
+        event,
+        XACT_EVENT_COMMIT | XACT_EVENT_ABORT | XACT_EVENT_PREPARE
+    ) {
         crate::scanstats::gravity_statement_end();
     }
     if quiet() {
         match event {
             XACT_EVENT_COMMIT | XACT_EVENT_ABORT => crate::rowid_alloc::end_of_xact(false),
-            XACT_EVENT_PARALLEL_COMMIT | XACT_EVENT_PARALLEL_ABORT | XACT_EVENT_PREPARE => crate::rowid_alloc::end_of_xact(true),
+            XACT_EVENT_PARALLEL_COMMIT | XACT_EVENT_PARALLEL_ABORT | XACT_EVENT_PREPARE => {
+                crate::rowid_alloc::end_of_xact(true)
+            }
             _ => {}
         }
         return Ok(());
     }
     crate::front_claim::at_xact_event(match event {
         XACT_EVENT_COMMIT => Some(true),
-        XACT_EVENT_ABORT | XACT_EVENT_PREPARE | XACT_EVENT_PARALLEL_COMMIT | XACT_EVENT_PARALLEL_ABORT => Some(false),
+        XACT_EVENT_ABORT
+        | XACT_EVENT_PREPARE
+        | XACT_EVENT_PARALLEL_COMMIT
+        | XACT_EVENT_PARALLEL_ABORT => Some(false),
         _ => None,
     });
     match event {
-        XACT_EVENT_COMMIT | XACT_EVENT_PARALLEL_COMMIT | XACT_EVENT_ABORT | XACT_EVENT_PARALLEL_ABORT => {
+        XACT_EVENT_COMMIT
+        | XACT_EVENT_PARALLEL_COMMIT
+        | XACT_EVENT_ABORT
+        | XACT_EVENT_PARALLEL_ABORT => {
             purge_writers();
             // IX1 L3: this transaction's bulk reservations leave the in-flight table (a parallel worker's stay, in
             // flight while the leader's transaction runs)
-            crate::rowid_alloc::end_of_xact(matches!(event, XACT_EVENT_PARALLEL_COMMIT | XACT_EVENT_PARALLEL_ABORT));
+            crate::rowid_alloc::end_of_xact(matches!(
+                event,
+                XACT_EVENT_PARALLEL_COMMIT | XACT_EVENT_PARALLEL_ABORT
+            ));
         }
         XACT_EVENT_PRE_PREPARE => {
             // 2PC refusal fires while erroring is still allowed.
             if WRITERS.with(|w| !w.borrow().is_empty()) {
-                return Err(crate::unsupported("PREPARE TRANSACTION with a pgrcolumnar ingest open"));
+                return Err(crate::unsupported(
+                    "PREPARE TRANSACTION with a pgrcolumnar ingest open",
+                ));
             }
         }
         XACT_EVENT_PREPARE => {
@@ -286,8 +345,10 @@ fn pgrc_xact_callback(event: XactEvent, _arg: datum::Datum) -> PgResult<()> {
 
 #[cold]
 fn unpublished_ingest_error(relfilenumber: u64) -> Box<types_error::PgError> {
-    Box::<types_error::PgError>::new( // alloc: Cold
-        types_error::PgError::error(format!( // alloc: Cold
+    Box::<types_error::PgError>::new(
+        // alloc: Cold
+        types_error::PgError::error(format!(
+            // alloc: Cold
             "pgrcolumnar: buffered ingest for relfilenumber {relfilenumber} reached \
              commit without table_finish_bulk_insert; unpublished rows would be lost"
         ))
@@ -328,12 +389,22 @@ pub(crate) mod tests {
             let base = owner_row(session).committed;
             with_front_seen(|s| s.extend((0..4096).map(|i| (i, 1, None))));
             let grown = owner_row(session).committed;
-            assert!(grown >= base + 4096 * size_of::<(u32, u32, Option<u64>)>() as i64, "FRONT_SEEN's list is the session's");
+            assert!(
+                grown >= base + 4096 * size_of::<(u32, u32, Option<u64>)>() as i64,
+                "FRONT_SEEN's list is the session's"
+            );
             with_front_pending(|p| p.extend((0..1024).map(|i| (i, 1u64))));
-            assert!(owner_row(session).committed > grown, "FRONT_PENDING's list too");
+            assert!(
+                owner_row(session).committed > grown,
+                "FRONT_PENDING's list too"
+            );
             with_front_seen(std::mem::take);
             with_front_pending(std::mem::take);
-            assert_eq!(owner_row(session).committed, base, "emptied lists give their bytes back");
+            assert_eq!(
+                owner_row(session).committed,
+                base,
+                "emptied lists give their bytes back"
+            );
             memledger::unbind_backend();
         })
         .join()
@@ -385,16 +456,35 @@ pub(crate) mod tests {
                 memledger::bind_backend(procno, 9_000 + procno);
                 let session = memledger::Owner::Session(memledger::Acct::backend(procno));
                 let base = owner_row(session).committed;
-                let facts = crate::footer::FooterFacts { gen: 1, rows: 1, bytes: 1, granules: 1, parts: 1, ndv: Some(vec![0; 4096]), cols: None, zones: Vec::new() };
+                let facts = crate::footer::FooterFacts {
+                    gen: 1,
+                    rows: 1,
+                    bytes: 1,
+                    granules: 1,
+                    parts: 1,
+                    ndv: Some(vec![0; 4096]),
+                    cols: None,
+                    zones: Vec::new(),
+                };
                 super::with_footer_facts(|m| {
                     m.insert(7, crate::footer::SessionFacts::detached(facts));
                 });
-                assert!(owner_row(session).committed >= base + 4096 * 8, "the facts are session {procno}'s");
+                assert!(
+                    owner_row(session).committed >= base + 4096 * 8,
+                    "the facts are session {procno}'s"
+                );
                 let unbound = unbound_committed();
                 memledger::unbind_backend();
                 mcx::run_thread_reuse_hooks();
-                assert!(super::FOOTER_FACTS.with(|c| c.borrow().is_empty()), "the park's hook empties session {procno}'s facts");
-                assert_eq!(unbound_committed(), unbound, "nothing of session {procno}'s facts stays on UNBOUND");
+                assert!(
+                    super::FOOTER_FACTS.with(|c| c.borrow().is_empty()),
+                    "the park's hook empties session {procno}'s facts"
+                );
+                assert_eq!(
+                    unbound_committed(),
+                    unbound,
+                    "nothing of session {procno}'s facts stays on UNBOUND"
+                );
             }
         })
         .join()
@@ -411,23 +501,48 @@ pub(crate) mod tests {
         mcx::set_session_cleanup_sink(sink);
         std::thread::spawn(|| {
             let _serial = bind_serial();
-            let residues = || memledger::owner_end::totals(memledger::owner_end::Source::Owner, memledger::OwnerClass::Session);
+            let residues = || {
+                memledger::owner_end::totals(
+                    memledger::owner_end::Source::Owner,
+                    memledger::OwnerClass::Session,
+                )
+            };
             for procno in [3_955u32, 3_956] {
                 memledger::bind_backend(procno, 9_000 + procno);
                 let registered = REGISTERED.load(std::sync::atomic::Ordering::Relaxed);
                 for rel in [7, 8] {
-                    let facts = crate::footer::FooterFacts { gen: 1, rows: 1, bytes: 1, granules: 1, parts: 1, ndv: Some(vec![0; 4096]), cols: None, zones: Vec::new() };
+                    let facts = crate::footer::FooterFacts {
+                        gen: 1,
+                        rows: 1,
+                        bytes: 1,
+                        granules: 1,
+                        parts: 1,
+                        ndv: Some(vec![0; 4096]),
+                        cols: None,
+                        zones: Vec::new(),
+                    };
                     super::with_footer_facts(|m| {
                         m.insert(rel, crate::footer::SessionFacts::detached(facts));
                     });
                 }
-                assert_eq!(REGISTERED.load(std::sync::atomic::Ordering::Relaxed), registered + 1, "one cleanup for session {procno}");
+                assert_eq!(
+                    REGISTERED.load(std::sync::atomic::Ordering::Relaxed),
+                    registered + 1,
+                    "one cleanup for session {procno}"
+                );
                 let before = residues();
                 memledger::unbind_backend();
                 super::end_footer_facts(); // the cleanup, as run_session_teardown runs it: after the unbind, before the end check
                 memledger::charge::session_drained();
-                assert!(super::FOOTER_FACTS.with(|c| c.borrow().is_empty()), "the teardown empties session {procno}'s facts");
-                assert_eq!(residues(), before, "no residue of session {procno}'s facts at its end check");
+                assert!(
+                    super::FOOTER_FACTS.with(|c| c.borrow().is_empty()),
+                    "the teardown empties session {procno}'s facts"
+                );
+                assert_eq!(
+                    residues(),
+                    before,
+                    "no residue of session {procno}'s facts at its end check"
+                );
             }
         })
         .join()
@@ -462,9 +577,17 @@ pub(crate) mod tests {
             record_publish_cid((1, 1, 1), gen, 0);
             record_publish_cid((2, 2, 2), gen, 1);
             assert!(!quiet(), "transaction {gen} published");
-            let end = if gen % 2 == 0 { XactEvent::XACT_EVENT_COMMIT } else { XactEvent::XACT_EVENT_ABORT };
+            let end = if gen % 2 == 0 {
+                XactEvent::XACT_EVENT_COMMIT
+            } else {
+                XactEvent::XACT_EVENT_ABORT
+            };
             assert!(pgrc_xact_callback(end, datum::Datum::null()).is_ok());
-            assert_eq!(PUBLISH_CIDS.with(|m| m.borrow().len()), 0, "map after transaction {gen}");
+            assert_eq!(
+                PUBLISH_CIDS.with(|m| m.borrow().len()),
+                0,
+                "map after transaction {gen}"
+            );
         }
         assert!(quiet());
     }

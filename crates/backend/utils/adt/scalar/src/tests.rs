@@ -126,6 +126,7 @@ mod oidvector_tests {
         let bytes = unsafe { core::ffi::CStr::from_ptr(out.as_usize() as *const core::ffi::c_char) };
         assert_eq!(bytes.to_bytes(), b"1 2 40010");
 
+        #[allow(clippy::manual_c_str_literals)]
         let empty = call1(fc_oidvectorin, Datum::from_usize(b" \0".as_ptr() as usize), &ctx);
         let out = call1(fc_oidvectorout, empty, &ctx);
         let bytes = unsafe { core::ffi::CStr::from_ptr(out.as_usize() as *const core::ffi::c_char) };

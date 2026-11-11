@@ -50,15 +50,36 @@ fn write_error_sqlstates_are_class_honest() {
         types_error::ERRCODE_IO_ERROR
     );
     // errcode_for_file_access's classes, as C's file access errors; a synthesized failure (errno 0) stays an I/O error
-    let io = |errno| crate::write_error(W::Io { op: "open_ro", path: "p".into(), errno }).sqlstate();
-    assert_eq!(io(libc::EACCES), types_error::ERRCODE_INSUFFICIENT_PRIVILEGE);
+    let io = |errno| {
+        crate::write_error(W::Io {
+            op: "open_ro",
+            path: "p".into(),
+            errno,
+        })
+        .sqlstate()
+    };
+    assert_eq!(
+        io(libc::EACCES),
+        types_error::ERRCODE_INSUFFICIENT_PRIVILEGE
+    );
     assert_eq!(io(libc::ENOENT), types_error::ERRCODE_UNDEFINED_FILE);
     assert_eq!(io(libc::ENOSPC), types_error::ERRCODE_DISK_FULL);
     assert_eq!(io(0), types_error::ERRCODE_IO_ERROR);
-    let msg = crate::write_error(W::Io { op: "open_ro", path: "p".into(), errno: libc::EACCES });
-    assert!(msg.message().ends_with(": Permission denied"), "C's %m text: {}", msg.message());
+    let msg = crate::write_error(W::Io {
+        op: "open_ro",
+        path: "p".into(),
+        errno: libc::EACCES,
+    });
+    assert!(
+        msg.message().ends_with(": Permission denied"),
+        "C's %m text: {}",
+        msg.message()
+    );
     let rio = |errno| crate::read_error(pgrc_read::ReadError::Io { at: "open", errno }).sqlstate();
-    assert_eq!(rio(libc::EACCES), types_error::ERRCODE_INSUFFICIENT_PRIVILEGE);
+    assert_eq!(
+        rio(libc::EACCES),
+        types_error::ERRCODE_INSUFFICIENT_PRIVILEGE
+    );
     assert_eq!(rio(0), types_error::ERRCODE_IO_ERROR);
 }
 
@@ -130,8 +151,18 @@ mod schema_tests {
         let atts = [att(16499, 4, true, b'i' as i8, 1)];
         let err = crate::schema::check_create_supported("t", &atts).unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_FEATURE_NOT_SUPPORTED);
-        assert!(err.message().contains("type oid 16499"), "{}", err.message());
-        let atts = [att(790, 8, true, b'd' as i8, 1), att(3220, 8, true, b'd' as i8, 2), att(5069, 8, true, b'd' as i8, 3), att(2205, 4, true, b'i' as i8, 4), att(24, 4, true, b'i' as i8, 5)];
+        assert!(
+            err.message().contains("type oid 16499"),
+            "{}",
+            err.message()
+        );
+        let atts = [
+            att(790, 8, true, b'd' as i8, 1),
+            att(3220, 8, true, b'd' as i8, 2),
+            att(5069, 8, true, b'd' as i8, 3),
+            att(2205, 4, true, b'i' as i8, 4),
+            att(24, 4, true, b'i' as i8, 5),
+        ];
         assert!(crate::schema::check_create_supported("t", &atts).is_ok());
     }
 
@@ -220,43 +251,92 @@ pub(crate) mod catalog_load {
         }
 
         /// One publish of `values` by transaction `fxid` over `base`, a part per `rows_per_part` rows.
-        pub(crate) fn publish(&mut self, fxid: u64, values: &[i64], rows_per_part: u64, base: pgrc_write::publish::BaseStats<'_>) -> PublishOutcome {
+        pub(crate) fn publish(
+            &mut self,
+            fxid: u64,
+            values: &[i64],
+            rows_per_part: u64,
+            base: pgrc_write::publish::BaseStats<'_>,
+        ) -> PublishOutcome {
             self.publish_by(fxid, values, rows_per_part, base, &CommittedProbe)
         }
 
         /// [`Dir::publish`] under `probe` (GENID: its verdicts and the directory's used numbers).
-        pub(crate) fn publish_by(&mut self, fxid: u64, values: &[i64], rows_per_part: u64, base: pgrc_write::publish::BaseStats<'_>, probe: &dyn TxnProbe) -> PublishOutcome {
+        pub(crate) fn publish_by(
+            &mut self,
+            fxid: u64,
+            values: &[i64],
+            rows_per_part: u64,
+            base: pgrc_write::publish::BaseStats<'_>,
+            probe: &dyn TxnProbe,
+        ) -> PublishOutcome {
             use pgrc_format::class::{ColSchema, CollationClass, StorageClass, TypeSemantics};
             let schema = vec![ColSchema {
                 attno: 1,
-                class: StorageClass::ByvalWord { width: 8, signed: true },
+                class: StorageClass::ByvalWord {
+                    width: 8,
+                    signed: true,
+                },
                 typlen: 8,
                 typbyval: true,
                 typalign: b'd',
                 collation_class: CollationClass::C,
                 semantics: TypeSemantics::SignedInt,
             }];
-            let policy = PartCutPolicy { max_rows: rows_per_part, cut_granule_rows: rows_per_part.min(u64::from(u32::MAX)) as u32, ..PartCutPolicy::default() };
-            let policy = if rows_per_part == u64::MAX { PartCutPolicy::default() } else { policy };
-            let mut w = TableWriter::open("t".to_string(), schema, 1663, 5, self.relfilenumber, TxnStamp { fxid, cid: 1 }, &SubxactEvidence::default(), policy).expect("open");
+            let policy = PartCutPolicy {
+                max_rows: rows_per_part,
+                cut_granule_rows: rows_per_part.min(u64::from(u32::MAX)) as u32,
+                ..PartCutPolicy::default()
+            };
+            let policy = if rows_per_part == u64::MAX {
+                PartCutPolicy::default()
+            } else {
+                policy
+            };
+            let mut w = TableWriter::open(
+                "t".to_string(),
+                schema,
+                1663,
+                5,
+                self.relfilenumber,
+                TxnStamp { fxid, cid: 1 },
+                &SubxactEvidence::default(),
+                policy,
+            )
+            .expect("open");
             let sources: [&dyn CandidateSource; 0] = [];
             let resolver = ReferenceResolver;
             let mut shred = NoShred;
             let opts = pgrc_format::relopt::ShredOptions::default();
-            let mut env = SealEnv { vfs: &mut self.vfs, sources: &sources, resolver: &resolver, shred: &mut shred, shred_opts: &opts };
+            let mut env = SealEnv {
+                vfs: &mut self.vfs,
+                sources: &sources,
+                resolver: &resolver,
+                shred: &mut shred,
+                shred_opts: &opts,
+            };
             for &v in values {
-                w.append_row(&[RawDatum::Word(v as u64)], &mut NoExternalDetoast, &mut env).expect("append");
+                w.append_row(
+                    &[RawDatum::Word(v as u64)],
+                    &mut NoExternalDetoast,
+                    &mut env,
+                )
+                .expect("append");
             }
             w.finish(&mut env).expect("finish");
-            w.publish_with_gen(&mut self.vfs, probe, base).expect("publish")
+            w.publish_with_gen(&mut self.vfs, probe, base)
+                .expect("publish")
         }
 
         fn files(&mut self) -> Vec<(String, Vec<u8>)> {
             let names = self.vfs.list_dir("t").expect("list");
-            names.into_iter().map(|n| {
-                let bytes = self.vfs.read_full(&format!("t/{n}")).expect("read");
-                (n, bytes)
-            }).collect()
+            names
+                .into_iter()
+                .map(|n| {
+                    let bytes = self.vfs.read_full(&format!("t/{n}")).expect("read");
+                    (n, bytes)
+                })
+                .collect()
         }
 
         /// Every file of the directory into `dir` on disk.
@@ -308,14 +388,22 @@ pub(crate) mod catalog_load {
     /// Every part's part-grain record of column 1, as the answers serve it.
     fn records(g: &catalog::Generation) -> Vec<Option<Vec<u8>>> {
         let a = g.answers().expect("answers");
-        (0..a.parts()).map(|i| a.part_record(1, i).map(<[u8]>::to_vec)).collect()
+        (0..a.parts())
+            .map(|i| a.part_record(1, i).map(<[u8]>::to_vec))
+            .collect()
     }
 
     /// The same records built from the open parts (the completion's walk).
     fn walked_records(g: &catalog::Generation) -> Vec<Option<Vec<u8>>> {
         let parts: Vec<&pgrc_read::OpenPart> = g.parts.iter().map(|p| &*p.part).collect();
-        let a = crate::answers::Answers::new(parts.len(), crate::answers::build_from_parts(&parts).expect("walk")).expect("answers");
-        (0..a.parts()).map(|i| a.part_record(1, i).map(<[u8]>::to_vec)).collect()
+        let a = crate::answers::Answers::new(
+            parts.len(),
+            crate::answers::build_from_parts(&parts).expect("walk"),
+        )
+        .expect("answers");
+        (0..a.parts())
+            .map(|i| a.part_record(1, i).map(<[u8]>::to_vec))
+            .collect()
     }
 
     fn committed_dir(tag: &str, relfilenumber: u64) -> String {
@@ -331,7 +419,10 @@ pub(crate) mod catalog_load {
             .expect("list")
             .map(|e| {
                 let e = e.expect("entry");
-                (e.file_name().to_string_lossy().into_owned(), std::fs::read(e.path()).expect("read"))
+                (
+                    e.file_name().to_string_lossy().into_owned(),
+                    std::fs::read(e.path()).expect("read"),
+                )
             })
             .collect();
         v.sort();
@@ -346,13 +437,39 @@ pub(crate) mod catalog_load {
         let dir = committed_dir("catalog", 777);
         let slot: catalog::RelSlot = (1663, 5, 777);
         catalog::remove_dir(&dir);
-        assert!(matches!(catalog::visible(slot, &AllCommitted).unwrap(), Lookup::Unknown));
+        assert!(matches!(
+            catalog::visible(slot, &AllCommitted).unwrap(),
+            Lookup::Unknown
+        ));
         let before = snapshot(&dir);
-        assert!(!before.iter().any(|(n, _)| n.starts_with("sections-")), "P-1: the publisher writes no sections file");
-        let loaded = catalog::load_dir_with(slot, &dir, &CommittedProbe, &|_| panic!("the stats serve"), &|_| Ok(None)).expect("load");
-        assert_eq!((loaded.gens, loaded.parts, loaded.complete, loaded.completed, loaded.runs, loaded.loose), (1, 1, 1, 0, 0, 1), "{loaded:?}");
+        assert!(
+            !before.iter().any(|(n, _)| n.starts_with("sections-")),
+            "P-1: the publisher writes no sections file"
+        );
+        let loaded = catalog::load_dir_with(
+            slot,
+            &dir,
+            &CommittedProbe,
+            &|_| panic!("the stats serve"),
+            &|_| Ok(None),
+        )
+        .expect("load");
+        assert_eq!(
+            (
+                loaded.gens,
+                loaded.parts,
+                loaded.complete,
+                loaded.completed,
+                loaded.runs,
+                loaded.loose
+            ),
+            (1, 1, 1, 0, 0, 1),
+            "{loaded:?}"
+        );
         assert_eq!(snapshot(&dir), before, "a load never writes");
-        let Lookup::Gen(g) = catalog::visible(slot, &AllCommitted).unwrap() else { panic!("gen 1 visible") };
+        let Lookup::Gen(g) = catalog::visible(slot, &AllCommitted).unwrap() else {
+            panic!("gen 1 visible")
+        };
         assert_eq!((g.gen, g.prev_gen, g.manifest.parts.len()), (1, 0, 1));
         assert_eq!(g.manifest.parts[0].rows, 1);
         // the open warmed the part's StreamDir: it is among the faults already, and asking for it faults nothing more
@@ -360,17 +477,36 @@ pub(crate) mod catalog_load {
         let faults = part.faults();
         assert!(faults.iter().any(|f| matches!(f.tag, pgrc_read::openpart::FaultTag::ListedSection { kind, .. } if kind == pgrc_format::part::SectionKind::StreamDir as u16)), "{faults:?}");
         let _ = part.stream_directory().expect("dir");
-        assert_eq!(part.faults().len(), faults.len(), "the directory was resident since the open");
+        assert_eq!(
+            part.faults().len(),
+            faults.len(),
+            "the directory was resident since the open"
+        );
         let answers = g.answers().expect("answers held");
         assert_eq!(answers.parts(), 1);
-        assert!(answers.part_record(1, 0).is_some_and(|b| b.len() == pgrc_format::meta::STATS_RECORD_LEN));
-        assert!(matches!(catalog::visible(slot, &None_).unwrap(), Lookup::Empty), "no committed publisher: empty, not a walk");
+        assert!(answers
+            .part_record(1, 0)
+            .is_some_and(|b| b.len() == pgrc_format::meta::STATS_RECORD_LEN));
+        assert!(
+            matches!(catalog::visible(slot, &None_).unwrap(), Lookup::Empty),
+            "no committed publisher: empty, not a walk"
+        );
         let image = g.image().expect("image");
-        assert_eq!((image.header.rows, image.header.parts, image.cols.len()), (1, 1, 1));
-        assert_eq!(mask(&image), mask(&crate::footer::fold_generation(&g).expect("fold")), "the image equals the fold over the parts");
+        assert_eq!(
+            (image.header.rows, image.header.parts, image.cols.len()),
+            (1, 1, 1)
+        );
+        assert_eq!(
+            mask(&image),
+            mask(&crate::footer::fold_generation(&g).expect("fold")),
+            "the image equals the fold over the parts"
+        );
         assert_eq!(records(&g), walked_records(&g));
         catalog::remove_dir(&dir);
-        assert!(matches!(catalog::visible(slot, &AllCommitted).unwrap(), Lookup::Unknown));
+        assert!(matches!(
+            catalog::visible(slot, &AllCommitted).unwrap(),
+            Lookup::Unknown
+        ));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -381,10 +517,28 @@ pub(crate) mod catalog_load {
         let dir = committed_dir("merge", 778);
         let slot: catalog::RelSlot = (1663, 5, 778);
         catalog::remove_dir(&dir);
-        catalog::load_dir_with(slot, &dir, &CommittedProbe, &|_| panic!("the file serves"), &|_| Ok(None)).expect("load");
-        let Lookup::Gen(held) = catalog::visible(slot, &AllCommitted).unwrap() else { panic!("gen 1 visible") };
-        catalog::load_dir_with(slot, &dir, &CommittedProbe, &|_| panic!("the file serves"), &|_| Ok(None)).expect("load");
-        let Lookup::Gen(g) = catalog::visible(slot, &AllCommitted).unwrap() else { panic!("gen 1 visible") };
+        catalog::load_dir_with(
+            slot,
+            &dir,
+            &CommittedProbe,
+            &|_| panic!("the file serves"),
+            &|_| Ok(None),
+        )
+        .expect("load");
+        let Lookup::Gen(held) = catalog::visible(slot, &AllCommitted).unwrap() else {
+            panic!("gen 1 visible")
+        };
+        catalog::load_dir_with(
+            slot,
+            &dir,
+            &CommittedProbe,
+            &|_| panic!("the file serves"),
+            &|_| Ok(None),
+        )
+        .expect("load");
+        let Lookup::Gen(g) = catalog::visible(slot, &AllCommitted).unwrap() else {
+            panic!("gen 1 visible")
+        };
         assert!(std::sync::Arc::ptr_eq(&held, &g));
         let (gens, head) = catalog::generations(slot).expect("entry");
         assert_eq!((gens.len(), head), (1, 1));
@@ -398,14 +552,34 @@ pub(crate) mod catalog_load {
     fn a_dangling_current_is_corruption() {
         let dir = committed_dir("dangling", 779);
         let slot: catalog::RelSlot = (1663, 5, 779);
-        std::fs::write(format!("{dir}/CURRENT"), CommitPointer::new(2, 96, 0xDEAD_BEEF).encode()).expect("dangle CURRENT");
-        let err = catalog::load_dir_with(slot, &dir, &CommittedProbe, &|_| panic!("no generation"), &|_| Ok(None)).expect_err("load refuses");
+        std::fs::write(
+            format!("{dir}/CURRENT"),
+            CommitPointer::new(2, 96, 0xDEAD_BEEF).encode(),
+        )
+        .expect("dangle CURRENT");
+        let err = catalog::load_dir_with(
+            slot,
+            &dir,
+            &CommittedProbe,
+            &|_| panic!("no generation"),
+            &|_| Ok(None),
+        )
+        .expect_err("load refuses");
         assert_eq!(err.sqlstate(), types_error::ERRCODE_DATA_CORRUPTED);
-        assert!(err.message().contains("manifest generation 2"), "{}", err.message());
+        assert!(
+            err.message().contains("manifest generation 2"),
+            "{}",
+            err.message()
+        );
         assert!(!catalog::contains(slot));
-        let err = resolve_for_scan(&dir, &AllCommitted, &expect_none()).expect_err("reader refuses");
+        let err =
+            resolve_for_scan(&dir, &AllCommitted, &expect_none()).expect_err("reader refuses");
         assert_eq!(err.sqlstate(), types_error::ERRCODE_DATA_CORRUPTED);
-        assert!(err.message().contains("manifest generation 2 missing"), "{}", err.message());
+        assert!(
+            err.message().contains("manifest generation 2 missing"),
+            "{}",
+            err.message()
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -415,9 +589,18 @@ pub(crate) mod catalog_load {
         let dir = committed_dir("bridge", 784);
         let slot: catalog::RelSlot = (1663, 5, 784);
         catalog::remove_dir(&dir);
-        catalog::load_dir_with(slot, &dir, &CommittedProbe, &|_| panic!("the file serves"), &|_| Ok(None)).expect("load");
+        catalog::load_dir_with(
+            slot,
+            &dir,
+            &CommittedProbe,
+            &|_| panic!("the file serves"),
+            &|_| Ok(None),
+        )
+        .expect("load");
         let found = catalog::visible(slot, &AllCommitted).unwrap();
-        let Ok(Some(g)) = crate::scan::bridge_generation(found) else { panic!("gen 1 has a part: served") };
+        let Ok(Some(g)) = crate::scan::bridge_generation(found) else {
+            panic!("gen 1 has a part: served")
+        };
         assert_eq!((g.gen, g.manifest.parts.len()), (1, 1));
         catalog::remove_dir(&dir);
         let _ = std::fs::remove_dir_all(&dir);
@@ -427,7 +610,11 @@ pub(crate) mod catalog_load {
     struct InProgress(u64);
     impl TxnProbe for InProgress {
         fn verdict(&self, fxid: u64) -> TxnVerdict {
-            if fxid == self.0 { TxnVerdict::InProgress } else { TxnVerdict::Committed }
+            if fxid == self.0 {
+                TxnVerdict::InProgress
+            } else {
+                TxnVerdict::Committed
+            }
         }
     }
 
@@ -443,16 +630,43 @@ pub(crate) mod catalog_load {
         d.publish(42, &[1], 1, pgrc_write::publish::BaseStats::None);
         let open = Probe::new(TxnVerdict::Committed).set(43, TxnVerdict::InProgress);
         let a = d.publish_by(43, &[2], 1, pgrc_write::publish::BaseStats::None, &open);
-        let spec = pgrc_write::seal::PartSpec { spc: 1663, db: 5, relfilenumber: slot.2, schema_fingerprint: a.manifest.header.schema_fingerprint };
-        let x = pgrc_write::publish::publish_ext(&mut d.vfs, &mut pgrc_write::walsink::NoWal, "t", &spec, 44, &Probe::new(TxnVerdict::Committed).set(43, TxnVerdict::InProgress).set(44, TxnVerdict::InProgress).stacking(), (None, None), &mut |_, _| Ok(()))
-            .expect("a maintenance publish stacks");
+        let spec = pgrc_write::seal::PartSpec {
+            spc: 1663,
+            db: 5,
+            relfilenumber: slot.2,
+            schema_fingerprint: a.manifest.header.schema_fingerprint,
+        };
+        let x = pgrc_write::publish::publish_ext(
+            &mut d.vfs,
+            &mut pgrc_write::walsink::NoWal,
+            "t",
+            &spec,
+            44,
+            &Probe::new(TxnVerdict::Committed)
+                .set(43, TxnVerdict::InProgress)
+                .set(44, TxnVerdict::InProgress)
+                .stacking(),
+            (None, None),
+            &mut |_, _| Ok(()),
+        )
+        .expect("a maintenance publish stacks");
         assert_eq!(x.stacked_over, vec![43]);
         d.copy_to(&dir);
         catalog::remove_dir(&dir);
         catalog::settle_due();
         let restarted = Probe::new(TxnVerdict::Committed).set(43, TxnVerdict::Aborted);
-        catalog::load_dir_with(slot, &dir, &restarted, &|g| crate::footer::fold_generation(g), &|_| Ok(None)).expect("load");
-        assert!(catalog::settle_due().contains(&slot), "the stacked head is queued");
+        catalog::load_dir_with(
+            slot,
+            &dir,
+            &restarted,
+            &|g| crate::footer::fold_generation(g),
+            &|_| Ok(None),
+        )
+        .expect("load");
+        assert!(
+            catalog::settle_due().contains(&slot),
+            "the stacked head is queued"
+        );
 
         let plain: catalog::RelSlot = (1663, 5, 792);
         let pdir = temp_dir("settle-at-load-plain");
@@ -460,8 +674,18 @@ pub(crate) mod catalog_load {
         p.publish(42, &[1], 1, pgrc_write::publish::BaseStats::None);
         p.copy_to(&pdir);
         catalog::remove_dir(&pdir);
-        catalog::load_dir_with(plain, &pdir, &CommittedProbe, &|g| crate::footer::fold_generation(g), &|_| Ok(None)).expect("load");
-        assert!(!catalog::settle_due().contains(&plain), "a plain head is not");
+        catalog::load_dir_with(
+            plain,
+            &pdir,
+            &CommittedProbe,
+            &|g| crate::footer::fold_generation(g),
+            &|_| Ok(None),
+        )
+        .expect("load");
+        assert!(
+            !catalog::settle_due().contains(&plain),
+            "a plain head is not"
+        );
     }
 
     /// P-1 L2: the load reads each generation's stats once and carries them: the runs it reads equal the publisher's,
@@ -474,55 +698,150 @@ pub(crate) mod catalog_load {
         let slot: catalog::RelSlot = (1663, 5, 781);
         let dir = temp_dir("runs");
         let mut d = Dir::new(slot.2);
-        let o1 = d.publish(42, &(0..20).collect::<Vec<i64>>(), 1, pgrc_write::publish::BaseStats::None);
-        assert!(o1.stats.root.is_some() && o1.stats.runs.len() == 1 && o1.stats.loose.is_empty(), "twenty parts in one install: one run");
+        let o1 = d.publish(
+            42,
+            &(0..20).collect::<Vec<i64>>(),
+            1,
+            pgrc_write::publish::BaseStats::None,
+        );
+        assert!(
+            o1.stats.root.is_some() && o1.stats.runs.len() == 1 && o1.stats.loose.is_empty(),
+            "twenty parts in one install: one run"
+        );
         let o2 = d.publish(43, &[100], 1, pgrc_write::publish::BaseStats::None);
         assert_eq!((o2.stats.runs.len(), o2.stats.loose.len()), (1, 1));
         d.copy_to(&dir);
         catalog::remove_dir(&dir);
         // 43 in progress: both generations kept, the second loaded over the first
-        let loaded = catalog::load_dir_with(slot, &dir, &InProgress(43), &|_| panic!("the stats serve"), &|_| Ok(None)).expect("load");
-        assert_eq!((loaded.gens, loaded.complete, loaded.completed, loaded.runs, loaded.loose), (2, 2, 0, 2, 1), "{loaded:?}");
+        let loaded = catalog::load_dir_with(
+            slot,
+            &dir,
+            &InProgress(43),
+            &|_| panic!("the stats serve"),
+            &|_| Ok(None),
+        )
+        .expect("load");
+        assert_eq!(
+            (
+                loaded.gens,
+                loaded.complete,
+                loaded.completed,
+                loaded.runs,
+                loaded.loose
+            ),
+            (2, 2, 0, 2, 1),
+            "{loaded:?}"
+        );
         let (gens, head) = catalog::generations(slot).expect("entry");
         assert_eq!((gens.len(), head), (2, 2));
         let (g1, g2) = (&gens[0], &gens[1]);
-        let (s1, s2) = (g1.stats.as_ref().expect("stats"), g2.stats.as_ref().expect("stats"));
-        assert_eq!(s1.runs, o1.stats.runs, "the run read back is the publisher's");
+        let (s1, s2) = (
+            g1.stats.as_ref().expect("stats"),
+            g2.stats.as_ref().expect("stats"),
+        );
+        assert_eq!(
+            s1.runs, o1.stats.runs,
+            "the run read back is the publisher's"
+        );
         assert_eq!(s1.root, o1.stats.root);
-        let idents = |s: &pgrc_write::stats::StatsState| s.loose.iter().map(|p| p.ident).collect::<Vec<_>>();
+        let idents =
+            |s: &pgrc_write::stats::StatsState| s.loose.iter().map(|p| p.ident).collect::<Vec<_>>();
         assert_eq!(idents(s1), idents(&o1.stats));
         assert_eq!(idents(s2), idents(&o2.stats));
-        assert!(Arc::ptr_eq(&s1.runs[0], &s2.runs[0]), "the second generation carries the first's run");
-        assert!(g1.parts.iter().zip(&g2.parts).all(|(a, b)| Arc::ptr_eq(&a.part, &b.part)), "and its open parts");
+        assert!(
+            Arc::ptr_eq(&s1.runs[0], &s2.runs[0]),
+            "the second generation carries the first's run"
+        );
+        assert!(
+            g1.parts
+                .iter()
+                .zip(&g2.parts)
+                .all(|(a, b)| Arc::ptr_eq(&a.part, &b.part)),
+            "and its open parts"
+        );
         for g in [g1, g2] {
-            assert_eq!(mask(&g.image().expect("image")), mask(&crate::footer::fold_generation(g).expect("fold")), "gen {}: the image equals the fold", g.gen);
-            assert_eq!(records(g), walked_records(g), "gen {}: the answers equal the parts'", g.gen);
+            assert_eq!(
+                mask(&g.image().expect("image")),
+                mask(&crate::footer::fold_generation(g).expect("fold")),
+                "gen {}: the image equals the fold",
+                g.gen
+            );
+            assert_eq!(
+                records(g),
+                walked_records(g),
+                "gen {}: the answers equal the parts'",
+                g.gen
+            );
         }
         // a standby's redo of the next publish reads its new part only: the run and the parts carried
         let o3 = d.publish(44, &[200], 1, g2.base_hold().stats());
-        assert!(o3.base_given, "CURRENT still names the catalog's head: the publisher read no manifest or run");
+        assert!(
+            o3.base_given,
+            "CURRENT still names the catalog's head: the publisher read no manifest or run"
+        );
         d.copy_to(&dir);
-        catalog::redo_publish(slot, &dir, o3.manifest.clone(), &|_| panic!("the stats serve"), &|_| Ok(None)).expect("redo");
+        catalog::redo_publish(
+            slot,
+            &dir,
+            o3.manifest.clone(),
+            &|_| panic!("the stats serve"),
+            &|_| Ok(None),
+        )
+        .expect("redo");
         let (gens, _) = catalog::generations(slot).expect("entry");
         let g3 = Arc::clone(&gens[2]);
         let s3 = g3.stats.as_ref().expect("stats");
-        assert!(Arc::ptr_eq(&s1.runs[0], &s3.runs[0]), "redo carries the run");
-        assert!(Arc::ptr_eq(&s2.loose[0], &s3.loose[0]), "and the loose part's stats (not read again)");
-        assert!(g2.parts.iter().zip(&g3.parts).all(|(a, b)| Arc::ptr_eq(&a.part, &b.part)));
+        assert!(
+            Arc::ptr_eq(&s1.runs[0], &s3.runs[0]),
+            "redo carries the run"
+        );
+        assert!(
+            Arc::ptr_eq(&s2.loose[0], &s3.loose[0]),
+            "and the loose part's stats (not read again)"
+        );
+        assert!(g2
+            .parts
+            .iter()
+            .zip(&g3.parts)
+            .all(|(a, b)| Arc::ptr_eq(&a.part, &b.part)));
         assert_eq!(idents(s3), idents(&o3.stats));
         // an in-process publish on the head: the publisher took the head's runs by reference, so does the catalog
         let o4 = d.publish(45, &[300], 1, g3.base_hold().stats());
         assert!(o4.base_given);
         d.copy_to(&dir);
         let before = snapshot(&dir);
-        let g4 = catalog::publish(slot, &dir, o4.manifest.clone(), o4.stats.clone(), &|_| panic!("the stats serve")).expect("publish");
-        assert_eq!(snapshot(&dir), before, "the catalog's publish writes nothing");
+        let g4 = catalog::publish(slot, &dir, o4.manifest.clone(), o4.stats.clone(), &|_| {
+            panic!("the stats serve")
+        })
+        .expect("publish");
+        assert_eq!(
+            snapshot(&dir),
+            before,
+            "the catalog's publish writes nothing"
+        );
         let s4 = g4.stats.as_ref().expect("stats");
-        assert!(Arc::ptr_eq(&s1.runs[0], &s4.runs[0]), "the publish carries the run");
-        assert!(s3.loose.iter().zip(&s4.loose).all(|(a, b)| Arc::ptr_eq(a, b)) && s4.loose.len() == 3, "and the loose parts' stats");
-        assert!(g3.parts.iter().zip(&g4.parts).all(|(a, b)| Arc::ptr_eq(&a.part, &b.part)));
+        assert!(
+            Arc::ptr_eq(&s1.runs[0], &s4.runs[0]),
+            "the publish carries the run"
+        );
+        assert!(
+            s3.loose
+                .iter()
+                .zip(&s4.loose)
+                .all(|(a, b)| Arc::ptr_eq(a, b))
+                && s4.loose.len() == 3,
+            "and the loose parts' stats"
+        );
+        assert!(g3
+            .parts
+            .iter()
+            .zip(&g4.parts)
+            .all(|(a, b)| Arc::ptr_eq(&a.part, &b.part)));
         assert_eq!(**s4, o4.stats);
-        assert_eq!(mask(&g4.image().expect("image")), mask(&crate::footer::fold_generation(&g4).expect("fold")));
+        assert_eq!(
+            mask(&g4.image().expect("image")),
+            mask(&crate::footer::fold_generation(&g4).expect("fold"))
+        );
         assert_eq!(records(&g4), walked_records(&g4));
         catalog::remove_dir(&dir);
         let _ = std::fs::remove_dir_all(&dir);
@@ -535,9 +854,18 @@ pub(crate) mod catalog_load {
         let slot: catalog::RelSlot = (1663, 5, 782);
         let dir = temp_dir("corrupt");
         let mut d = Dir::new(slot.2);
-        d.publish(42, &(0..20).collect::<Vec<i64>>(), 1, pgrc_write::publish::BaseStats::None);
+        d.publish(
+            42,
+            &(0..20).collect::<Vec<i64>>(),
+            1,
+            pgrc_write::publish::BaseStats::None,
+        );
         d.copy_to(&dir);
-        let runs: Vec<String> = snapshot(&dir).into_iter().map(|(n, _)| n).filter(|n| n.starts_with("srun-")).collect();
+        let runs: Vec<String> = snapshot(&dir)
+            .into_iter()
+            .map(|(n, _)| n)
+            .filter(|n| n.starts_with("srun-"))
+            .collect();
         assert!(!runs.is_empty());
         for n in &runs {
             let p = format!("{dir}/{n}");
@@ -548,10 +876,23 @@ pub(crate) mod catalog_load {
         }
         catalog::remove_dir(&dir);
         let before = snapshot(&dir);
-        let loaded = catalog::load_dir_with(slot, &dir, &CommittedProbe, &|g| crate::footer::fold_generation(g), &|_| Ok(None)).expect("load");
-        assert_eq!((loaded.gens, loaded.complete, loaded.completed, loaded.runs), (1, 0, 1, 0), "{loaded:?}");
+        let loaded = catalog::load_dir_with(
+            slot,
+            &dir,
+            &CommittedProbe,
+            &|g| crate::footer::fold_generation(g),
+            &|_| Ok(None),
+        )
+        .expect("load");
+        assert_eq!(
+            (loaded.gens, loaded.complete, loaded.completed, loaded.runs),
+            (1, 0, 1, 0),
+            "{loaded:?}"
+        );
         assert_eq!(snapshot(&dir), before, "a load never writes");
-        let Lookup::Gen(g) = catalog::visible(slot, &AllCommitted).unwrap() else { panic!("gen 1 visible") };
+        let Lookup::Gen(g) = catalog::visible(slot, &AllCommitted).unwrap() else {
+            panic!("gen 1 visible")
+        };
         assert!(g.stats.is_none(), "the refused stats are not held");
         assert_eq!(g.image().expect("image").header.rows, 20);
         assert_eq!(records(&g), walked_records(&g));
@@ -567,25 +908,63 @@ pub(crate) mod catalog_load {
         let slot: catalog::RelSlot = (1663, 5, 783);
         let dir = temp_dir("rootless");
         let mut d = Dir::new(slot.2);
-        let o1 = d.publish(42, &(0..20).collect::<Vec<i64>>(), 1, pgrc_write::publish::BaseStats::None);
+        let o1 = d.publish(
+            42,
+            &(0..20).collect::<Vec<i64>>(),
+            1,
+            pgrc_write::publish::BaseStats::None,
+        );
         d.copy_to(&dir);
         // the directory as the base binary left it: the manifest without its EXT_STATS record, no run file
-        let m = o1.manifest.clone().with_ext(pgrc_format::manifest::with_stats_ref(&o1.manifest.ext, None).expect("ext"));
+        let m = o1
+            .manifest
+            .clone()
+            .with_ext(pgrc_format::manifest::with_stats_ref(&o1.manifest.ext, None).expect("ext"));
         let bytes = m.encode();
-        std::fs::write(format!("{dir}/{}", pgrc_format::dirlayout::manifest_file_name(1)), &bytes).expect("manifest");
-        std::fs::write(format!("{dir}/CURRENT"), pgrc_write::publish::commit_pointer(&m).encode()).expect("CURRENT");
-        for (n, _) in snapshot(&dir).into_iter().filter(|(n, _)| n.starts_with("srun-")) {
+        std::fs::write(
+            format!("{dir}/{}", pgrc_format::dirlayout::manifest_file_name(1)),
+            &bytes,
+        )
+        .expect("manifest");
+        std::fs::write(
+            format!("{dir}/CURRENT"),
+            pgrc_write::publish::commit_pointer(&m).encode(),
+        )
+        .expect("CURRENT");
+        for (n, _) in snapshot(&dir)
+            .into_iter()
+            .filter(|(n, _)| n.starts_with("srun-"))
+        {
             std::fs::remove_file(format!("{dir}/{n}")).expect("unlink run");
         }
         catalog::remove_dir(&dir);
         let before = snapshot(&dir);
-        let loaded = catalog::load_dir_with(slot, &dir, &CommittedProbe, &|g| crate::footer::fold_generation(g), &|_| Ok(None)).expect("load");
-        assert_eq!((loaded.gens, loaded.parts, loaded.complete, loaded.completed), (1, 20, 0, 1), "{loaded:?}");
+        let loaded = catalog::load_dir_with(
+            slot,
+            &dir,
+            &CommittedProbe,
+            &|g| crate::footer::fold_generation(g),
+            &|_| Ok(None),
+        )
+        .expect("load");
+        assert_eq!(
+            (loaded.gens, loaded.parts, loaded.complete, loaded.completed),
+            (1, 20, 0, 1),
+            "{loaded:?}"
+        );
         assert_eq!(snapshot(&dir), before, "a load never writes");
-        let Lookup::Gen(g) = catalog::visible(slot, &AllCommitted).unwrap() else { panic!("gen 1 visible") };
+        let Lookup::Gen(g) = catalog::visible(slot, &AllCommitted).unwrap() else {
+            panic!("gen 1 visible")
+        };
         assert!(g.stats.is_none());
         assert_eq!(records(&g), walked_records(&g));
-        assert!(matches!(g.base_hold().stats(), pgrc_write::publish::BaseStats::Folded(Some(_), Some(_))), "the seed of the legacy run");
+        assert!(
+            matches!(
+                g.base_hold().stats(),
+                pgrc_write::publish::BaseStats::Folded(Some(_), Some(_))
+            ),
+            "the seed of the legacy run"
+        );
         catalog::remove_dir(&dir);
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -593,10 +972,21 @@ pub(crate) mod catalog_load {
     #[test]
     fn the_reader_walk_resolves_the_committed_generation() {
         let dir = committed_dir("reader", 780);
-        let eff = resolve_for_scan(&dir, &AllCommitted, &expect_none()).expect("open").expect("gen 1 is effective");
-        assert_eq!((eff.manifest.header.gen, eff.manifest.parts.len(), eff.manifest.parts[0].rows), (1, 1, 1));
+        let eff = resolve_for_scan(&dir, &AllCommitted, &expect_none())
+            .expect("open")
+            .expect("gen 1 is effective");
+        assert_eq!(
+            (
+                eff.manifest.header.gen,
+                eff.manifest.parts.len(),
+                eff.manifest.parts[0].rows
+            ),
+            (1, 1, 1)
+        );
         let _ = std::fs::remove_dir_all(&dir);
-        assert!(resolve_for_scan(&dir, &AllCommitted, &expect_none()).expect("absent directory").is_none());
+        assert!(resolve_for_scan(&dir, &AllCommitted, &expect_none())
+            .expect("absent directory")
+            .is_none());
     }
     // -----------------------------------------------------------------------
     // GENID (pgrc-plans/GENID.done): numbers never repeat in a directory within the process, a rolled-back
@@ -645,42 +1035,87 @@ pub(crate) mod catalog_load {
         let mut d = Dir::new(slot.2);
         let o1 = d.publish(42, &[1], 1, pgrc_write::publish::BaseStats::None);
         d.install_to(&dir);
-        let g1 = catalog::publish(slot, &dir, o1.manifest.clone(), o1.stats.clone(), &no_fold).expect("publish 1");
+        let g1 = catalog::publish(slot, &dir, o1.manifest.clone(), o1.stats.clone(), &no_fold)
+            .expect("publish 1");
         assert_eq!(catalog::used_numbers(&dir), (1, 1));
         let o2 = d.publish(43, &[2], 1, g1.base_hold().stats());
         assert_eq!((o2.gen, o2.part_nos.clone()), (2, vec![1]));
         d.install_to(&dir);
-        catalog::publish(slot, &dir, o2.manifest.clone(), o2.stats.clone(), &no_fold).expect("publish 2");
+        catalog::publish(slot, &dir, o2.manifest.clone(), o2.stats.clone(), &no_fold)
+            .expect("publish 2");
         assert_eq!(catalog::used_numbers(&dir), (2, 2));
         // 43 rolls back: 44 builds on gen 1 above the used numbers
-        let probe = Genid { aborted: vec![43], running: vec![], used: catalog::used_numbers(&dir) };
+        let probe = Genid {
+            aborted: vec![43],
+            running: vec![],
+            used: catalog::used_numbers(&dir),
+        };
         let o3 = d.publish_by(44, &[3], 1, pgrc_write::publish::BaseStats::None, &probe);
-        assert_eq!((o3.gen, o3.manifest.header.prev_gen, o3.part_nos.clone()), (3, 1, vec![2]));
+        assert_eq!(
+            (o3.gen, o3.manifest.header.prev_gen, o3.part_nos.clone()),
+            (3, 1, vec![2])
+        );
         d.install_to(&dir);
-        let g3 = catalog::publish(slot, &dir, o3.manifest.clone(), o3.stats.clone(), &no_fold).expect("publish 3");
-        assert_eq!(gens_of(slot), vec![1, 3], "the dead generation left the entry");
+        let g3 = catalog::publish(slot, &dir, o3.manifest.clone(), o3.stats.clone(), &no_fold)
+            .expect("publish 3");
+        assert_eq!(
+            gens_of(slot),
+            vec![1, 3],
+            "the dead generation left the entry"
+        );
         assert_eq!(catalog::head(slot), Some(3));
-        assert!(Arc::ptr_eq(&g1.parts[0].part, &g3.parts[0].part), "part 0 carried from gen 1");
+        assert!(
+            Arc::ptr_eq(&g1.parts[0].part, &g3.parts[0].part),
+            "part 0 carried from gen 1"
+        );
         assert_eq!(super::ino_reuse::decode_single(&g3.parts[1].part), 3);
         assert_eq!(catalog::used_numbers(&dir), (3, 3));
         // a standby: the same drop at the redo
         catalog::remove_dir(&dir);
-        let r1 = catalog::publish(slot, &dir, o1.manifest.clone(), o1.stats.clone(), &no_fold).expect("publish 1");
-        catalog::publish(slot, &dir, o2.manifest.clone(), o2.stats.clone(), &no_fold).expect("publish 2");
-        catalog::redo_publish(slot, &dir, o3.manifest.clone(), &no_fold, &|_| Ok(None)).expect("redo 3");
-        assert_eq!(gens_of(slot), vec![1, 3], "the redo drops the dead generation too");
+        let r1 = catalog::publish(slot, &dir, o1.manifest.clone(), o1.stats.clone(), &no_fold)
+            .expect("publish 1");
+        catalog::publish(slot, &dir, o2.manifest.clone(), o2.stats.clone(), &no_fold)
+            .expect("publish 2");
+        catalog::redo_publish(slot, &dir, o3.manifest.clone(), &no_fold, &|_| Ok(None))
+            .expect("redo 3");
+        assert_eq!(
+            gens_of(slot),
+            vec![1, 3],
+            "the redo drops the dead generation too"
+        );
         let (gens, _) = catalog::generations(slot).expect("entry");
-        assert!(Arc::ptr_eq(&r1.parts[0].part, &gens[1].parts[0].part), "the redo carries part 0 from gen 1");
+        assert!(
+            Arc::ptr_eq(&r1.parts[0].part, &gens[1].parts[0].part),
+            "the redo carries part 0 from gen 1"
+        );
         // a load: CURRENT names gen 3 (44 in progress), its chain is 3 -> 1; manifest-2 is never read into the entry
-        let names: Vec<String> = std::fs::read_dir(&dir).expect("list").map(|e| e.expect("entry").file_name().to_string_lossy().into_owned()).collect();
-        assert!(names.iter().any(|n| n == "manifest-2.pgrcm"), "the dead manifest is residue until a reclaim: {names:?}");
+        let names: Vec<String> = std::fs::read_dir(&dir)
+            .expect("list")
+            .map(|e| e.expect("entry").file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(
+            names.iter().any(|n| n == "manifest-2.pgrcm"),
+            "the dead manifest is residue until a reclaim: {names:?}"
+        );
         catalog::remove_dir(&dir);
         catalog::forget_dir(&dir);
         assert_eq!(catalog::used_numbers(&dir), (0, 0));
-        let running = Genid { aborted: vec![43], running: vec![44], used: (0, 0) };
+        let running = Genid {
+            aborted: vec![43],
+            running: vec![44],
+            used: (0, 0),
+        };
         catalog::load_dir_with(slot, &dir, &running, &no_fold, &|_| Ok(None)).expect("load");
-        assert_eq!(gens_of(slot), vec![1, 3], "a load never picks the dead generation");
-        assert_eq!(catalog::used_numbers(&dir), (3, 3), "the load learns the numbers again");
+        assert_eq!(
+            gens_of(slot),
+            vec![1, 3],
+            "a load never picks the dead generation"
+        );
+        assert_eq!(
+            catalog::used_numbers(&dir),
+            (3, 3),
+            "the load learns the numbers again"
+        );
         catalog::remove_dir(&dir);
         catalog::forget_dir(&dir);
         let _ = std::fs::remove_dir_all(&dir);
@@ -696,30 +1131,53 @@ pub(crate) mod catalog_load {
         let o1 = d.publish(42, &[1, 2], 1, pgrc_write::publish::BaseStats::None);
         assert_eq!((o1.gen, o1.part_nos.clone()), (1, vec![0, 1]));
         d.install_to(&dir);
-        let g1 = catalog::publish(slot, &dir, o1.manifest.clone(), o1.stats.clone(), &no_fold).expect("publish");
+        let g1 = catalog::publish(slot, &dir, o1.manifest.clone(), o1.stats.clone(), &no_fold)
+            .expect("publish");
         assert_eq!(catalog::used_numbers(&dir), (1, 2), "a publish");
         let o2 = d.publish(43, &[3], 1, g1.base_hold().stats());
         d.install_to(&dir);
-        catalog::redo_publish(slot, &dir, o2.manifest.clone(), &no_fold, &|_| Ok(None)).expect("redo");
+        catalog::redo_publish(slot, &dir, o2.manifest.clone(), &no_fold, &|_| Ok(None))
+            .expect("redo");
         assert_eq!(catalog::used_numbers(&dir), (2, 3), "a redone publish");
         crate::dirpath::remove_dir_contents(&dir).expect("empty");
         assert!(!catalog::contains(slot));
         assert_eq!(std::fs::read_dir(&dir).expect("list").count(), 0);
-        assert_eq!(catalog::used_numbers(&dir), (2, 3), "an emptied directory keeps its numbers");
+        assert_eq!(
+            catalog::used_numbers(&dir),
+            (2, 3),
+            "an emptied directory keeps its numbers"
+        );
         catalog::create(slot, &dir);
         catalog::redo_truncate(slot, &dir);
         assert_eq!(catalog::used_numbers(&dir), (2, 3), "and a truncate's redo");
         // the first publish after the TRUNCATE: no base, above the used numbers
         let mut t = Dir::new(slot.2);
-        let probe = Genid { aborted: vec![], running: vec![], used: catalog::used_numbers(&dir) };
+        let probe = Genid {
+            aborted: vec![],
+            running: vec![],
+            used: catalog::used_numbers(&dir),
+        };
         let o3 = t.publish_by(44, &[9], 1, pgrc_write::publish::BaseStats::None, &probe);
-        assert_eq!((o3.gen, o3.manifest.header.prev_gen, o3.part_nos.clone(), o3.manifest.header.next_part_no), (3, 0, vec![3], 4));
+        assert_eq!(
+            (
+                o3.gen,
+                o3.manifest.header.prev_gen,
+                o3.part_nos.clone(),
+                o3.manifest.header.next_part_no
+            ),
+            (3, 0, vec![3], 4)
+        );
         t.install_to(&dir);
-        catalog::publish(slot, &dir, o3.manifest.clone(), o3.stats.clone(), &no_fold).expect("publish");
+        catalog::publish(slot, &dir, o3.manifest.clone(), o3.stats.clone(), &no_fold)
+            .expect("publish");
         assert_eq!(catalog::used_numbers(&dir), (3, 4));
         crate::dirpath::remove_table_dir(&dir).expect("remove");
         assert!(!catalog::contains(slot));
-        assert_eq!(catalog::used_numbers(&dir), (0, 0), "a removed directory forgets them");
+        assert_eq!(
+            catalog::used_numbers(&dir),
+            (0, 0),
+            "a removed directory forgets them"
+        );
     }
 
     /// D1133: a rolled-back gen 2 installed part 1; a successor numbered as before GENID (gen 2 again on gen 1, part 1
@@ -735,20 +1193,40 @@ pub(crate) mod catalog_load {
         let mut d = Dir::new(slot.2);
         let o1 = d.publish(42, &[1], 1, pgrc_write::publish::BaseStats::None);
         d.install_to(&dir);
-        let g1 = catalog::publish(slot, &dir, o1.manifest.clone(), o1.stats.clone(), &no_fold).expect("publish 1");
+        let g1 = catalog::publish(slot, &dir, o1.manifest.clone(), o1.stats.clone(), &no_fold)
+            .expect("publish 1");
         let o2 = d.publish(43, &[2], 1, g1.base_hold().stats());
         d.install_to(&dir);
-        let dead = catalog::publish(slot, &dir, o2.manifest.clone(), o2.stats.clone(), &no_fold).expect("publish 2");
+        let dead = catalog::publish(slot, &dir, o2.manifest.clone(), o2.stats.clone(), &no_fold)
+            .expect("publish 2");
         assert_eq!(super::ino_reuse::decode_single(&dead.parts[1].part), 2);
-        let old = Genid { aborted: vec![43], running: vec![], used: (0, 0) };
+        let old = Genid {
+            aborted: vec![43],
+            running: vec![],
+            used: (0, 0),
+        };
         let o3 = d.publish_by(44, &[3], 1, pgrc_write::publish::BaseStats::None, &old);
         let (a, b) = (o2.manifest.parts[1], o3.manifest.parts[1]);
-        assert_eq!((o3.gen, o3.manifest.header.prev_gen, b.part_no, b.file_len, b.footer_off), (2, 1, 1, a.file_len, a.footer_off), "the pre-GENID numbering repeats the dead part's record");
+        assert_eq!(
+            (
+                o3.gen,
+                o3.manifest.header.prev_gen,
+                b.part_no,
+                b.file_len,
+                b.footer_off
+            ),
+            (2, 1, 1, a.file_len, a.footer_off),
+            "the pre-GENID numbering repeats the dead part's record"
+        );
         d.install_to(&dir);
         let stale = Arc::as_ptr(&dead.parts[1].part);
         for verify in [false, true] {
-            let parts = catalog::open_parts(slot, &dir, &o3.manifest, Some(&*dead), verify).expect("open");
-            assert!(!std::ptr::eq(Arc::as_ptr(&parts[1].part), stale), "the dead generation is not the base (verify {verify})");
+            let parts =
+                catalog::open_parts(slot, &dir, &o3.manifest, Some(&*dead), verify).expect("open");
+            assert!(
+                !std::ptr::eq(Arc::as_ptr(&parts[1].part), stale),
+                "the dead generation is not the base (verify {verify})"
+            );
             assert_eq!(super::ino_reuse::decode_single(&parts[1].part), 3);
         }
         let mut m = o2.manifest.clone();
@@ -756,12 +1234,20 @@ pub(crate) mod catalog_load {
         m.header.prev_gen = 0;
         m.header.next_part_no = 1;
         let impostor = dead.with_manifest(m).expect("impostor");
-        let parts = catalog::open_parts(slot, &dir, &o3.manifest, Some(&impostor), false).expect("open");
-        assert!(Arc::ptr_eq(&parts[0].part, &g1.parts[0].part), "part 0 is below the base's counter: carried");
-        assert!(!std::ptr::eq(Arc::as_ptr(&parts[1].part), stale), "part 1 is not below it: opened again");
+        let parts =
+            catalog::open_parts(slot, &dir, &o3.manifest, Some(&impostor), false).expect("open");
+        assert!(
+            Arc::ptr_eq(&parts[0].part, &g1.parts[0].part),
+            "part 0 is below the base's counter: carried"
+        );
+        assert!(
+            !std::ptr::eq(Arc::as_ptr(&parts[1].part), stale),
+            "part 1 is not below it: opened again"
+        );
         assert_eq!(super::ino_reuse::decode_single(&parts[1].part), 3);
         // the catalog's own publish carries from gen 1 (`base_of`)
-        let g = catalog::publish(slot, &dir, o3.manifest.clone(), o3.stats.clone(), &no_fold).expect("publish 2 again");
+        let g = catalog::publish(slot, &dir, o3.manifest.clone(), o3.stats.clone(), &no_fold)
+            .expect("publish 2 again");
         assert_eq!(super::ino_reuse::decode_single(&g.parts[1].part), 3);
         catalog::remove_dir(&dir);
         catalog::forget_dir(&dir);
@@ -779,11 +1265,18 @@ pub(crate) mod catalog_load {
         let mut d = Dir::new(slot.2);
         let o1 = d.publish(42, &[1], 1, pgrc_write::publish::BaseStats::None);
         d.install_to(&dir);
-        let g1 = catalog::publish(slot, &dir, o1.manifest.clone(), o1.stats.clone(), &no_fold).expect("publish 1");
+        let g1 = catalog::publish(slot, &dir, o1.manifest.clone(), o1.stats.clone(), &no_fold)
+            .expect("publish 1");
         let o2 = d.publish(43, &[2], 1, g1.base_hold().stats());
         d.install_to(&dir);
         let held = Arc::as_ptr(&g1.parts[0].part);
-        let carried = |verify| Arc::as_ptr(&catalog::open_parts(slot, &dir, &o2.manifest, Some(&*g1), verify).expect("open")[0].part) == held;
+        let carried = |verify| {
+            Arc::as_ptr(
+                &catalog::open_parts(slot, &dir, &o2.manifest, Some(&*g1), verify).expect("open")
+                    [0]
+                .part,
+            ) == held
+        };
         assert!(carried(true), "the name still names the held file");
         let part0 = format!("{dir}/part-0.pgrc");
         let bytes = std::fs::read(&part0).expect("read");
@@ -806,21 +1299,35 @@ pub(crate) mod catalog_load {
         let mut d = Dir::new(slot.2);
         let o1 = d.publish(42, &[1, 2], 1, pgrc_write::publish::BaseStats::None);
         d.install_to(&dir);
-        let g1 = catalog::publish(slot, &dir, o1.manifest.clone(), o1.stats.clone(), &no_fold).expect("publish 1");
+        let g1 = catalog::publish(slot, &dir, o1.manifest.clone(), o1.stats.clone(), &no_fold)
+            .expect("publish 1");
         let o2 = d.publish(43, &[3, 4], 1, g1.base_hold().stats());
         assert_eq!(o2.part_nos, vec![2, 3]);
         d.install_to(&dir);
-        catalog::publish(slot, &dir, o2.manifest.clone(), o2.stats.clone(), &no_fold).expect("publish 2");
+        catalog::publish(slot, &dir, o2.manifest.clone(), o2.stats.clone(), &no_fold)
+            .expect("publish 2");
         assert!(catalog::dead_parts(slot).is_empty(), "nothing dropped yet");
-        let probe = Genid { aborted: vec![43], running: vec![], used: catalog::used_numbers(&dir) };
+        let probe = Genid {
+            aborted: vec![43],
+            running: vec![],
+            used: catalog::used_numbers(&dir),
+        };
         let o3 = d.publish_by(44, &[5], 1, pgrc_write::publish::BaseStats::None, &probe);
         assert_eq!((o3.gen, o3.part_nos.clone()), (3, vec![4]));
         d.install_to(&dir);
-        catalog::publish(slot, &dir, o3.manifest.clone(), o3.stats.clone(), &no_fold).expect("publish 3");
-        assert_eq!(catalog::dead_parts(slot), vec![2, 3], "gen 2's own parts; 0 and 1 are gen 1's");
+        catalog::publish(slot, &dir, o3.manifest.clone(), o3.stats.clone(), &no_fold)
+            .expect("publish 3");
+        assert_eq!(
+            catalog::dead_parts(slot),
+            vec![2, 3],
+            "gen 2's own parts; 0 and 1 are gen 1's"
+        );
         catalog::forget_dead_parts(slot, &[2]);
         assert_eq!(catalog::dead_parts(slot), vec![3]);
-        catalog::forget_dead_names(slot, &["part-3.pgrc".to_string(), "manifest-2.pgrcm".to_string()]);
+        catalog::forget_dead_names(
+            slot,
+            &["part-3.pgrc".to_string(), "manifest-2.pgrcm".to_string()],
+        );
         assert!(catalog::dead_parts(slot).is_empty());
         catalog::remove_dir(&dir);
         catalog::forget_dir(&dir);
@@ -986,7 +1493,9 @@ pub(crate) mod ino_reuse {
 fn dictcap_census() {
     use pgrc_format::part::{StreamSectionHdr, STREAM_SECTION_HDR_LEN};
     use pgrc_read::{MemPartIo, OpenPart, PartExpect};
-    let Ok(dir) = std::env::var("DICTCAP_PARTS") else { return };
+    let Ok(dir) = std::env::var("DICTCAP_PARTS") else {
+        return;
+    };
     let mut files: Vec<_> = std::fs::read_dir(&dir)
         .expect("dir")
         .filter_map(|e| e.ok().map(|e| e.path()))
@@ -1063,7 +1572,13 @@ fn dict_ndv_cap_default_is_the_code_width_and_env_overrides() {
 fn sorted_by_claim_is_the_attested_prefix() {
     use crate::reloptions::attested_prefix;
     use pgrc_format::sortkey::{NullsOrder, SortDir, SortKeyEntry};
-    let e = |attno: u32, dir: SortDir, nulls: NullsOrder| SortKeyEntry { attno, dir: dir as u8, nulls: nulls as u8, collation_class: 0, pad: 0 };
+    let e = |attno: u32, dir: SortDir, nulls: NullsOrder| SortKeyEntry {
+        attno,
+        dir: dir as u8,
+        nulls: nulls as u8,
+        collation_class: 0,
+        pad: 0,
+    };
     let asc = |attno: u32| e(attno, SortDir::Asc, NullsOrder::Last);
     // unordered part (a front seal, or an undeclared writer)
     assert_eq!(attested_prefix(&[1], &[]), 0);
@@ -1078,9 +1593,18 @@ fn sorted_by_claim_is_the_attested_prefix() {
     assert_eq!(attested_prefix(&[1], &[asc(2)]), 0);
     assert_eq!(attested_prefix(&[1, 2], &[asc(2), asc(1)]), 0);
     assert_eq!(attested_prefix(&[1, 2], &[asc(1), asc(3)]), 1);
-    assert_eq!(attested_prefix(&[1], &[e(1, SortDir::Desc, NullsOrder::Last)]), 0);
-    assert_eq!(attested_prefix(&[1], &[e(1, SortDir::Asc, NullsOrder::First)]), 0);
-    assert_eq!(attested_prefix(&[1, 2], &[asc(1), e(2, SortDir::Desc, NullsOrder::First)]), 1);
+    assert_eq!(
+        attested_prefix(&[1], &[e(1, SortDir::Desc, NullsOrder::Last)]),
+        0
+    );
+    assert_eq!(
+        attested_prefix(&[1], &[e(1, SortDir::Asc, NullsOrder::First)]),
+        0
+    );
+    assert_eq!(
+        attested_prefix(&[1, 2], &[asc(1), e(2, SortDir::Desc, NullsOrder::First)]),
+        1
+    );
 }
 
 #[test]
@@ -1097,8 +1621,11 @@ fn the_flush_pass_reaches_every_file_before_the_first_fsync() {
         },
     );
     assert_eq!(r, Ok(()));
-    let want: Vec<String> =
-        paths.iter().map(|p| format!("flush {p}")).chain(paths.iter().map(|p| format!("fsync {p}"))).collect();
+    let want: Vec<String> = paths
+        .iter()
+        .map(|p| format!("flush {p}"))
+        .chain(paths.iter().map(|p| format!("fsync {p}")))
+        .collect();
     assert_eq!(*log.borrow(), want);
     log.borrow_mut().clear();
     let r = crate::dirpath::flush_then_fsync(
@@ -1106,13 +1633,39 @@ fn the_flush_pass_reaches_every_file_before_the_first_fsync() {
         |p| log.borrow_mut().push(format!("flush {p}")),
         |p| {
             log.borrow_mut().push(format!("fsync {p}"));
-            if p.ends_with("part-2.pgrc") { Err("EIO") } else { Ok(()) }
+            if p.ends_with("part-2.pgrc") {
+                Err("EIO")
+            } else {
+                Ok(())
+            }
         },
     );
-    assert_eq!(r, Err("EIO"), "an fsync error ends the walk and is returned");
-    let fsyncs: Vec<String> = log.borrow().iter().filter(|l| l.starts_with("fsync")).cloned().collect();
-    assert_eq!(fsyncs, ["fsync d/part-0.pgrc", "fsync d/part-1.pgrc", "fsync d/part-2.pgrc"]);
-    assert_eq!(log.borrow().iter().filter(|l| l.starts_with("flush")).count(), 5);
+    assert_eq!(
+        r,
+        Err("EIO"),
+        "an fsync error ends the walk and is returned"
+    );
+    let fsyncs: Vec<String> = log
+        .borrow()
+        .iter()
+        .filter(|l| l.starts_with("fsync"))
+        .cloned()
+        .collect();
+    assert_eq!(
+        fsyncs,
+        [
+            "fsync d/part-0.pgrc",
+            "fsync d/part-1.pgrc",
+            "fsync d/part-2.pgrc"
+        ]
+    );
+    assert_eq!(
+        log.borrow()
+            .iter()
+            .filter(|l| l.starts_with("flush"))
+            .count(),
+        5
+    );
 }
 
 #[test]
@@ -1126,7 +1679,8 @@ fn sync_table_dir_syncs_real_files_and_skips_an_absent_directory() {
     }
     crate::dirpath::sync_table_dir(&dir).expect("sync");
     crate::dirpath::flush_path(&format!("{dir}/absent"));
-    crate::dirpath::sync_table_dir(&format!("{dir}/absent")).expect("an absent directory has nothing to sync");
+    crate::dirpath::sync_table_dir(&format!("{dir}/absent"))
+        .expect("an absent directory has nothing to sync");
     std::fs::remove_dir_all(&dir).expect("cleanup");
 }
 
@@ -1140,7 +1694,11 @@ fn product_binding_unwraps_intpre_sections() {
     use pgrc_format::enc::Wrapper;
     use pgrc_format::part::{StreamSectionHdr, StreamSectionWriter};
     let binding = crate::scan::codec_binding();
-    let uw = binding.unwrappers.iter().find(|u| u.wrapper() == Wrapper::IntPre).expect("IntPre unwrapper registered");
+    let uw = binding
+        .unwrappers
+        .iter()
+        .find(|u| u.wrapper() == Wrapper::IntPre)
+        .expect("IntPre unwrapper registered");
     let mut sec = Vec::new();
     let mut ends = Vec::new();
     let mut w = StreamSectionWriter::begin(&mut sec, 0, 8, Wrapper::None).expect("begin");
@@ -1158,7 +1716,14 @@ fn product_binding_unwraps_intpre_sections() {
     pgrc_codec::wrapper::wrap_section(&sec, &ends, Wrapper::IntPre, &mut wrapped).expect("wrap");
     let hdr = StreamSectionHdr::decode(&wrapped).expect("hdr");
     assert_eq!(hdr.wrapper, Wrapper::IntPre.as_u8());
-    assert!(wrapped.len() * 4 < sec.len(), "the pre-pass must engage on second-granular timestamps");
+    assert!(
+        wrapped.len() * 4 < sec.len(),
+        "the pre-pass must engage on second-granular timestamps"
+    );
     assert_eq!(uw.unwrap_section(&hdr, &wrapped).expect("unwrap"), sec);
-    assert_eq!(uw.unwrap_section_until(&hdr, &wrapped, &mut || false).expect("unwrap until"), Some(sec));
+    assert_eq!(
+        uw.unwrap_section_until(&hdr, &wrapped, &mut || false)
+            .expect("unwrap until"),
+        Some(sec)
+    );
 }

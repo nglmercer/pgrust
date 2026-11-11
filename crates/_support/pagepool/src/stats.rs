@@ -2,8 +2,8 @@
 //! atomics for what moves at superpage or batch grain. Sums are exact at quiescence.
 
 use crate::superpage::{self, State, SUPER};
-use crate::Tag;
 use crate::sync::{AtomicIsize, AtomicPtr, AtomicU64, AtomicUsize, Ordering::*};
+use crate::Tag;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Stats {
@@ -59,7 +59,11 @@ pub(crate) struct Slot {
     pub shelved: AtomicIsize,
 }
 
-const SLOT0: Slot = Slot { in_use: [const { AtomicIsize::new(0) }; Tag::COUNT], shelved: AtomicIsize::new(0) };
+#[allow(clippy::declare_interior_mutable_const)]
+const SLOT0: Slot = Slot {
+    in_use: [const { AtomicIsize::new(0) }; Tag::COUNT],
+    shelved: AtomicIsize::new(0),
+};
 const NSLOTS: usize = 1024;
 static SLOTS: [Slot; NSLOTS] = [SLOT0; NSLOTS];
 /// Threads past NSLOTS share this one (read-modify-write) and the exited threads' residue folds here.
@@ -104,7 +108,8 @@ pub(crate) static WARM_MISSES: crate::Line<AtomicU64> = crate::Line(AtomicU64::n
 pub(crate) static MOVED_IN: crate::Line<AtomicU64> = crate::Line(AtomicU64::new(0));
 pub(crate) static PREFAULTED: crate::Line<AtomicU64> = crate::Line(AtomicU64::new(0));
 /// pppress card 13 (2): `Stats::commit_past_ask`, by tag (`span::set_past` moves it).
-pub(crate) static COMMIT_PAST_ASK: [AtomicIsize; Tag::COUNT] = [const { AtomicIsize::new(0) }; Tag::COUNT];
+pub(crate) static COMMIT_PAST_ASK: [AtomicIsize; Tag::COUNT] =
+    [const { AtomicIsize::new(0) }; Tag::COUNT];
 pub(crate) static CLAIM_HELD: crate::Line<AtomicU64> = crate::Line(AtomicU64::new(0));
 /// D4760 (`pool_thp_partial`): partial give-backs of superpages advised huge kept whole (1) and their bytes (as asked:
 /// a range a later pass asks again counts again), and the folio splits asked first (2) and their ns.
@@ -175,10 +180,27 @@ pub(crate) fn cap() -> usize {
 pub(crate) fn activity() -> u64 {
     let mut h = 0xcbf2_9ce4_8422_2325u64;
     let mut mix = |v: u64| h = (h ^ v).wrapping_mul(0x0100_0000_01b3);
-    for c in [&CLAIMS, &RELEASES, &RELEASED_BYTES, &WARM_TAKES, &COLD_TAKES, &WARM_MISSES, &MOVED_IN, &PREFAULTED] {
+    for c in [
+        &CLAIMS,
+        &RELEASES,
+        &RELEASED_BYTES,
+        &WARM_TAKES,
+        &COLD_TAKES,
+        &WARM_MISSES,
+        &MOVED_IN,
+        &PREFAULTED,
+    ] {
         mix(c.load(Relaxed));
     }
-    for c in [&CLAIMED, &STRANDED, &FREE_RUNS, &WASTE, &DEAD, &LAZY_COMMITTED, &LAZY_WARM] {
+    for c in [
+        &CLAIMED,
+        &STRANDED,
+        &FREE_RUNS,
+        &WASTE,
+        &DEAD,
+        &LAZY_COMMITTED,
+        &LAZY_WARM,
+    ] {
         mix(c.load(Relaxed) as u64);
     }
     let mut slot = |s: &Slot| {
@@ -221,7 +243,9 @@ pub(crate) fn give_slot(i: usize) {
     for t in 0..Tag::COUNT {
         SHARED.in_use[t].fetch_add(s.in_use[t].swap(0, Relaxed), Relaxed);
     }
-    SHARED.shelved.fetch_add(s.shelved.swap(0, Relaxed), Relaxed);
+    SHARED
+        .shelved
+        .fetch_add(s.shelved.swap(0, Relaxed), Relaxed);
     USED[i / 64].fetch_and(!(1 << (i % 64)), Release);
 }
 
@@ -311,7 +335,14 @@ pub fn stats() -> Stats {
 #[cfg_attr(any(target_family = "wasm", miri), allow(dead_code))]
 pub(crate) fn check() -> Result<(), &'static str> {
     let s = stats();
-    let parts = s.warm_zero + s.warm_dirty + s.central + s.shelved + s.dead + s.stranded + s.waste + s.in_use_total();
+    let parts = s.warm_zero
+        + s.warm_dirty
+        + s.central
+        + s.shelved
+        + s.dead
+        + s.stranded
+        + s.waste
+        + s.in_use_total();
     if s.claimed != parts {
         return Err("claimed != warm_zero + warm_dirty + central + shelved + dead + stranded + waste + in_use");
     }

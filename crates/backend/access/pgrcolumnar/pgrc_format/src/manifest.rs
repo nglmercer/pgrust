@@ -66,7 +66,8 @@ pub const PART_ROWMAP_GRANULES: u32 = 3;
 
 /// Whether `p` carries a [`PART_ROWMAP_GRANULES`] map (its flag and form).
 pub fn granules_form(p: &PartRecord) -> bool {
-    p.flags & PART_FLAG_ROWMAP != 0 && (p.flags & PART_ROWMAP_FORM_MASK) >> PART_ROWMAP_FORM_SHIFT == PART_ROWMAP_GRANULES
+    p.flags & PART_FLAG_ROWMAP != 0
+        && (p.flags & PART_ROWMAP_FORM_MASK) >> PART_ROWMAP_FORM_SHIFT == PART_ROWMAP_GRANULES
 }
 /// `PartRecord::flags`: a compaction output (an L1 part, K1): the policy never re-concatenates it.
 pub const PART_FLAG_COMPACTED: u32 = 1 << 3;
@@ -271,9 +272,19 @@ pub fn segments(m: &Manifest) -> FormatResult<Vec<SegmentRecord>> {
                 (3, 0) => SegState::Sealed,
                 _ => return Err(corrupt()),
             };
-            let r = SegmentRecord { slot, state, part_no: c.u32(AT)?, relid: c.u32(AT)?, fxid: c.u64(AT)? };
-            let live = r.state != SegState::Sealed && m.parts.iter().any(|p| p.part_no == r.part_no);
-            if out.last().is_some_and(|l| l.slot >= slot) || r.part_no >= m.header.next_part_no || live {
+            let r = SegmentRecord {
+                slot,
+                state,
+                part_no: c.u32(AT)?,
+                relid: c.u32(AT)?,
+                fxid: c.u64(AT)?,
+            };
+            let live =
+                r.state != SegState::Sealed && m.parts.iter().any(|p| p.part_no == r.part_no);
+            if out.last().is_some_and(|l| l.slot >= slot)
+                || r.part_no >= m.header.next_part_no
+                || live
+            {
                 return Err(corrupt());
             }
             out.push(r);
@@ -347,7 +358,11 @@ pub fn next_row_id(m: &Manifest) -> FormatResult<u64> {
 
 /// `ext` with its [`EXT_ROWID`] record set to `v` (removed for 0), every other record kept in order.
 pub fn with_next_row_id(ext: &[u8], v: u64) -> FormatResult<Vec<u8>> {
-    with_record(ext, EXT_ROWID, (v != 0).then(|| v.to_le_bytes()).as_ref().map(|b| &b[..]))
+    with_record(
+        ext,
+        EXT_ROWID,
+        (v != 0).then(|| v.to_le_bytes()).as_ref().map(|b| &b[..]),
+    )
 }
 
 /// One part's row-ID ranges: sorted, disjoint, non-empty `[lo, hi)` pairs.
@@ -356,7 +371,10 @@ pub type IdRanges = Vec<(u64, u64)>;
 /// Append the [`EXT_RANGES`] record for `r` (`(part_no, ranges)`, sorted by `part_no`) to an extension block:
 /// `u32 count`, then per entry `u32 part_no, u32 n, n × (u64 lo, u64 hi)`.
 pub fn try_encode_ranges(r: &[(u32, IdRanges)], ext: &mut Vec<u8>) -> FormatResult<()> {
-    let mut out = crate::try_vec(4 + r.iter().map(|(_, l)| 8 + 16 * l.len()).sum::<usize>(), RANGES_AT)?;
+    let mut out = crate::try_vec(
+        4 + r.iter().map(|(_, l)| 8 + 16 * l.len()).sum::<usize>(),
+        RANGES_AT,
+    )?;
     put_u32(&mut out, r.len() as u32);
     for (part_no, ranges) in r {
         put_range_entry(&mut out, *part_no, ranges);
@@ -393,7 +411,11 @@ impl<'a> EntryWalk<'a> {
     fn new(body: &'a [u8]) -> FormatResult<EntryWalk<'a>> {
         let mut c = Cur::new(body);
         let left = c.u32(RANGES_AT)?;
-        Ok(EntryWalk { c, left, last: None })
+        Ok(EntryWalk {
+            c,
+            left,
+            last: None,
+        })
     }
 
     /// The byte offset of the next entry.
@@ -405,7 +427,11 @@ impl<'a> EntryWalk<'a> {
     fn entry(&mut self, out: &mut Vec<(u64, u64)>) -> FormatResult<Option<u32>> {
         let corrupt = || FormatError::Corrupt { at: RANGES_AT };
         if self.left == 0 {
-            return if self.c.remaining() == 0 { Ok(None) } else { Err(corrupt()) };
+            return if self.c.remaining() == 0 {
+                Ok(None)
+            } else {
+                Err(corrupt())
+            };
         }
         self.left -= 1;
         let part_no = self.c.u32(RANGES_AT)?;
@@ -434,7 +460,9 @@ impl<'a> EntryWalk<'a> {
 /// `part_no`, an entry naming no part of `m`, an empty list, an empty, unsorted or overlapping range, a range past
 /// [`crate::rowid::ROWID_LIMIT`], and trailing bytes.
 pub fn range_entries(m: &Manifest) -> FormatResult<Vec<(u32, IdRanges)>> {
-    range_entries_in(&m.ext, &|no| m.parts.binary_search_by_key(&no, |p| p.part_no).is_ok())
+    range_entries_in(&m.ext, &|no| {
+        m.parts.binary_search_by_key(&no, |p| p.part_no).is_ok()
+    })
 }
 
 /// [`range_entries`] of an extension block whose parts `known` names.
@@ -488,7 +516,9 @@ fn walk_flat(m: &Manifest, first: &mut dyn FnMut(u32)) -> FormatResult<Vec<(u64,
     let mut j = 0;
     loop {
         let start = ids.len() as u32;
-        let Some(part_no) = walk.entry(&mut ids)? else { break };
+        let Some(part_no) = walk.entry(&mut ids)? else {
+            break;
+        };
         while m.parts.get(j).is_some_and(|p| p.part_no < part_no) {
             first(start);
             j += 1;
@@ -520,7 +550,10 @@ pub fn with_ranges(ext: &[u8], r: &[(u32, IdRanges)]) -> FormatResult<Vec<u8>> {
     if !r.is_empty() {
         try_encode_ranges(r, &mut b)?;
     }
-    let body = ext_records(&b)?.first().map(|r| crate::try_to_vec(r.1, RANGES_AT)).transpose()?;
+    let body = ext_records(&b)?
+        .first()
+        .map(|r| crate::try_to_vec(r.1, RANGES_AT))
+        .transpose()?;
     with_record(ext, EXT_RANGES, body.as_deref())
 }
 
@@ -534,45 +567,77 @@ pub fn with_ranges(ext: &[u8], r: &[(u32, IdRanges)]) -> FormatResult<Vec<u8>> {
 /// number is above the last one's (a publish that only installs: a small COPY's), the new entries are appended to the
 /// stored ones as they are; otherwise the kept entries and the new ones are merged by part number. The bytes are
 /// those of a full re-read, filter, sort and re-encode either way.
-pub fn rebuild_ranges(ext: &[u8], parts: &[PartRecord], add: &[(u32, IdRanges)]) -> FormatResult<Vec<u8>> {
+pub fn rebuild_ranges(
+    ext: &[u8],
+    parts: &[PartRecord],
+    add: &[(u32, IdRanges)],
+) -> FormatResult<Vec<u8>> {
     let present = |no: u32| parts.binary_search_by_key(&no, |p| p.part_no).is_ok();
     if add.iter().any(|(no, _)| !present(*no)) {
-        return Err(FormatError::EncodeContract { detail: "row-ID ranges for a part the generation does not list" });
+        return Err(FormatError::EncodeContract {
+            detail: "row-ID ranges for a part the generation does not list",
+        });
     }
     let mut adds: Vec<&(u32, IdRanges)> = add.iter().collect();
     adds.sort_by_key(|a| a.0);
     let body = single_record(ext, EXT_RANGES, RANGES_AT)?;
     let base = base_entries(body, parts, &adds, None)?;
-    let floor = single_record(ext, EXT_ROWID, "Manifest next_row_id")?.map_or(Ok(0), |b| b.try_into().map(u64::from_le_bytes).map_err(|_| FormatError::Corrupt { at: "Manifest next_row_id" }))?;
+    let floor = single_record(ext, EXT_ROWID, "Manifest next_row_id")?.map_or(Ok(0), |b| {
+        b.try_into()
+            .map(u64::from_le_bytes)
+            .map_err(|_| FormatError::Corrupt {
+                at: "Manifest next_row_id",
+            })
+    })?;
     let new: Vec<&(u32, IdRanges)> = adds.iter().copied().filter(|a| !a.1.is_empty()).collect();
     let new_len: usize = new.iter().map(|a| 8 + 16 * a.1.len()).sum();
     let new_top = new.iter().map(|a| a.1[a.1.len() - 1].1).max().unwrap_or(0);
-    if base.all_kept && new.windows(2).all(|w| w[0].0 < w[1].0) && new.first().is_none_or(|a| base.last.is_none_or(|l| l < a.0)) {
+    if base.all_kept
+        && new.windows(2).all(|w| w[0].0 < w[1].0)
+        && new
+            .first()
+            .is_none_or(|a| base.last.is_none_or(|l| l < a.0))
+    {
         let stored = body.map_or(&[][..], |b| &b[4..]);
         let (floor, new_first) = append_floor(floor.max(base.top).max(new_top), floor);
-        return emit_ranges(ext, base.count + new.len() as u32, stored.len() + new_len, floor, |out| {
-            if !new_first {
-                out.extend_from_slice(stored);
-            }
-            new.iter().for_each(|a| put_range_entry(out, a.0, &a.1));
-            if new_first {
-                out.extend_from_slice(stored);
-            }
-        });
+        return emit_ranges(
+            ext,
+            base.count + new.len() as u32,
+            stored.len() + new_len,
+            floor,
+            |out| {
+                if !new_first {
+                    out.extend_from_slice(stored);
+                }
+                new.iter().for_each(|a| put_range_entry(out, a.0, &a.1));
+                if new_first {
+                    out.extend_from_slice(stored);
+                }
+            },
+        );
     }
     let mut spans = Vec::new();
     let base = base_entries(body, parts, &adds, Some(&mut spans))?;
-    let (body, kept_len) = (body.unwrap_or(&[]), spans.iter().map(|s| s.2 - s.1).sum::<usize>());
-    emit_ranges(ext, (spans.len() + new.len()) as u32, kept_len + new_len, floor.max(base.top).max(new_top), |out| {
-        let mut n = new.iter().peekable();
-        for &(no, from, to) in &spans {
-            while let Some(x) = n.next_if(|x| x.0 < no) {
-                put_range_entry(out, x.0, &x.1);
+    let (body, kept_len) = (
+        body.unwrap_or(&[]),
+        spans.iter().map(|s| s.2 - s.1).sum::<usize>(),
+    );
+    emit_ranges(
+        ext,
+        (spans.len() + new.len()) as u32,
+        kept_len + new_len,
+        floor.max(base.top).max(new_top),
+        |out| {
+            let mut n = new.iter().peekable();
+            for &(no, from, to) in &spans {
+                while let Some(x) = n.next_if(|x| x.0 < no) {
+                    put_range_entry(out, x.0, &x.1);
+                }
+                out.extend_from_slice(&body[from..to]);
             }
-            out.extend_from_slice(&body[from..to]);
-        }
-        n.for_each(|x| put_range_entry(out, x.0, &x.1));
-    })
+            n.for_each(|x| put_range_entry(out, x.0, &x.1));
+        },
+    )
 }
 
 /// One walk of a base's [`EXT_RANGES`] body for [`rebuild_ranges`].
@@ -587,15 +652,27 @@ struct BaseEntries {
 
 /// Walk `body` (none without the record) against `parts` and `adds` (both by part number, merged): `spans` gets each
 /// kept entry's `(part_no, from, to)` byte span in `body`.
-fn base_entries(body: Option<&[u8]>, parts: &[PartRecord], adds: &[&(u32, IdRanges)], mut spans: Option<&mut Vec<(u32, usize, usize)>>) -> FormatResult<BaseEntries> {
-    let mut out = BaseEntries { count: 0, all_kept: true, last: None, top: 0 };
+fn base_entries(
+    body: Option<&[u8]>,
+    parts: &[PartRecord],
+    adds: &[&(u32, IdRanges)],
+    mut spans: Option<&mut Vec<(u32, usize, usize)>>,
+) -> FormatResult<BaseEntries> {
+    let mut out = BaseEntries {
+        count: 0,
+        all_kept: true,
+        last: None,
+        top: 0,
+    };
     let Some(body) = body else { return Ok(out) };
     let mut walk = EntryWalk::new(body)?;
     let (mut j, mut a, mut ids) = (0, 0, Vec::new());
     loop {
         let from = walk.at();
         ids.clear();
-        let Some(no) = walk.entry(&mut ids)? else { break };
+        let Some(no) = walk.entry(&mut ids)? else {
+            break;
+        };
         while parts.get(j).is_some_and(|p| p.part_no < no) {
             j += 1;
         }
@@ -619,7 +696,13 @@ fn base_entries(body: Option<&[u8]>, parts: &[PartRecord], adds: &[&(u32, IdRang
 /// `ext`'s records but [`EXT_RANGES`] and [`EXT_ROWID`], in order, then an [`EXT_RANGES`] record of `count` entries
 /// whose `len` bytes `entries` writes (none for no entry), then [`EXT_ROWID`] = `floor` (none for 0): the bytes
 /// `with_next_row_id(&with_ranges(ext, table)?, floor)` writes.
-fn emit_ranges(ext: &[u8], count: u32, len: usize, floor: u64, entries: impl FnOnce(&mut Vec<u8>)) -> FormatResult<Vec<u8>> {
+fn emit_ranges(
+    ext: &[u8],
+    count: u32,
+    len: usize,
+    floor: u64,
+    entries: impl FnOnce(&mut Vec<u8>),
+) -> FormatResult<Vec<u8>> {
     let records = ext_records(ext)?;
     let mut out = crate::try_vec(ext.len() + len + 24, RANGES_AT)?;
     for (tag, bytes) in records {
@@ -683,8 +766,14 @@ pub fn check_row_ids(m: &Manifest) -> FormatResult<()> {
     if !all.is_sorted() {
         all.sort_unstable();
     }
-    if all.iter().any(|&(lo, hi)| lo < ROWID_FIRST || lo % IDS_PER_BLOCK != 0 || hi > next) || all.windows(2).any(|w| w[0].1 > w[1].0) {
-        return Err(FormatError::Corrupt { at: "Manifest row-ID ranges: unaligned, past the floor or an ID in two homes" });
+    if all
+        .iter()
+        .any(|&(lo, hi)| lo < ROWID_FIRST || lo % IDS_PER_BLOCK != 0 || hi > next)
+        || all.windows(2).any(|w| w[0].1 > w[1].0)
+    {
+        return Err(FormatError::Corrupt {
+            at: "Manifest row-ID ranges: unaligned, past the floor or an ID in two homes",
+        });
     }
     Ok(())
 }
@@ -767,7 +856,10 @@ pub fn under(m: &Manifest) -> FormatResult<Vec<UnderEntry>> {
         if tag != EXT_UNDER {
             continue;
         }
-        if std::mem::replace(&mut seen, true) || bytes.is_empty() || bytes.len() % UNDER_ENTRY_LEN != 0 {
+        if std::mem::replace(&mut seen, true)
+            || bytes.is_empty()
+            || bytes.len() % UNDER_ENTRY_LEN != 0
+        {
             return Err(corrupt());
         }
         let mut c = Cur::new(bytes);
@@ -777,7 +869,12 @@ pub fn under(m: &Manifest) -> FormatResult<Vec<UnderEntry>> {
                 return Err(corrupt());
             }
             let fxid = c.u64(AT)?;
-            if out.last().is_some_and(|l| l.part_no >= part_no) || fxid == m.header.publisher_fxid || m.parts.binary_search_by_key(&part_no, |p| p.part_no).is_err() {
+            if out.last().is_some_and(|l| l.part_no >= part_no)
+                || fxid == m.header.publisher_fxid
+                || m.parts
+                    .binary_search_by_key(&part_no, |p| p.part_no)
+                    .is_err()
+            {
                 return Err(corrupt());
             }
             out.push(UnderEntry { part_no, fxid });
@@ -789,7 +886,10 @@ pub fn under(m: &Manifest) -> FormatResult<Vec<UnderEntry>> {
 /// `ext` with its `EXT_UNDER` record replaced by `entries` (none when empty), every other record kept in order.
 /// `entries` are sorted by `part_no` here.
 pub fn with_under(ext: &[u8], entries: &[UnderEntry]) -> FormatResult<Vec<u8>> {
-    let mut out = crate::try_vec(ext.len() + 6 + UNDER_ENTRY_LEN * entries.len(), "Manifest under")?;
+    let mut out = crate::try_vec(
+        ext.len() + 6 + UNDER_ENTRY_LEN * entries.len(),
+        "Manifest under",
+    )?;
     for (tag, bytes) in ext_records(ext)? {
         if tag != EXT_UNDER {
             put_ext_record(&mut out, tag, bytes);
@@ -838,7 +938,17 @@ pub struct SchemaEntry {
 impl SchemaEntry {
     /// Whether `part_no` falls in one of the runs.
     pub fn holds(&self, part_no: u32) -> bool {
-        self.runs.binary_search_by(|&(lo, hi)| if hi < part_no { std::cmp::Ordering::Less } else if lo > part_no { std::cmp::Ordering::Greater } else { std::cmp::Ordering::Equal }).is_ok()
+        self.runs
+            .binary_search_by(|&(lo, hi)| {
+                if hi < part_no {
+                    std::cmp::Ordering::Less
+                } else if lo > part_no {
+                    std::cmp::Ordering::Greater
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            })
+            .is_ok()
     }
 }
 
@@ -863,14 +973,27 @@ fn decode_schema_record(bytes: &[u8]) -> FormatResult<Vec<SchemaEntry>> {
             let fixed_len = c.u32(AT)?;
             let typlen = c.u16(AT)? as i16;
             let (byval, align) = (c.u8(AT)?, c.u8(AT)?);
-            if signed > 1 || byval > 1 || attno == 0 || cols.last().is_some_and(|l| l.attno >= attno) {
+            if signed > 1
+                || byval > 1
+                || attno == 0
+                || cols.last().is_some_and(|l| l.attno >= attno)
+            {
                 return Err(corrupt());
             }
             let class = StorageClass::from_parts(id, width, signed == 1, fixed_len)?;
-            cols.push(ColSchema::opaque(attno, class, typlen, byval == 1, align, CollationClass::from_u8(coll)?));
+            cols.push(ColSchema::opaque(
+                attno,
+                class,
+                typlen,
+                byval == 1,
+                align,
+                CollationClass::from_u8(coll)?,
+            ));
         }
         if crate::ident::schema_fingerprint(&cols) != fingerprint {
-            return Err(FormatError::Corrupt { at: "Manifest schemas fingerprint" });
+            return Err(FormatError::Corrupt {
+                at: "Manifest schemas fingerprint",
+            });
         }
         let mut runs = crate::try_vec(nruns, AT)?;
         for _ in 0..nruns {
@@ -880,7 +1003,11 @@ fn decode_schema_record(bytes: &[u8]) -> FormatResult<Vec<SchemaEntry>> {
             }
             runs.push((lo, hi));
         }
-        out.push(SchemaEntry { fingerprint, cols, runs });
+        out.push(SchemaEntry {
+            fingerprint,
+            cols,
+            runs,
+        });
     }
     if c.remaining() != 0 {
         return Err(corrupt());
@@ -897,7 +1024,9 @@ pub fn schema_entries(ext: &[u8]) -> FormatResult<Vec<SchemaEntry>> {
             continue;
         }
         if out.is_some() {
-            return Err(FormatError::Corrupt { at: "Manifest schemas" });
+            return Err(FormatError::Corrupt {
+                at: "Manifest schemas",
+            });
         }
         out = Some(decode_schema_record(bytes)?);
     }
@@ -908,11 +1037,15 @@ pub fn schema_entries(ext: &[u8]) -> FormatResult<Vec<SchemaEntry>> {
 /// share a fingerprint, and the runs of all entries are disjoint. (A run may span part numbers the manifest does not
 /// list: a reader's view that hides some parts keeps the record as it is.)
 pub fn schemas(m: &Manifest) -> FormatResult<Vec<SchemaEntry>> {
-    let corrupt = || FormatError::Corrupt { at: "Manifest schemas vs parts" };
+    let corrupt = || FormatError::Corrupt {
+        at: "Manifest schemas vs parts",
+    };
     let entries = schema_entries(&m.ext)?;
     let mut all: Vec<(u32, u32)> = Vec::new();
     for (k, e) in entries.iter().enumerate() {
-        if e.fingerprint == m.header.schema_fingerprint || entries[..k].iter().any(|o| o.fingerprint == e.fingerprint) {
+        if e.fingerprint == m.header.schema_fingerprint
+            || entries[..k].iter().any(|o| o.fingerprint == e.fingerprint)
+        {
             return Err(corrupt());
         }
         all.extend_from_slice(&e.runs);
@@ -927,7 +1060,11 @@ pub fn schemas(m: &Manifest) -> FormatResult<Vec<SchemaEntry>> {
 /// The [`EXT_SCHEMAS`] entries of a manifest whose parts are `parts` (`(part_no, schema fingerprint)`, part_no
 /// ascending) under the header fingerprint `header`: the manifest-consecutive parts of one schema other than `header`
 /// form a run, and `cols` gives each listed schema's columns. `Err(fingerprint)` names a schema `cols` cannot describe.
-pub fn entries_of(parts: impl IntoIterator<Item = (u32, u64)>, header: u64, cols: &mut dyn FnMut(u64) -> Option<Vec<crate::class::ColSchema>>) -> Result<Vec<SchemaEntry>, u64> {
+pub fn entries_of(
+    parts: impl IntoIterator<Item = (u32, u64)>,
+    header: u64,
+    cols: &mut dyn FnMut(u64) -> Option<Vec<crate::class::ColSchema>>,
+) -> Result<Vec<SchemaEntry>, u64> {
     let mut runs: Vec<(u64, u32, u32)> = Vec::new();
     let mut cur: Option<(u64, u32, u32)> = None;
     for (part_no, f) in parts {
@@ -944,7 +1081,11 @@ pub fn entries_of(parts: impl IntoIterator<Item = (u32, u64)>, header: u64, cols
     for (f, lo, hi) in runs {
         match entries.iter_mut().find(|e| e.fingerprint == f) {
             Some(e) => e.runs.push((lo, hi)),
-            None => entries.push(SchemaEntry { fingerprint: f, cols: cols(f).ok_or(f)?, runs: vec![(lo, hi)] }),
+            None => entries.push(SchemaEntry {
+                fingerprint: f,
+                cols: cols(f).ok_or(f)?,
+                runs: vec![(lo, hi)],
+            }),
         }
     }
     Ok(entries)
@@ -953,10 +1094,22 @@ pub fn entries_of(parts: impl IntoIterator<Item = (u32, u64)>, header: u64, cols
 /// Each part's schema fingerprint, in manifest order: its run's, else the header's.
 pub fn part_fingerprints(m: &Manifest) -> FormatResult<Vec<u64>> {
     if m.header.flags & MANIFESTF_SCHEMAS == 0 {
-        return crate::try_filled(m.parts.len(), m.header.schema_fingerprint, "Manifest part fingerprints");
+        return crate::try_filled(
+            m.parts.len(),
+            m.header.schema_fingerprint,
+            "Manifest part fingerprints",
+        );
     }
     let entries = schemas(m)?;
-    Ok(m.parts.iter().map(|p| entries.iter().find(|e| e.holds(p.part_no)).map_or(m.header.schema_fingerprint, |e| e.fingerprint)).collect())
+    Ok(m.parts
+        .iter()
+        .map(|p| {
+            entries
+                .iter()
+                .find(|e| e.holds(p.part_no))
+                .map_or(m.header.schema_fingerprint, |e| e.fingerprint)
+        })
+        .collect())
 }
 
 /// `part_no`'s schema fingerprint in `m` (its run's, else the header's).
@@ -964,7 +1117,10 @@ pub fn part_fingerprint(m: &Manifest, part_no: u32) -> FormatResult<u64> {
     if m.header.flags & MANIFESTF_SCHEMAS == 0 {
         return Ok(m.header.schema_fingerprint);
     }
-    Ok(schemas(m)?.iter().find(|e| e.holds(part_no)).map_or(m.header.schema_fingerprint, |e| e.fingerprint))
+    Ok(schemas(m)?
+        .iter()
+        .find(|e| e.holds(part_no))
+        .map_or(m.header.schema_fingerprint, |e| e.fingerprint))
 }
 
 /// `ext` with its `EXT_SCHEMAS` record replaced by `entries` (removed when none), every other record kept in order.
@@ -1011,7 +1167,9 @@ pub const EXT_STATS: u16 = 3;
 /// The manifest's stats root reference, `None` without the tag. Two records, or one that is not one `RunRef`, is
 /// `Corrupt`.
 pub fn stats_ref(m: &Manifest) -> FormatResult<Option<crate::statsrun::RunRef>> {
-    let corrupt = || FormatError::Corrupt { at: "Manifest stats ref" };
+    let corrupt = || FormatError::Corrupt {
+        at: "Manifest stats ref",
+    };
     let mut out = None;
     for (tag, bytes) in ext_records(&m.ext)? {
         if tag != EXT_STATS {
@@ -1061,7 +1219,10 @@ pub fn tombs(ext: &[u8]) -> FormatResult<TombsRecord> {
 
 /// `ext` with its `EXT_STATS` record replaced by `r` (removed for `None`), every other record kept in order.
 pub fn with_stats_ref(ext: &[u8], r: Option<&crate::statsrun::RunRef>) -> FormatResult<Vec<u8>> {
-    let mut out = crate::try_vec(ext.len() + 6 + crate::statsrun::RUN_REF_LEN, "Manifest stats ref")?;
+    let mut out = crate::try_vec(
+        ext.len() + 6 + crate::statsrun::RUN_REF_LEN,
+        "Manifest stats ref",
+    )?;
     for (tag, bytes) in ext_records(ext)? {
         if tag != EXT_STATS {
             put_ext_record(&mut out, tag, bytes);
@@ -1077,7 +1238,11 @@ pub fn with_stats_ref(ext: &[u8], r: Option<&crate::statsrun::RunRef>) -> Format
 
 impl Manifest {
     pub fn new(header: ManifestHeader, parts: Vec<PartRecord>) -> Manifest {
-        Manifest { header, parts, ext: Vec::new() }
+        Manifest {
+            header,
+            parts,
+            ext: Vec::new(),
+        }
     }
 
     /// Attach an extension block; the header's `MANIFESTF_EXT` bit follows `ext` being non-empty, and its
@@ -1119,7 +1284,9 @@ impl Manifest {
 
     /// Encode the full manifest file image (trailing crc32c included).
     pub fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(MANIFEST_HEADER_LEN + self.parts.len() * PART_RECORD_LEN + 8 + self.ext.len());
+        let mut out = Vec::with_capacity(
+            MANIFEST_HEADER_LEN + self.parts.len() * PART_RECORD_LEN + 8 + self.ext.len(),
+        );
         self.header.encode_into(&mut out);
         debug_assert_eq!(out.len(), MANIFEST_HEADER_LEN);
         for p in &self.parts {
@@ -1163,10 +1330,22 @@ impl Manifest {
                 at: "ManifestHeader gen chain",
             });
         }
-        if header.flags & !(MANIFESTF_EXT | MANIFESTF_UNDER | MANIFESTF_SCHEMAS | MANIFESTF_ROWIDS | MANIFESTF_ROWMAP2 | MANIFESTF_RUNS) != 0
-            || (header.flags & (MANIFESTF_UNDER | MANIFESTF_SCHEMAS | MANIFESTF_ROWIDS | MANIFESTF_RUNS) != 0 && header.flags & MANIFESTF_EXT == 0)
+        if header.flags
+            & !(MANIFESTF_EXT
+                | MANIFESTF_UNDER
+                | MANIFESTF_SCHEMAS
+                | MANIFESTF_ROWIDS
+                | MANIFESTF_ROWMAP2
+                | MANIFESTF_RUNS)
+            != 0
+            || (header.flags
+                & (MANIFESTF_UNDER | MANIFESTF_SCHEMAS | MANIFESTF_ROWIDS | MANIFESTF_RUNS)
+                != 0
+                && header.flags & MANIFESTF_EXT == 0)
         {
-            return Err(FormatError::Corrupt { at: "ManifestHeader flags" });
+            return Err(FormatError::Corrupt {
+                at: "ManifestHeader flags",
+            });
         }
         let parts_len = header.part_count as usize * PART_RECORD_LEN;
         let length_ok = if header.flags & MANIFESTF_EXT == 0 {
@@ -1241,7 +1420,9 @@ impl Manifest {
         let ext = if header.flags & MANIFESTF_EXT != 0 {
             let len = c.u32("Manifest ext")? as usize;
             if c.remaining() != len {
-                return Err(FormatError::Corrupt { at: "Manifest ext length" });
+                return Err(FormatError::Corrupt {
+                    at: "Manifest ext length",
+                });
             }
             let ext = crate::try_to_vec(c.take(len, "Manifest ext")?, "Manifest ext")?;
             ext_records(&ext)?;
@@ -1251,21 +1432,31 @@ impl Manifest {
         };
         let m = Manifest { header, parts, ext };
         if has_tag(&m.ext, EXT_UNDER) != (header.flags & MANIFESTF_UNDER != 0) {
-            return Err(FormatError::Corrupt { at: "ManifestHeader flags vs EXT_UNDER" });
+            return Err(FormatError::Corrupt {
+                at: "ManifestHeader flags vs EXT_UNDER",
+            });
         }
         under(&m)?;
         if has_tag(&m.ext, EXT_SCHEMAS) != (header.flags & MANIFESTF_SCHEMAS != 0) {
-            return Err(FormatError::Corrupt { at: "ManifestHeader flags vs EXT_SCHEMAS" });
+            return Err(FormatError::Corrupt {
+                at: "ManifestHeader flags vs EXT_SCHEMAS",
+            });
         }
         schemas(&m)?;
         if names_row_ids(&m.ext) != (header.flags & MANIFESTF_ROWIDS != 0) {
-            return Err(FormatError::Corrupt { at: "ManifestHeader flags vs EXT_RANGES / EXT_ROWID" });
+            return Err(FormatError::Corrupt {
+                at: "ManifestHeader flags vs EXT_RANGES / EXT_ROWID",
+            });
         }
         if m.parts.iter().any(granules_form) != (header.flags & MANIFESTF_ROWMAP2 != 0) {
-            return Err(FormatError::Corrupt { at: "ManifestHeader flags vs ROWMAP2 parts" });
+            return Err(FormatError::Corrupt {
+                at: "ManifestHeader flags vs ROWMAP2 parts",
+            });
         }
         if has_tag(&m.ext, EXT_RUNS) != (header.flags & MANIFESTF_RUNS != 0) {
-            return Err(FormatError::Corrupt { at: "ManifestHeader flags vs EXT_RUNS" });
+            return Err(FormatError::Corrupt {
+                at: "ManifestHeader flags vs EXT_RUNS",
+            });
         }
         crate::sortrun::check(&m)?;
         check_row_ids(&m)?;
@@ -1360,10 +1551,16 @@ mod ext_tests {
         let m = legacy.clone().with_ext(ext.clone());
         assert_eq!(m.header.flags, MANIFESTF_EXT);
         let enc = m.encode();
-        assert_eq!(&enc[..MANIFEST_HEADER_LEN - 8], &bytes[..MANIFEST_HEADER_LEN - 8]);
+        assert_eq!(
+            &enc[..MANIFEST_HEADER_LEN - 8],
+            &bytes[..MANIFEST_HEADER_LEN - 8]
+        );
         let back = Manifest::decode(&enc).unwrap();
         assert_eq!(back, m);
-        assert_eq!(ext_records(&back.ext).unwrap(), vec![(1u16, &b"seg"[..]), (0x7ff0u16, &b""[..])]);
+        assert_eq!(
+            ext_records(&back.ext).unwrap(),
+            vec![(1u16, &b"seg"[..]), (0x7ff0u16, &b""[..])]
+        );
         assert_eq!(m.with_ext(Vec::new()), legacy);
     }
 
@@ -1380,8 +1577,19 @@ mod ext_tests {
     fn under_entries_round_trip_set_the_flag_and_refuse_bad_records() {
         let legacy = crate::tests::golden_sample_manifest();
         let (a, b) = (legacy.parts[0].part_no, legacy.parts[1].part_no);
-        let e = [UnderEntry { part_no: b, fxid: 900 }, UnderEntry { part_no: a, fxid: 901 }];
-        let m = legacy.clone().with_ext(with_under(&legacy.ext, &e).unwrap());
+        let e = [
+            UnderEntry {
+                part_no: b,
+                fxid: 900,
+            },
+            UnderEntry {
+                part_no: a,
+                fxid: 901,
+            },
+        ];
+        let m = legacy
+            .clone()
+            .with_ext(with_under(&legacy.ext, &e).unwrap());
         assert_eq!(m.header.flags, MANIFESTF_EXT | MANIFESTF_UNDER);
         let back = Manifest::decode(&m.encode()).unwrap();
         assert_eq!(under(&back).unwrap(), vec![e[1], e[0]], "sorted by part_no");
@@ -1398,43 +1606,105 @@ mod ext_tests {
         bare.header.flags |= MANIFESTF_UNDER;
         assert!(Manifest::decode(&bare.encode()).is_err());
         // a part the manifest does not hold, the publisher's own fxid
-        let stray = legacy.clone().with_ext(with_under(&legacy.ext, &[UnderEntry { part_no: 999_999, fxid: 5 }]).unwrap());
+        let stray = legacy.clone().with_ext(
+            with_under(
+                &legacy.ext,
+                &[UnderEntry {
+                    part_no: 999_999,
+                    fxid: 5,
+                }],
+            )
+            .unwrap(),
+        );
         assert!(Manifest::decode(&stray.encode()).is_err());
-        let own = legacy.clone().with_ext(with_under(&legacy.ext, &[UnderEntry { part_no: a, fxid: legacy.header.publisher_fxid }]).unwrap());
+        let own = legacy.clone().with_ext(
+            with_under(
+                &legacy.ext,
+                &[UnderEntry {
+                    part_no: a,
+                    fxid: legacy.header.publisher_fxid,
+                }],
+            )
+            .unwrap(),
+        );
         assert!(Manifest::decode(&own.encode()).is_err());
     }
 
     /// FASTADD: the columns of a schema (int8 columns at `attnos`).
     fn cols(attnos: &[u32]) -> Vec<crate::class::ColSchema> {
         use crate::class::{ColSchema, CollationClass, StorageClass};
-        attnos.iter().map(|&a| ColSchema::opaque(a, StorageClass::ByvalWord { width: 8, signed: true }, 8, true, b'd', CollationClass::C)).collect()
+        attnos
+            .iter()
+            .map(|&a| {
+                ColSchema::opaque(
+                    a,
+                    StorageClass::ByvalWord {
+                        width: 8,
+                        signed: true,
+                    },
+                    8,
+                    true,
+                    b'd',
+                    CollationClass::C,
+                )
+            })
+            .collect()
     }
 
     fn entry(attnos: &[u32], runs: &[(u32, u32)]) -> SchemaEntry {
         let cols = cols(attnos);
-        SchemaEntry { fingerprint: crate::ident::schema_fingerprint(&cols), cols, runs: runs.to_vec() }
+        SchemaEntry {
+            fingerprint: crate::ident::schema_fingerprint(&cols),
+            cols,
+            runs: runs.to_vec(),
+        }
     }
 
     #[test]
     fn schema_records_round_trip_set_the_flag_and_name_each_part_s_schema() {
         let legacy = crate::tests::golden_sample_manifest();
         let header = legacy.header.schema_fingerprint;
-        assert_eq!(part_fingerprints(&legacy).unwrap(), vec![header, header], "no record: every part has the header's");
+        assert_eq!(
+            part_fingerprints(&legacy).unwrap(),
+            vec![header, header],
+            "no record: every part has the header's"
+        );
         let old = entry(&[1, 2], &[(1, 1)]);
-        let m = legacy.clone().with_ext(with_schemas(&legacy.ext, std::slice::from_ref(&old)).unwrap());
+        let m = legacy
+            .clone()
+            .with_ext(with_schemas(&legacy.ext, std::slice::from_ref(&old)).unwrap());
         assert_eq!(m.header.flags, MANIFESTF_EXT | MANIFESTF_SCHEMAS);
         let back = Manifest::decode(&m.encode()).unwrap();
         assert_eq!(back, m);
         assert_eq!(schemas(&back).unwrap(), vec![old.clone()]);
         assert_eq!(schema_entries(&back.ext).unwrap(), vec![old.clone()]);
-        assert_eq!(part_fingerprints(&back).unwrap(), vec![old.fingerprint, header]);
-        assert_eq!((part_fingerprint(&back, 1).unwrap(), part_fingerprint(&back, 3).unwrap()), (old.fingerprint, header));
-        assert!(old.cols.iter().all(|c| c.semantics == crate::class::TypeSemantics::Opaque), "semantics are not stored");
+        assert_eq!(
+            part_fingerprints(&back).unwrap(),
+            vec![old.fingerprint, header]
+        );
+        assert_eq!(
+            (
+                part_fingerprint(&back, 1).unwrap(),
+                part_fingerprint(&back, 3).unwrap()
+            ),
+            (old.fingerprint, header)
+        );
+        assert!(
+            old.cols
+                .iter()
+                .all(|c| c.semantics == crate::class::TypeSemantics::Opaque),
+            "semantics are not stored"
+        );
         // two schemas, a run over part numbers the manifest does not list (a view that hides a part keeps it)
         let older = entry(&[1], &[(3, 3)]);
-        let both = legacy.clone().with_ext(with_schemas(&legacy.ext, &[entry(&[1, 2], &[(0, 2)]), older.clone()]).unwrap());
+        let both = legacy.clone().with_ext(
+            with_schemas(&legacy.ext, &[entry(&[1, 2], &[(0, 2)]), older.clone()]).unwrap(),
+        );
         let back = Manifest::decode(&both.encode()).unwrap();
-        assert_eq!(part_fingerprints(&back).unwrap(), vec![old.fingerprint, older.fingerprint]);
+        assert_eq!(
+            part_fingerprints(&back).unwrap(),
+            vec![old.fingerprint, older.fingerprint]
+        );
         // dropping the record drops the flag, and the manifest is byte-for-byte the one without it
         let gone = back.clone().with_ext(with_schemas(&back.ext, &[]).unwrap());
         assert_eq!(gone.encode(), legacy.encode());
@@ -1450,7 +1720,9 @@ mod ext_tests {
     #[test]
     fn schema_records_that_lie_refuse() {
         let legacy = crate::tests::golden_sample_manifest();
-        let good = legacy.clone().with_ext(with_schemas(&legacy.ext, &[entry(&[1, 2], &[(1, 1)])]).unwrap());
+        let good = legacy
+            .clone()
+            .with_ext(with_schemas(&legacy.ext, &[entry(&[1, 2], &[(1, 1)])]).unwrap());
         // a binary without FASTADD sees an unknown flag; the flag without the record, or the record without the flag
         let mut lying = good.clone();
         lying.header.flags &= !MANIFESTF_SCHEMAS;
@@ -1461,7 +1733,9 @@ mod ext_tests {
         // columns that do not hash to the fingerprint
         let mut wrong = entry(&[1, 2], &[(1, 1)]);
         wrong.fingerprint ^= 1;
-        let m = legacy.clone().with_ext(with_schemas(&legacy.ext, &[wrong]).unwrap());
+        let m = legacy
+            .clone()
+            .with_ext(with_schemas(&legacy.ext, &[wrong]).unwrap());
         assert!(Manifest::decode(&m.encode()).is_err());
         // the header's own schema, the same schema twice, runs that overlap, a run backwards
         let mut own = entry(&[1, 2], &[(1, 1)]);
@@ -1470,20 +1744,40 @@ mod ext_tests {
         hdr.header.schema_fingerprint = own.fingerprint;
         let hdr = hdr.with_ext(with_schemas(&legacy.ext, std::slice::from_ref(&own)).unwrap());
         assert!(Manifest::decode(&hdr.encode()).is_err());
-        let twice = legacy.clone().with_ext(with_schemas(&legacy.ext, &[entry(&[1, 2], &[(1, 1)]), entry(&[1, 2], &[(3, 3)])]).unwrap());
+        let twice = legacy.clone().with_ext(
+            with_schemas(
+                &legacy.ext,
+                &[entry(&[1, 2], &[(1, 1)]), entry(&[1, 2], &[(3, 3)])],
+            )
+            .unwrap(),
+        );
         assert!(Manifest::decode(&twice.encode()).is_err());
-        let overlap = legacy.clone().with_ext(with_schemas(&legacy.ext, &[entry(&[1, 2], &[(0, 2)]), entry(&[1], &[(1, 3)])]).unwrap());
+        let overlap = legacy.clone().with_ext(
+            with_schemas(
+                &legacy.ext,
+                &[entry(&[1, 2], &[(0, 2)]), entry(&[1], &[(1, 3)])],
+            )
+            .unwrap(),
+        );
         assert!(Manifest::decode(&overlap.encode()).is_err());
         own.runs = vec![(3, 1)];
-        let back = legacy.clone().with_ext(with_schemas(&legacy.ext, &[own]).unwrap());
+        let back = legacy
+            .clone()
+            .with_ext(with_schemas(&legacy.ext, &[own]).unwrap());
         assert!(Manifest::decode(&back.encode()).is_err());
         // columns out of order, no columns, trailing bytes, a second record
         let mut unsorted = entry(&[1, 2], &[(1, 1)]);
         unsorted.cols.reverse();
         unsorted.fingerprint = crate::ident::schema_fingerprint(&unsorted.cols);
-        let m = legacy.clone().with_ext(with_schemas(&legacy.ext, &[unsorted]).unwrap());
+        let m = legacy
+            .clone()
+            .with_ext(with_schemas(&legacy.ext, &[unsorted]).unwrap());
         assert!(Manifest::decode(&m.encode()).is_err());
-        let empty = SchemaEntry { fingerprint: crate::ident::schema_fingerprint(&[]), cols: Vec::new(), runs: vec![(1, 1)] };
+        let empty = SchemaEntry {
+            fingerprint: crate::ident::schema_fingerprint(&[]),
+            cols: Vec::new(),
+            runs: vec![(1, 1)],
+        };
         assert!(schema_entries(&with_schemas(&[], &[empty]).unwrap()).is_err());
         let one = with_schemas(&[], &[entry(&[1], &[(1, 1)])]).unwrap();
         let body = ext_records(&one).unwrap()[0].1.to_vec();
@@ -1498,17 +1792,55 @@ mod ext_tests {
     #[test]
     fn entries_of_runs_the_consecutive_parts_of_each_older_schema() {
         let (a, b) = (entry(&[1], &[]), entry(&[1, 2], &[]));
-        let mut ask = |f: u64| [&a, &b].iter().find(|e| e.fingerprint == f).map(|e| e.cols.clone());
-        let parts = [(0, a.fingerprint), (1, a.fingerprint), (2, 77), (4, a.fingerprint), (5, b.fingerprint), (9, b.fingerprint)];
+        let mut ask = |f: u64| {
+            [&a, &b]
+                .iter()
+                .find(|e| e.fingerprint == f)
+                .map(|e| e.cols.clone())
+        };
+        let parts = [
+            (0, a.fingerprint),
+            (1, a.fingerprint),
+            (2, 77),
+            (4, a.fingerprint),
+            (5, b.fingerprint),
+            (9, b.fingerprint),
+        ];
         let got = entries_of(parts, 77, &mut ask).unwrap();
-        assert_eq!(got, vec![SchemaEntry { runs: vec![(0, 1), (4, 4)], ..a.clone() }, SchemaEntry { runs: vec![(5, 9)], ..b.clone() }]);
-        assert_eq!(entries_of([(0, 77), (1, 77)], 77, &mut ask).unwrap(), vec![], "every part the header's: no entry");
-        assert_eq!(entries_of([(0, 5)], 77, &mut ask), Err(5), "an undescribed schema");
+        assert_eq!(
+            got,
+            vec![
+                SchemaEntry {
+                    runs: vec![(0, 1), (4, 4)],
+                    ..a.clone()
+                },
+                SchemaEntry {
+                    runs: vec![(5, 9)],
+                    ..b.clone()
+                }
+            ]
+        );
+        assert_eq!(
+            entries_of([(0, 77), (1, 77)], 77, &mut ask).unwrap(),
+            vec![],
+            "every part the header's: no entry"
+        );
+        assert_eq!(
+            entries_of([(0, 5)], 77, &mut ask),
+            Err(5),
+            "an undescribed schema"
+        );
         assert!(!a.holds(0) && got[0].holds(4) && !got[0].holds(2) && got[1].holds(7));
     }
 
     fn seg(slot: u16, part_no: u32, state: SegState) -> SegmentRecord {
-        SegmentRecord { slot, part_no, relid: 16400 + slot as u32, state, fxid: 700 + slot as u64 }
+        SegmentRecord {
+            slot,
+            part_no,
+            relid: 16400 + slot as u32,
+            state,
+            fxid: 700 + slot as u64,
+        }
     }
 
     fn with_segments(recs: &[SegmentRecord]) -> Manifest {
@@ -1523,8 +1855,15 @@ mod ext_tests {
 
     #[test]
     fn segment_records_round_trip_and_refuse_bad_rings() {
-        assert_eq!(segments(&crate::tests::golden_sample_manifest()).unwrap(), vec![]);
-        let recs = [seg(0, 900, SegState::Sealed), seg(1, 901, SegState::Sealing), seg(5, 905, SegState::Active)];
+        assert_eq!(
+            segments(&crate::tests::golden_sample_manifest()).unwrap(),
+            vec![]
+        );
+        let recs = [
+            seg(0, 900, SegState::Sealed),
+            seg(1, 901, SegState::Sealing),
+            seg(5, 905, SegState::Active),
+        ];
         let m = Manifest::decode(&with_segments(&recs).encode()).unwrap();
         assert_eq!(segments(&m).unwrap(), recs);
         let two_active = [seg(0, 900, SegState::Active), seg(1, 901, SegState::Active)];
@@ -1537,7 +1876,13 @@ mod ext_tests {
         let live = crate::tests::golden_sample_manifest().parts[0].part_no;
         assert!(segments(&with_segments(&[seg(0, live, SegState::Active)])).is_err());
         assert!(segments(&with_segments(&[seg(0, live, SegState::Sealing)])).is_err());
-        assert_eq!(segments(&with_segments(&[seg(0, live, SegState::Sealed)])).unwrap().len(), 1, "sealed into its part");
+        assert_eq!(
+            segments(&with_segments(&[seg(0, live, SegState::Sealed)]))
+                .unwrap()
+                .len(),
+            1,
+            "sealed into its part"
+        );
         let mut m = with_segments(&[seg(0, 900, SegState::Active)]);
         let n = m.ext.len();
         m.ext[n - SEGMENT_RECORD_LEN + 2] = 4;
@@ -1550,25 +1895,51 @@ mod ext_tests {
         let recs = [seg(0, 900, SegState::Sealed)];
         let base = with_segments(&recs);
         assert_eq!(stats_ref(&base).unwrap(), None);
-        let r = RunRef { gen: 12, seq: 1, nparts: 16, len: 4096, crc: 0xdead_beef };
+        let r = RunRef {
+            gen: 12,
+            seq: 1,
+            nparts: 16,
+            len: 4096,
+            crc: 0xdead_beef,
+        };
         let ext = with_stats_ref(&base.ext, Some(&r)).unwrap();
         let m = Manifest::decode(&base.clone().with_ext(ext.clone()).encode()).unwrap();
         assert_eq!(stats_ref(&m).unwrap(), Some(r));
         assert_eq!(segments(&m).unwrap(), recs, "the segment records are kept");
-        assert_eq!(ext_records(&m.ext).unwrap()[0], (0x7ff0u16, &b"other"[..]), "other tags keep their order");
+        assert_eq!(
+            ext_records(&m.ext).unwrap()[0],
+            (0x7ff0u16, &b"other"[..]),
+            "other tags keep their order"
+        );
         let r2 = RunRef { gen: 13, ..r };
         let replaced = with_stats_ref(&ext, Some(&r2)).unwrap();
-        assert_eq!(stats_ref(&base.clone().with_ext(replaced)).unwrap(), Some(r2));
-        assert_eq!(with_stats_ref(&ext, None).unwrap(), base.ext, "removing it restores the block");
+        assert_eq!(
+            stats_ref(&base.clone().with_ext(replaced)).unwrap(),
+            Some(r2)
+        );
+        assert_eq!(
+            with_stats_ref(&ext, None).unwrap(),
+            base.ext,
+            "removing it restores the block"
+        );
         let mut two = ext.clone();
         let mut b = Vec::new();
         r.encode_into(&mut b);
         put_ext_record(&mut two, EXT_STATS, &b);
-        assert!(stats_ref(&base.clone().with_ext(two)).is_err(), "two stats records");
+        assert!(
+            stats_ref(&base.clone().with_ext(two)).is_err(),
+            "two stats records"
+        );
         let mut short = base.ext.clone();
         put_ext_record(&mut short, EXT_STATS, &b[..31]);
-        assert!(stats_ref(&base.clone().with_ext(short)).is_err(), "a short stats record");
-        assert!(with_stats_ref(&[1, 0, 9, 0, 0, 0], None).is_err(), "a malformed block");
+        assert!(
+            stats_ref(&base.clone().with_ext(short)).is_err(),
+            "a short stats record"
+        );
+        assert!(
+            with_stats_ref(&[1, 0, 9, 0, 0, 0], None).is_err(),
+            "a malformed block"
+        );
     }
 }
 
@@ -1579,25 +1950,65 @@ mod tombs_tests {
     #[test]
     fn tombs_default_round_trip_keep_other_records_and_refuse_malformed() {
         let plain = crate::tests::golden_sample_manifest();
-        assert_eq!(tombs(&plain.ext).unwrap(), TombsRecord::default(), "no record: slot 0 current, none retired");
+        assert_eq!(
+            tombs(&plain.ext).unwrap(),
+            TombsRecord::default(),
+            "no record: slot 0 current, none retired"
+        );
         let mut ext = Vec::new();
-        encode_segments(&[SegmentRecord { slot: 0, part_no: 2, relid: 16400, state: SegState::Sealed, fxid: 7 }], &mut ext);
+        encode_segments(
+            &[SegmentRecord {
+                slot: 0,
+                part_no: 2,
+                relid: 16400,
+                state: SegState::Sealed,
+                fxid: 7,
+            }],
+            &mut ext,
+        );
         encode_ranges(&[(3, vec![(291, 582)])], &mut ext);
         let ext = with_next_row_id(&ext, 582).unwrap();
         let states = [
             TombsRecord { cur: 1, ret: None },
-            TombsRecord { cur: 1, ret: Some(RetiredTombs { slot: 0, folded: 0 }) },
-            TombsRecord { cur: 0, ret: Some(RetiredTombs { slot: 1, folded: 0x1_0000_0203 }) },
+            TombsRecord {
+                cur: 1,
+                ret: Some(RetiredTombs { slot: 0, folded: 0 }),
+            },
+            TombsRecord {
+                cur: 0,
+                ret: Some(RetiredTombs {
+                    slot: 1,
+                    folded: 0x1_0000_0203,
+                }),
+            },
         ];
         for t in states {
             let with = with_tombs(&ext, &t).unwrap();
             let m = Manifest::decode(&plain.clone().with_ext(with.clone()).encode()).unwrap();
             assert_eq!(tombs(&m.ext).unwrap(), t);
-            assert_eq!(ext_records(&m.ext).unwrap().iter().map(|r| r.0).collect::<Vec<_>>(), vec![EXT_SEGMENTS, EXT_RANGES, EXT_ROWID, EXT_TOMBS]);
-            assert_eq!(range_entries(&m).unwrap(), vec![(3, vec![(291, 582)])], "ranges ride along");
+            assert_eq!(
+                ext_records(&m.ext)
+                    .unwrap()
+                    .iter()
+                    .map(|r| r.0)
+                    .collect::<Vec<_>>(),
+                vec![EXT_SEGMENTS, EXT_RANGES, EXT_ROWID, EXT_TOMBS]
+            );
+            assert_eq!(
+                range_entries(&m).unwrap(),
+                vec![(3, vec![(291, 582)])],
+                "ranges ride along"
+            );
             let again = with_tombs(&with, &TombsRecord { cur: 0, ret: None }).unwrap();
-            assert_eq!(again, ext, "the default drops the record; the others stay in order");
-            assert_eq!(with_ranges(&with, &[]).unwrap().len(), with.len() - ext_records(&ext).unwrap()[1].1.len() - 6, "a ranges edit keeps it");
+            assert_eq!(
+                again, ext,
+                "the default drops the record; the others stay in order"
+            );
+            assert_eq!(
+                with_ranges(&with, &[]).unwrap().len(),
+                with.len() - ext_records(&ext).unwrap()[1].1.len() - 6,
+                "a ranges edit keeps it"
+            );
             assert_eq!(tombs(&with_ranges(&with, &[]).unwrap()).unwrap(), t);
         }
         let rec = |cur: u8, ret: u8, pad: u8, folded: u64| {
@@ -1607,7 +2018,13 @@ mod tombs_tests {
             put_ext_record(&mut e, EXT_TOMBS, &b);
             e
         };
-        assert_eq!(tombs(&rec(1, 0, 0, 9)).unwrap(), TombsRecord { cur: 1, ret: Some(RetiredTombs { slot: 0, folded: 9 }) });
+        assert_eq!(
+            tombs(&rec(1, 0, 0, 9)).unwrap(),
+            TombsRecord {
+                cur: 1,
+                ret: Some(RetiredTombs { slot: 0, folded: 9 })
+            }
+        );
         for (why, e) in [
             ("a current slot past the two", rec(2, 0xff, 0, 0)),
             ("a retired slot past the two", rec(0, 2, 0, 0)),
@@ -1664,38 +2081,77 @@ mod rowid_tests {
     fn the_ix0_tags_flag_and_unchanged_record_bytes_are_pinned() {
         assert_eq!((EXT_RANGES, EXT_RESERVED_8, EXT_ROWID), (7, 8, 9));
         assert_eq!(MANIFESTF_ROWIDS, 8);
-        assert_eq!((PART_RECORD_LEN, SEGMENT_RECORD_LEN), (64, 20), "the layout an older binary reads");
+        assert_eq!(
+            (PART_RECORD_LEN, SEGMENT_RECORD_LEN),
+            (64, 20),
+            "the layout an older binary reads"
+        );
         let plain = crate::tests::golden_sample_manifest();
         assert_eq!(plain.header.flags & MANIFESTF_ROWIDS, 0);
         let a = align_up(100_000);
         let m = with(&[(1, vec![(291, 291 + a)])], 1 << 20, &[]);
-        assert_eq!(m.header.flags & (MANIFESTF_ROWIDS | MANIFESTF_EXT), MANIFESTF_ROWIDS | MANIFESTF_EXT, "set by with_ext");
+        assert_eq!(
+            m.header.flags & (MANIFESTF_ROWIDS | MANIFESTF_EXT),
+            MANIFESTF_ROWIDS | MANIFESTF_EXT,
+            "set by with_ext"
+        );
         let enc = m.encode();
-        assert_eq!(&enc[MANIFEST_HEADER_LEN..MANIFEST_HEADER_LEN + 2 * PART_RECORD_LEN], &plain.encode()[MANIFEST_HEADER_LEN..MANIFEST_HEADER_LEN + 2 * PART_RECORD_LEN], "part records unchanged");
+        assert_eq!(
+            &enc[MANIFEST_HEADER_LEN..MANIFEST_HEADER_LEN + 2 * PART_RECORD_LEN],
+            &plain.encode()[MANIFEST_HEADER_LEN..MANIFEST_HEADER_LEN + 2 * PART_RECORD_LEN],
+            "part records unchanged"
+        );
         let back = Manifest::decode(&enc).unwrap();
         assert_eq!(back, m);
         assert_eq!(next_row_id(&back).unwrap(), 1 << 20);
         let recs = ext_records(&back.ext).unwrap();
-        assert_eq!(recs.iter().map(|r| r.0).collect::<Vec<_>>(), vec![EXT_RANGES, EXT_ROWID]);
-        assert_eq!(recs[1].1, &(1u64 << 20).to_le_bytes()[..], "EXT_ROWID is a bare u64");
-        assert_eq!(m.with_ext(Vec::new()).header.flags & MANIFESTF_ROWIDS, 0, "cleared with the records");
+        assert_eq!(
+            recs.iter().map(|r| r.0).collect::<Vec<_>>(),
+            vec![EXT_RANGES, EXT_ROWID]
+        );
+        assert_eq!(
+            recs[1].1,
+            &(1u64 << 20).to_le_bytes()[..],
+            "EXT_ROWID is a bare u64"
+        );
+        assert_eq!(
+            m.with_ext(Vec::new()).header.flags & MANIFESTF_ROWIDS,
+            0,
+            "cleared with the records"
+        );
         let floor_only = with(&[], 291, &[]);
-        assert_ne!(floor_only.header.flags & MANIFESTF_ROWIDS, 0, "EXT_ROWID alone names IDs");
+        assert_ne!(
+            floor_only.header.flags & MANIFESTF_ROWIDS,
+            0,
+            "EXT_ROWID alone names IDs"
+        );
     }
 
     #[test]
     fn the_rowids_flag_matches_the_records() {
         let m = with(&[(3, vec![(291, 582)])], 582, &[]);
-        assert!(Manifest::decode(&with_flags(&m, m.header.flags & !MANIFESTF_ROWIDS)).is_err(), "records without the flag");
+        assert!(
+            Manifest::decode(&with_flags(&m, m.header.flags & !MANIFESTF_ROWIDS)).is_err(),
+            "records without the flag"
+        );
         let plain = with(&[], 0, b"");
         let mut ext = Vec::new();
         put_ext_record(&mut ext, 0x7ff0, b"x");
         let other = plain.with_ext(ext);
         assert!(Manifest::decode(&other.encode()).is_ok());
-        assert!(Manifest::decode(&with_flags(&other, other.header.flags | MANIFESTF_ROWIDS)).is_err(), "the flag without records");
+        assert!(
+            Manifest::decode(&with_flags(&other, other.header.flags | MANIFESTF_ROWIDS)).is_err(),
+            "the flag without records"
+        );
         let bare = crate::tests::golden_sample_manifest();
-        assert!(Manifest::decode(&with_flags(&bare, MANIFESTF_ROWIDS)).is_err(), "the flag without an extension block");
-        assert!(Manifest::decode(&with_flags(&bare, 16)).is_err(), "an unknown flag is still refused");
+        assert!(
+            Manifest::decode(&with_flags(&bare, MANIFESTF_ROWIDS)).is_err(),
+            "the flag without an extension block"
+        );
+        assert!(
+            Manifest::decode(&with_flags(&bare, 16)).is_err(),
+            "an unknown flag is still refused"
+        );
     }
 
     #[test]
@@ -1706,8 +2162,18 @@ mod rowid_tests {
         put_ext_record(&mut ext, 0x7ff0, b"kept");
         let one = with_next_row_id(&ext, 582).unwrap();
         let two = with_next_row_id(&one, 873).unwrap();
-        assert_eq!(ext_records(&two).unwrap(), vec![(0x7ff0u16, &b"kept"[..]), (EXT_ROWID, &873u64.to_le_bytes()[..])]);
-        assert_eq!(with_next_row_id(&two, 0).unwrap(), ext, "0 removes the record");
+        assert_eq!(
+            ext_records(&two).unwrap(),
+            vec![
+                (0x7ff0u16, &b"kept"[..]),
+                (EXT_ROWID, &873u64.to_le_bytes()[..])
+            ]
+        );
+        assert_eq!(
+            with_next_row_id(&two, 0).unwrap(),
+            ext,
+            "0 removes the record"
+        );
         let m = |ext: Vec<u8>| crate::tests::golden_sample_manifest().with_ext(ext);
         assert_eq!(next_row_id(&m(two.clone())).unwrap(), 873);
         let mut dup = two.clone();
@@ -1718,7 +2184,11 @@ mod rowid_tests {
         assert!(next_row_id(&m(short)).is_err(), "a short record");
         let past = with_next_row_id(&[], ROWID_LIMIT + 1).unwrap();
         assert!(next_row_id(&m(past)).is_err(), "past the ID space");
-        assert_eq!(next_row_id(&m(with_next_row_id(&[], ROWID_LIMIT).unwrap())).unwrap(), ROWID_LIMIT, "a full table");
+        assert_eq!(
+            next_row_id(&m(with_next_row_id(&[], ROWID_LIMIT).unwrap())).unwrap(),
+            ROWID_LIMIT,
+            "a full table"
+        );
     }
 
     #[test]
@@ -1726,39 +2196,77 @@ mod rowid_tests {
         let a = align_up(100_000);
         assert!(decodes(&with(&[], 0, &[])), "no IDs at all");
         let (m20, m21) = (align_up(1 << 20), align_up(1 << 21));
-        let table = vec![(1u32, vec![(291, 291 + a)]), (3, vec![(291 + a, 291 + a + 582), (m20, m20 + 291 * 3)])];
+        let table = vec![
+            (1u32, vec![(291, 291 + a)]),
+            (3, vec![(291 + a, 291 + a + 582), (m20, m20 + 291 * 3)]),
+        ];
         let m = with(&table, 1 << 21, &[]);
         let back = Manifest::decode(&m.encode()).unwrap();
         assert_eq!(range_entries(&back).unwrap(), table);
         assert_eq!(ranges(&back).unwrap(), table);
         let one = with(&table[1..], 1 << 21, &[]);
-        assert_eq!(ranges(&one).unwrap(), vec![(1, vec![]), table[1].clone()], "a part without an entry holds no ID");
+        assert_eq!(
+            ranges(&one).unwrap(),
+            vec![(1, vec![]), table[1].clone()],
+            "a part without an entry holds no ID"
+        );
         let cleared = with_ranges(&back.ext, &[]).unwrap();
         assert!(!has_tag(&cleared, EXT_RANGES));
         let again = with_ranges(&back.ext, &[(1, vec![(1 << 21, (1 << 21) + 291)])]).unwrap();
-        assert_eq!(ext_records(&again).unwrap().iter().filter(|r| r.0 == EXT_RANGES).count(), 1, "replaced, not appended");
+        assert_eq!(
+            ext_records(&again)
+                .unwrap()
+                .iter()
+                .filter(|r| r.0 == EXT_RANGES)
+                .count(),
+            1,
+            "replaced, not appended"
+        );
         let bad: [(&str, Vec<(u32, IdRanges)>, u64); 9] = [
-            ("two parts own one ID", vec![(1, vec![(291, 291 + a)]), (3, vec![(582, 873)])], 1 << 21),
+            (
+                "two parts own one ID",
+                vec![(1, vec![(291, 291 + a)]), (3, vec![(582, 873)])],
+                1 << 21,
+            ),
             ("past the floor", vec![(3, vec![(m21, m21 + 291)])], 1 << 21),
             ("without a floor", vec![(3, vec![(291, 582)])], 0),
             ("an unaligned range", vec![(3, vec![(292, 582)])], 1 << 21),
             ("below the first ID", vec![(3, vec![(0, 291)])], 1 << 21),
-            ("an entry naming no part", vec![(2, vec![(291, 582)])], 1 << 21),
+            (
+                "an entry naming no part",
+                vec![(2, vec![(291, 582)])],
+                1 << 21,
+            ),
             ("an empty list", vec![(3, vec![])], 1 << 21),
             ("an empty range", vec![(3, vec![(582, 582)])], 1 << 21),
-            ("unsorted ranges", vec![(3, vec![(m20, m20 + 291), (582, 873)])], 1 << 21),
+            (
+                "unsorted ranges",
+                vec![(3, vec![(m20, m20 + 291), (582, 873)])],
+                1 << 21,
+            ),
         ];
         for (why, t, next) in bad {
             assert!(!decodes(&with(&t, next, &[])), "{why}");
         }
-        assert!(!decodes(&with(&[(3, vec![(291, 582)]), (1, vec![(582, 873)])], 1 << 21, &[])), "entries out of part_no order");
+        assert!(
+            !decodes(&with(
+                &[(3, vec![(291, 582)]), (1, vec![(582, 873)])],
+                1 << 21,
+                &[]
+            )),
+            "entries out of part_no order"
+        );
         let mut two = Vec::new();
         encode_ranges(&table, &mut two);
         assert!(!decodes(&with(&table, 1 << 21, &two)), "two records");
         let mut trailing = Vec::new();
         let mut body = Vec::new();
         encode_ranges(&table, &mut body);
-        put_ext_record(&mut trailing, EXT_RANGES, &[ext_records(&body).unwrap()[0].1, &[0][..]].concat());
+        put_ext_record(
+            &mut trailing,
+            EXT_RANGES,
+            &[ext_records(&body).unwrap()[0].1, &[0][..]].concat(),
+        );
         assert!(!decodes(&with(&[], 1 << 21, &trailing)), "trailing bytes");
     }
 
@@ -1776,19 +2284,45 @@ mod rowid_tests {
         let m = base.clone().with_ext(ext);
         let m = Manifest { parts, ..m };
         let back = Manifest::decode(&m.encode()).unwrap();
-        assert_eq!(range_entries(&back).unwrap(), vec![(3, vec![(582, 873)]), (5, vec![(291, 582), (873, 1164)])]);
-        assert_eq!(next_row_id(&back).unwrap(), 1164, "the floor rises to the highest end");
+        assert_eq!(
+            range_entries(&back).unwrap(),
+            vec![(3, vec![(582, 873)]), (5, vec![(291, 582), (873, 1164)])]
+        );
+        assert_eq!(
+            next_row_id(&back).unwrap(),
+            1164,
+            "the floor rises to the highest end"
+        );
         let kept = rebuild_ranges(&back.ext, &back.parts, &[(3, vec![(582, 873)])]).unwrap();
-        assert_eq!(ext_records(&kept).unwrap().iter().filter(|r| r.0 == EXT_RANGES).count(), 1, "replaced, not appended");
+        assert_eq!(
+            ext_records(&kept)
+                .unwrap()
+                .iter()
+                .filter(|r| r.0 == EXT_RANGES)
+                .count(),
+            1,
+            "replaced, not appended"
+        );
         let high = with(&[(3, vec![(582, 873)])], 1 << 21, &[]);
         let same = rebuild_ranges(&high.ext, &high.parts, &[]).unwrap();
-        assert_eq!(next_row_id(&high.clone().with_ext(same)).unwrap(), 1 << 21, "the floor never falls");
-        assert!(rebuild_ranges(&base.ext, &base.parts, &[(2, vec![(1164, 1455)])]).is_err(), "an install the generation does not list");
+        assert_eq!(
+            next_row_id(&high.clone().with_ext(same)).unwrap(),
+            1 << 21,
+            "the floor never falls"
+        );
+        assert!(
+            rebuild_ranges(&base.ext, &base.parts, &[(2, vec![(1164, 1455)])]).is_err(),
+            "an install the generation does not list"
+        );
         let mut extra = Vec::new();
         put_ext_record(&mut extra, 0x7ff0, b"later");
         let other = with(&[(1, vec![(291, 582)])], 582, &extra);
         let kept = rebuild_ranges(&other.ext, &other.parts, &[]).unwrap();
-        assert_eq!(ext_records(&kept).unwrap()[0], (0x7ff0, &b"later"[..]), "an unknown record keeps its place");
+        assert_eq!(
+            ext_records(&kept).unwrap()[0],
+            (0x7ff0, &b"later"[..]),
+            "an unknown record keeps its place"
+        );
     }
 
     /// Tags 2 (K1's births) and 8 (reserved) stay meaningless: no live tag takes either number, and a manifest that
@@ -1796,12 +2330,28 @@ mod rowid_tests {
     #[test]
     fn retired_tags_stay_retired() {
         assert_eq!((EXT_RETIRED_BIRTHS, EXT_RESERVED_8), (2, 8));
-        let live = [EXT_SEGMENTS, EXT_STATS, EXT_TOMBS, EXT_UNDER, EXT_SCHEMAS, EXT_RANGES, EXT_ROWID];
+        let live = [
+            EXT_SEGMENTS,
+            EXT_STATS,
+            EXT_TOMBS,
+            EXT_UNDER,
+            EXT_SCHEMAS,
+            EXT_RANGES,
+            EXT_ROWID,
+        ];
         assert_eq!(live, [1, 3, 4, 5, 6, 7, 9]);
         let mut extra = Vec::new();
-        put_ext_record(&mut extra, EXT_RETIRED_BIRTHS, &[1, 0, 0, 0, 3, 0, 0, 0, 1, 0, 0, 0, 9, 0, 0, 0]);
+        put_ext_record(
+            &mut extra,
+            EXT_RETIRED_BIRTHS,
+            &[1, 0, 0, 0, 3, 0, 0, 0, 1, 0, 0, 0, 9, 0, 0, 0],
+        );
         let m = with(&[(1, vec![(291, 582)])], 582, &extra);
-        assert_eq!(ranges(&Manifest::decode(&m.encode()).unwrap()).unwrap(), vec![(1, vec![(291, 582)]), (3, vec![])], "a retired tag homes nothing");
+        assert_eq!(
+            ranges(&Manifest::decode(&m.encode()).unwrap()).unwrap(),
+            vec![(1, vec![(291, 582)]), (3, vec![])],
+            "a retired tag homes nothing"
+        );
     }
 
     #[test]
@@ -1823,16 +2373,24 @@ mod copypath_tests {
 
     /// IX0 L2+L3's (20d74b8e59d) row-ID readers and rebuild, verbatim.
     mod oracle {
-        use super::super::{next_row_id, single_record, with_next_row_id, with_ranges, IdRanges, Manifest, PartRecord, EXT_RANGES, EXT_ROWID};
+        use super::super::{
+            next_row_id, single_record, with_next_row_id, with_ranges, IdRanges, Manifest,
+            PartRecord, EXT_RANGES, EXT_ROWID,
+        };
         use crate::rowid::{IDS_PER_BLOCK, ROWID_FIRST, ROWID_LIMIT};
         use crate::wire::Cur;
         use crate::{FormatError, FormatResult};
 
         pub fn range_entries(m: &Manifest) -> FormatResult<Vec<(u32, IdRanges)>> {
-            range_entries_in(&m.ext, &|no| m.parts.binary_search_by_key(&no, |p| p.part_no).is_ok())
+            range_entries_in(&m.ext, &|no| {
+                m.parts.binary_search_by_key(&no, |p| p.part_no).is_ok()
+            })
         }
 
-        pub fn range_entries_in(ext: &[u8], known: &dyn Fn(u32) -> bool) -> FormatResult<Vec<(u32, IdRanges)>> {
+        pub fn range_entries_in(
+            ext: &[u8],
+            known: &dyn Fn(u32) -> bool,
+        ) -> FormatResult<Vec<(u32, IdRanges)>> {
             const AT: &str = "Manifest ranges";
             let corrupt = || FormatError::Corrupt { at: AT };
             let Some(bytes) = single_record(ext, EXT_RANGES, AT)? else {
@@ -1847,8 +2405,11 @@ mod copypath_tests {
                 if k == 0 || k > c.remaining() / 16 {
                     return Err(corrupt());
                 }
-                let ranges = (0..k).map(|_| Ok((c.u64(AT)?, c.u64(AT)?))).collect::<FormatResult<IdRanges>>()?;
-                let shape = ranges.iter().all(|&(lo, hi)| lo < hi && hi <= ROWID_LIMIT) && ranges.windows(2).all(|w| w[0].1 <= w[1].0);
+                let ranges = (0..k)
+                    .map(|_| Ok((c.u64(AT)?, c.u64(AT)?)))
+                    .collect::<FormatResult<IdRanges>>()?;
+                let shape = ranges.iter().all(|&(lo, hi)| lo < hi && hi <= ROWID_LIMIT)
+                    && ranges.windows(2).all(|w| w[0].1 <= w[1].0);
                 if !shape || out.last().is_some_and(|(p, _)| *p >= part_no) || !known(part_no) {
                     return Err(corrupt());
                 }
@@ -1871,16 +2432,37 @@ mod copypath_tests {
                 .collect())
         }
 
-        pub fn rebuild_ranges(ext: &[u8], parts: &[PartRecord], add: &[(u32, IdRanges)]) -> FormatResult<Vec<u8>> {
+        pub fn rebuild_ranges(
+            ext: &[u8],
+            parts: &[PartRecord],
+            add: &[(u32, IdRanges)],
+        ) -> FormatResult<Vec<u8>> {
             let present = |no: u32| parts.binary_search_by_key(&no, |p| p.part_no).is_ok();
             if add.iter().any(|(no, _)| !present(*no)) {
-                return Err(FormatError::EncodeContract { detail: "row-ID ranges for a part the generation does not list" });
+                return Err(FormatError::EncodeContract {
+                    detail: "row-ID ranges for a part the generation does not list",
+                });
             }
-            let mut table: Vec<(u32, IdRanges)> = range_entries_in(ext, &|_| true)?.into_iter().filter(|(no, _)| present(*no) && !add.iter().any(|a| a.0 == *no)).collect();
+            let mut table: Vec<(u32, IdRanges)> = range_entries_in(ext, &|_| true)?
+                .into_iter()
+                .filter(|(no, _)| present(*no) && !add.iter().any(|a| a.0 == *no))
+                .collect();
             table.extend(add.iter().filter(|(_, r)| !r.is_empty()).cloned());
             table.sort_unstable_by_key(|e| e.0);
-            let floor = single_record(ext, EXT_ROWID, "Manifest next_row_id")?.map_or(Ok(0), |b| b.try_into().map(u64::from_le_bytes).map_err(|_| FormatError::Corrupt { at: "Manifest next_row_id" }))?;
-            let top = table.iter().flat_map(|(_, r)| r.last()).map(|r| r.1).max().unwrap_or(0);
+            let floor =
+                single_record(ext, EXT_ROWID, "Manifest next_row_id")?.map_or(Ok(0), |b| {
+                    b.try_into()
+                        .map(u64::from_le_bytes)
+                        .map_err(|_| FormatError::Corrupt {
+                            at: "Manifest next_row_id",
+                        })
+                })?;
+            let top = table
+                .iter()
+                .flat_map(|(_, r)| r.last())
+                .map(|r| r.1)
+                .max()
+                .unwrap_or(0);
             with_next_row_id(&with_ranges(ext, &table)?, floor.max(top))
         }
 
@@ -1891,8 +2473,14 @@ mod copypath_tests {
                 all.extend(r);
             }
             all.sort_unstable();
-            if all.iter().any(|&(lo, hi)| lo < ROWID_FIRST || lo % IDS_PER_BLOCK != 0 || hi > next) || all.windows(2).any(|w| w[0].1 > w[1].0) {
-                return Err(FormatError::Corrupt { at: "Manifest row-ID ranges: unaligned, past the floor or an ID in two homes" });
+            if all
+                .iter()
+                .any(|&(lo, hi)| lo < ROWID_FIRST || lo % IDS_PER_BLOCK != 0 || hi > next)
+                || all.windows(2).any(|w| w[0].1 > w[1].0)
+            {
+                return Err(FormatError::Corrupt {
+                    at: "Manifest row-ID ranges: unaligned, past the floor or an ID in two homes",
+                });
             }
             Ok(())
         }
@@ -1937,7 +2525,9 @@ mod copypath_tests {
 
     fn parts_of(nos: &[u32]) -> Vec<PartRecord> {
         let tmpl = crate::tests::golden_sample_manifest().parts[0];
-        nos.iter().map(|&part_no| PartRecord { part_no, ..tmpl }).collect()
+        nos.iter()
+            .map(|&part_no| PartRecord { part_no, ..tmpl })
+            .collect()
     }
 
     /// A ranges table over the parts `nos` (ascending): most parts one entry of 1-3 aligned, increasing ranges, with
@@ -1966,7 +2556,14 @@ mod copypath_tests {
             table.push((nos[i], rs));
         }
         table.sort_by_key(|e| e.0);
-        (table, if r.odds(70) { next } else { next + IDS_PER_BLOCK * r.below(10) })
+        (
+            table,
+            if r.odds(70) {
+                next
+            } else {
+                next + IDS_PER_BLOCK * r.below(10)
+            },
+        )
     }
 
     /// `ext` with its `EXT_RANGES` record's body replaced by `body` (other records kept; a block that does not read is
@@ -1976,12 +2573,17 @@ mod copypath_tests {
     }
 
     fn ranges_body(ext: &[u8]) -> Option<Vec<u8>> {
-        single_record(ext, EXT_RANGES, "test").ok().flatten().map(<[u8]>::to_vec)
+        single_record(ext, EXT_RANGES, "test")
+            .ok()
+            .flatten()
+            .map(<[u8]>::to_vec)
     }
 
     /// The index of a random entry of `table` with a range, if any.
     fn some_entry(r: &mut Rng, table: &[(u32, IdRanges)]) -> Option<usize> {
-        let with: Vec<usize> = (0..table.len()).filter(|&i| !table[i].1.is_empty()).collect();
+        let with: Vec<usize> = (0..table.len())
+            .filter(|&i| !table[i].1.is_empty())
+            .collect();
         (!with.is_empty()).then(|| with[r.below(with.len() as u64) as usize])
     }
 
@@ -2098,8 +2700,13 @@ mod copypath_tests {
                 }
                 (17, Some(b)) => put_ext_record(&mut ext, EXT_RANGES, &b),
                 (18, _) => put_ext_record(&mut ext, EXT_ROWID, &floor.to_le_bytes()),
-                (19, _) => ext = with_record(&ext, EXT_ROWID, Some(&[1u8, 2, 3, 4][..])).unwrap_or_else(|_| ext.clone()),
-                (20, _) => ext = with_next_row_id(&ext, ROWID_LIMIT + 1).unwrap_or_else(|_| ext.clone()),
+                (19, _) => {
+                    ext = with_record(&ext, EXT_ROWID, Some(&[1u8, 2, 3, 4][..]))
+                        .unwrap_or_else(|_| ext.clone())
+                }
+                (20, _) => {
+                    ext = with_next_row_id(&ext, ROWID_LIMIT + 1).unwrap_or_else(|_| ext.clone())
+                }
                 (21, _) if !ext.is_empty() => {
                     let cut = 1 + r.below(ext.len().min(5) as u64) as usize;
                     ext.truncate(ext.len() - cut);
@@ -2122,21 +2729,35 @@ mod copypath_tests {
             let want = oracle::check_row_ids(&m);
             assert_eq!(check_row_ids(&m), want, "case {case}: check_row_ids");
             assert_eq!(ranges(&m), oracle::ranges(&m), "case {case}: ranges");
-            assert_eq!(range_entries(&m), oracle::range_entries(&m), "case {case}: range_entries");
+            assert_eq!(
+                range_entries(&m),
+                oracle::range_entries(&m),
+                "case {case}: range_entries"
+            );
             match (flat_ranges(&m), oracle::ranges(&m)) {
                 (Ok(f), Ok(t)) => {
                     assert_eq!(f.at.len(), m.parts.len() + 1, "case {case}");
-                    assert!((0..m.parts.len()).all(|i| f.of(i) == &t[i].1[..]), "case {case}: flat_ranges");
+                    assert!(
+                        (0..m.parts.len()).all(|i| f.of(i) == &t[i].1[..]),
+                        "case {case}: flat_ranges"
+                    );
                 }
                 (f, t) => assert_eq!(f.err(), t.err(), "case {case}: flat_ranges"),
             }
-            assert_eq!(Manifest::decode(&m.encode()).err(), want.err(), "case {case}: decode");
+            assert_eq!(
+                Manifest::decode(&m.encode()).err(),
+                want.err(),
+                "case {case}: decode"
+            );
             match want {
                 Ok(()) => ok += 1,
                 Err(_) => refused += 1,
             }
         }
-        assert!(ok > 4_000 && refused > 4_000, "both kinds covered: {ok} valid, {refused} refused");
+        assert!(
+            ok > 4_000 && refused > 4_000,
+            "both kinds covered: {ok} valid, {refused} refused"
+        );
     }
 
     /// What the model saw: steps by kind.
@@ -2188,8 +2809,14 @@ mod copypath_tests {
         put_ext_record(&mut ext, 0x7ff0, b"other");
         let tmpl = crate::tests::golden_sample_manifest().parts[0];
         for step in 0..steps {
-            let table = oracle::range_entries_in(&ext, &|_| true).map_err(|e| format!("step {step}: the table does not read: {e:?}"))?;
-            let ids_of = |no: u32| table.iter().find(|e| e.0 == no).map_or_else(Vec::new, |e| e.1.clone());
+            let table = oracle::range_entries_in(&ext, &|_| true)
+                .map_err(|e| format!("step {step}: the table does not read: {e:?}"))?;
+            let ids_of = |no: u32| {
+                table
+                    .iter()
+                    .find(|e| e.0 == no)
+                    .map_or_else(Vec::new, |e| e.1.clone())
+            };
             let mut add: Vec<(u32, IdRanges)> = Vec::new();
             let mut retire: Vec<u32> = Vec::new();
             let mut install: Vec<u32> = Vec::new();
@@ -2215,7 +2842,8 @@ mod copypath_tests {
                         }
                     }
                     if r.odds(10) {
-                        let mut e = with_record(&ext, 0x7ff1, None).map_err(|e| format!("{e:?}"))?;
+                        let mut e =
+                            with_record(&ext, 0x7ff1, None).map_err(|e| format!("{e:?}"))?;
                         put_ext_record(&mut e, 0x7ff1, &[r.next() as u8; 3]);
                         ext = e;
                     }
@@ -2232,7 +2860,9 @@ mod copypath_tests {
                     }
                 }
                 70..=84 if parts.len() >= 2 => {
-                    let mut inputs: Vec<u32> = (0..2 + r.below(3)).map(|_| parts[r.below(parts.len() as u64) as usize].part_no).collect();
+                    let mut inputs: Vec<u32> = (0..2 + r.below(3))
+                        .map(|_| parts[r.below(parts.len() as u64) as usize].part_no)
+                        .collect();
                     inputs.sort_unstable();
                     inputs.dedup();
                     let ids = union(&inputs.iter().map(|&no| ids_of(no)).collect::<Vec<_>>());
@@ -2257,7 +2887,11 @@ mod copypath_tests {
                 _ => {}
             }
             parts.retain(|p| !retire.contains(&p.part_no));
-            parts.extend(install.iter().map(|&part_no| PartRecord { part_no, ..tmpl }));
+            parts.extend(
+                install
+                    .iter()
+                    .map(|&part_no| PartRecord { part_no, ..tmpl }),
+            );
             parts.sort_by_key(|p| p.part_no);
             let appends = APPENDS.with(std::cell::Cell::get);
             let got = rebuild_ranges(&ext, &parts, &add);
@@ -2271,14 +2905,17 @@ mod copypath_tests {
             if tail && retire.is_empty() {
                 stats.tail_installs += 1;
                 if !appended {
-                    return Err(format!("step {step}: a tail install (add {add:?}) did not append"));
+                    return Err(format!(
+                        "step {step}: a tail install (add {add:?}) did not append"
+                    ));
                 }
             } else {
                 stats.other += 1;
             }
             if step % 25 == 0 {
                 let m = manifest(parts.clone(), next_part_no.max(1), ext.clone());
-                Manifest::decode(&m.encode()).map_err(|e| format!("step {step}: the generation does not decode: {e:?}"))?;
+                Manifest::decode(&m.encode())
+                    .map_err(|e| format!("step {step}: the generation does not decode: {e:?}"))?;
             }
         }
         Ok(stats)
@@ -2289,11 +2926,19 @@ mod copypath_tests {
     /// the append: this test then fails (its born-red run).
     #[test]
     fn rebuild_ranges_matches_the_oracle_over_a_random_history() {
-        let knob = std::env::var("IXCOPYPATH_BREAK_APPEND").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+        let knob = std::env::var("IXCOPYPATH_BREAK_APPEND")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
         APPEND_KNOB.with(|k| k.set(knob));
         for seed in [0x5eed_0001, 0x5eed_0002] {
             let stats = model(seed, 12_000).unwrap_or_else(|e| panic!("seed {seed:#x}: {e}"));
-            assert!(stats.tail_installs > 3_000 && stats.other > 3_000 && stats.appended >= stats.tail_installs, "{stats:?}");
+            assert!(
+                stats.tail_installs > 3_000
+                    && stats.other > 3_000
+                    && stats.appended >= stats.tail_installs,
+                "{stats:?}"
+            );
         }
     }
 

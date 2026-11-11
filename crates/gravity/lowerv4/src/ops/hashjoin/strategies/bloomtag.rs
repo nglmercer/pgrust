@@ -72,9 +72,9 @@ mod tests {
         let d = buf.as_mut_ptr() as *mut u8;
         // SAFETY: `buf` is the region (4096 bytes).
         unsafe {
-            (wr::<u8>(d, PHASE, 1), wr::<u8>(d, WORDS, 1), wr::<u32>(d, REC, 16), wr::<u8>(d, ALLOW, allow), wr::<u8>(d, FLAGS, F_RANGE));
-            (wr::<u64>(d, N, keys.len() as u64), wr::<u64>(d, TOP, 4096), wr::<u64>(d, END, 4096));
-            (wr::<i64>(d, LO, *keys.iter().min().unwrap()), wr::<i64>(d, HI, *keys.iter().max().unwrap()));
+            wr::<u8>(d, PHASE, 1); wr::<u8>(d, WORDS, 1); wr::<u32>(d, REC, 16); wr::<u8>(d, ALLOW, allow); wr::<u8>(d, FLAGS, F_RANGE);
+            wr::<u64>(d, N, keys.len() as u64); wr::<u64>(d, TOP, 4096); wr::<u64>(d, END, 4096);
+            wr::<i64>(d, LO, *keys.iter().min().unwrap()); wr::<i64>(d, HI, *keys.iter().max().unwrap());
             keys.iter().enumerate().for_each(|(i, &k)| wr::<i64>(d, HDR + 16 * i, k));
         }
         buf
@@ -119,9 +119,9 @@ mod tests {
         let d = w.as_mut_ptr() as *mut u8;
         // SAFETY: `w` is the region (LEN bytes) and outlives every view; its records and directory need no grow.
         unsafe {
-            (wr::<u8>(d, PHASE, 1), wr::<u8>(d, WORDS, 1), wr::<u32>(d, REC, 16), wr::<u8>(d, ALLOW, allow), wr::<u8>(d, FLAGS, F_RANGE));
-            (wr::<u64>(d, N, keys.len() as u64), wr::<u64>(d, TOP, LEN as u64), wr::<u64>(d, END, LEN as u64));
-            (wr::<i64>(d, LO, *keys.iter().min().unwrap()), wr::<i64>(d, HI, *keys.iter().max().unwrap()));
+            wr::<u8>(d, PHASE, 1); wr::<u8>(d, WORDS, 1); wr::<u32>(d, REC, 16); wr::<u8>(d, ALLOW, allow); wr::<u8>(d, FLAGS, F_RANGE);
+            wr::<u64>(d, N, keys.len() as u64); wr::<u64>(d, TOP, LEN as u64); wr::<u64>(d, END, LEN as u64);
+            wr::<i64>(d, LO, *keys.iter().min().unwrap()); wr::<i64>(d, HI, *keys.iter().max().unwrap());
             keys.iter().enumerate().for_each(|(i, &k)| wr::<i64>(d, HDR + 16 * i, k));
             crate::ops::hashjoin::rt::lay_out(d, LEN).unwrap();
             let (form, lo, dir) = (rd::<u8>(d, FORM), rd::<i64>(d, LO), rd::<u64>(d, DIR) as usize);

@@ -43,6 +43,7 @@ pub fn parse_dat(path: &str) -> Vec<HashMap<String, String>> {
             let key = body[..arrow].trim().trim_start_matches(',').trim().to_owned();
             let after = &body[arrow + 2..];
             let Some(q) = after.find('\'') else { break };
+            #[allow(clippy::sliced_string_as_bytes)]
             let vb = after[q + 1..].as_bytes();
             let mut k = 0;
             let mut val = String::new();

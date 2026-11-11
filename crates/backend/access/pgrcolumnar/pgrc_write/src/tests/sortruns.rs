@@ -11,7 +11,9 @@ use crate::plan::{apply_publish, manifest_of, redo_publish, ApplyMode, PublishPl
 use crate::publish::TxnVerdict;
 use crate::walsink::NoWal;
 use pgrc_format::dirlayout::{manifest_file_name, runrev_file_name, CURRENT_FILE_NAME};
-use pgrc_format::manifest::{range_entries, with_next_row_id, with_ranges, PartRecord, MANIFESTF_RUNS};
+use pgrc_format::manifest::{
+    range_entries, with_next_row_id, with_ranges, PartRecord, MANIFESTF_RUNS,
+};
 use pgrc_format::rowid::IDS_PER_BLOCK;
 use pgrc_format::sortrun::{runs, with_runs, RankForm, RunRevForm, SortRun};
 use pgrc_format::wal::{PublishKind, PublishRec, PUBLISH_KIND_RUNS};
@@ -23,12 +25,34 @@ fn spec() -> crate::seal::PartSpec {
 }
 
 fn rec(part_no: u32, rows: u64) -> PartRecord {
-    PartRecord { rows, file_len: 4096, footer_off: 2048, dv_gen: 0, dv_len: 0, part_no, flags: 0, granule_count: 1, band_count: 1, dv_crc: 0, granule_rows: 8192 }
+    PartRecord {
+        rows,
+        file_len: 4096,
+        footer_off: 2048,
+        dv_gen: 0,
+        dv_len: 0,
+        part_no,
+        flags: 0,
+        granule_count: 1,
+        band_count: 1,
+        dv_crc: 0,
+        granule_rows: 8192,
+    }
 }
 
 fn homes(run_id: u64, members: &[u32], ranges: &[(u64, u64)]) -> SortRun {
     let span: u64 = ranges.iter().map(|r| r.1 - r.0).sum();
-    SortRun { run_id, level: 1, rev: RunRevForm::Labels, rank: RankForm::Dense, rows: span, rev_len: 2 * 4096, rev_crc: 9, members: members.to_vec(), ranges: ranges.to_vec() }
+    SortRun {
+        run_id,
+        level: 1,
+        rev: RunRevForm::Labels,
+        rank: RankForm::Dense,
+        rows: span,
+        rev_len: 2 * 4096,
+        rev_crc: 9,
+        members: members.to_vec(),
+        ranges: ranges.to_vec(),
+    }
 }
 
 /// Parts 1, 2, 3 (fxid 5): a homing run of 1 and 2 over `[B, 4B)`, part 3 homing `[20B, 21B)` itself, floor 40B.
@@ -61,9 +85,20 @@ fn sortruns_teeth_a_retired_member_leaves_its_slot() {
     let rs = runs(&m).unwrap();
     assert_eq!(rs.len(), 1);
     assert_eq!(rs[0].members, vec![0, 2], "slot 0 emptied");
-    assert_eq!(rs[0].ranges, vec![(B, 4 * B)], "the run still homes its IDs");
-    assert_eq!(manifest_of(Some(&base), &plan.rec), plan.manifest, "redo composes the same manifest");
-    assert_eq!(range_entries(&m).unwrap(), vec![(3, vec![(20 * B, 21 * B)])]);
+    assert_eq!(
+        rs[0].ranges,
+        vec![(B, 4 * B)],
+        "the run still homes its IDs"
+    );
+    assert_eq!(
+        manifest_of(Some(&base), &plan.rec),
+        plan.manifest,
+        "redo composes the same manifest"
+    );
+    assert_eq!(
+        range_entries(&m).unwrap(),
+        vec![(3, vec![(20 * B, 21 * B)])]
+    );
 }
 
 #[test]
@@ -75,7 +110,11 @@ fn sortruns_teeth_the_last_member_takes_the_run() {
     let plan = b.finish().expect("plan");
     let m = decoded(&plan.manifest);
     assert!(runs(&m).unwrap().is_empty());
-    assert_eq!(m.header.flags & MANIFESTF_RUNS, 0, "no runs left: the bit clears, a pre-E0 binary reads the table again");
+    assert_eq!(
+        m.header.flags & MANIFESTF_RUNS,
+        0,
+        "no runs left: the bit clears, a pre-E0 binary reads the table again"
+    );
 }
 
 #[test]
@@ -93,7 +132,10 @@ fn sortruns_an_in_place_rewrite_keeps_the_slot() {
     b.retire(3);
     let m = decoded(&b.finish().expect("plan").manifest);
     assert_eq!(runs(&m).unwrap()[0].members, vec![1, 2]);
-    assert!(range_entries(&m).unwrap().is_empty(), "part 3's own range left with it");
+    assert!(
+        range_entries(&m).unwrap().is_empty(),
+        "part 3's own range left with it"
+    );
 }
 
 /// Runs that do not match the generation's parts are refused at plan time, before anything is logged.
@@ -105,7 +147,10 @@ fn sortruns_a_plan_naming_a_missing_member_is_refused() {
     assert!(b.finish().is_err(), "part 9 is not in the generation");
     let mut b = PublishPlan::build(Some(&base), &spec(), 6, PublishKind::Compact);
     b.set_runs(&[homes(5, &[1, 3], &[(B, 4 * B)])]).unwrap();
-    assert!(b.finish().is_err(), "part 3 homes its own range: it cannot be a homing run's member");
+    assert!(
+        b.finish().is_err(),
+        "part 3 homes its own range: it cannot be a homing run's member"
+    );
 }
 
 #[test]
@@ -124,15 +169,26 @@ fn sortruns_the_publish_record_carries_the_bit_and_redoes_byte_equal() {
     let plan = b.finish().unwrap();
     let mut bytes = Vec::new();
     plan.rec.encode(&mut bytes).unwrap();
-    assert_eq!(bytes[12 + 8], PublishKind::Compact as u8 | PUBLISH_KIND_RUNS);
+    assert_eq!(
+        bytes[12 + 8],
+        PublishKind::Compact as u8 | PUBLISH_KIND_RUNS
+    );
     let back = PublishRec::decode(&bytes).unwrap();
     assert_eq!(back, plan.rec);
     let m1 = apply_publish(&mut vfs, DIR, Some(&m0), &plan.rec, ApplyMode::Primary).expect("apply");
-    let (mpath, cpath) = (format!("{DIR}/{}", manifest_file_name(m1.header.gen)), format!("{DIR}/{CURRENT_FILE_NAME}"));
-    let (written, current) = (vfs.read_full(&mpath).unwrap(), vfs.read_full(&cpath).unwrap());
+    let (mpath, cpath) = (
+        format!("{DIR}/{}", manifest_file_name(m1.header.gen)),
+        format!("{DIR}/{CURRENT_FILE_NAME}"),
+    );
+    let (written, current) = (
+        vfs.read_full(&mpath).unwrap(),
+        vfs.read_full(&cpath).unwrap(),
+    );
     vfs.unlink_path(&mpath).unwrap();
     vfs.unlink_path(&cpath).unwrap();
-    let redone = redo_publish(&mut vfs, DIR, &back).expect("redo").expect("applied");
+    let redone = redo_publish(&mut vfs, DIR, &back)
+        .expect("redo")
+        .expect("applied");
     assert_eq!(vfs.read_full(&mpath).unwrap(), written, "byte for byte");
     assert_eq!(vfs.read_full(&cpath).unwrap(), current);
     assert_eq!(redone, m1);
@@ -154,12 +210,22 @@ fn sortruns_cleanup_keeps_exactly_the_named_reverses() {
     for p in [1, 2] {
         b.upsert(rec(p, 10));
     }
-    b.ext(with_runs(&with_next_row_id(&[], 40 * B).unwrap(), &[homes(7, &[1, 2], &[(B, 4 * B)])]).unwrap());
+    b.ext(
+        with_runs(
+            &with_next_row_id(&[], 40 * B).unwrap(),
+            &[homes(7, &[1, 2], &[(B, 4 * B)])],
+        )
+        .unwrap(),
+    );
     let p1 = b.finish().unwrap();
     let m1 = apply_publish(&mut vfs, DIR, None, &p1.rec, ApplyMode::Primary).unwrap();
     let mut b = PublishPlan::build(Some(&m1), &spec(), 60, PublishKind::Compact);
     b.upsert(rec(3, 5));
-    b.set_runs(&[homes(7, &[1, 2], &[(B, 4 * B)]), homes(12, &[3], &[(5 * B, 6 * B)])]).unwrap();
+    b.set_runs(&[
+        homes(7, &[1, 2], &[(B, 4 * B)]),
+        homes(12, &[3], &[(5 * B, 6 * B)]),
+    ])
+    .unwrap();
     let p2 = b.finish().unwrap();
     apply_publish(&mut vfs, DIR, Some(&m1), &p2.rec, ApplyMode::Primary).unwrap();
     for r in [7, 9, 12] {
@@ -167,13 +233,25 @@ fn sortruns_cleanup_keeps_exactly_the_named_reverses() {
     }
     let live = Probe::new(TxnVerdict::Committed).set(60, TxnVerdict::InProgress);
     let rep = cleanup_dir(&mut vfs, &mut NoWal, DIR, &live).expect("cleanup");
-    let rr: Vec<&String> = rep.removed.iter().filter(|n| n.starts_with("runrev-")).collect();
+    let rr: Vec<&String> = rep
+        .removed
+        .iter()
+        .filter(|n| n.starts_with("runrev-"))
+        .collect();
     assert_eq!(rr, vec![&runrev_file_name(9)], "only the unnamed reverse");
     let dead = Probe::new(TxnVerdict::Committed).set(60, TxnVerdict::Aborted);
     let rep = cleanup_dir(&mut vfs, &mut NoWal, DIR, &dead).expect("cleanup");
-    assert!(rep.removed.contains(&runrev_file_name(12)), "the aborted publish's reverse: {:?}", rep.removed);
+    assert!(
+        rep.removed.contains(&runrev_file_name(12)),
+        "the aborted publish's reverse: {:?}",
+        rep.removed
+    );
     assert!(!rep.removed.contains(&runrev_file_name(7)));
-    assert!(vfs.exists_path(&format!("{DIR}/{}", runrev_file_name(7))).unwrap(), "the effective run's reverse stays");
+    assert!(
+        vfs.exists_path(&format!("{DIR}/{}", runrev_file_name(7)))
+            .unwrap(),
+        "the effective run's reverse stays"
+    );
 }
 
 /// The gates' knob's edit (PGRUST_PGRC_TEST_SELF_RUNS): a compaction output becomes a one-member self-homed run; the
@@ -192,7 +270,10 @@ fn sortruns_the_test_knob_writes_a_self_homed_run() {
     crate::publish::add_self_run(Some(&base), &mut b, 4, 20).unwrap();
     let m = decoded(&b.finish().unwrap().manifest);
     let rs = runs(&m).unwrap();
-    assert_eq!((rs.len(), rs[0].rev, rs[0].members.clone(), rs[0].run_id), (1, RunRevForm::None, vec![4], m.header.gen));
+    assert_eq!(
+        (rs.len(), rs[0].rev, rs[0].members.clone(), rs[0].run_id),
+        (1, RunRevForm::None, vec![4], m.header.gen)
+    );
     assert_ne!(m.header.flags & MANIFESTF_RUNS, 0);
     let mut b = PublishPlan::build(Some(&m), &spec(), 7, PublishKind::Compact);
     b.retire(4);
@@ -218,7 +299,12 @@ fn sortruns_l1_the_test_writer_builds_a_reverse_that_answers_every_id() {
         seed
     };
     // key order: blocks of ascending IDs, the blocks shuffled; every 6th ID dropped
-    let mut blocks: Vec<Vec<u64>> = (10 * B..30 * B).filter(|id| id % 6 != 0).collect::<Vec<_>>().chunks(700).map(|c| c.to_vec()).collect();
+    let mut blocks: Vec<Vec<u64>> = (10 * B..30 * B)
+        .filter(|id| id % 6 != 0)
+        .collect::<Vec<_>>()
+        .chunks(700)
+        .map(|c| c.to_vec())
+        .collect();
     for i in (1..blocks.len()).rev() {
         let j = (next() % (i as u64 + 1)) as usize;
         blocks.swap(i, j);
@@ -227,7 +313,15 @@ fn sortruns_l1_the_test_writer_builds_a_reverse_that_answers_every_id() {
     for form in [RunRevForm::FrameIx, RunRevForm::Labels] {
         for rank in [None, Some(RankForm::Set)] {
             let h = crate::testruns::build(form, rank, 31, 4, &ids, &ranges).expect("built");
-            assert_eq!((h.run.rev, h.run.members.clone(), h.run.ranges.clone(), h.run.rows), (form, vec![4], ranges.clone(), ids.len() as u64));
+            assert_eq!(
+                (
+                    h.run.rev,
+                    h.run.members.clone(),
+                    h.run.ranges.clone(),
+                    h.run.rows
+                ),
+                (form, vec![4], ranges.clone(), ids.len() as u64)
+            );
             assert_eq!(h.file.len() as u64, h.run.rev_len);
             let m = GranMap::decode(&h.member_map, ids.len() as u64).expect("member map");
             let src = BytePages(&h.file);
@@ -250,8 +344,14 @@ fn sortruns_l1_the_test_writer_builds_a_reverse_that_answers_every_id() {
             }
         }
     }
-    assert!(crate::testruns::build(RunRevForm::FrameIx, None, 31, 4, &[5 * B], &ranges).is_err(), "an ID outside the run's ranges");
-    assert!(crate::testruns::build(RunRevForm::None, None, 31, 4, &ids, &ranges).is_err(), "NONE has no reverse");
+    assert!(
+        crate::testruns::build(RunRevForm::FrameIx, None, 31, 4, &[5 * B], &ranges).is_err(),
+        "an ID outside the run's ranges"
+    );
+    assert!(
+        crate::testruns::build(RunRevForm::None, None, 31, 4, &ids, &ranges).is_err(),
+        "NONE has no reverse"
+    );
 }
 
 /// SORTRUNS-E0 L1: a compaction published as a run that homes its output's IDs (the knob's edit): the output has no
@@ -263,20 +363,43 @@ fn sortruns_l1_a_compaction_published_as_a_homing_run() {
     for p in [1, 2] {
         b.upsert(rec(p, 5));
     }
-    b.ext(with_ranges(&with_next_row_id(&[], 40 * B).unwrap(), &[(1, vec![(B, 2 * B)]), (2, vec![(2 * B, 3 * B)])]).unwrap());
+    b.ext(
+        with_ranges(
+            &with_next_row_id(&[], 40 * B).unwrap(),
+            &[(1, vec![(B, 2 * B)]), (2, vec![(2 * B, 3 * B)])],
+        )
+        .unwrap(),
+    );
     let base = b.finish().unwrap().manifest;
     let mut b = PublishPlan::build(Some(&base), &spec(), 6, PublishKind::Compact);
     b.retire(1);
     b.retire(2);
     b.upsert(rec(4, 10));
-    let ids: Vec<u64> = (0..5).map(|i| B + 3 * i).chain((0..5).map(|i| 2 * B + 7 * i)).collect();
-    let h = crate::testruns::build(RunRevForm::FrameIx, None, b.gen(), 4, &ids, &vec![(B, 3 * B)]).unwrap();
+    let ids: Vec<u64> = (0..5)
+        .map(|i| B + 3 * i)
+        .chain((0..5).map(|i| 2 * B + 7 * i))
+        .collect();
+    let h = crate::testruns::build(
+        RunRevForm::FrameIx,
+        None,
+        b.gen(),
+        4,
+        &ids,
+        &vec![(B, 3 * B)],
+    )
+    .unwrap();
     b.set_ranges(4, Vec::new());
     crate::publish::add_run(Some(&base), &mut b, h.run.clone()).unwrap();
     let m = decoded(&b.finish().unwrap().manifest);
-    assert!(range_entries(&m).unwrap().is_empty(), "the member has no entry: the run homes its IDs");
+    assert!(
+        range_entries(&m).unwrap().is_empty(),
+        "the member has no entry: the run homes its IDs"
+    );
     let rs = runs(&m).unwrap();
-    assert_eq!((rs.len(), rs[0].homes(), rs[0].ranges.clone(), rs[0].rank), (1, true, vec![(B, 3 * B)], RankForm::Set));
+    assert_eq!(
+        (rs.len(), rs[0].homes(), rs[0].ranges.clone(), rs[0].rank),
+        (1, true, vec![(B, 3 * B)], RankForm::Set)
+    );
     // the member's own compaction: the run goes, its ranges with the output
     let mut b = PublishPlan::build(Some(&m), &spec(), 7, PublishKind::Compact);
     b.retire(4);
@@ -297,7 +420,13 @@ fn sortruns_l1_a_compaction_published_as_a_homing_run() {
 fn sortruns_copyrace_a_run_publishes_over_a_base_that_passed_its_id() {
     let mut b = PublishPlan::build(None, &spec(), 5, PublishKind::Bulk);
     b.upsert(rec(1, 10));
-    b.ext(with_ranges(&with_next_row_id(&[], 40 * B).unwrap(), &[(1, vec![(B, 2 * B)])]).unwrap());
+    b.ext(
+        with_ranges(
+            &with_next_row_id(&[], 40 * B).unwrap(),
+            &[(1, vec![(B, 2 * B)])],
+        )
+        .unwrap(),
+    );
     let read = b.finish().unwrap().manifest;
     let (g0, id) = (read.header.gen, read.header.gen + 1);
     // the COPY, numbered above the reserved ID (next_gen over the used numbers)
@@ -306,18 +435,30 @@ fn sortruns_copyrace_a_run_publishes_over_a_base_that_passed_its_id() {
     b.upsert(rec(2, 10));
     b.set_ranges(2, vec![(2 * B, 3 * B)]);
     let copy = b.finish().unwrap().manifest;
-    assert_eq!(copy.header.gen, id + 1, "the COPY's generation passed the reserved ID");
+    assert_eq!(
+        copy.header.gen,
+        id + 1,
+        "the COPY's generation passed the reserved ID"
+    );
     // the run's publish: part 1 merged into member 4 of a run homing its IDs
     let mut b = PublishPlan::build(Some(&copy), &spec(), 7, PublishKind::Compact);
     b.retire(1);
     b.upsert(rec(4, 10));
     b.set_ranges(4, Vec::new());
-    crate::publish::add_run_from(Some(&copy), &mut b, homes(id, &[4], &[(B, 2 * B)]), g0).expect("the run publishes over the COPY's generation");
+    crate::publish::add_run_from(Some(&copy), &mut b, homes(id, &[4], &[(B, 2 * B)]), g0)
+        .expect("the run publishes over the COPY's generation");
     let m = decoded(&b.finish().unwrap().manifest);
     let rs = runs(&m).unwrap();
-    assert_eq!((rs.len(), rs[0].run_id, rs[0].members.clone()), (1, id, vec![4]));
+    assert_eq!(
+        (rs.len(), rs[0].run_id, rs[0].members.clone()),
+        (1, id, vec![4])
+    );
     assert!(m.header.gen > id + 1);
-    assert_eq!(range_entries(&m).unwrap(), vec![(2, vec![(2 * B, 3 * B)])], "the COPY's part keeps its own IDs");
+    assert_eq!(
+        range_entries(&m).unwrap(),
+        vec![(2, vec![(2 * B, 3 * B)])],
+        "the COPY's part keeps its own IDs"
+    );
 }
 
 /// SORTRUNS-COPYRACE (b): a second run with the ID of a run the base holds is refused: with steps and concurrent
@@ -335,15 +476,30 @@ fn sortruns_copyrace_a_second_run_with_a_base_runs_id_is_refused() {
     b.retire(3);
     b.upsert(rec(4, 10));
     b.set_ranges(4, Vec::new());
-    assert!(crate::publish::add_run_from(Some(&base), &mut b, homes(5, &[4], &[(20 * B, 21 * B)]), g).is_err(), "a publish adding run 5 again");
+    assert!(
+        crate::publish::add_run_from(Some(&base), &mut b, homes(5, &[4], &[(20 * B, 21 * B)]), g)
+            .is_err(),
+        "a publish adding run 5 again"
+    );
 }
 
 /// SORTRUNS-COPYRACE (c): an ID at or below the generation the run's job started from is refused (such a number may
 /// be a generation's the job read, and so a run's); so is one above the publish's generation.
 #[test]
 fn sortruns_copyrace_an_id_at_or_below_the_jobs_start_is_refused() {
-    for (id, ok) in [(0, false), (3, false), (4, false), (5, true), (9, true), (10, false)] {
-        assert_eq!(crate::publish::run_id_ok(id, 4, 9, &[]), ok, "run ID {id}, job start 4, publish 9");
+    for (id, ok) in [
+        (0, false),
+        (3, false),
+        (4, false),
+        (5, true),
+        (9, true),
+        (10, false),
+    ] {
+        assert_eq!(
+            crate::publish::run_id_ok(id, 4, 9, &[]),
+            ok,
+            "run ID {id}, job start 4, publish 9"
+        );
     }
 }
 
@@ -356,12 +512,23 @@ fn sortruns_l2_a_run_id_lies_above_the_base_and_at_most_the_publish() {
     b.upsert(rec(1, 10));
     let base = b.finish().unwrap().manifest;
     let g = base.header.gen;
-    for (id, ok) in [(0, false), (g, false), (g + 1, true), (g + 2, true), (g + 3, true), (g + 4, false)] {
+    for (id, ok) in [
+        (0, false),
+        (g, false),
+        (g + 1, true),
+        (g + 2, true),
+        (g + 3, true),
+        (g + 4, false),
+    ] {
         let mut b = PublishPlan::build(Some(&base), &spec(), 6, PublishKind::Compact);
         b.number_above((g + 2, 0));
         assert_eq!(b.gen(), g + 3, "two numbers reserved above the base");
         b.retire(1);
         b.upsert(rec(4, 10));
-        assert_eq!(crate::publish::add_run(Some(&base), &mut b, homes(id, &[4], &[(B, 2 * B)])).is_ok(), ok, "run ID {id} over base {g}");
+        assert_eq!(
+            crate::publish::add_run(Some(&base), &mut b, homes(id, &[4], &[(B, 2 * B)])).is_ok(),
+            ok,
+            "run ID {id} over base {g}"
+        );
     }
 }

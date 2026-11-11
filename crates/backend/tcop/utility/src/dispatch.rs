@@ -1932,6 +1932,7 @@ fn slow_switch<'mcx>(
     }
 }
 
+#[allow(dead_code)]
 const NAMESPACE_RELATION_ID: types_core::Oid = 2615;
 
 // ImportForeignSchema's back half (foreigncmds.c:1529-1603): each generated

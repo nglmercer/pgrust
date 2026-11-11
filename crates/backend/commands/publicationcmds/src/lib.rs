@@ -2,12 +2,13 @@
 // the doDeletion removal entry points. InvalidatePublicationRels stays in
 // pg_publication (its catalog callers cannot depend on this crate); it is
 // re-exported here to keep the C surface addressable.
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use datum::Datum;
 use mcx::{Mcx, PgVec};
-use types_core::catalog::{FirstNormalObjectId, ATTRIBUTE_GENERATED_STORED, ATTRIBUTE_GENERATED_VIRTUAL};
+use types_core::catalog::{
+    FirstNormalObjectId, ATTRIBUTE_GENERATED_STORED, ATTRIBUTE_GENERATED_VIRTUAL,
+};
 use types_core::fmgr::{F_NAMEEQ, F_OIDEQ, NAMEDATALEN};
 use types_core::primitive::RegProcedure;
 use types_core::{
@@ -24,9 +25,11 @@ use types_nodes::parsenodes::{
     AlterPublicationAction, AlterPublicationStmt, CreatePublicationStmt, DefElem, DropBehavior,
     ObjectType, PublicationObjSpec, PublicationObjSpecType, PublicationTable,
 };
-use types_nodes::primnodes::{DistinctExpr, NullIfExpr, OpExpr, RowCompareExpr, ScalarArrayOpExpr, Var};
+use types_nodes::primnodes::{
+    DistinctExpr, NullIfExpr, OpExpr, RowCompareExpr, ScalarArrayOpExpr, Var,
+};
 use types_nodes::{Node, NodeList, NodeTag};
-use types_rel::pg_class::{REPLICA_IDENTITY_FULL, RELKIND_PARTITIONED_TABLE};
+use types_rel::pg_class::{RELKIND_PARTITIONED_TABLE, REPLICA_IDENTITY_FULL};
 use types_rel::{
     AccessExclusiveLock, AccessShareLock, NoLock, Relation, RowExclusiveLock,
     ShareUpdateExclusiveLock,
@@ -39,8 +42,10 @@ use cache_syscache::{
     GetSysCacheOid, ReleaseSysCache, SearchSysCache2, SearchSysCacheExists, SysCacheGetAttr,
     SysCacheKey,
 };
-use nodes_core::{check_functions_in_node, expr_collation, expr_location, expr_type,
-    expression_tree_walker, NodeWalker};
+use nodes_core::{
+    check_functions_in_node, expr_collation, expr_location, expr_type, expression_tree_walker,
+    NodeWalker,
+};
 use parse_collate::assign_expr_collations;
 use parse_relation::{addNSItemToQuery, addRangeTableEntryForRelation};
 use parser_small1::{make_parsestate, ParseExprKind};
@@ -104,7 +109,9 @@ fn text_from_datum(mcx: Mcx<'_>, d: Datum) -> PgResult<String> {
     } else {
         &image[4..(u32::from_ne_bytes(image[..4].try_into().unwrap()) >> 2) as usize]
     };
-    Ok(core::str::from_utf8(payload).expect("stored node tree is UTF-8").to_string())
+    Ok(core::str::from_utf8(payload)
+        .expect("stored node tree is UTF-8")
+        .to_string())
 }
 
 fn detoast_image<'mcx>(mcx: Mcx<'mcx>, raw: &[u8]) -> PgResult<PgVec<'mcx, u8>> {
@@ -266,7 +273,11 @@ pub fn ObjectsInPublicationToOids<'mcx>(
             .expect("publication object is a PublicationObjSpec");
         match pubobj.pubobjtype {
             PublicationObjSpecType::PUBLICATIONOBJ_TABLE => {
-                rels.push(pubobj.pubtable.expect("PUBLICATIONOBJ_TABLE has a pubtable"));
+                rels.push(
+                    pubobj
+                        .pubtable
+                        .expect("PUBLICATIONOBJ_TABLE has a pubtable"),
+                );
             }
             PublicationObjSpecType::PUBLICATIONOBJ_TABLES_IN_SCHEMA => {
                 let schemaid = catalog_namespace::get_namespace_oid(
@@ -301,7 +312,9 @@ pub struct PubRelOpen<'mcx> {
     pub columns: NodeList<'mcx>,
 }
 
-fn to_rel_vocab_rv<'mcx>(prv: &types_nodes::primnodes::RangeVar<'mcx>) -> rel_vocab::RangeVar<'mcx> {
+fn to_rel_vocab_rv<'mcx>(
+    prv: &types_nodes::primnodes::RangeVar<'mcx>,
+) -> rel_vocab::RangeVar<'mcx> {
     rel_vocab::RangeVar {
         catalogname: prv.catalogname,
         schemaname: prv.schemaname,
@@ -388,7 +401,8 @@ fn OpenTableList<'mcx>(
         }
 
         if recurse && relkind != RELKIND_PARTITIONED_TABLE {
-            let children = pg_inherits::find_all_inheritors(mcx, myrelid, ShareUpdateExclusiveLock)?;
+            let children =
+                pg_inherits::find_all_inheritors(mcx, myrelid, ShareUpdateExclusiveLock)?;
             for &childrelid in children.iter() {
                 // publicationcmds.c:1745: same cancel point per partition child
                 check_for_interrupts()?;
@@ -463,7 +477,9 @@ fn expr_input_collation(node: Node<'_>) -> Oid {
         NodeTag::T_DistinctExpr => node.as_variant::<DistinctExpr>().unwrap().inputcollid,
         NodeTag::T_ScalarArrayOpExpr => node.as_variant::<ScalarArrayOpExpr>().unwrap().inputcollid,
         NodeTag::T_MinMaxExpr => {
-            node.as_variant::<types_nodes::primnodes::MinMaxExpr>().unwrap().inputcollid
+            node.as_variant::<types_nodes::primnodes::MinMaxExpr>()
+                .unwrap()
+                .inputcollid
         }
         _ => InvalidOid,
     }
@@ -551,8 +567,7 @@ impl<'s, 'mcx> NodeWalker<'mcx> for RowFilterWalker<'s> {
                 Ok(lsyscache::func_volatile(func_id)? != PROVOLATILE_IMMUTABLE
                     || func_id >= FirstNormalObjectId)
             })? {
-                errdetail_msg =
-                    Some("User-defined or built-in mutable functions are not allowed.");
+                errdetail_msg = Some("User-defined or built-in mutable functions are not allowed.");
             } else if expr_collation(node) >= FirstNormalObjectId
                 || expr_input_collation(node) >= FirstNormalObjectId
             {
@@ -582,7 +597,12 @@ fn expand_generated_columns_in_expr<'mcx>(
     rel: &types_rel::Relation<'mcx>,
 ) -> PgResult<Option<Node<'mcx>>> {
     const VIRTUAL_GEN: i8 = types_core::catalog::ATTRIBUTE_GENERATED_VIRTUAL as i8;
-    if !rel.rd_att.constr.as_deref().is_some_and(|c| c.has_generated_virtual) {
+    if !rel
+        .rd_att
+        .constr
+        .as_deref()
+        .is_some_and(|c| c.has_generated_virtual)
+    {
         return Ok(None);
     }
     if let Some(v) = node.as_var() {
@@ -633,9 +653,7 @@ fn expand_generated_columns_in_expr<'mcx>(
                 },
             )?));
         }
-        if v.varattno < 0
-            || rel.rd_att.attr(v.varattno as usize - 1).attgenerated != VIRTUAL_GEN
-        {
+        if v.varattno < 0 || rel.rd_att.attr(v.varattno as usize - 1).attgenerated != VIRTUAL_GEN {
             return Ok(None);
         }
         return Ok(Some(rewrite_handler::build_generation_expression(
@@ -872,13 +890,22 @@ fn PublicationAddSchemas<'mcx>(
                 ObjectAddress::set(InvalidOid, InvalidOid),
                 cmdtag::GetCommandTagEnum(b"ALTER PUBLICATION"),
             );
-            objectaccess::InvokeObjectPostCreateHook(PublicationNamespaceRelationId, obj.objectId, 0)?;
+            objectaccess::InvokeObjectPostCreateHook(
+                PublicationNamespaceRelationId,
+                obj.objectId,
+                0,
+            )?;
         }
     }
     Ok(())
 }
 
-fn PublicationDropSchemas(mcx: Mcx<'_>, pubid: Oid, schemas: &[Oid], missing_ok: bool) -> PgResult<()> {
+fn PublicationDropSchemas(
+    mcx: Mcx<'_>,
+    pubid: Oid,
+    schemas: &[Oid],
+    missing_ok: bool,
+) -> PgResult<()> {
     for &schemaid in schemas {
         let psid = GetSysCacheOid(
             PUBLICATIONNAMESPACEMAP,
@@ -922,8 +949,8 @@ pub fn CreatePublication<'mcx>(
         adt_acl::ACL_CREATE,
     )?;
     if aclresult != aclchk::ACLCHECK_OK {
-        let dbname = dbcommands::get_database_name(init_small::globals::MyDatabaseId())?
-            .unwrap_or_default();
+        let dbname =
+            dbcommands::get_database_name(init_small::globals::MyDatabaseId())?.unwrap_or_default();
         aclchk::aclcheck_error(aclresult, ObjectType::OBJECT_DATABASE, &dbname)?;
     }
 
@@ -950,8 +977,16 @@ pub fn CreatePublication<'mcx>(
     let set = |values: &mut [Datum], anum: i32, v: Datum| values[(anum - 1) as usize] = v;
 
     let pname = name_arg(mcx, pubname)?;
-    set(&mut values, Anum_pg_publication_pubname, Datum::from_usize(pname.as_ptr() as usize));
-    set(&mut values, Anum_pg_publication_pubowner, Datum::from_oid(miscinit::GetUserId()));
+    set(
+        &mut values,
+        Anum_pg_publication_pubname,
+        Datum::from_usize(pname.as_ptr() as usize),
+    );
+    set(
+        &mut values,
+        Anum_pg_publication_pubowner,
+        Datum::from_oid(miscinit::GetUserId()),
+    );
 
     let puboid = catalog::GetNewOidWithIndex(
         mcx,
@@ -959,19 +994,56 @@ pub fn CreatePublication<'mcx>(
         PublicationObjectIndexId,
         Anum_pg_publication_oid as AttrNumber,
     )?;
-    set(&mut values, Anum_pg_publication_oid, Datum::from_oid(puboid));
-    set(&mut values, Anum_pg_publication_puballtables, Datum::from_bool(stmt.for_all_tables));
-    set(&mut values, Anum_pg_publication_pubinsert, Datum::from_bool(opts.pubactions.pubinsert));
-    set(&mut values, Anum_pg_publication_pubupdate, Datum::from_bool(opts.pubactions.pubupdate));
-    set(&mut values, Anum_pg_publication_pubdelete, Datum::from_bool(opts.pubactions.pubdelete));
-    set(&mut values, Anum_pg_publication_pubtruncate, Datum::from_bool(opts.pubactions.pubtruncate));
-    set(&mut values, Anum_pg_publication_pubviaroot, Datum::from_bool(opts.publish_via_partition_root));
-    set(&mut values, Anum_pg_publication_pubgencols, Datum::from_char(opts.publish_generated_columns as i8));
+    set(
+        &mut values,
+        Anum_pg_publication_oid,
+        Datum::from_oid(puboid),
+    );
+    set(
+        &mut values,
+        Anum_pg_publication_puballtables,
+        Datum::from_bool(stmt.for_all_tables),
+    );
+    set(
+        &mut values,
+        Anum_pg_publication_pubinsert,
+        Datum::from_bool(opts.pubactions.pubinsert),
+    );
+    set(
+        &mut values,
+        Anum_pg_publication_pubupdate,
+        Datum::from_bool(opts.pubactions.pubupdate),
+    );
+    set(
+        &mut values,
+        Anum_pg_publication_pubdelete,
+        Datum::from_bool(opts.pubactions.pubdelete),
+    );
+    set(
+        &mut values,
+        Anum_pg_publication_pubtruncate,
+        Datum::from_bool(opts.pubactions.pubtruncate),
+    );
+    set(
+        &mut values,
+        Anum_pg_publication_pubviaroot,
+        Datum::from_bool(opts.publish_via_partition_root),
+    );
+    set(
+        &mut values,
+        Anum_pg_publication_pubgencols,
+        Datum::from_char(opts.publish_generated_columns as i8),
+    );
 
     let mut tup = heaptuple::heap_form_tuple(mcx, rel.descr(), &values, &nulls)?;
     catalog_indexing::CatalogTupleInsert(mcx, &rel, &mut tup)?;
 
-    pg_shdepend::recordDependencyOnOwner(mcx, PublicationRelationId, puboid, miscinit::GetUserId())?;
+    pg_shdepend::recordDependencyOnOwner(
+        mcx,
+        PublicationRelationId,
+        puboid,
+        miscinit::GetUserId(),
+    )?;
 
     xact::CommandCounterIncrement()?;
 
@@ -989,7 +1061,12 @@ pub fn CreatePublication<'mcx>(
 
         if !relations.is_empty() {
             let mut rels = OpenTableList(mcx, &relations)?;
-            TransformPubWhereClauses(mcx, &mut rels, query_string, opts.publish_via_partition_root)?;
+            TransformPubWhereClauses(
+                mcx,
+                &mut rels,
+                query_string,
+                opts.publish_via_partition_root,
+            )?;
             CheckPubRelationColumnList(
                 mcx,
                 pubname,
@@ -1036,7 +1113,9 @@ struct PubTupleFields {
 fn pub_fields(td: &TupleDescData<'_>, tup: &HeapTupleData<'_>) -> PubTupleFields {
     PubTupleFields {
         oid: getattr(td, tup, Anum_pg_publication_oid).0.as_oid(),
-        puballtables: getattr(td, tup, Anum_pg_publication_puballtables).0.as_bool(),
+        puballtables: getattr(td, tup, Anum_pg_publication_puballtables)
+            .0
+            .as_bool(),
         pubviaroot: getattr(td, tup, Anum_pg_publication_pubviaroot).0.as_bool(),
     }
 }
@@ -1056,8 +1135,7 @@ fn AlterPublicationOptions<'mcx>(
         F_NAMEEQ,
         Datum::from_usize(pname.as_ptr() as usize),
     )];
-    let mut scan =
-        genam::systable_beginscan(mcx, rel, PublicationNameIndexId, true, None, &keys)?;
+    let mut scan = genam::systable_beginscan(mcx, rel, PublicationNameIndexId, true, None, &keys)?;
     let Some(tup) = genam::systable_getnext(mcx, &mut scan)? else {
         return Err(simple_err(
             ERRCODE_UNDEFINED_OBJECT,
@@ -1131,25 +1209,57 @@ fn AlterPublicationOptions<'mcx>(
     repl_values.resize(natts, Datum::null());
     repl_isnull.resize(natts, false);
     repl.resize(natts, false);
-    let set = |repl_values: &mut PgVec<'_, Datum>, repl: &mut PgVec<'_, bool>, anum: i32, v: Datum| {
-        repl_values[(anum - 1) as usize] = v;
-        repl[(anum - 1) as usize] = true;
-    };
+    let set =
+        |repl_values: &mut PgVec<'_, Datum>, repl: &mut PgVec<'_, bool>, anum: i32, v: Datum| {
+            repl_values[(anum - 1) as usize] = v;
+            repl[(anum - 1) as usize] = true;
+        };
 
     if opts.publish_given {
-        set(&mut repl_values, &mut repl, Anum_pg_publication_pubinsert, Datum::from_bool(opts.pubactions.pubinsert));
-        set(&mut repl_values, &mut repl, Anum_pg_publication_pubupdate, Datum::from_bool(opts.pubactions.pubupdate));
-        set(&mut repl_values, &mut repl, Anum_pg_publication_pubdelete, Datum::from_bool(opts.pubactions.pubdelete));
-        set(&mut repl_values, &mut repl, Anum_pg_publication_pubtruncate, Datum::from_bool(opts.pubactions.pubtruncate));
+        set(
+            &mut repl_values,
+            &mut repl,
+            Anum_pg_publication_pubinsert,
+            Datum::from_bool(opts.pubactions.pubinsert),
+        );
+        set(
+            &mut repl_values,
+            &mut repl,
+            Anum_pg_publication_pubupdate,
+            Datum::from_bool(opts.pubactions.pubupdate),
+        );
+        set(
+            &mut repl_values,
+            &mut repl,
+            Anum_pg_publication_pubdelete,
+            Datum::from_bool(opts.pubactions.pubdelete),
+        );
+        set(
+            &mut repl_values,
+            &mut repl,
+            Anum_pg_publication_pubtruncate,
+            Datum::from_bool(opts.pubactions.pubtruncate),
+        );
     }
     if opts.publish_via_partition_root_given {
-        set(&mut repl_values, &mut repl, Anum_pg_publication_pubviaroot, Datum::from_bool(opts.publish_via_partition_root));
+        set(
+            &mut repl_values,
+            &mut repl,
+            Anum_pg_publication_pubviaroot,
+            Datum::from_bool(opts.publish_via_partition_root),
+        );
     }
     if opts.publish_generated_columns_given {
-        set(&mut repl_values, &mut repl, Anum_pg_publication_pubgencols, Datum::from_char(opts.publish_generated_columns as i8));
+        set(
+            &mut repl_values,
+            &mut repl,
+            Anum_pg_publication_pubgencols,
+            Datum::from_char(opts.publish_generated_columns as i8),
+        );
     }
 
-    let mut new_tuple = heaptuple::heap_modify_tuple(mcx, tup, td, &repl_values, &repl_isnull, &repl)?;
+    let mut new_tuple =
+        heaptuple::heap_modify_tuple(mcx, tup, td, &repl_values, &repl_isnull, &repl)?;
     let otid = tup.t_self;
     genam::systable_endscan(mcx, scan)?;
     catalog_indexing::CatalogTupleUpdate(mcx, rel, &otid, &mut new_tuple)?;
@@ -1260,14 +1370,20 @@ fn AlterPublicationTables<'mcx>(
                     SysCacheKey::Value(Datum::from_oid(oldrelid)),
                     SysCacheKey::Value(Datum::from_oid(pubid)),
                 )? {
-                    let (d, isnull) =
-                        SysCacheGetAttr(PUBLICATIONRELMAP, &rftuple, Anum_pg_publication_rel_prqual)?;
+                    let (d, isnull) = SysCacheGetAttr(
+                        PUBLICATIONRELMAP,
+                        &rftuple,
+                        Anum_pg_publication_rel_prqual,
+                    )?;
                     if !isnull {
                         let s = text_from_datum(mcx, d)?;
                         oldrelwhereclause = Some(readfuncs::stringToNode(mcx, &s)?);
                     }
-                    let (d, isnull) =
-                        SysCacheGetAttr(PUBLICATIONRELMAP, &rftuple, Anum_pg_publication_rel_prattrs)?;
+                    let (d, isnull) = SysCacheGetAttr(
+                        PUBLICATIONRELMAP,
+                        &rftuple,
+                        Anum_pg_publication_rel_prattrs,
+                    )?;
                     if !isnull {
                         pub_collist_to_bitmapset(mcx, &mut oldcolumns, d)?;
                     }
@@ -1329,8 +1445,12 @@ fn AlterPublicationSchemas<'mcx>(
                 else {
                     continue;
                 };
-                let has_collist =
-                    !SysCacheGetAttr(PUBLICATIONRELMAP, &coltuple, Anum_pg_publication_rel_prattrs)?.1;
+                let has_collist = !SysCacheGetAttr(
+                    PUBLICATIONRELMAP,
+                    &coltuple,
+                    Anum_pg_publication_rel_prattrs,
+                )?
+                .1;
                 ReleaseSysCache(coltuple);
                 if has_collist {
                     return Err(Box::new(
@@ -1441,7 +1561,11 @@ pub fn AlterPublication<'mcx>(
     }
 
     if !aclchk::object_ownercheck(PublicationRelationId, pubid, miscinit::GetUserId())? {
-        aclchk::aclcheck_error(aclchk::ACLCHECK_NOT_OWNER, ObjectType::OBJECT_PUBLICATION, pubname)?;
+        aclchk::aclcheck_error(
+            aclchk::ACLCHECK_NOT_OWNER,
+            ObjectType::OBJECT_PUBLICATION,
+            pubname,
+        )?;
     }
 
     if !stmt.options.is_nil() {
@@ -1458,7 +1582,12 @@ pub fn AlterPublication<'mcx>(
                 format!("publication \"{pubname}\" does not exist"),
             ));
         };
-        CheckAlterPublication(stmt, fields.puballtables, !relations.is_empty(), !schemaidlist.is_empty())?;
+        CheckAlterPublication(
+            stmt,
+            fields.puballtables,
+            !relations.is_empty(),
+            !schemaidlist.is_empty(),
+        )?;
 
         lmgr::LockDatabaseObject(PublicationRelationId, pubid, 0, AccessExclusiveLock)?;
 
@@ -1469,7 +1598,14 @@ pub fn AlterPublication<'mcx>(
             ));
         };
 
-        AlterPublicationTables(mcx, stmt, &fields, &relations, query_string, !schemaidlist.is_empty())?;
+        AlterPublicationTables(
+            mcx,
+            stmt,
+            &fields,
+            &relations,
+            query_string,
+            !schemaidlist.is_empty(),
+        )?;
         AlterPublicationSchemas(mcx, stmt, &fields, &schemaidlist)?;
     }
 
@@ -1478,7 +1614,11 @@ pub fn AlterPublication<'mcx>(
 
 pub fn RemovePublicationById<'mcx>(mcx: Mcx<'mcx>, pubid: Oid) -> PgResult<()> {
     let rel = table::table_open(mcx, PublicationRelationId, RowExclusiveLock)?;
-    let keys = [eq_key(Anum_pg_publication_oid as AttrNumber, F_OIDEQ, Datum::from_oid(pubid))];
+    let keys = [eq_key(
+        Anum_pg_publication_oid as AttrNumber,
+        F_OIDEQ,
+        Datum::from_oid(pubid),
+    )];
     let mut scan =
         genam::systable_beginscan(mcx, &rel, PublicationObjectIndexId, true, None, &keys)?;
     let Some(tup) = genam::systable_getnext(mcx, &mut scan)? else {
@@ -1486,7 +1626,9 @@ pub fn RemovePublicationById<'mcx>(mcx: Mcx<'mcx>, pubid: Oid) -> PgResult<()> {
             "cache lookup failed for publication {pubid}"
         ))));
     };
-    let puballtables = getattr(rel.descr(), tup, Anum_pg_publication_puballtables).0.as_bool();
+    let puballtables = getattr(rel.descr(), tup, Anum_pg_publication_puballtables)
+        .0
+        .as_bool();
     let tid = tup.t_self;
     genam::systable_endscan(mcx, scan)?;
 
@@ -1500,7 +1642,11 @@ pub fn RemovePublicationById<'mcx>(mcx: Mcx<'mcx>, pubid: Oid) -> PgResult<()> {
 
 pub fn RemovePublicationRelById<'mcx>(mcx: Mcx<'mcx>, proid: Oid) -> PgResult<()> {
     let rel = table::table_open(mcx, PublicationRelRelationId, RowExclusiveLock)?;
-    let keys = [eq_key(Anum_pg_publication_rel_oid as AttrNumber, F_OIDEQ, Datum::from_oid(proid))];
+    let keys = [eq_key(
+        Anum_pg_publication_rel_oid as AttrNumber,
+        F_OIDEQ,
+        Datum::from_oid(proid),
+    )];
     let mut scan =
         genam::systable_beginscan(mcx, &rel, PublicationRelObjectIndexId, true, None, &keys)?;
     let Some(tup) = genam::systable_getnext(mcx, &mut scan)? else {
@@ -1508,7 +1654,9 @@ pub fn RemovePublicationRelById<'mcx>(mcx: Mcx<'mcx>, proid: Oid) -> PgResult<()
             "cache lookup failed for publication table {proid}"
         ))));
     };
-    let prrelid = getattr(rel.descr(), tup, Anum_pg_publication_rel_prrelid).0.as_oid();
+    let prrelid = getattr(rel.descr(), tup, Anum_pg_publication_rel_prrelid)
+        .0
+        .as_oid();
     let tid = tup.t_self;
     genam::systable_endscan(mcx, scan)?;
 
@@ -1566,13 +1714,16 @@ fn AlterPublicationOwner_internal<'mcx>(
     let td = rel.descr();
     let oid = getattr(td, tup, Anum_pg_publication_oid).0.as_oid();
     let pubowner = getattr(td, tup, Anum_pg_publication_pubowner).0.as_oid();
-    let puballtables = getattr(td, tup, Anum_pg_publication_puballtables).0.as_bool();
+    let puballtables = getattr(td, tup, Anum_pg_publication_puballtables)
+        .0
+        .as_bool();
     let pubname_d = getattr(td, tup, Anum_pg_publication_pubname).0;
     // SAFETY: a name attr datum addresses NAMEDATALEN in-tuple bytes.
     let name_data =
         unsafe { core::ptr::read_unaligned(pubname_d.as_usize() as *const types_tuple::NameData) };
-    let pubname =
-        core::str::from_utf8(name_data.name_str()).expect("pubname is UTF-8").to_string();
+    let pubname = core::str::from_utf8(name_data.name_str())
+        .expect("pubname is UTF-8")
+        .to_string();
 
     if pubowner == newOwnerId {
         return Ok(None);
@@ -1655,7 +1806,9 @@ fn alter_owner_scan<'mcx>(
     let Some(tup) = genam::systable_getnext(mcx, &mut scan)? else {
         return Err(missing());
     };
-    let pubid = getattr(rel.descr(), tup, Anum_pg_publication_oid).0.as_oid();
+    let pubid = getattr(rel.descr(), tup, Anum_pg_publication_oid)
+        .0
+        .as_oid();
     let update = AlterPublicationOwner_internal(mcx, &rel, tup, newOwnerId)?;
     genam::systable_endscan(mcx, scan)?;
     if let Some((mut new_tuple, otid)) = update {
@@ -1694,8 +1847,16 @@ pub fn AlterPublicationOwner<'mcx>(
     Ok(ObjectAddress::set(PublicationRelationId, pubid))
 }
 
-pub fn AlterPublicationOwner_oid<'mcx>(mcx: Mcx<'mcx>, pubid: Oid, newOwnerId: Oid) -> PgResult<()> {
-    let key = eq_key(Anum_pg_publication_oid as AttrNumber, F_OIDEQ, Datum::from_oid(pubid));
+pub fn AlterPublicationOwner_oid<'mcx>(
+    mcx: Mcx<'mcx>,
+    pubid: Oid,
+    newOwnerId: Oid,
+) -> PgResult<()> {
+    let key = eq_key(
+        Anum_pg_publication_oid as AttrNumber,
+        F_OIDEQ,
+        Datum::from_oid(pubid),
+    );
     alter_owner_scan(
         mcx,
         key,

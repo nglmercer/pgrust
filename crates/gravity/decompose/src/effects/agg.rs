@@ -80,10 +80,10 @@ pub(crate) fn volatile_inputs<'p>(cx: &Cx<'_, 'p>, lists: &[&'p NodeList<'p>]) -
 /// - (v0.4 refusals) an ORDER BY compared by a user comparator (`builtin` false) is an acting call: the stream sorts the
 ///   group at its handoff, where PostgreSQL's finalize sorts it (which pairs the comparator meets is the sort's own
 ///   choice, free under USEROP K10.ao).
-/// An ordered-set call's WITHIN GROUP is the aggregate's own order (`user_folds`' rule), so it counts as other work.
-/// D1371 (v0.4 refusals): every such call streams, beside quiet per-row work too: its calls run at each group's final,
-/// so the order the groups are finalized in shows (a sequence value, a NOTICE), and the keyed end finalizes its groups
-/// in its table's order, not PostgreSQL's key order (m6_d1371_user_ordered's `ORDER BY 2 DESC` cursor).
+///   An ordered-set call's WITHIN GROUP is the aggregate's own order (`user_folds`' rule), so it counts as other work.
+///   D1371 (v0.4 refusals): every such call streams, beside quiet per-row work too: its calls run at each group's final,
+///   so the order the groups are finalized in shows (a sequence value, a NOTICE), and the keyed end finalizes its groups
+///   in its table's order, not PostgreSQL's key order (m6_d1371_user_ordered's `ORDER BY 2 DESC` cursor).
 pub(crate) fn sorted_calls_stream<'p>(cx: &Cx<'_, 'p>, lists: &[&'p NodeList<'p>], builtin: &dyn Fn(&types_nodes::primnodes::Aggref<'p>) -> bool) -> bool {
     use crate::effects::of_agg;
     let mut sorted = false;

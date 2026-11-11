@@ -521,6 +521,7 @@ fn build(c: &Compiled<'_>, natts: usize, nconsts: usize, word_root: bool, whole:
     b.br(l_head, &[i1]);
     b.switch_to(l_out);
     b.ret(&[zero]);
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     Ok((pb.finish(), f))
 }
@@ -1029,6 +1030,7 @@ fn lane_word_program(c: &Compiled<'_>, widths: [u8; 2], nconsts: usize) -> (grav
     b.br(l_rows, &[i1, acc2]);
     b.switch_to(l_out);
     b.ret(&[zero]);
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     (pb.finish(), f)
 }
@@ -1217,6 +1219,7 @@ fn shred_program(c: &Compiled<'_>, nconsts: usize, shredded: bool) -> Result<(gr
     b.br(l_head, &[i1]);
     b.switch_to(l_out);
     b.ret(&[zero]);
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     Ok((pb.finish(), f))
 }
@@ -1525,6 +1528,7 @@ fn percode_build(c: &Compiled<'_>, forms: &[PcForm], pred: bool) -> Result<(grav
     b.br(l_head, &[i1]);
     b.switch_to(l_out);
     b.ret(&[zero]);
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     Ok((pb.finish(), f))
 }
@@ -1658,6 +1662,7 @@ fn percode_word_build(c: &Compiled<'_>, forms: &[PcForm]) -> Result<(gravity_ir:
     b.br(l_rows, &[i1, acc2]);
     b.switch_to(l_out);
     b.ret(&[zero]);
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     Ok((pb.finish(), f))
 }
@@ -1897,6 +1902,7 @@ fn percode_null_build(c: &Compiled<'_>, nconsts: usize) -> Result<(gravity_ir::P
     b.br(l_head, &[i1]);
     b.switch_to(l_out);
     b.ret(&[zero]);
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     Ok((pb.finish(), f))
 }
@@ -2319,6 +2325,7 @@ fn vec_program(c: &Compiled<'_>, widths: [u8; 3], nconsts: usize, agg: VecAgg) -
     b.br(l_words, &[wi1]);
     b.switch_to(l_out);
     b.ret(&[zero]);
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     let _ = lanes_n;
     Ok((pb.finish(), f, sty, words_ok))
@@ -2600,6 +2607,7 @@ fn rec_build(c: &Compiled<'_>, nconsts: usize) -> Result<(gravity_ir::Program, g
     b.br(l_head, &[i1]);
     b.switch_to(l_out);
     b.ret(&[zero]);
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     Ok((pb.finish(), f))
 }
@@ -3363,6 +3371,7 @@ fn a_column_raise_word_takes_its_place_in_the_order() {
         let l = compiled.emit(&mut fb, &row).unwrap_or_else(|e| panic!("{name}: emit: {e:?}"));
         fb.store(ctx, 48, l.err);
         fb.ret(&[zero]);
+        #[allow(clippy::drop_non_drop)]
         drop(fb);
         let ir = pb.finish();
         gravity_ir::verify::verify(&ir).unwrap_or_else(|e| panic!("{name}: verify: {e:?}"));
@@ -3594,9 +3603,12 @@ fn d947_a_simple_case_raises_its_test_when_no_arm_reads_it() {
 /// Here the hook counts its runs in the frame: a SubPlan alone in an untaken CASE arm or a COALESCE argument past a
 /// non-NULL one is never run (PG's ExecEvalSubPlan is never reached), a taken one runs once per row.
 struct LazySubplanFrame {
+    #[allow(dead_code)]
     words: [u64; 2],
     calls: u64,
+    #[allow(dead_code)]
     consts: *const u64,
+    #[allow(dead_code)]
     consts_null: *const u8,
     out_val: u64,
 }
@@ -3685,6 +3697,7 @@ fn b2c_a_lazy_subplan_in_an_untaken_arm_is_never_run() {
         let l = compiled.emit(&mut fb, &row).unwrap_or_else(|e| panic!("{name}: emit: {e:?}"));
         fb.store(ctx, 40, l.value);
         fb.ret(&[zero]);
+        #[allow(clippy::drop_non_drop)]
         drop(fb);
         let ir = pb.finish();
         gravity_ir::verify::verify(&ir).unwrap_or_else(|e| panic!("{name}: verify: {e:?}"));

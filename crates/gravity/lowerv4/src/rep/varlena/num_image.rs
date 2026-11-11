@@ -54,7 +54,7 @@ pub(crate) fn image(b: &mut FunctionBuilder<'_>, env: &Env, m: Value, scale: i16
     let h = { let k = c(b, 0x8000 | if ds.is_some() { 0 } else { (scale as i64) << 7 }); let h = bin(b, IntBinOp::Or, k, sign); bin(b, IntBinOp::Or, h, weight) };
     let h = match ds { Some(d) => { let s7 = c(b, 7); let d = bin(b, IntBinOp::Shl, d, s7); bin(b, IntBinOp::Or, h, d) } None => h };
     let (len, h) = (b.conv(ConvOp::Trunc, Type::I32, len), b.conv(ConvOp::Trunc, Type::I16, h));
-    (b.store(slot, 8, len), b.store(slot, 12, h));
+    b.store(slot, 8, len); b.store(slot, 12, h);
     let p = b.ptr_add(slot, env.zero, 1, 8);
     b.conv(ConvOp::PtrToInt, Type::I64, p)
 }

@@ -16,7 +16,11 @@ thread_local! {
 pub fn on() -> bool {
     ON.with(|c| {
         if c.get() == 0 {
-            c.set(if std::env::var_os("PGRUST_GRAVITY_REPORT").is_some() { 2 } else { 1 });
+            c.set(if std::env::var_os("PGRUST_GRAVITY_REPORT").is_some() {
+                2
+            } else {
+                1
+            });
         }
         c.get() == 2
     })

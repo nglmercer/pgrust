@@ -49,6 +49,7 @@ pub(crate) fn with_bind_image<R>(w: u64, len: Option<usize>, f: impl FnOnce(&[u8
 /// `ctid = ANY (a)`'s array): PostgreSQL's ArrayType after its varlena header (ndim, dataoffset, elemtype, then dims and
 /// lbounds), one dimension and no NULL bitmap, the 6-byte elements (bi_hi, bi_lo, posid) from data byte 20 at alignment
 /// 's'; empty for no dimension. `None` for a NULL word, an external or compressed image, another shape or a short image.
+#[allow(dead_code)]
 pub(crate) fn tid_array(w: u64) -> Option<Vec<(u32, u16)>> {
     // SAFETY: the word is a tid[] bind word: null, or the statement's datum for the execution.
     let data = unsafe { varlena_data(w as *const u8) }?;
@@ -122,7 +123,7 @@ impl RunSpan {
 
     /// Words `lo..hi` of the records, borrowed for the life of `owner` (the holder of the buffers).
     #[inline(always)]
-    pub(crate) fn words<'a, T: ?Sized>(self, _owner: &'a T, lo: usize, hi: usize) -> &'a [u64] {
+    pub(crate) fn words<T: ?Sized>(self, _owner: &T, lo: usize, hi: usize) -> &[u64] {
         assert!(lo <= hi && hi <= self.nrecs);
         // SAFETY: `lo..hi` is inside the records, which `owner` keeps alive and unchanged for `'a`.
         unsafe { core::slice::from_raw_parts(self.recs.add(lo), hi - lo) }

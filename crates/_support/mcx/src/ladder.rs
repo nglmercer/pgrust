@@ -174,7 +174,9 @@ pub fn relief_coming(handed: Option<u64>) -> bool {
     if !Relief::of(Source::ReaperCredit, unmap_landing()).is_none() {
         return true;
     }
-    let Some(a) = acts().filter(|_| on()) else { return false };
+    let Some(a) = acts().filter(|_| on()) else {
+        return false;
+    };
     if handed.is_some_and(|p| PASSES.load(Acquire) == p) {
         return true;
     }
@@ -365,7 +367,9 @@ fn post_parked_trim(bytes: u64) -> bool {
         return false;
     }
     let cap = parked_bytes();
-    let _ = PARKED_ASK.fetch_update(Relaxed, Relaxed, |a| Some(a.saturating_add(bytes).min(cap.max(a))));
+    let _ = PARKED_ASK.fetch_update(Relaxed, Relaxed, |a| {
+        Some(a.saturating_add(bytes).min(cap.max(a)))
+    });
     PARKED_COUNTS[2].fetch_add(1, Relaxed);
     PARKED_COUNTS[3].fetch_add(bytes, Relaxed);
     // SAFETY: only set_parked_service stores here, always from fn().
@@ -452,13 +456,18 @@ static R1_READ: AtomicU64 = AtomicU64::new(0);
 static R1_YIELD: AtomicU64 = AtomicU64::new(0);
 
 /// Per rung (`Rung`'s order): the runs, and their measured relief in bytes.
-static RUNS: [AtomicU64; crate::ladder_stats::RUNGS] = [const { AtomicU64::new(0) }; crate::ladder_stats::RUNGS];
-static RELIEF: [AtomicU64; crate::ladder_stats::RUNGS] = [const { AtomicU64::new(0) }; crate::ladder_stats::RUNGS];
+static RUNS: [AtomicU64; crate::ladder_stats::RUNGS] =
+    [const { AtomicU64::new(0) }; crate::ladder_stats::RUNGS];
+static RELIEF: [AtomicU64; crate::ladder_stats::RUNGS] =
+    [const { AtomicU64::new(0) }; crate::ladder_stats::RUNGS];
 static CLIMBS: AtomicU64 = AtomicU64::new(0);
 
 /// (runs, relief bytes) per rung in `Rung`'s order, and the climbs so far.
 pub fn counts() -> ([(u64, u64); crate::ladder_stats::RUNGS], u64) {
-    (core::array::from_fn(|i| (RUNS[i].load(Relaxed), RELIEF[i].load(Relaxed))), CLIMBS.load(Relaxed))
+    (
+        core::array::from_fn(|i| (RUNS[i].load(Relaxed), RELIEF[i].load(Relaxed))),
+        CLIMBS.load(Relaxed),
+    )
 }
 
 /// LADDER-DESIGN section 3: the gates whose asker climbs (each climb that ran a rung is counted per gate, so the
@@ -505,7 +514,8 @@ pub struct Climbed {
 /// (allocarena's probe, installed with the switch). They steer where a draw's pages come from, never a judgment: the
 /// climb, ladder pressure, the broker's admission and a cancel all read the whole memory, and these bytes are what R1's
 /// purge gives back under pressure. Read for the accounts view only.
-static REUSABLE: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static REUSABLE: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 pub fn set_reusable_probe(f: fn() -> u64) {
     REUSABLE.store(f as *mut (), core::sync::atomic::Ordering::Release);
@@ -530,15 +540,54 @@ fn state(r: &dyn Rungs, line: u64, ask: u64, who: Who, waited: bool) -> Option<S
     // the reaper's credit nor shared_buffers' bytes on their way (within their bound)
     let past = PAST_CANCEL.load(Relaxed);
     // Past the cancel line pending relief never nets the hook's read (R5)
-    let relief = if past { Relief::NONE } else { Relief::of(Source::ReaperCredit, r.landing()).and(Source::BuffersLanding, buffers_landing_at(r.now_ms())) };
-    let read = if who == Who::Hook { relief.read_for(read, past) } else { read };
+    let relief = if past {
+        Relief::NONE
+    } else {
+        Relief::of(Source::ReaperCredit, r.landing())
+            .and(Source::BuffersLanding, buffers_landing_at(r.now_ms()))
+    };
+    let read = if who == Who::Hook {
+        relief.read_for(read, past)
+    } else {
+        read
+    };
     // `ladder_kill_read`: R6's read, netted as the read is and never above it
-    let kill_read = r.kill_read().map(|k| if who == Who::Hook { relief.read_for(k, past) } else { k }.min(read));
-    let (asker_held, asker_fair, asker_spillable) = if who == Who::Asker { r.asker() } else { (0, 0, 0) };
-    let r1_cooling = rule::r1_cooling(r.now_ms(), R1_AT.load(Relaxed), R1_YIELD.load(Relaxed), R1_READ.load(Relaxed), read);
+    let kill_read = r.kill_read().map(|k| {
+        if who == Who::Hook {
+            relief.read_for(k, past)
+        } else {
+            k
+        }
+        .min(read)
+    });
+    let (asker_held, asker_fair, asker_spillable) = if who == Who::Asker {
+        r.asker()
+    } else {
+        (0, 0, 0)
+    };
+    let r1_cooling = rule::r1_cooling(
+        r.now_ms(),
+        R1_AT.load(Relaxed),
+        R1_YIELD.load(Relaxed),
+        R1_READ.load(Relaxed),
+        read,
+    );
     // P3: R2p's parked bytes only under its knob (R2a's elastic count leaves them out then, the driver's `ladder_elastic`)
     let parked = if parked_rung_on() { r.parked() } else { 0 };
-    let mut s = State { read, line, ask, r1_cooling, narrowed: narrowed(), asker_held, asker_fair, asker_spillable, parked, waited, kill_read, ..State::default() };
+    let mut s = State {
+        read,
+        line,
+        ask,
+        r1_cooling,
+        narrowed: narrowed(),
+        asker_held,
+        asker_fair,
+        asker_spillable,
+        parked,
+        waited,
+        kill_read,
+        ..State::default()
+    };
     if rule::need(&s) != 0 {
         s.elastic = r.reclaimable();
         s.revocable = r.revocable();
@@ -563,13 +612,20 @@ fn climb_as(who: Who, r: &dyn Rungs, line: u64, ask: u64, waited: bool) -> Climb
     if line == 0 {
         return out;
     }
-    let Some(mut s) = state(r, line, ask, who, waited) else { return out };
+    let Some(mut s) = state(r, line, ask, who, waited) else {
+        return out;
+    };
     // L6: the hook's pass asks the pool once R1 / R2a are past (a gate's climb never does)
     let mut sb_asked = who != Who::Hook;
     let mut at = None;
     while let Some(rung) = rule::next(who, &s, at) {
         // L6: its bytes are landing from here, so no later rung (no cancel) runs for them
-        if !sb_asked && !matches!(rung, Rung::AllocReturn | Rung::TrimParked | Rung::EvictElastic) {
+        if !sb_asked
+            && !matches!(
+                rung,
+                Rung::AllocReturn | Rung::TrimParked | Rung::EvictElastic
+            )
+        {
             sb_asked = true;
             if let Some(after) = buffers_took(r, line, ask, who, waited, &s) {
                 s = after;
@@ -599,7 +655,9 @@ fn climb_as(who: Who, r: &dyn Rungs, line: u64, ask: u64, waited: bool) -> Climb
             }
         }
         let before = s.read;
-        let Some(after) = state(r, line, ask, who, waited) else { break };
+        let Some(after) = state(r, line, ask, who, waited) else {
+            break;
+        };
         let relief = rule::relief(before, after.read);
         if rung == Rung::AllocReturn {
             R1_READ.store(before, Relaxed);
@@ -608,7 +666,11 @@ fn climb_as(who: Who, r: &dyn Rungs, line: u64, ask: u64, waited: bool) -> Climb
         }
         RUNS[rung as usize].fetch_add(1, Relaxed);
         RELIEF[rung as usize].fetch_add(relief, Relaxed);
-        crate::ladder_stats::note_rung(rung, relief, crate::ladder_stats::clock_ns().saturating_sub(t));
+        crate::ladder_stats::note_rung(
+            rung,
+            relief,
+            crate::ladder_stats::clock_ns().saturating_sub(t),
+        );
         out.ran |= 1 << rung as u8;
         out.relief += relief;
         s = after;
@@ -626,7 +688,14 @@ fn climb_as(who: Who, r: &dyn Rungs, line: u64, ask: u64, waited: bool) -> Climb
 }
 
 /// L6: the pool asked for the need R1 / R2a left in `s` (`buffers_take`); the read again when it scheduled bytes.
-fn buffers_took(r: &dyn Rungs, line: u64, ask: u64, who: Who, waited: bool, s: &State) -> Option<State> {
+fn buffers_took(
+    r: &dyn Rungs,
+    line: u64,
+    ask: u64,
+    who: Who,
+    waited: bool,
+    s: &State,
+) -> Option<State> {
     if buffers_take(rule::need(s), s.elastic, r.now_ms()) == 0 {
         return None;
     }
@@ -741,9 +810,17 @@ pub fn wait_end(w: Option<Waiting>) {
 /// Section 3: an asker's wait was spent; when the need for its `ask` is still there, R2b and R6 go to the ladder thread
 /// (its next pass is past its wait) and the asker waits on (true). The asker never cancels anyone itself.
 pub fn hand_off(ask: u64) -> bool {
-    let Some(a) = acts().filter(|_| on()) else { return false };
+    let Some(a) = acts().filter(|_| on()) else {
+        return false;
+    };
     let Some(read) = (a.read)() else { return false };
-    if rule::need(&State { read, line: line(), ask, ..State::default() }) == 0 {
+    if rule::need(&State {
+        read,
+        line: line(),
+        ask,
+        ..State::default()
+    }) == 0
+    {
         return false;
     }
     STARVED.store(true, Relaxed);
@@ -783,7 +860,17 @@ pub fn block_climb(read: u64, ask: u64) -> (u16, bool) {
             busy = true;
             0
         });
-        let mut s = State { read, line, ask, narrowed: narrowed(), asker_held, asker_fair, asker_spillable, revocable, ..State::default() };
+        let mut s = State {
+            read,
+            line,
+            ask,
+            narrowed: narrowed(),
+            asker_held,
+            asker_fair,
+            asker_spillable,
+            revocable,
+            ..State::default()
+        };
         let (mut ran, mut at) = (0u16, None);
         while let Some(rung) = rule::next(Who::Asker, &s, at) {
             at = Some(rung);
@@ -804,7 +891,11 @@ pub fn block_climb(read: u64, ask: u64) -> (u16, bool) {
                 Rung::Wait | Rung::EvictProtected | Rung::Cancel => break,
             }
             RUNS[rung as usize].fetch_add(1, Relaxed);
-            crate::ladder_stats::note_rung(rung, 0, crate::ladder_stats::clock_ns().saturating_sub(t));
+            crate::ladder_stats::note_rung(
+                rung,
+                0,
+                crate::ladder_stats::clock_ns().saturating_sub(t),
+            );
             ran |= 1 << rung as u8;
         }
         (ran, busy)
@@ -819,7 +910,14 @@ pub fn block_climb(read: u64, ask: u64) -> (u16, bool) {
 /// asker's own statement only: counted as R6's, and its line written as the ladder thread's R6 writes its own (`ladder on
 /// R6: read ...`), through the scoped log defer. `read` is the projection with the block of `block` bytes, `ranked` the
 /// statement's (rank, charged) bytes, `backend` its (slot, pid).
-pub fn block_canceled(read: u64, block: u64, cancel_line: u64, limit: u64, ranked: (u64, u64), backend: Option<(usize, i32)>) {
+pub fn block_canceled(
+    read: u64,
+    block: u64,
+    cancel_line: u64,
+    limit: u64,
+    ranked: (u64, u64),
+    backend: Option<(usize, i32)>,
+) {
     RUNS[Rung::Cancel as usize].fetch_add(1, Relaxed);
     crate::ladder_stats::note_rung(Rung::Cancel, 0, 0);
     #[cfg(any(feature = "std", test))]
@@ -879,7 +977,8 @@ fn revoke_within_shares(bytes: u64, wait: bool) -> Result<u64, crate::governor::
         crate::revoke::try_request_revoke_within_shares(bytes, share, me)?
     };
     if asked != 0 && mempolicy::admit::gate_now() {
-        let due = crate::governor::decide_ms().saturating_add(mempolicy::consts::get(mempolicy::consts::K::RevokeWaitMs));
+        let due = crate::governor::decide_ms()
+            .saturating_add(mempolicy::consts::get(mempolicy::consts::K::RevokeWaitMs));
         RELIEF_DUE_MS.fetch_max(due, Relaxed);
     }
     Ok(asked)
@@ -948,7 +1047,11 @@ fn asker_read() -> ((u64, u64, u64), Option<OwnSpillNote>) {
         let note = if spillable != 0 {
             let tree = crate::ledger2::owned(l.slot_index());
             let spills = |b: u64| if b > fair { l.slot_index() } else { None };
-            Some(OwnSpillNote((spills(held), held), (spills(tree), tree), crate::governor::decide_ms()))
+            Some(OwnSpillNote(
+                (spills(held), held),
+                (spills(tree), tree),
+                crate::governor::decide_ms(),
+            ))
         } else {
             crate::ledger2::skip(crate::ledger2::Decision::OwnSpill);
             None
@@ -961,7 +1064,10 @@ fn asker_read() -> ((u64, u64, u64), Option<OwnSpillNote>) {
 /// The live rungs: memruntime's actuators, the governor's statement view, C5's revoke; and (D4812) the R4a shadow
 /// decisions its asker reads made, written once the climb's rungs ran (act first, then log; past `PENDING` one is
 /// written at once).
-struct Live(&'static Acts, core::cell::Cell<([Option<OwnSpillNote>; PENDING], usize)>);
+struct Live(
+    &'static Acts,
+    core::cell::Cell<([Option<OwnSpillNote>; PENDING], usize)>,
+);
 
 /// The R4a shadow decisions a climb holds back: one per read of its state, at most one per rung and the first.
 const PENDING: usize = 16;
@@ -1092,7 +1198,12 @@ pub fn read_now() -> Option<u64> {
 /// D4387: [`need`] at a read already taken ([`read_now`]): arithmetic only, no read, no allocation.
 pub fn need_at(read: Option<u64>, ask: u64) -> u64 {
     match read {
-        Some(read) if on() && line() != 0 => rule::need(&State { read, line: line(), ask, ..State::default() }),
+        Some(read) if on() && line() != 0 => rule::need(&State {
+            read,
+            line: line(),
+            ask,
+            ..State::default()
+        }),
         _ => 0,
     }
 }
@@ -1211,7 +1322,10 @@ static SAMPLE_LIMIT: AtomicU64 = AtomicU64::new(0);
 /// and R2a stop at one mark. Never with no line or before the first sample.
 pub fn at_take_target(read: u64) -> bool {
     let (line, limit) = (line(), SAMPLE_LIMIT.load(Relaxed));
-    line != 0 && limit != 0 && line.saturating_sub(Relief::of(Source::ReaperCredit, unmap_landing()).ask_read(read)) >= marks_now(limit).1
+    line != 0
+        && limit != 0
+        && line.saturating_sub(Relief::of(Source::ReaperCredit, unmap_landing()).ask_read(read))
+            >= marks_now(limit).1
 }
 
 /// Ladder C1: the burst LOW is now (`None` before the ladder's thread measured one).
@@ -1244,7 +1358,9 @@ pub fn note_give_back(bytes: u64, ns: u64) {
     if bytes < rule::GIVE_BACK_TIMED_MIN {
         return;
     }
-    let _ = GIVE_BACK_NS_PER_GIB.fetch_update(Relaxed, Relaxed, |r| Some(rule::give_back_rate(r, bytes, ns)));
+    let _ = GIVE_BACK_NS_PER_GIB.fetch_update(Relaxed, Relaxed, |r| {
+        Some(rule::give_back_rate(r, bytes, ns))
+    });
     C1[GB_RUNS].fetch_add(1, Relaxed);
     C1[GB_BYTES].fetch_add(bytes, Relaxed);
     C1[GB_NS].fetch_add(ns, Relaxed);
@@ -1316,7 +1432,12 @@ pub fn floor_hold_on() -> bool {
 
 /// D4829: per sized cache (budgets brought back up to the protected floor, bytes they rose) since start (the view).
 pub fn sized_restores() -> [(u64, u64); SIZED_N] {
-    core::array::from_fn(|c| (SIZED_RESTORES[c].load(Relaxed), SIZED_RESTORED[c].load(Relaxed)))
+    core::array::from_fn(|c| {
+        (
+            SIZED_RESTORES[c].load(Relaxed),
+            SIZED_RESTORED[c].load(Relaxed),
+        )
+    })
 }
 
 /// D4829 (`cache_floor_hold`, the background pass with no drain to run): each sized cache whose ladder budget sits under
@@ -1388,7 +1509,8 @@ fn note_taken_at(c: usize, held: u64, now: u64) {
 /// Ladder C1c: each sized cache's demand probe (its owner's, installed at start): (the bytes it holds, `u64::MAX` when
 /// that is not cheap to read; C1d: the bytes of the evictions and trims it made itself to stay under its budget, only
 /// growing). An insert evicts only at the budget, so a moved count says the cache was at its budget then.
-static SIZED_PROBE: [AtomicPtr<()>; SIZED_N] = [const { AtomicPtr::new(core::ptr::null_mut()) }; SIZED_N];
+static SIZED_PROBE: [AtomicPtr<()>; SIZED_N] =
+    [const { AtomicPtr::new(core::ptr::null_mut()) }; SIZED_N];
 /// Ladder C1c, per sized cache: the probe's eviction count last seen and when it last moved (`decide_ms`; 0 = never),
 /// its last raise, its last reversal and the reversals since (the backoff), and its raises / raised bytes / reversals.
 static SIZED_EVICTS: [AtomicU64; SIZED_N] = [const { AtomicU64::new(0) }; SIZED_N];
@@ -1414,7 +1536,8 @@ static ROOM_LOW: [AtomicU64; 2] = [const { AtomicU64::new(u64::MAX) }; 2];
 static ROOM_LOW_AT: AtomicU64 = AtomicU64::new(0);
 /// Ladder C1: the least room the claims left in the same window (`claim_low`), in the same two halves.
 static CLAIM_LOW: [AtomicU64; 2] = [const { AtomicU64::new(u64::MAX) }; 2];
-static SIZED_EVICT_WIN: [[AtomicU64; 2]; SIZED_N] = [const { [const { AtomicU64::new(0) }; 2] }; SIZED_N];
+static SIZED_EVICT_WIN: [[AtomicU64; 2]; SIZED_N] =
+    [const { [const { AtomicU64::new(0) }; 2] }; SIZED_N];
 
 /// Ladder C1d v2 (the ladder's sample, its one writer): a new half window every `C1_DEMAND_MS / 2`; a sample a whole
 /// window or more after the last half began forgets both (the room and the evictions they saw are older than the window).
@@ -1474,7 +1597,13 @@ fn sized_probe(c: usize) -> Option<(u64, u64)> {
 
 /// Ladder C1c: per sized cache (raises, bytes raised, reversals) since start (the view).
 pub fn sized_counts() -> [(u64, u64, u64); SIZED_N] {
-    core::array::from_fn(|c| (SIZED_RAISES[c].load(Relaxed), SIZED_RAISED[c].load(Relaxed), SIZED_REVERSALS[c].load(Relaxed)))
+    core::array::from_fn(|c| {
+        (
+            SIZED_RAISES[c].load(Relaxed),
+            SIZED_RAISED[c].load(Relaxed),
+            SIZED_REVERSALS[c].load(Relaxed),
+        )
+    })
 }
 
 /// Ladder C1c, why no raise (criterion 6, D4911: no raise after HUNGRY in any S1 arm): per sized cache, the samples past
@@ -1484,7 +1613,8 @@ pub fn sized_counts() -> [(u64, u64, u64); SIZED_N] {
 pub const HELD_ROOM: usize = 0;
 pub const HELD_TIMING: usize = 1;
 pub const HELD_DEMAND: usize = 2;
-static RAISE_HELD: [[AtomicU64; 3]; SIZED_N] = [const { [const { AtomicU64::new(0) }; 3] }; SIZED_N];
+static RAISE_HELD: [[AtomicU64; 3]; SIZED_N] =
+    [const { [const { AtomicU64::new(0) }; 3] }; SIZED_N];
 
 /// Ladder C1c, the gate before the caches: the samples past the drain with raises on, those a landing take held, those
 /// within the reclaim quiet (`cache_refill_quiet_ms` since the last reclaim), those the refault gate held, those quiet
@@ -1514,7 +1644,10 @@ pub fn raise_gate() -> [u64; 6] {
 /// (`u64::MAX` = none).
 pub fn sized_quiet(c: usize) -> (u32, u64, u64) {
     let shift = SIZED_QUIET_SHIFT[c].load(Relaxed);
-    let quiet = rule::refill_quiet_ms(mempolicy::consts::get(mempolicy::consts::K::CacheRefillQuietMs), shift);
+    let quiet = rule::refill_quiet_ms(
+        mempolicy::consts::get(mempolicy::consts::K::CacheRefillQuietMs),
+        shift,
+    );
     let since = match SIZED_TAKEN_AT[c].load(Relaxed) {
         0 => u64::MAX,
         at => crate::governor::decide_ms().saturating_sub(at),
@@ -1544,7 +1677,10 @@ pub fn part_hold_reach() -> u64 {
 
 /// `part_hold_reach` after a sample's raises left `left` of their room.
 fn note_hold_reach(left: u64) {
-    let reach = match (SIZED_START[SIZED_PART].load(Relaxed), SIZED_BUDGET[SIZED_PART].load(Relaxed)) {
+    let reach = match (
+        SIZED_START[SIZED_PART].load(Relaxed),
+        SIZED_BUDGET[SIZED_PART].load(Relaxed),
+    ) {
         (u64::MAX, _) => 0,
         (start, u64::MAX) => start.saturating_add(left),
         (_, b) => b.saturating_add(left),
@@ -1560,8 +1696,12 @@ fn note_hold_reach(left: u64) {
 fn raise_timing_ok(c: usize, now: u64) -> bool {
     let base = mempolicy::consts::get(mempolicy::consts::K::CacheRefillQuietMs);
     let taken = SIZED_TAKEN_AT[c].load(Relaxed);
-    let quiet = taken == 0 || now.saturating_sub(taken) >= rule::refill_quiet_ms(base, SIZED_QUIET_SHIFT[c].load(Relaxed));
-    quiet && now.saturating_sub(SIZED_RAISE_AT[c].load(Relaxed)) >= rule::raise_interval_ms(SIZED_RECENT[c].load(Relaxed))
+    let quiet = taken == 0
+        || now.saturating_sub(taken)
+            >= rule::refill_quiet_ms(base, SIZED_QUIET_SHIFT[c].load(Relaxed));
+    quiet
+        && now.saturating_sub(SIZED_RAISE_AT[c].load(Relaxed))
+            >= rule::raise_interval_ms(SIZED_RECENT[c].load(Relaxed))
 }
 
 /// Ladder C1c (the user's three marks): past TOP, at least `cache_refill_quiet_ms` after the ladder's last reclaim, the
@@ -1575,7 +1715,9 @@ fn raise_timing_ok(c: usize, now: u64) -> bool {
 /// evicted bytes are read (their last move timed) and an old backoff is reset. The room the raises left.
 fn raise_sized(mut room: u64, now: u64) -> u64 {
     for c in 0..SIZED_N {
-        let Some((held, evicts)) = sized_probe(c) else { continue };
+        let Some((held, evicts)) = sized_probe(c) else {
+            continue;
+        };
         if SIZED_EVICTS[c].swap(evicts, Relaxed) != evicts {
             SIZED_EVICT_AT[c].store(now, Relaxed);
         }
@@ -1589,8 +1731,14 @@ fn raise_sized(mut room: u64, now: u64) -> u64 {
         };
         // C1d v2: the evictions since the last raise or take, within the window; C1b: the part cache's bytes held past
         // its budget once the floor let its own trim go (`rule::held_past`) are demand too
-        let from = SIZED_EVICT_BASE[c].load(Relaxed).max(SIZED_EVICT_WIN[c][1].load(Relaxed));
-        let past = if c == SIZED_PART { rule::held_past(held, budget, SIZED_FLOOR[c].load(Relaxed)) } else { 0 };
+        let from = SIZED_EVICT_BASE[c]
+            .load(Relaxed)
+            .max(SIZED_EVICT_WIN[c][1].load(Relaxed));
+        let past = if c == SIZED_PART {
+            rule::held_past(held, budget, SIZED_FLOOR[c].load(Relaxed))
+        } else {
+            0
+        };
         let step = rule::raise_bytes(evicts.saturating_sub(from).max(past), room);
         if start == u64::MAX || step == 0 {
             if start != u64::MAX {
@@ -1602,15 +1750,22 @@ fn raise_sized(mut room: u64, now: u64) -> u64 {
         // the quiet period since the ladder's last take from this cache is over, nor within its raise interval
         let base = mempolicy::consts::get(mempolicy::consts::K::CacheRefillQuietMs);
         let calm = SIZED_CALM_FROM[c].load(Relaxed);
-        if calm != 0 && now.saturating_sub(calm) >= rule::refill_quiet_ms(base, SIZED_QUIET_SHIFT[c].load(Relaxed)) {
+        if calm != 0
+            && now.saturating_sub(calm)
+                >= rule::refill_quiet_ms(base, SIZED_QUIET_SHIFT[c].load(Relaxed))
+        {
             SIZED_QUIET_SHIFT[c].store(0, Relaxed);
         }
         if !raise_timing_ok(c, now) {
             RAISE_HELD[c][HELD_TIMING].fetch_add(1, Relaxed);
             continue;
         }
-        let (raised, evicted) = (SIZED_RAISE_AT[c].load(Relaxed), SIZED_EVICT_AT[c].load(Relaxed));
-        let demand = past != 0 || (rule::has_demand(held, budget, evicted, now) && evicted > raised);
+        let (raised, evicted) = (
+            SIZED_RAISE_AT[c].load(Relaxed),
+            SIZED_EVICT_AT[c].load(Relaxed),
+        );
+        let demand =
+            past != 0 || (rule::has_demand(held, budget, evicted, now) && evicted > raised);
         if !demand {
             RAISE_HELD[c][HELD_DEMAND].fetch_add(1, Relaxed);
             continue;
@@ -1670,7 +1825,11 @@ pub fn file_refaults_per_min() -> Option<u64> {
     if now == u64::MAX {
         return None;
     }
-    Some(REFAULT_MINUTE.load(Relaxed).max(now.saturating_sub(REFAULT_MARK.load(Relaxed))))
+    Some(
+        REFAULT_MINUTE
+            .load(Relaxed)
+            .max(now.saturating_sub(REFAULT_MARK.load(Relaxed))),
+    )
 }
 
 /// Ladder C1c: the background passes whose raise the refault gate held.
@@ -1754,7 +1913,9 @@ pub fn inline_need_mapped() -> u64 {
     if room == u64::MAX || !floors_on() {
         return 0;
     }
-    let since = MAPPED.load(Relaxed).saturating_sub(ROOM_MAPPED.load(Relaxed));
+    let since = MAPPED
+        .load(Relaxed)
+        .saturating_sub(ROOM_MAPPED.load(Relaxed));
     rule::inline_want(since, room, marks_now(ROOM_LIMIT.load(Relaxed)).0)
 }
 
@@ -1766,7 +1927,13 @@ pub fn room_now() -> Option<(u64, u64)> {
         return None;
     }
     // the C1 try (`inline_on_draw`): what the statements mapped since the sample, not what the pool reserved
-    let since = if rule::inline_on_draw() { MAPPED.load(Relaxed).saturating_sub(ROOM_MAPPED.load(Relaxed)) } else { pool_held().saturating_sub(ROOM_HELD.load(Relaxed)) };
+    let since = if rule::inline_on_draw() {
+        MAPPED
+            .load(Relaxed)
+            .saturating_sub(ROOM_MAPPED.load(Relaxed))
+    } else {
+        pool_held().saturating_sub(ROOM_HELD.load(Relaxed))
+    };
     Some((room.saturating_sub(since), ROOM_LIMIT.load(Relaxed)))
 }
 
@@ -1812,7 +1979,11 @@ pub fn refresh_stuck() {
 /// ladder's mode or `cache_floor` changed since the last sample's read included).
 #[inline]
 pub fn caches_stuck() -> u64 {
-    if floors_on() { CACHES_STUCK.load(Relaxed) } else { 0 }
+    if floors_on() {
+        CACHES_STUCK.load(Relaxed)
+    } else {
+        0
+    }
 }
 
 /// `ladder_reconcile` (`crate::reconcile::sample`): the ladder's own terms at the sample: the room and the window's
@@ -1824,12 +1995,26 @@ pub(crate) fn reconcile_terms() {
     let room = ROOM.load(Relaxed);
     put(Term::Room, if room == u64::MAX { NONE } else { room });
     put(Term::RoomLow, room_low().unwrap_or(NONE));
-    let since = MAPPED.load(Relaxed).saturating_sub(ROOM_MAPPED.load(Relaxed));
-    put(Term::MapsSince, if room == u64::MAX { NONE } else if rule::inline_on_draw() { since } else { 0 });
+    let since = MAPPED
+        .load(Relaxed)
+        .saturating_sub(ROOM_MAPPED.load(Relaxed));
+    put(
+        Term::MapsSince,
+        if room == u64::MAX {
+            NONE
+        } else if rule::inline_on_draw() {
+            since
+        } else {
+            0
+        },
+    );
     put(Term::ClaimLow, claim_low().unwrap_or(NONE));
     put(Term::Stuck, caches_stuck());
     put(Term::LandingParkedJobs, parked_job_pending());
-    put(Term::LandingBuffers, buffers_landing_at(crate::governor::decide_ms().max(1)));
+    put(
+        Term::LandingBuffers,
+        buffers_landing_at(crate::governor::decide_ms().max(1)),
+    );
 }
 
 /// Ladder C1: a reclaim freed `freed` bytes: the room grows by them, the refill guard's clock restarts, waiters wake, and
@@ -1838,7 +2023,9 @@ fn note_reclaimed(freed: u64) {
     if freed == 0 {
         return;
     }
-    let _ = ROOM.fetch_update(Relaxed, Relaxed, |r| (r != u64::MAX).then(|| r.saturating_add(freed)));
+    let _ = ROOM.fetch_update(Relaxed, Relaxed, |r| {
+        (r != u64::MAX).then(|| r.saturating_add(freed))
+    });
     RECLAIM_AT_MS.store(crate::governor::decide_ms(), Relaxed);
     note_free();
     // the purger (memruntime, C3) applies the cut and purges the freed pages, so they leave memory.current now
@@ -1856,7 +2043,11 @@ fn note_reclaimed(freed: u64) {
 /// (and no room published, so no draw evicts).
 pub fn background_pass(limit: u64, line: u64, read: u64, ran: bool, burst: Option<u64>) -> u64 {
     SAMPLE_LIMIT.store(limit, Relaxed);
-    if stuck_due(line.saturating_sub(read), marks_now(limit).1, crate::governor::decide_ms()) {
+    if stuck_due(
+        line.saturating_sub(read),
+        marks_now(limit).1,
+        crate::governor::decide_ms(),
+    ) {
         refresh_stuck();
     }
     match acts() {
@@ -1869,7 +2060,11 @@ pub fn background_pass(limit: u64, line: u64, read: u64, ran: bool, burst: Optio
             background_pass_landed(
                 &|n| {
                     let landing = pool_return().map_or(0, |p| (p.ask)());
-                    if landing >= n { 0 } else { (a.reclaim)(n - landing) }
+                    if landing >= n {
+                        0
+                    } else {
+                        (a.reclaim)(n - landing)
+                    }
                 },
                 &|| (a.reclaimable)().saturating_add(pool_return().map_or(0, |p| (p.releasable)())),
                 limit,
@@ -1893,17 +2088,47 @@ pub fn background_pass(limit: u64, line: u64, read: u64, ran: bool, burst: Optio
 /// (s1rerun (7) at 100 ms: 8-17.6 GiB at a statement's end, read 4.9 GB, limit 15.7 GiB) netted the read to 0 and took
 /// the raises' room to 0 for the window's whole minute: none came after the first take.
 fn landing_of_read(landing: u64, read: u64) -> u64 {
-    if mempolicy::consts::get(mempolicy::consts::K::LandingCapRead) != 0 { landing.min(read) } else { landing }
+    if mempolicy::consts::get(mempolicy::consts::K::LandingCapRead) != 0 {
+        landing.min(read)
+    } else {
+        landing
+    }
 }
 
 /// `background_pass` over `reclaim` and `reclaimable` (a test's fakes), the landing bytes already out of `read`.
-pub fn background_pass_with(reclaim: &dyn Fn(u64) -> u64, reclaimable: &dyn Fn() -> u64, limit: u64, line: u64, read: u64, ran: bool, burst: Option<u64>) -> u64 {
-    background_pass_landed(reclaim, reclaimable, limit, line, read, unmap_landing(), ran, burst)
+pub fn background_pass_with(
+    reclaim: &dyn Fn(u64) -> u64,
+    reclaimable: &dyn Fn() -> u64,
+    limit: u64,
+    line: u64,
+    read: u64,
+    ran: bool,
+    burst: Option<u64>,
+) -> u64 {
+    background_pass_landed(
+        reclaim,
+        reclaimable,
+        limit,
+        line,
+        read,
+        unmap_landing(),
+        ran,
+        burst,
+    )
 }
 
 /// `background_pass_with` with the `landing` bytes already out of `read` given: the raises' room is the room less them.
 #[allow(clippy::too_many_arguments)]
-fn background_pass_landed(reclaim: &dyn Fn(u64) -> u64, reclaimable: &dyn Fn() -> u64, limit: u64, line: u64, read: u64, landing: u64, ran: bool, burst: Option<u64>) -> u64 {
+fn background_pass_landed(
+    reclaim: &dyn Fn(u64) -> u64,
+    reclaimable: &dyn Fn() -> u64,
+    limit: u64,
+    line: u64,
+    read: u64,
+    landing: u64,
+    ran: bool,
+    burst: Option<u64>,
+) -> u64 {
     SAMPLE_LIMIT.store(limit, Relaxed);
     if line == 0 || limit == 0 {
         ROOM.store(u64::MAX, Relaxed);
@@ -1942,7 +2167,10 @@ fn background_pass_landed(reclaim: &dyn Fn(u64) -> u64, reclaimable: &dyn Fn() -
         // HIGH and TOP nothing, and nothing while a take's bytes are still landing (nor ever with cache_raise = 0)
         let top = marks3_now(limit).2;
         let raises = mempolicy::consts::get(mempolicy::consts::K::CacheRaise) != 0;
-        let quiet = raises && landing.is_none() && since_reclaim_ms() >= mempolicy::consts::get(mempolicy::consts::K::CacheRefillQuietMs);
+        let quiet = raises
+            && landing.is_none()
+            && since_reclaim_ms()
+                >= mempolicy::consts::get(mempolicy::consts::K::CacheRefillQuietMs);
         if raises {
             RAISE_GATE[GATE_SAMPLES].fetch_add(1, Relaxed);
             if !landing.is_none() {
@@ -1965,7 +2193,11 @@ fn background_pass_landed(reclaim: &dyn Fn(u64) -> u64, reclaimable: &dyn Fn() -
         // let run)
         let t = crate::governor::decide_ms().max(1);
         let due = raise_timing_ok(SIZED_PART, t);
-        let within = if quiet { rule::raise_room_within(room, low, marks.1, top, claimed) } else { 0 };
+        let within = if quiet {
+            rule::raise_room_within(room, low, marks.1, top, claimed)
+        } else {
+            0
+        };
         if quiet && within < rule::C1_RAISE_STEP {
             RAISE_GATE[GATE_BOUND].fetch_add(1, Relaxed);
         }
@@ -1973,7 +2205,12 @@ fn background_pass_landed(reclaim: &dyn Fn(u64) -> u64, reclaimable: &dyn Fn() -
         // buf_grow: then shared_buffers, with what the cache raises left
         let left = grow_buffers(left, t);
         let knob = |k| mempolicy::consts::get(k) != 0;
-        note_hold_reach(rule::hold_reach_room(left, due, knob(mempolicy::consts::K::CacheHoldReach), knob(mempolicy::consts::K::CacheHoldReachGate)));
+        note_hold_reach(rule::hold_reach_room(
+            left,
+            due,
+            knob(mempolicy::consts::K::CacheHoldReach),
+            knob(mempolicy::consts::K::CacheHoldReachGate),
+        ));
         return 0;
     }
     note_hold_reach(0);
@@ -1989,7 +2226,11 @@ fn background_pass_landed(reclaim: &dyn Fn(u64) -> u64, reclaimable: &dyn Fn() -
     let freed = reclaim(ask);
     // L6: after R2a's batch, the pool for what it left and the caches cannot give (nothing above its minimum: no recount)
     if buffers().is_some_and(|b| (b.reclaimable)() != 0) {
-        let _ = buffers_take(to.saturating_sub(room.saturating_add(freed)), reclaimable(), now);
+        let _ = buffers_take(
+            to.saturating_sub(room.saturating_add(freed)),
+            reclaimable(),
+            now,
+        );
     }
     C1[BG_RUNS].fetch_add(1, Relaxed);
     C1[BG_BYTES].fetch_add(freed, Relaxed);
@@ -2036,7 +2277,9 @@ pub fn note_inline(want: u64, freed: u64, ns: u64) {
 /// Ladder C1, the refill guard: whether a cache may grow past its protected floor now (C1c: the headroom past TOP, and no
 /// reclaim within `cache_refill_quiet_ms`; `rule::refill_open`). Always with C1 off or before the first sample.
 pub fn refill_open() -> bool {
-    let Some((room, limit)) = room_now() else { return true };
+    let Some((room, limit)) = room_now() else {
+        return true;
+    };
     let open = rule::refill_open(room, marks3_now(limit).2, since_reclaim_ms());
     if !open {
         C1[REFILL_CLOSED].fetch_add(1, Relaxed);
@@ -2116,7 +2359,9 @@ fn grow_buffers(room: u64, now: u64) -> u64 {
     if grown != 0 && taken < grown && now.saturating_sub(grown) >= quiet_ms {
         SB_QUIET_SHIFT.store(0, Relaxed);
     }
-    if (taken != 0 && now.saturating_sub(taken) < quiet_ms) || now.saturating_sub(grown) < rule::raise_interval_ms(0) {
+    if (taken != 0 && now.saturating_sub(taken) < quiet_ms)
+        || now.saturating_sub(grown) < rule::raise_interval_ms(0)
+    {
         return room;
     }
     let evict_at = SB_EVICT_AT.load(Relaxed);
@@ -2165,7 +2410,10 @@ fn buffers_take(short: u64, elastic: u64, now: u64) -> u64 {
         }
         SB_TAKE_AT.store(now.max(1), Relaxed);
         let bw = mempolicy::consts::get(mempolicy::consts::K::BufGivebackWriteBw);
-        SB_DUE_MS.store(now.saturating_add(rule::buffers_due_ms((b.landing)(), bw)), Relaxed);
+        SB_DUE_MS.store(
+            now.saturating_add(rule::buffers_due_ms((b.landing)(), bw)),
+            Relaxed,
+        );
     }
     got
 }
@@ -2233,7 +2481,24 @@ mod tests {
 
     impl Fake {
         fn new(read: u64, elastic: u64, held: u64, fair: u64, spillable: u64, others: u64) -> Fake {
-            Fake { read: Cell::new(read), elastic: Cell::new(elastic), held, fair, spillable: Cell::new(spillable), others: Cell::new(others), r1: Cell::new(0), now: Cell::new(0), log: core::cell::RefCell::new([0; 8]), n: Cell::new(0), cancels: Cell::new(0), landing: Cell::new(false), protected: Cell::new(0), unmap: Cell::new(0), parked: Cell::new(0), kill: Cell::new(None) }
+            Fake {
+                read: Cell::new(read),
+                elastic: Cell::new(elastic),
+                held,
+                fair,
+                spillable: Cell::new(spillable),
+                others: Cell::new(others),
+                r1: Cell::new(0),
+                now: Cell::new(0),
+                log: core::cell::RefCell::new([0; 8]),
+                n: Cell::new(0),
+                cancels: Cell::new(0),
+                landing: Cell::new(false),
+                protected: Cell::new(0),
+                unmap: Cell::new(0),
+                parked: Cell::new(0),
+                kill: Cell::new(None),
+            }
         }
         fn mark(&self, r: Rung) {
             self.log.borrow_mut()[self.n.get()] = r as u8 + 1;
@@ -2328,9 +2593,17 @@ mod tests {
         let f = Fake::new(1040 * MIB, 0, 0, 0, 0, 0);
         f.protected.set(512 * MIB);
         f.now.set(40_000);
-        assert_eq!(hook_pass_with(&f, 1000 * MIB, 40_000).ran & (R2B | R6), 0, "the protected cache stays through the pass that ran R1-R4b");
+        assert_eq!(
+            hook_pass_with(&f, 1000 * MIB, 40_000).ran & (R2B | R6),
+            0,
+            "the protected cache stays through the pass that ran R1-R4b"
+        );
         let c = hook_pass_with(&f, 1000 * MIB, 40_000 + rule::HOOK_GRACE_MS);
-        assert_eq!((c.ran & (R2B | R6), c.need, f.cancels.get()), (R2B, 0, 0), "past the wait R2b covers the need: no cancel");
+        assert_eq!(
+            (c.ran & (R2B | R6), c.need, f.cancels.get()),
+            (R2B, 0, 0),
+            "past the wait R2b covers the need: no cancel"
+        );
         assert_eq!(f.protected.get(), 472 * MIB, "R2b evicts the need, no more");
         hook_reset();
         clear_narrow();
@@ -2349,13 +2622,29 @@ mod tests {
         f.protected.set(16 * MIB);
         f.kill.set(Some(600 * MIB));
         f.now.set(10_000);
-        assert_eq!(hook_pass_with(&f, 1000 * MIB, 10_000).ran & (R2B | R6), 0, "the pass that ran R1-R4b");
+        assert_eq!(
+            hook_pass_with(&f, 1000 * MIB, 10_000).ran & (R2B | R6),
+            0,
+            "the pass that ran R1-R4b"
+        );
         let c = hook_pass_with(&f, 1000 * MIB, 10_000 + rule::HOOK_GRACE_MS);
-        assert_eq!((c.ran & (R2B | R6), f.cancels.get()), (R2B, 0), "past the wait: R2b on the read, no cancel under the line");
-        assert_eq!(c.need, 24 * MIB, "the read's need stays: the hook climbs on");
+        assert_eq!(
+            (c.ran & (R2B | R6), f.cancels.get()),
+            (R2B, 0),
+            "past the wait: R2b on the read, no cancel under the line"
+        );
+        assert_eq!(
+            c.need,
+            24 * MIB,
+            "the read's need stays: the hook climbs on"
+        );
         f.kill.set(Some(1030 * MIB));
         let c = hook_pass_with(&f, 1000 * MIB, 10_000 + 2 * rule::HOOK_GRACE_MS);
-        assert_eq!((c.ran & R6, f.cancels.get()), (R6, 1), "the unreclaimable bytes past the line (at most the read): R6");
+        assert_eq!(
+            (c.ran & R6, f.cancels.get()),
+            (R6, 1),
+            "the unreclaimable bytes past the line (at most the read): R6"
+        );
         hook_reset();
         clear_narrow();
     }
@@ -2380,19 +2669,43 @@ mod tests {
         f.now.set(10_000);
         let (runs0, _) = counts();
         let c = hook_pass_with(&f, 1000 * MIB, 10_000);
-        assert_eq!((c.ran & R6, c.need), (0, 40 * MIB), "the pass that ran R1-R4b cancels no one");
-        assert_eq!(hook_pass_with(&f, 1000 * MIB, 10_000 + rule::HOOK_GRACE_MS - 1).ran & R6, 0, "within the tick");
+        assert_eq!(
+            (c.ran & R6, c.need),
+            (0, 40 * MIB),
+            "the pass that ran R1-R4b cancels no one"
+        );
+        assert_eq!(
+            hook_pass_with(&f, 1000 * MIB, 10_000 + rule::HOOK_GRACE_MS - 1).ran & R6,
+            0,
+            "within the tick"
+        );
         let c = hook_pass_with(&f, 1000 * MIB, 10_000 + rule::HOOK_GRACE_MS);
-        assert_eq!((c.ran & R6, f.cancels.get()), (R6, 1), "a tick on with the need still there: R6, on the ladder's line, before the watchdog's");
-        assert_eq!(hook_pass_with(&f, 1000 * MIB, 10_300).ran & R6, 0, "one cancel in flight");
+        assert_eq!(
+            (c.ran & R6, f.cancels.get()),
+            (R6, 1),
+            "a tick on with the need still there: R6, on the ladder's line, before the watchdog's"
+        );
+        assert_eq!(
+            hook_pass_with(&f, 1000 * MIB, 10_300).ran & R6,
+            0,
+            "one cancel in flight"
+        );
         assert_eq!(f.cancels.get(), 1);
         // the victim's bytes leave: under the line, the episode ends and R5 is counted with its measured yield
         f.landing.set(false);
         f.read.set(900 * MIB);
         assert_eq!(hook_pass_with(&f, 1000 * MIB, 10_400), Climbed::default());
         let (runs1, _) = counts();
-        assert_eq!(runs1[Rung::Cancel as usize].0, runs0[Rung::Cancel as usize].0 + 1, "R6's run is counted");
-        assert_eq!(runs1[Rung::Wait as usize].0, runs0[Rung::Wait as usize].0 + 1, "R5's run is counted once");
+        assert_eq!(
+            runs1[Rung::Cancel as usize].0,
+            runs0[Rung::Cancel as usize].0 + 1,
+            "R6's run is counted"
+        );
+        assert_eq!(
+            runs1[Rung::Wait as usize].0,
+            runs0[Rung::Wait as usize].0 + 1,
+            "R5's run is counted once"
+        );
         assert_eq!(HOOK_SINCE.load(Relaxed), 0);
         clear_narrow();
     }
@@ -2410,19 +2723,35 @@ mod tests {
         let f = Fake::new(1050 * MIB, 0, 0, 0, 0, 0);
         f.unmap.set(64 * MIB);
         f.now.set(50_000);
-        assert_eq!(hook_pass_with(&f, 1000 * MIB, 50_000), Climbed::default(), "covered by the reaper's landing: no rung, no episode");
+        assert_eq!(
+            hook_pass_with(&f, 1000 * MIB, 50_000),
+            Climbed::default(),
+            "covered by the reaper's landing: no rung, no episode"
+        );
         assert_eq!(HOOK_SINCE.load(Relaxed), 0);
-        assert_eq!(climb_with(&f, 1000 * MIB, 0).need, 50 * MIB, "a gate's climb: the reaper's bytes are not room");
+        assert_eq!(
+            climb_with(&f, 1000 * MIB, 0).need,
+            50 * MIB,
+            "a gate's climb: the reaper's bytes are not room"
+        );
         f.unmap.set(0);
         let c = hook_pass_with(&f, 1000 * MIB, 50_100);
-        assert_eq!((c.ran & R6, c.need), (0, 50 * MIB), "the credit expired: the pass climbs (R1-R4b, then its wait)");
+        assert_eq!(
+            (c.ran & R6, c.need),
+            (0, 50 * MIB),
+            "the credit expired: the pass climbs (R1-R4b, then its wait)"
+        );
         let c = hook_pass_with(&f, 1000 * MIB, 50_100 + rule::HOOK_GRACE_MS);
         assert_eq!((c.ran & R6, f.cancels.get()), (R6, 1), "a tick on: R6");
         f.unmap.set(30 * MIB);
         f.landing.set(false);
         f.read.set(1050 * MIB);
         hook_reset();
-        assert_eq!(hook_pass_with(&f, 1000 * MIB, 60_000).need, 20 * MIB, "a credit short of the need: the pass climbs for the rest");
+        assert_eq!(
+            hook_pass_with(&f, 1000 * MIB, 60_000).need,
+            20 * MIB,
+            "a credit short of the need: the pass climbs for the rest"
+        );
         hook_reset();
         clear_narrow();
     }
@@ -2441,11 +2770,19 @@ mod tests {
         let f = Fake::new(1050 * MIB, 0, 0, 0, 0, 0);
         f.unmap.set(468 * MIB);
         f.now.set(80_000);
-        assert_eq!(hook_pass_with(&f, 1000 * MIB, 80_000), Climbed::default(), "under the cancel line: the credit covers the need");
+        assert_eq!(
+            hook_pass_with(&f, 1000 * MIB, 80_000),
+            Climbed::default(),
+            "under the cancel line: the credit covers the need"
+        );
         waive_wait();
         assert!(past_cancel());
         let c = hook_pass_with(&f, 1000 * MIB, 80_100);
-        assert_eq!((c.ran & R6, f.cancels.get()), (R6, 1), "past the cancel line: R6 in this pass, the credit counts for nothing");
+        assert_eq!(
+            (c.ran & R6, f.cancels.get()),
+            (R6, 1),
+            "past the cancel line: R6 in this pass, the credit counts for nothing"
+        );
         assert!(!past_cancel(), "one pass only");
         publish(OFF, 0);
         hook_reset();
@@ -2461,9 +2798,16 @@ mod tests {
         let f = Fake::new(1040 * MIB, 0, 0, 0, 0, 0);
         assert_ne!(hook_pass_with(&f, 1000 * MIB, 20_000).need, 0);
         f.read.set(990 * MIB);
-        assert_eq!(hook_pass_with(&f, 1000 * MIB, 20_000 + rule::HOOK_GRACE_MS).need, 0);
+        assert_eq!(
+            hook_pass_with(&f, 1000 * MIB, 20_000 + rule::HOOK_GRACE_MS).need,
+            0
+        );
         f.read.set(1040 * MIB);
-        assert_eq!(hook_pass_with(&f, 1000 * MIB, 20_000 + 2 * rule::HOOK_GRACE_MS).ran & R6, 0, "a new episode waits its own tick");
+        assert_eq!(
+            hook_pass_with(&f, 1000 * MIB, 20_000 + 2 * rule::HOOK_GRACE_MS).ran & R6,
+            0,
+            "a new episode waits its own tick"
+        );
         assert_eq!(f.cancels.get(), 0);
         clear_narrow();
     }
@@ -2484,7 +2828,15 @@ mod tests {
     fn idle() -> bool {
         false
     }
-    static HAND_ACTS: Acts = Acts { read: hand_read, reclaimable: zero, reclaim: none, cancel: no_cancel, cancel_in_flight: idle, protected: zero, evict_protected: none };
+    static HAND_ACTS: Acts = Acts {
+        read: hand_read,
+        reclaimable: zero,
+        reclaim: none,
+        cancel: no_cancel,
+        cancel_in_flight: idle,
+        protected: zero,
+        evict_protected: none,
+    };
 
     #[test]
     fn a_spent_wait_hands_r2b_and_r6_to_the_ladder_thread() {
@@ -2495,8 +2847,14 @@ mod tests {
         install(&HAND_ACTS);
         publish(ON, 1000 * MIB);
         HAND_READ.store(990 * MIB, Relaxed);
-        assert!(!hand_off(8 * MIB), "the ask fits under the line: only the pool is short, nothing to hand off");
-        assert!(hand_off(64 * MIB), "past the line with the ask in: the ladder thread takes R2b and R6");
+        assert!(
+            !hand_off(8 * MIB),
+            "the ask fits under the line: only the pool is short, nothing to hand off"
+        );
+        assert!(
+            hand_off(64 * MIB),
+            "past the line with the ask in: the ladder thread takes R2b and R6"
+        );
         // its next pass is past the wait at once: no tick of its own
         let f = Fake::new(1040 * MIB, 0, 0, 0, 0, 0);
         let c = hook_pass_with(&f, 1000 * MIB, 30_000);
@@ -2522,11 +2880,17 @@ mod tests {
         assert!(!relief_coming(None), "nothing asked, nothing landing");
         let at = passes();
         assert!(hand_off(64 * MIB));
-        assert!(relief_coming(Some(at)), "handed off: the ladder thread's next pass is relief on its way");
+        assert!(
+            relief_coming(Some(at)),
+            "handed off: the ladder thread's next pass is relief on its way"
+        );
         let f = Fake::new(1040 * MIB, 0, 0, 0, 0, 0);
         hook_pass_with(&f, 1000 * MIB, 40_000);
         assert_eq!(passes(), at + 1);
-        assert!(!relief_coming(Some(at)), "the pass read it and the actuators have no cancel landing: nothing on its way");
+        assert!(
+            !relief_coming(Some(at)),
+            "the pass read it and the actuators have no cancel landing: nothing on its way"
+        );
         set(K::GateNow, 0);
         let at = passes();
         hook_pass_with(&f, 1000 * MIB, 40_100);
@@ -2557,11 +2921,29 @@ mod tests {
             // the sample: the background pass at this line and limit (its hook's pass ran a rung, so it takes nothing)
             let _ = background_pass_with(&|_| 0, &|| 0, limit, line, line, true, burst);
             let marks = marks_now(limit);
-            assert!(marks.1 > 140 * MIB && marks.1 < 155 * MIB, "HIGH at 1536M: {} MiB", marks.1 >> 20);
-            for read in [line - marks.1 - MIB, line - marks.1, line - marks.1 + MIB, line, line + 10 * MIB] {
-                let room = line.saturating_sub(Relief::of(Source::ReaperCredit, unmap_landing()).ask_read(read));
+            assert!(
+                marks.1 > 140 * MIB && marks.1 < 155 * MIB,
+                "HIGH at 1536M: {} MiB",
+                marks.1 >> 20
+            );
+            for read in [
+                line - marks.1 - MIB,
+                line - marks.1,
+                line - marks.1 + MIB,
+                line,
+                line + 10 * MIB,
+            ] {
+                let room = line.saturating_sub(
+                    Relief::of(Source::ReaperCredit, unmap_landing()).ask_read(read),
+                );
                 let r2a_done = rule::drain_to(room, marks, marks.1) == 0;
-                assert_eq!(at_take_target(read), r2a_done, "read {} MiB, burst {:?}: the purger's exit is R2a's stop", read >> 20, burst);
+                assert_eq!(
+                    at_take_target(read),
+                    r2a_done,
+                    "read {} MiB, burst {:?}: the purger's exit is R2a's stop",
+                    read >> 20,
+                    burst
+                );
             }
         }
         BURST.store(u64::MAX, Relaxed);
@@ -2575,7 +2957,9 @@ mod tests {
     #[test]
     fn p3_under_the_knob_r2p_trims_the_parked_bytes_up_to_the_need_before_r2a() {
         let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
-        let _trim = crate::tests::TRIM_TURN.lock().unwrap_or_else(|e| e.into_inner());
+        let _trim = crate::tests::TRIM_TURN
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         clear_narrow();
         r1_reset();
         mempolicy::consts::set(mempolicy::consts::K::ParkedTrimRung, 1);
@@ -2588,11 +2972,31 @@ mod tests {
         g.parked.set(512 * MIB);
         let d = climb_with(&g, 1000 * MIB, 0);
         mempolicy::consts::set(mempolicy::consts::K::ParkedTrimRung, 0);
-        assert_eq!(f.order()[..3], [Rung::AllocReturn as u8 + 1, Rung::TrimParked as u8 + 1, Rung::EvictElastic as u8 + 1], "R1, R2p, then R2a");
+        assert_eq!(
+            f.order()[..3],
+            [
+                Rung::AllocReturn as u8 + 1,
+                Rung::TrimParked as u8 + 1,
+                Rung::EvictElastic as u8 + 1
+            ],
+            "R1, R2p, then R2a"
+        );
         assert_eq!((c.ran, c.need), (R1 | R2P | R2A, 0));
-        assert_eq!((f.parked.get(), f.elastic.get()), (0, 502 * MIB), "R2p trims every parked byte, R2a the 10 MiB left");
-        assert_eq!((d.ran, d.need), (R1 | R2P, 0), "R2p covered the need: no cache evicted");
-        assert_eq!((g.parked.get(), g.elastic.get()), (472 * MIB, 512 * MIB), "R2p trims the need, no more");
+        assert_eq!(
+            (f.parked.get(), f.elastic.get()),
+            (0, 502 * MIB),
+            "R2p trims every parked byte, R2a the 10 MiB left"
+        );
+        assert_eq!(
+            (d.ran, d.need),
+            (R1 | R2P, 0),
+            "R2p covered the need: no cache evicted"
+        );
+        assert_eq!(
+            (g.parked.get(), g.elastic.get()),
+            (472 * MIB, 512 * MIB),
+            "R2p trims the need, no more"
+        );
         clear_narrow();
     }
 
@@ -2601,7 +3005,9 @@ mod tests {
     #[test]
     fn p3_with_the_knob_off_no_r2p_runs_whatever_is_parked() {
         let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
-        let _trim = crate::tests::TRIM_TURN.lock().unwrap_or_else(|e| e.into_inner());
+        let _trim = crate::tests::TRIM_TURN
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         clear_narrow();
         r1_reset();
         let f = Fake::new(1040 * MIB, 512 * MIB, 0, 0, 0, 0);
@@ -2634,21 +3040,53 @@ mod tests {
         set_parked_trim(parked, trim);
         PARKED_WAKE.store(core::ptr::null_mut(), Release);
         let c0 = parked_trim_counts();
-        assert_eq!(trim_parked(8 * MIB), 8 * MIB, "no service: trimmed on this thread");
+        assert_eq!(
+            trim_parked(8 * MIB),
+            8 * MIB,
+            "no service: trimmed on this thread"
+        );
         assert_eq!(TRIMMED.load(Relaxed), 8 * MIB);
         set_parked_service(wake);
         let landing0 = unmap_landing();
         let posted = trim_parked(16 * MIB);
-        let (trimmed, wakes, pending, landing) = (TRIMMED.load(Relaxed), WAKES.load(Relaxed), parked_job_pending(), unmap_landing());
+        let (trimmed, wakes, pending, landing) = (
+            TRIMMED.load(Relaxed),
+            WAKES.load(Relaxed),
+            parked_job_pending(),
+            unmap_landing(),
+        );
         let ran = run_parked_job();
         let after = (TRIMMED.load(Relaxed), parked_job_pending());
         PARKED_WAKE.store(core::ptr::null_mut(), Release);
         PARKED_ASK.store(0, Relaxed);
         let c1 = parked_trim_counts();
-        assert_eq!((posted, trimmed, wakes), (0, 8 * MIB, 1), "with the service: a job posted and its wake sent, nothing trimmed here");
-        assert_eq!((pending, landing), (16 * MIB, landing0 + 16 * MIB), "the job's bytes are landing until it runs");
-        assert_eq!((ran, after), (16 * MIB, (24 * MIB, 0)), "the service's pass ran the job");
-        assert_eq!([c1[0] - c0[0], c1[1] - c0[1], c1[2] - c0[2], c1[3] - c0[3], c1[4] - c0[4], c1[5] - c0[5]], [1, 8 * MIB, 1, 16 * MIB, 1, 16 * MIB], "counted");
+        assert_eq!(
+            (posted, trimmed, wakes),
+            (0, 8 * MIB, 1),
+            "with the service: a job posted and its wake sent, nothing trimmed here"
+        );
+        assert_eq!(
+            (pending, landing),
+            (16 * MIB, landing0 + 16 * MIB),
+            "the job's bytes are landing until it runs"
+        );
+        assert_eq!(
+            (ran, after),
+            (16 * MIB, (24 * MIB, 0)),
+            "the service's pass ran the job"
+        );
+        assert_eq!(
+            [
+                c1[0] - c0[0],
+                c1[1] - c0[1],
+                c1[2] - c0[2],
+                c1[3] - c0[3],
+                c1[4] - c0[4],
+                c1[5] - c0[5]
+            ],
+            [1, 8 * MIB, 1, 16 * MIB, 1, 16 * MIB],
+            "counted"
+        );
     }
 
     /// P3 with H3 step (4): R2p's trim is told where it runs. On the climbing thread it is no job (it waits for the reaper
@@ -2675,11 +3113,19 @@ mod tests {
         PARKED_WAKE.store(core::ptr::null_mut(), Release);
         PARKED_ASK.store(0, Relaxed);
         assert_eq!(trim_parked(4 * MIB), 4 * MIB);
-        let inline = (JOB[0].load(Relaxed), JOB[1].load(Relaxed), LAST.load(Relaxed));
+        let inline = (
+            JOB[0].load(Relaxed),
+            JOB[1].load(Relaxed),
+            LAST.load(Relaxed),
+        );
         set_parked_service(wake);
         assert_eq!(trim_parked(4 * MIB), 0, "posted");
         let ran = run_parked_job();
-        let job = (JOB[0].load(Relaxed), JOB[1].load(Relaxed), LAST.load(Relaxed));
+        let job = (
+            JOB[0].load(Relaxed),
+            JOB[1].load(Relaxed),
+            LAST.load(Relaxed),
+        );
         PARKED_WAKE.store(core::ptr::null_mut(), Release);
         PARKED_ASK.store(0, Relaxed);
         assert_eq!(inline, (1, 0, false), "on the climbing thread: no job");
@@ -2695,7 +3141,11 @@ mod tests {
         // 100 MiB past the line once the 50 MiB ask is in; the caches hold 512 MiB elastic
         let f = Fake::new(1050 * MIB, 512 * MIB, 0, 0, 0, 0);
         let c = climb_with(&f, 1000 * MIB, 50 * MIB);
-        assert_eq!(c.ran, R1 | 1 << Rung::EvictElastic as u8, "R1 returned nothing, R2a covered it: no narrowing, no spill, no revoke");
+        assert_eq!(
+            c.ran,
+            R1 | 1 << Rung::EvictElastic as u8,
+            "R1 returned nothing, R2a covered it: no narrowing, no spill, no revoke"
+        );
         assert_eq!((c.relief, c.need), (100 * MIB, 0));
         assert!(!narrowed());
     }
@@ -2706,13 +3156,39 @@ mod tests {
         clear_narrow();
         r1_reset();
         // the asker holds 3 GiB against a 1 GiB fair share with 64 MiB spillable; others hold 1 GiB spillable
-        let f = Fake::new(1500 * MIB, 16 * MIB, 3072 * MIB, 1024 * MIB, 64 * MIB, 1024 * MIB);
+        let f = Fake::new(
+            1500 * MIB,
+            16 * MIB,
+            3072 * MIB,
+            1024 * MIB,
+            64 * MIB,
+            1024 * MIB,
+        );
         let c = climb_with(&f, 1000 * MIB, 0);
         let r = |x: Rung| x as u8 + 1;
-        assert_eq!(f.order()[..4], [r(Rung::AllocReturn), r(Rung::EvictElastic), r(Rung::OwnSpill), r(Rung::Revoke)], "R1, R2a, (R3 sets its flag), R4a, R4b");
+        assert_eq!(
+            f.order()[..4],
+            [
+                r(Rung::AllocReturn),
+                r(Rung::EvictElastic),
+                r(Rung::OwnSpill),
+                r(Rung::Revoke)
+            ],
+            "R1, R2a, (R3 sets its flag), R4a, R4b"
+        );
         assert!(narrowed(), "R3 ran");
-        assert_eq!(c.ran, R1 | (1 << Rung::EvictElastic as u8) | (1 << Rung::NarrowScans as u8) | (1 << Rung::OwnSpill as u8) | (1 << Rung::Revoke as u8));
-        assert_eq!(c.relief, 80 * MIB, "measured: 16 MiB evicted + 64 MiB spilled; the revoke's ask counts nothing yet");
+        assert_eq!(
+            c.ran,
+            R1 | (1 << Rung::EvictElastic as u8)
+                | (1 << Rung::NarrowScans as u8)
+                | (1 << Rung::OwnSpill as u8)
+                | (1 << Rung::Revoke as u8)
+        );
+        assert_eq!(
+            c.relief,
+            80 * MIB,
+            "measured: 16 MiB evicted + 64 MiB spilled; the revoke's ask counts nothing yet"
+        );
         assert_eq!(c.need, 420 * MIB, "left for the wait (R5)");
         clear_narrow();
     }
@@ -2724,8 +3200,16 @@ mod tests {
         r1_reset();
         let f = Fake::new(1500 * MIB, 0, 512 * MIB, 1024 * MIB, 256 * MIB, 0);
         let c = climb_with(&f, 1000 * MIB, 0);
-        assert_eq!(c.ran, R1 | 1 << Rung::NarrowScans as u8, "nothing elastic, under its share, nothing revocable: R1 and R3 only");
-        assert_eq!(f.order()[..2], [Rung::AllocReturn as u8 + 1, 0], "no spill, no revoke");
+        assert_eq!(
+            c.ran,
+            R1 | 1 << Rung::NarrowScans as u8,
+            "nothing elastic, under its share, nothing revocable: R1 and R3 only"
+        );
+        assert_eq!(
+            f.order()[..2],
+            [Rung::AllocReturn as u8 + 1, 0],
+            "no spill, no revoke"
+        );
         clear_narrow();
     }
 
@@ -2736,9 +3220,17 @@ mod tests {
         r1_reset();
         let f = Fake::new(500 * MIB, 512 * MIB, 0, 0, 0, 0);
         assert_eq!(climb_with(&f, 1000 * MIB, 64 * MIB), Climbed::default());
-        assert_eq!(climb_with(&f, 0, 64 * MIB), Climbed::default(), "no line published yet");
+        assert_eq!(
+            climb_with(&f, 0, 64 * MIB),
+            Climbed::default(),
+            "no line published yet"
+        );
         publish(OFF, 1000 * MIB);
-        assert_eq!(climb(1 << 40), Climbed::default(), "off: the gate's climb does nothing");
+        assert_eq!(
+            climb(1 << 40),
+            Climbed::default(),
+            "off: the gate's climb does nothing"
+        );
         assert_eq!(f.n.get(), 0);
     }
 
@@ -2763,11 +3255,18 @@ mod tests {
         f.now.set(10_000);
         let (runs0, _) = counts();
         let c = climb_with(&f, 1000 * MIB, 50 * MIB);
-        assert_eq!(c.ran, R1, "the allocators' retained pages covered it: the caches keep their bytes");
+        assert_eq!(
+            c.ran, R1,
+            "the allocators' retained pages covered it: the caches keep their bytes"
+        );
         assert_eq!((c.relief, c.need), (120 * MIB, 0));
         assert_eq!(f.elastic.get(), 512 * MIB);
         let (runs1, _) = counts();
-        assert_eq!(runs1[Rung::AllocReturn as usize].0, runs0[Rung::AllocReturn as usize].0 + 1, "R1's run is counted");
+        assert_eq!(
+            runs1[Rung::AllocReturn as usize].0,
+            runs0[Rung::AllocReturn as usize].0 + 1,
+            "R1's run is counted"
+        );
     }
 
     #[test]
@@ -2778,13 +3277,25 @@ mod tests {
         let f = Fake::new(1100 * MIB, 4096 * MIB, 0, 0, 0, 0);
         f.r1.set(2 * MIB);
         f.now.set(10_000);
-        assert_eq!(climb_with(&f, 1000 * MIB, 0).ran, R1 | 1 << Rung::EvictElastic as u8, "2 MiB back: R2a covers the rest");
+        assert_eq!(
+            climb_with(&f, 1000 * MIB, 0).ran,
+            R1 | 1 << Rung::EvictElastic as u8,
+            "2 MiB back: R2a covers the rest"
+        );
         f.read.set(1100 * MIB);
         f.now.set(10_500);
-        assert_eq!(climb_with(&f, 1000 * MIB, 0).ran, 1 << Rung::EvictElastic as u8, "within the window after a small yield: R1 cools");
+        assert_eq!(
+            climb_with(&f, 1000 * MIB, 0).ran,
+            1 << Rung::EvictElastic as u8,
+            "within the window after a small yield: R1 cools"
+        );
         f.read.set(1100 * MIB);
         f.now.set(11_000 + rule::R1_COOL_MS);
-        assert_eq!(climb_with(&f, 1000 * MIB, 0).ran, R1 | 1 << Rung::EvictElastic as u8, "past the window: R1 runs again");
+        assert_eq!(
+            climb_with(&f, 1000 * MIB, 0).ran,
+            R1 | 1 << Rung::EvictElastic as u8,
+            "past the window: R1 runs again"
+        );
         r1_reset();
     }
 
@@ -2816,33 +3327,112 @@ mod tests {
             n
         };
         publish(ON, 7 * gib);
-        assert_eq!(background_pass(limit, 7 * gib, 7 * gib - low / 2, false, None), 0, "cache_floor off: nothing");
+        assert_eq!(
+            background_pass(limit, 7 * gib, 7 * gib - low / 2, false, None),
+            0,
+            "cache_floor off: nothing"
+        );
         assert_eq!(room_now(), None);
         set(K::CacheFloor, 1);
         let before = c1_counts();
         let epoch = crate::memory_short_epoch();
-        assert_eq!(background_pass_with(&reclaim, &|| u64::MAX, limit, 7 * gib, 7 * gib - low, false, None), 0, "at LOW: nothing");
-        assert_eq!(crate::memory_short_epoch(), epoch, "at LOW: not short, REACH's epoch stays");
-        assert_eq!(inline_need(gib), gib, "a 1 GiB draw with LOW left: it evicts the GiB");
-        assert_eq!(background_pass_with(&reclaim, &|| u64::MAX, limit, 7 * gib, 7 * gib - low / 2, true, None), 0, "the hook's pass ran a rung: its read is stale");
-        assert_eq!(background_pass_with(&reclaim, &|| u64::MAX, limit, 7 * gib, 7 * gib - low / 2, false, None), high - low / 2, "under LOW: to HIGH");
-        assert_eq!(crate::memory_short_epoch(), epoch + 1, "under LOW (C1's trigger): REACH's epoch moved, once (not on the stale read)");
+        assert_eq!(
+            background_pass_with(
+                &reclaim,
+                &|| u64::MAX,
+                limit,
+                7 * gib,
+                7 * gib - low,
+                false,
+                None
+            ),
+            0,
+            "at LOW: nothing"
+        );
+        assert_eq!(
+            crate::memory_short_epoch(),
+            epoch,
+            "at LOW: not short, REACH's epoch stays"
+        );
+        assert_eq!(
+            inline_need(gib),
+            gib,
+            "a 1 GiB draw with LOW left: it evicts the GiB"
+        );
+        assert_eq!(
+            background_pass_with(
+                &reclaim,
+                &|| u64::MAX,
+                limit,
+                7 * gib,
+                7 * gib - low / 2,
+                true,
+                None
+            ),
+            0,
+            "the hook's pass ran a rung: its read is stale"
+        );
+        assert_eq!(
+            background_pass_with(
+                &reclaim,
+                &|| u64::MAX,
+                limit,
+                7 * gib,
+                7 * gib - low / 2,
+                false,
+                None
+            ),
+            high - low / 2,
+            "under LOW: to HIGH"
+        );
+        assert_eq!(
+            crate::memory_short_epoch(),
+            epoch + 1,
+            "under LOW (C1's trigger): REACH's epoch moved, once (not on the stale read)"
+        );
         assert_eq!(asked.get(), high - low / 2);
         assert_eq!(room_now(), Some((high, limit)));
         let after = c1_counts();
-        assert_eq!((after.bg_runs - before.bg_runs, after.bg_bytes - before.bg_bytes), (1, high - low / 2));
+        assert_eq!(
+            (
+                after.bg_runs - before.bg_runs,
+                after.bg_bytes - before.bg_bytes
+            ),
+            (1, high - low / 2)
+        );
         assert_eq!(C1_WAKES.load(Relaxed), 1, "the reclaim woke the purger");
-        assert!(!refill_open(), "within a second of the reclaim (and at HIGH)");
+        assert!(
+            !refill_open(),
+            "within a second of the reclaim (and at HIGH)"
+        );
         C1_HELD.store(gib / 4, Relaxed);
-        assert_eq!(room_now(), Some((high - gib / 4, limit)), "the pool drew a quarter GiB since the sample");
+        assert_eq!(
+            room_now(),
+            Some((high - gib / 4, limit)),
+            "the pool drew a quarter GiB since the sample"
+        );
         assert_eq!(inline_need(gib / 8), 0, "LOW stays free after it");
         assert_eq!(inline_need(gib), gib + low - (high - gib / 4));
         note_inline(gib, gib / 2, 1_500_000);
         let c = c1_counts();
-        assert_eq!((c.inline_runs - after.inline_runs, c.inline_bytes - after.inline_bytes, c.inline_short - after.inline_short), (1, gib / 2, 1));
-        assert_eq!(room_now(), Some((high + gib / 4, limit)), "the inline eviction's bytes are room");
+        assert_eq!(
+            (
+                c.inline_runs - after.inline_runs,
+                c.inline_bytes - after.inline_bytes,
+                c.inline_short - after.inline_short
+            ),
+            (1, gib / 2, 1)
+        );
+        assert_eq!(
+            room_now(),
+            Some((high + gib / 4, limit)),
+            "the inline eviction's bytes are room"
+        );
         RECLAIM_AT_MS.store(0, Relaxed);
-        assert!(!refill_open(), "C1c: past HIGH but under TOP (HIGH + 5 %): closed");
+        assert!(
+            !refill_open(),
+            "C1c: past HIGH but under TOP (HIGH + 5 %): closed"
+        );
         C1_HELD.store(0, Relaxed);
         assert!(refill_open(), "past TOP, no reclaim yet");
         set(K::CacheFloor, 0);
@@ -2878,44 +3468,125 @@ mod tests {
         let half = std::cell::Cell::new(false);
         let reclaim = |n: u64| {
             asked.borrow_mut().push(n);
-            if half.get() { n / 2 } else { n }
+            if half.get() {
+                n / 2
+            } else {
+                n
+            }
         };
         // the room 1 GiB, then as each batch left it
         for room in [1, 3, 5, 7, 9, 10] {
-            background_pass_with(&reclaim, &|| u64::MAX, limit, line, line - room * gib, false, None);
+            background_pass_with(
+                &reclaim,
+                &|| u64::MAX,
+                limit,
+                line,
+                line - room * gib,
+                false,
+                None,
+            );
         }
-        assert_eq!(*asked.borrow(), [2 * gib, 2 * gib, 2 * gib, 2 * gib, gib], "2 GiB a sample, on past LOW, to HIGH");
+        assert_eq!(
+            *asked.borrow(),
+            [2 * gib, 2 * gib, 2 * gib, 2 * gib, gib],
+            "2 GiB a sample, on past LOW, to HIGH"
+        );
         asked.borrow_mut().clear();
         // a short batch ends the drain: the caches are at their floors
         half.set(true);
         background_pass_with(&reclaim, &|| u64::MAX, limit, line, line - gib, false, None);
-        background_pass_with(&reclaim, &|| u64::MAX, limit, line, line - 6 * gib, false, None);
-        assert_eq!(*asked.borrow(), [2 * gib], "past LOW after a short batch: no drain");
+        background_pass_with(
+            &reclaim,
+            &|| u64::MAX,
+            limit,
+            line,
+            line - 6 * gib,
+            false,
+            None,
+        );
+        assert_eq!(
+            *asked.borrow(),
+            [2 * gib],
+            "past LOW after a short batch: no drain"
+        );
         half.set(false);
         asked.borrow_mut().clear();
         // quiet when there is nothing to take: no walk, counted apart, the drain ended
         let q0 = c1_counts().bg_quiet;
-        background_pass_with(&reclaim, &|| rule::C1_QUIET_MIN - 1, limit, line, line - gib, false, None);
-        background_pass_with(&reclaim, &|| u64::MAX, limit, line, line - 6 * gib, false, None);
-        assert!(asked.borrow().is_empty(), "nothing reclaimable: no walk, and past LOW no drain");
+        background_pass_with(
+            &reclaim,
+            &|| rule::C1_QUIET_MIN - 1,
+            limit,
+            line,
+            line - gib,
+            false,
+            None,
+        );
+        background_pass_with(
+            &reclaim,
+            &|| u64::MAX,
+            limit,
+            line,
+            line - 6 * gib,
+            false,
+            None,
+        );
+        assert!(
+            asked.borrow().is_empty(),
+            "nothing reclaimable: no walk, and past LOW no drain"
+        );
         assert_eq!(c1_counts().bg_quiet - q0, 1);
         // LOW the burst (at least MARGIN_MIN, at most 5 % of the limit); no new measure keeps the last
-        background_pass_with(&reclaim, &|| u64::MAX, limit, line, line - gib, false, Some(300 * mib));
+        background_pass_with(
+            &reclaim,
+            &|| u64::MAX,
+            limit,
+            line,
+            line - gib,
+            false,
+            Some(300 * mib),
+        );
         assert_eq!(burst(), Some(300 * mib));
         assert_eq!(marks_now(limit), (300 * mib, 300 * mib + 5 * gib));
-        assert!(asked.borrow().is_empty(), "1 GiB of room is past a 300 MiB LOW");
-        background_pass_with(&reclaim, &|| u64::MAX, limit, line, line - 200 * mib, false, None);
-        assert_eq!(*asked.borrow(), [300 * mib + 5 * gib - 200 * mib].map(|w| w.min(2 * gib)), "under the burst's LOW: to its HIGH");
+        assert!(
+            asked.borrow().is_empty(),
+            "1 GiB of room is past a 300 MiB LOW"
+        );
+        background_pass_with(
+            &reclaim,
+            &|| u64::MAX,
+            limit,
+            line,
+            line - 200 * mib,
+            false,
+            None,
+        );
+        assert_eq!(
+            *asked.borrow(),
+            [300 * mib + 5 * gib - 200 * mib].map(|w| w.min(2 * gib)),
+            "under the burst's LOW: to its HIGH"
+        );
         assert_eq!(burst(), Some(300 * mib), "kept");
         // the give-back rate: the prior, then a quarter of the way to each timed reclaim's
         let before = c1_counts();
         assert_eq!(give_back_ns_per_gib(), rule::GIVE_BACK_NS_PER_GIB_PRIOR);
         note_give_back(mib, 1_000_000_000);
-        assert_eq!(give_back_ns_per_gib(), rule::GIVE_BACK_NS_PER_GIB_PRIOR, "too small to time");
+        assert_eq!(
+            give_back_ns_per_gib(),
+            rule::GIVE_BACK_NS_PER_GIB_PRIOR,
+            "too small to time"
+        );
         note_give_back(gib, 80_000_000);
         assert_eq!(give_back_ns_per_gib(), 33_000_000 + 20_000_000);
         let after = c1_counts();
-        assert_eq!((after.give_back_runs - before.give_back_runs, after.give_back_bytes - before.give_back_bytes, after.give_back_ns - before.give_back_ns), (1, gib, 80_000_000));
+        assert_eq!(
+            (
+                after.give_back_runs - before.give_back_runs,
+                after.give_back_bytes - before.give_back_bytes,
+                after.give_back_ns - before.give_back_ns
+            ),
+            (1, gib, 80_000_000)
+        );
         // the stuck cache bytes: re-read at the sample (stuck_refresh_ms 0: every sample), 0 with C1 off; a fall moves the
         // free epoch
         set_caches_stuck(c1_stuck);
@@ -2936,10 +3607,16 @@ mod tests {
         assert_eq!(caches_stuck(), gib, "past HIGH, read just now: not re-read");
         set(K::StuckRefreshMs, 1_000);
         let (at, high) = (STUCK_AT_MS.load(Relaxed), marks_now(limit).1);
-        assert!(!stuck_due(high + gib, high, at + 999) && stuck_due(high + gib, high, at + 1_000), "past HIGH: once a second");
+        assert!(
+            !stuck_due(high + gib, high, at + 999) && stuck_due(high + gib, high, at + 1_000),
+            "past HIGH: once a second"
+        );
         assert!(stuck_due(high - 1, high, at), "under HIGH: every sample");
         set(K::StuckRefreshMs, 0);
-        assert!(stuck_due(high + gib, high, at), "0: every sample, as before");
+        assert!(
+            stuck_due(high + gib, high, at),
+            "0: every sample, as before"
+        );
         set(K::StuckRefreshMs, 1_000);
         STUCK_AT_MS.store(0, Relaxed);
         set(K::CacheFloor, 0);
@@ -2970,39 +3647,79 @@ mod tests {
         assert_eq!(sized_budget(SIZED_PART, gib), gib, "off: the start");
         set(K::CacheFloor, 1);
         publish(ON, line);
-        assert_eq!(sized_budget(SIZED_PART, gib), gib, "nothing taken: the start");
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            gib,
+            "nothing taken: the start"
+        );
         assert_eq!(sized_budget(SIZED_FP, 2 * gib), 2 * gib);
         set_sized_probe(SIZED_PART, part_probe);
         PROBE_HELD.store(300 * mib, Relaxed);
         PROBE_EVICTS.store(7, Relaxed);
         note_taken_at(SIZED_PART, 300 * mib, 1_000);
-        assert_eq!(sized_budget(SIZED_PART, gib), 300 * mib, "the ladder took bytes: what it held after");
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            300 * mib,
+            "the ladder took bytes: what it held after"
+        );
         // the take's own trim is not demand; the cache evicting at its budget is
         let t = 20_000;
         raise_sized(gib, t);
-        assert_eq!(sized_budget(SIZED_PART, gib), 300 * mib, "no eviction of its own since the take: no raise");
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            300 * mib,
+            "no eviction of its own since the take: no raise"
+        );
         PROBE_EVICTS.store(8, Relaxed);
         raise_sized(0, t);
-        assert_eq!(sized_budget(SIZED_PART, gib), 300 * mib, "no room past TOP: no raise");
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            300 * mib,
+            "no room past TOP: no raise"
+        );
         raise_sized(gib, t + 100);
-        assert_eq!(sized_budget(SIZED_PART, gib), 300 * mib + step, "demand and room: one step");
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            300 * mib + step,
+            "demand and room: one step"
+        );
         raise_sized(gib, t + 1_000);
-        assert_eq!(sized_budget(SIZED_PART, gib), 300 * mib + step, "no eviction since the raise: none (never a fill)");
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            300 * mib + step,
+            "no eviction since the raise: none (never a fill)"
+        );
         PROBE_HELD.store(300 * mib + step, Relaxed);
         PROBE_EVICTS.store(9, Relaxed);
         raise_sized(gib, t + 1_100);
-        assert_eq!(sized_budget(SIZED_PART, gib), 300 * mib + 2 * step, "it filled the raise and evicted: the next step");
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            300 * mib + 2 * step,
+            "it filled the raise and evicted: the next step"
+        );
         assert_eq!(sized_counts()[SIZED_PART], (2, 2 * step, 0));
         // a take within 10 s of the raise: a reversal, and the next raise waits twice as long
         note_taken_at(SIZED_PART, 300 * mib, t + 1_150);
         assert_eq!(sized_counts()[SIZED_PART].2, 1, "a reversal");
         PROBE_EVICTS.store(10, Relaxed);
         raise_sized(gib, t + 1_250);
-        assert_eq!(sized_budget(SIZED_PART, gib), 300 * mib, "the backoff: 150 ms since the last raise, under its 200");
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            300 * mib,
+            "the backoff: 150 ms since the last raise, under its 200"
+        );
         raise_sized(gib, t + 1_300);
-        assert_eq!(sized_budget(SIZED_PART, gib), 300 * mib, "the refill backoff: 150 ms since the take, under its doubled 2 s");
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            300 * mib,
+            "the refill backoff: 150 ms since the take, under its doubled 2 s"
+        );
         raise_sized(gib, t + 3_150);
-        assert_eq!(sized_budget(SIZED_PART, gib), 300 * mib + step, "2 s after the take: one step");
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            300 * mib + step,
+            "2 s after the take: one step"
+        );
         // through the background pass: between HIGH and TOP nothing; past TOP a raise; within a second of a reclaim none
         PROBE_EVICTS.store(12, Relaxed);
         SIZED_RAISE_AT[SIZED_PART].store(0, Relaxed);
@@ -3020,25 +3737,85 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         background_pass_with(&none, &|| u64::MAX, limit, line, line - top, false, None);
-        assert_eq!(sized_budget(SIZED_PART, gib), 300 * mib + step, "at TOP (between HIGH and TOP): nothing");
-        assert_eq!(part_hold_reach(), 300 * mib + step, "C1b: at TOP the hold reaches the budget (a step past the floor bounds it)");
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            300 * mib + step,
+            "at TOP (between HIGH and TOP): nothing"
+        );
+        assert_eq!(
+            part_hold_reach(),
+            300 * mib + step,
+            "C1b: at TOP the hold reaches the budget (a step past the floor bounds it)"
+        );
         RECLAIM_AT_MS.store(crate::governor::decide_ms().max(1), Relaxed);
-        background_pass_with(&none, &|| u64::MAX, limit, line, line - top - gib, false, None);
-        assert_eq!(sized_budget(SIZED_PART, gib), 300 * mib + step, "within a second of a reclaim: nothing");
-        assert_eq!(part_hold_reach(), 300 * mib + step, "C1b: no raise could give: the budget");
+        background_pass_with(
+            &none,
+            &|| u64::MAX,
+            limit,
+            line,
+            line - top - gib,
+            false,
+            None,
+        );
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            300 * mib + step,
+            "within a second of a reclaim: nothing"
+        );
+        assert_eq!(
+            part_hold_reach(),
+            300 * mib + step,
+            "C1b: no raise could give: the budget"
+        );
         RECLAIM_AT_MS.store(0, Relaxed);
-        background_pass_with(&none, &|| u64::MAX, limit, line, line - high - step + 1, false, None);
-        assert_eq!(sized_budget(SIZED_PART, gib), 300 * mib + step, "under TOP: nothing");
+        background_pass_with(
+            &none,
+            &|| u64::MAX,
+            limit,
+            line,
+            line - high - step + 1,
+            false,
+            None,
+        );
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            300 * mib + step,
+            "under TOP: nothing"
+        );
         // C1d v2: the window's lowest headroom bounds a raise: a step under HIGH plus a step within it, so none
-        background_pass_with(&none, &|| u64::MAX, limit, line, line - top - gib, false, None);
+        background_pass_with(
+            &none,
+            &|| u64::MAX,
+            limit,
+            line,
+            line - top - gib,
+            false,
+            None,
+        );
         assert_eq!(room_low(), Some(high + step - 1));
-        assert_eq!(sized_budget(SIZED_PART, gib), 300 * mib + step, "past TOP, but the window's low under HIGH + a step: nothing");
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            300 * mib + step,
+            "past TOP, but the window's low under HIGH + a step: nothing"
+        );
         // a window later (its halves forgotten) the room the low held back is the caches' again, but not while a take's
         // bytes are still landing (the reaper's unmaps, which the pass's read comes without): the raises count them as used
         ROOM_LOW_AT.store(0, Relaxed);
         set(K::CacheRaise, 0);
-        background_pass_with(&none, &|| u64::MAX, limit, line, line - top - gib, false, None);
-        assert_eq!(sized_budget(SIZED_PART, gib), 300 * mib + step, "cache_raise = 0: never a raise");
+        background_pass_with(
+            &none,
+            &|| u64::MAX,
+            limit,
+            line,
+            line - top - gib,
+            false,
+            None,
+        );
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            300 * mib + step,
+            "cache_raise = 0: never a raise"
+        );
         set(K::CacheRaise, 1);
         // the refault gate (on here, off by default): the page cache refaulting 10 % of the limit a minute holds it
         set(K::CacheRefaultGate, 1);
@@ -3046,57 +3823,166 @@ mod tests {
         assert_eq!(file_refaults_per_min(), None, "no cgroup: no count");
         note_file_refaults(0, 1);
         note_file_refaults(limit / 10, 60_001);
-        assert_eq!(file_refaults_per_min(), Some(limit / 10), "the last whole minute's");
+        assert_eq!(
+            file_refaults_per_min(),
+            Some(limit / 10),
+            "the last whole minute's"
+        );
         let held = refault_held();
-        background_pass_with(&none, &|| u64::MAX, limit, line, line - top - gib, false, None);
-        assert_eq!(sized_budget(SIZED_PART, gib), 300 * mib + step, "the page cache paying: nothing");
+        background_pass_with(
+            &none,
+            &|| u64::MAX,
+            limit,
+            line,
+            line - top - gib,
+            false,
+            None,
+        );
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            300 * mib + step,
+            "the page cache paying: nothing"
+        );
         assert_eq!(refault_held(), held + 1);
         note_file_refaults(limit / 10 + limit / 100, 90_001);
-        assert_eq!(file_refaults_per_min(), Some(limit / 10), "the minute so far is under the last whole one");
+        assert_eq!(
+            file_refaults_per_min(),
+            Some(limit / 10),
+            "the minute so far is under the last whole one"
+        );
         note_file_refaults(limit / 10 + limit / 100, 120_001);
-        assert_eq!(file_refaults_per_min(), Some(limit / 100), "a quiet minute after it");
+        assert_eq!(
+            file_refaults_per_min(),
+            Some(limit / 100),
+            "a quiet minute after it"
+        );
         no_file_refaults();
         TEST_LANDING.store(gib, Relaxed);
         // pppress card 15: a hook whose bytes hold the pool's landing says so, and the claimer's landing counts the pool's
         // once: not again with that hook, added with the plain one
         set_unmap_landing_with_pool(test_landing);
         assert!(unmap_landing_has_pool());
-        assert_eq!(claimer_landing(5, 7), unmap_landing() + 5, "the hook holds the pool's landing: not again");
+        assert_eq!(
+            claimer_landing(5, 7),
+            unmap_landing() + 5,
+            "the hook holds the pool's landing: not again"
+        );
         set_unmap_landing(test_landing);
         assert!(!unmap_landing_has_pool());
-        assert_eq!(claimer_landing(5, 7), unmap_landing() + 12, "a hook without it: the pool's landing added");
-        background_pass_with(&none, &|| u64::MAX, limit, line, line - top - gib, false, None);
-        assert_eq!(room_low(), Some(top), "the landing bytes are used in the raises' window");
-        assert_eq!(sized_budget(SIZED_PART, gib), 300 * mib + step, "past TOP with demand, a take's bytes landing: nothing");
+        assert_eq!(
+            claimer_landing(5, 7),
+            unmap_landing() + 12,
+            "a hook without it: the pool's landing added"
+        );
+        background_pass_with(
+            &none,
+            &|| u64::MAX,
+            limit,
+            line,
+            line - top - gib,
+            false,
+            None,
+        );
+        assert_eq!(
+            room_low(),
+            Some(top),
+            "the landing bytes are used in the raises' window"
+        );
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            300 * mib + step,
+            "past TOP with demand, a take's bytes landing: nothing"
+        );
         TEST_LANDING.store(0, Relaxed);
         ROOM_LOW_AT.store(0, Relaxed);
         // (the refault gate off, the default: the page cache refaulting does not hold it)
         note_file_refaults(0, 1);
         note_file_refaults(limit / 10, 60_001);
         set(K::CacheRefaultGate, 0);
-        background_pass_with(&none, &|| u64::MAX, limit, line, line - top - gib, false, None);
+        background_pass_with(
+            &none,
+            &|| u64::MAX,
+            limit,
+            line,
+            line - top - gib,
+            false,
+            None,
+        );
         no_file_refaults();
         assert_eq!(room_low(), Some(top + gib));
-        assert_eq!(sized_budget(SIZED_PART, gib), 300 * mib + 2 * step, "landed: past TOP with demand, the window's low too: a step");
-        assert_eq!(part_hold_reach(), 300 * mib + step + (top + gib - high), "C1b: the budget plus the room a raise could give then");
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            300 * mib + 2 * step,
+            "landed: past TOP with demand, the window's low too: a step"
+        );
+        assert_eq!(
+            part_hold_reach(),
+            300 * mib + step + (top + gib - high),
+            "C1b: the budget plus the room a raise could give then"
+        );
         // C1b: the raises' one timing rule bounds the reach: within the part cache's raise interval (a backoff after
         // reversals) or a take's refill quiet period no raise could come, so the hold reaches only the budget
-        let clocks = [SIZED_RAISE_AT[SIZED_PART].load(Relaxed), SIZED_RECENT[SIZED_PART].load(Relaxed) as u64, SIZED_TAKEN_AT[SIZED_PART].load(Relaxed), SIZED_QUIET_SHIFT[SIZED_PART].load(Relaxed) as u64];
+        let clocks = [
+            SIZED_RAISE_AT[SIZED_PART].load(Relaxed),
+            SIZED_RECENT[SIZED_PART].load(Relaxed) as u64,
+            SIZED_TAKEN_AT[SIZED_PART].load(Relaxed),
+            SIZED_QUIET_SHIFT[SIZED_PART].load(Relaxed) as u64,
+        ];
         let budget_now = sized_budget(SIZED_PART, gib);
         ROOM_LOW_AT.store(0, Relaxed);
         SIZED_RAISE_AT[SIZED_PART].store(crate::governor::decide_ms().max(1), Relaxed);
         SIZED_RECENT[SIZED_PART].store(rule::C1_BACKOFF_MAX, Relaxed);
-        background_pass_with(&none, &|| u64::MAX, limit, line, line - top - gib, false, None);
-        assert_eq!(part_hold_reach(), budget_now, "C1b: within the raise backoff the hold reaches only the budget");
+        background_pass_with(
+            &none,
+            &|| u64::MAX,
+            limit,
+            line,
+            line - top - gib,
+            false,
+            None,
+        );
+        assert_eq!(
+            part_hold_reach(),
+            budget_now,
+            "C1b: within the raise backoff the hold reaches only the budget"
+        );
         ROOM_LOW_AT.store(0, Relaxed);
         set(K::CacheHoldReachGate, 0);
-        background_pass_with(&none, &|| u64::MAX, limit, line, line - top - gib, false, None);
-        assert_eq!(part_hold_reach(), budget_now + (top + gib - high), "H5a: the timing gate off: the reach within the backoff too");
-        assert_eq!(sized_budget(SIZED_PART, gib), budget_now, "H5a: and still no raise: the gate's knob is the reach's only");
+        background_pass_with(
+            &none,
+            &|| u64::MAX,
+            limit,
+            line,
+            line - top - gib,
+            false,
+            None,
+        );
+        assert_eq!(
+            part_hold_reach(),
+            budget_now + (top + gib - high),
+            "H5a: the timing gate off: the reach within the backoff too"
+        );
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            budget_now,
+            "H5a: and still no raise: the gate's knob is the reach's only"
+        );
         ROOM_LOW_AT.store(0, Relaxed);
         set(K::CacheHoldReach, 0);
-        background_pass_with(&none, &|| u64::MAX, limit, line, line - top - gib, false, None);
-        assert_eq!(part_hold_reach(), budget_now, "H5a: the reach off: the budget");
+        background_pass_with(
+            &none,
+            &|| u64::MAX,
+            limit,
+            line,
+            line - top - gib,
+            false,
+            None,
+        );
+        assert_eq!(
+            part_hold_reach(),
+            budget_now,
+            "H5a: the reach off: the budget"
+        );
         set(K::CacheHoldReach, 1);
         set(K::CacheHoldReachGate, 1);
         SIZED_RAISE_AT[SIZED_PART].store(clocks[0], Relaxed);
@@ -3104,9 +3990,25 @@ mod tests {
         ROOM_LOW_AT.store(0, Relaxed);
         SIZED_TAKEN_AT[SIZED_PART].store(crate::governor::decide_ms().max(1), Relaxed);
         SIZED_QUIET_SHIFT[SIZED_PART].store(rule::C1_BACKOFF_MAX, Relaxed);
-        background_pass_with(&none, &|| u64::MAX, limit, line, line - top - gib, false, None);
-        assert_eq!(part_hold_reach(), budget_now, "C1b: within a take's refill quiet period the hold reaches only the budget");
-        assert_eq!(sized_budget(SIZED_PART, gib), budget_now, "and no raise either: one timing rule");
+        background_pass_with(
+            &none,
+            &|| u64::MAX,
+            limit,
+            line,
+            line - top - gib,
+            false,
+            None,
+        );
+        assert_eq!(
+            part_hold_reach(),
+            budget_now,
+            "C1b: within a take's refill quiet period the hold reaches only the budget"
+        );
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            budget_now,
+            "and no raise either: one timing rule"
+        );
         SIZED_TAKEN_AT[SIZED_PART].store(clocks[2], Relaxed);
         SIZED_QUIET_SHIFT[SIZED_PART].store(clocks[3] as u32, Relaxed);
         // C1d: the start (the derived budget) is no cap: free past TOP and demand raise the budget past it
@@ -3115,55 +4017,111 @@ mod tests {
         PROBE_EVICTS.store(13, Relaxed);
         let t2 = crate::governor::decide_ms().max(1) + 60_000;
         raise_sized(2 * gib, t2);
-        assert_eq!(sized_budget(SIZED_PART, gib), gib + step, "at its start, at budget and evicting, free past TOP: past the derived budget");
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            gib + step,
+            "at its start, at budget and evicting, free past TOP: past the derived budget"
+        );
         PROBE_HELD.store(gib + step, Relaxed);
         PROBE_EVICTS.store(14, Relaxed);
         raise_sized(2 * gib, t2 + 200);
-        assert_eq!(sized_budget(SIZED_PART, gib), gib + 2 * step, "and on, while free stays past TOP");
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            gib + 2 * step,
+            "and on, while free stays past TOP"
+        );
         // C1d: a raise gives back what the cache evicted itself since its last raise: 3 GiB evicted, 2 GiB of room
         let before = sized_counts()[SIZED_PART];
         PROBE_HELD.store(gib + 2 * step, Relaxed);
         PROBE_EVICTS.store(14 + 3 * gib, Relaxed);
         raise_sized(2 * gib, t2 + 400);
-        assert_eq!(sized_budget(SIZED_PART, gib), 3 * gib + 2 * step, "the bytes it evicted, within the room");
-        assert_eq!(sized_counts()[SIZED_PART], (before.0 + 1, before.1 + 2 * gib, before.2), "one raise of 2 GiB");
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            3 * gib + 2 * step,
+            "the bytes it evicted, within the room"
+        );
+        assert_eq!(
+            sized_counts()[SIZED_PART],
+            (before.0 + 1, before.1 + 2 * gib, before.2),
+            "one raise of 2 GiB"
+        );
         PROBE_HELD.store(3 * gib + 2 * step, Relaxed);
         PROBE_EVICTS.store(15 + 3 * gib, Relaxed);
         raise_sized(2 * gib, t2 + 600);
-        assert_eq!(sized_budget(SIZED_PART, gib), 3 * gib + 3 * step, "evicted since that raise: a byte, so a step");
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            3 * gib + 3 * step,
+            "evicted since that raise: a byte, so a step"
+        );
         // C1d v2: only the window's evictions: 3 GiB since that raise, 1 GiB of them since the window's older half began
         PROBE_HELD.store(3 * gib + 3 * step, Relaxed);
         PROBE_EVICTS.store(15 + 6 * gib, Relaxed);
         SIZED_EVICT_WIN[SIZED_PART][1].store(15 + 5 * gib, Relaxed);
         raise_sized(2 * gib, t2 + 800);
-        assert_eq!(sized_budget(SIZED_PART, gib), 4 * gib + 3 * step, "the window's GiB, not the 3 since the raise");
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            4 * gib + 3 * step,
+            "the window's GiB, not the 3 since the raise"
+        );
         // C1b: a GiB held past the budget once the floor fell back under it is demand (no eviction since the raise)
         PROBE_HELD.store(5 * gib + 3 * step, Relaxed);
         note_sized_floor(SIZED_PART, 6 * gib);
         raise_sized(4 * gib, t2 + 1_000);
-        assert_eq!(sized_budget(SIZED_PART, gib), 4 * gib + 3 * step, "while the floor holds it: no raise");
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            4 * gib + 3 * step,
+            "while the floor holds it: no raise"
+        );
         note_sized_floor(SIZED_PART, gib);
         raise_sized(4 * gib, t2 + 1_200);
-        assert_eq!(sized_budget(SIZED_PART, gib), 5 * gib + 3 * step, "the floor back under it: the bytes held past it");
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            5 * gib + 3 * step,
+            "the floor back under it: the bytes held past it"
+        );
         note_sized_floor(SIZED_PART, 0);
         // C1d: a take sets the budget to what it left (at least the bytes the trim cannot drop: in use, and the images part
         // lists hold); the floor the ladder's sample reads never lifts it, so no cut follows when it falls back (D4715)
         note_sized_floor(SIZED_PART, 3 * gib);
         note_taken_at(SIZED_PART, 700 * mib, t2 + 60_000);
-        assert_eq!(sized_budget(SIZED_PART, gib), 700 * mib, "what the take left, not a stale sample's floor");
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            700 * mib,
+            "what the take left, not a stale sample's floor"
+        );
         note_taken_at(SIZED_PART, 900 * mib, t2 + 60_100);
-        assert_eq!(sized_budget(SIZED_PART, gib), 700 * mib, "a take that leaves the cache past its budget: never up");
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            700 * mib,
+            "a take that leaves the cache past its budget: never up"
+        );
         note_sized_floor(SIZED_PART, 2 * gib);
-        assert_eq!(sized_budget(SIZED_PART, gib), 700 * mib, "a floor risen since (a statement's parts held): no lift");
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            700 * mib,
+            "a floor risen since (a statement's parts held): no lift"
+        );
         note_sized_floor(SIZED_PART, 0);
-        assert_eq!(sized_budget(SIZED_PART, gib), 700 * mib, "and none to cut when it falls back");
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            700 * mib,
+            "and none to cut when it falls back"
+        );
         SIZED_BUDGET[SIZED_PART].store(u64::MAX, Relaxed);
         note_sized_floor(SIZED_PART, 2 * gib);
-        assert_eq!(sized_budget(SIZED_PART, gib), gib, "no take yet: the start, whatever the floor");
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            gib,
+            "no take yet: the start, whatever the floor"
+        );
         note_sized_floor(SIZED_PART, 0);
         set(K::CacheFloor, 0);
         note_taken(SIZED_PART, 0);
-        assert_eq!(sized_budget(SIZED_PART, gib), gib, "off: the start, and a take notes nothing");
+        assert_eq!(
+            sized_budget(SIZED_PART, gib),
+            gib,
+            "off: the start, and a take notes nothing"
+        );
         publish(OFF, 0);
         ROOM.store(u64::MAX, Relaxed);
         DRAIN_TO.store(0, Relaxed);
@@ -3210,19 +4168,43 @@ mod tests {
         raise_sized(0, 1_100);
         assert_eq!(held(HELD_ROOM), room0 + 1, "no room: held by its room");
         raise_sized(gib, 1_200);
-        assert_eq!(held(HELD_TIMING), timing0 + 1, "200 ms after the take, under the 1 s quiet: held by its timing");
+        assert_eq!(
+            held(HELD_TIMING),
+            timing0 + 1,
+            "200 ms after the take, under the 1 s quiet: held by its timing"
+        );
         raise_sized(gib, 20_000);
-        assert_eq!(sized_counts()[SIZED_PART].0, counts0.0 + 1, "quiet, evicting, room: a raise");
+        assert_eq!(
+            sized_counts()[SIZED_PART].0,
+            counts0.0 + 1,
+            "quiet, evicting, room: a raise"
+        );
         raise_sized(gib, 22_000);
-        assert_eq!(held(HELD_DEMAND), demand0 + 1, "no eviction since the raise: held by no demand");
+        assert_eq!(
+            held(HELD_DEMAND),
+            demand0 + 1,
+            "no eviction since the raise: held by no demand"
+        );
         // a take within 10 s of the raise: a reversal doubles the quiet; later takes keep the shift
         note_taken_at(SIZED_PART, 300 * mib, 25_000);
         assert_eq!(sized_counts()[SIZED_PART].2, counts0.2 + 1, "a reversal");
-        assert_eq!(SIZED_QUIET_SHIFT[SIZED_PART].load(Relaxed), 1, "a reversal: shift 1");
+        assert_eq!(
+            SIZED_QUIET_SHIFT[SIZED_PART].load(Relaxed),
+            1,
+            "a reversal: shift 1"
+        );
         note_taken_at(SIZED_PART, 300 * mib, 50_000);
-        assert_eq!(SIZED_QUIET_SHIFT[SIZED_PART].load(Relaxed), 1, "a take with no raise before it: the shift stays");
+        assert_eq!(
+            SIZED_QUIET_SHIFT[SIZED_PART].load(Relaxed),
+            1,
+            "a take with no raise before it: the shift stays"
+        );
         let (shift, quiet, _) = sized_quiet(SIZED_PART);
-        assert_eq!((shift, quiet), (1, 2 * mempolicy::consts::get(K::CacheRefillQuietMs)), "the view: shift 1, the quiet doubled");
+        assert_eq!(
+            (shift, quiet),
+            (1, 2 * mempolicy::consts::get(K::CacheRefillQuietMs)),
+            "the view: shift 1, the quiet doubled"
+        );
         SIZED_RAISES[SIZED_PART].store(counts0.0, Relaxed);
         SIZED_RAISED[SIZED_PART].store(counts0.1, Relaxed);
         SIZED_REVERSALS[SIZED_PART].store(counts0.2, Relaxed);
@@ -3279,28 +4261,72 @@ mod tests {
         let between = line - high - mib;
         set(K::CacheFloorHold, 0);
         background_pass_with(&none, &|| u64::MAX, limit, line, between, false, None);
-        assert_eq!(sized_budgets()[SIZED_PART], 64 * mib, "off: the raises alone (none: no demand, no room past TOP)");
+        assert_eq!(
+            sized_budgets()[SIZED_PART],
+            64 * mib,
+            "off: the raises alone (none: no demand, no room past TOP)"
+        );
         set(K::CacheFloorHold, 1);
-        background_pass_with(&none, &|| u64::MAX, limit, line, line - low / 2, false, None);
-        assert_eq!(sized_budgets()[SIZED_PART], 64 * mib, "under LOW the pass drains: no restore");
+        background_pass_with(
+            &none,
+            &|| u64::MAX,
+            limit,
+            line,
+            line - low / 2,
+            false,
+            None,
+        );
+        assert_eq!(
+            sized_budgets()[SIZED_PART],
+            64 * mib,
+            "under LOW the pass drains: no restore"
+        );
         DRAIN_TO.store(0, Relaxed);
         publish_cancel_line(6 * gib);
         HAND_READ.store(6 * gib + 1, Relaxed);
         background_pass_with(&none, &|| u64::MAX, limit, line, between, false, None);
-        assert_eq!(sized_budgets()[SIZED_PART], 64 * mib, "past the cancel line: no restore");
+        assert_eq!(
+            sized_budgets()[SIZED_PART],
+            64 * mib,
+            "past the cancel line: no restore"
+        );
         HAND_READ.store(6 * gib, Relaxed);
         background_pass_with(&none, &|| u64::MAX, limit, line, between, false, None);
-        assert_eq!(sized_budgets()[SIZED_PART], gib, "between HIGH and TOP, a take a moment ago, no demand: back to the floor");
-        assert_eq!(sized_budgets()[SIZED_FP], u64::MAX, "no floor noted: at its start");
-        assert_eq!(sized_restores()[SIZED_PART], (1, gib - 64 * mib), "one restore, counted");
+        assert_eq!(
+            sized_budgets()[SIZED_PART],
+            gib,
+            "between HIGH and TOP, a take a moment ago, no demand: back to the floor"
+        );
+        assert_eq!(
+            sized_budgets()[SIZED_FP],
+            u64::MAX,
+            "no floor noted: at its start"
+        );
+        assert_eq!(
+            sized_restores()[SIZED_PART],
+            (1, gib - 64 * mib),
+            "one restore, counted"
+        );
         assert_eq!(sized_counts(), raises, "no raise counted");
-        assert_eq!(SIZED_TAKEN_AT[SIZED_PART].load(Relaxed), now, "the take's clock untouched");
+        assert_eq!(
+            SIZED_TAKEN_AT[SIZED_PART].load(Relaxed),
+            now,
+            "the take's clock untouched"
+        );
         background_pass_with(&none, &|| u64::MAX, limit, line, between, false, None);
-        assert_eq!(sized_restores()[SIZED_PART].0, 1, "at the floor: nothing more");
+        assert_eq!(
+            sized_restores()[SIZED_PART].0,
+            1,
+            "at the floor: nothing more"
+        );
         // a budget past the floor is the raises' and the takes': a restore never lowers it
         note_sized_protect(SIZED_PART, gib / 2);
         background_pass_with(&none, &|| u64::MAX, limit, line, between, false, None);
-        assert_eq!(sized_budgets()[SIZED_PART], gib, "past a lower floor: unchanged");
+        assert_eq!(
+            sized_budgets()[SIZED_PART],
+            gib,
+            "past a lower floor: unchanged"
+        );
         publish_cancel_line(0);
         HAND_READ.store(0, Relaxed);
         note_sized_protect(SIZED_PART, 0);
@@ -3325,7 +4351,13 @@ mod tests {
         let (mib, gib, step) = (1u64 << 20, 1u64 << 30, rule::C1_RAISE_STEP);
         let c = SIZED_PART;
         // the view's counters are cumulative and another test reads them whole: put them back at the end
-        let counts0: [[u64; 3]; SIZED_N] = core::array::from_fn(|i| [SIZED_RAISES[i].load(Relaxed), SIZED_RAISED[i].load(Relaxed), SIZED_REVERSALS[i].load(Relaxed)]);
+        let counts0: [[u64; 3]; SIZED_N] = core::array::from_fn(|i| {
+            [
+                SIZED_RAISES[i].load(Relaxed),
+                SIZED_RAISED[i].load(Relaxed),
+                SIZED_REVERSALS[i].load(Relaxed),
+            ]
+        });
         set(K::CacheFloor, 1);
         set(K::CacheRefillQuietMs, 1_000);
         publish(ON, 7 * gib);
@@ -3344,32 +4376,68 @@ mod tests {
         note_taken_at(c, 500 * mib, t);
         demand();
         raise_sized(gib, t + 500);
-        assert_eq!(budget(), 500 * mib, "half a second after a take: under the base quiet period");
+        assert_eq!(
+            budget(),
+            500 * mib,
+            "half a second after a take: under the base quiet period"
+        );
         raise_sized(gib, t + 1_000);
-        assert_eq!(budget(), 500 * mib + step, "the base second after it: a step");
+        assert_eq!(
+            budget(),
+            500 * mib + step,
+            "the base second after it: a step"
+        );
         note_taken_at(c, 500 * mib, t + 2_000);
-        assert_eq!(SIZED_QUIET_SHIFT[c].load(Relaxed), 1, "taken back within 10 s: a reversal, the quiet period doubled");
+        assert_eq!(
+            SIZED_QUIET_SHIFT[c].load(Relaxed),
+            1,
+            "taken back within 10 s: a reversal, the quiet period doubled"
+        );
         demand();
         raise_sized(gib, t + 3_500);
-        assert_eq!(budget(), 500 * mib, "1.5 s after the take: under the doubled 2 s");
+        assert_eq!(
+            budget(),
+            500 * mib,
+            "1.5 s after the take: under the doubled 2 s"
+        );
         raise_sized(gib, t + 4_000);
         assert_eq!(budget(), 500 * mib + step, "2 s after it: a step");
         note_taken_at(c, 500 * mib, t + 5_000);
         demand();
         raise_sized(gib, t + 8_000);
-        assert_eq!(budget(), 500 * mib, "a second reversal: 3 s after the take, under 4 s");
+        assert_eq!(
+            budget(),
+            500 * mib,
+            "a second reversal: 3 s after the take, under 4 s"
+        );
         raise_sized(gib, t + 9_000);
         assert_eq!(budget(), 500 * mib + step, "4 s after it: a step");
         raise_sized(gib, t + 12_999);
-        assert_eq!(SIZED_QUIET_SHIFT[c].load(Relaxed), 2, "the raise not yet a whole quiet period old");
+        assert_eq!(
+            SIZED_QUIET_SHIFT[c].load(Relaxed),
+            2,
+            "the raise not yet a whole quiet period old"
+        );
         raise_sized(gib, t + 13_000);
-        assert_eq!(SIZED_QUIET_SHIFT[c].load(Relaxed), 0, "the raise lasted a whole 4 s with no take: reset");
+        assert_eq!(
+            SIZED_QUIET_SHIFT[c].load(Relaxed),
+            0,
+            "the raise lasted a whole 4 s with no take: reset"
+        );
         note_taken_at(c, 500 * mib, t + 20_000);
-        assert_eq!(SIZED_QUIET_SHIFT[c].load(Relaxed), 0, "a take 11 s after the raise: no reversal");
+        assert_eq!(
+            SIZED_QUIET_SHIFT[c].load(Relaxed),
+            0,
+            "a take 11 s after the raise: no reversal"
+        );
         demand();
         raise_sized(gib, t + 21_000);
         assert_eq!(budget(), 500 * mib + step, "the base second again");
-        assert_eq!(rule::refill_quiet_ms(1_000, 20), rule::C1_QUIET_MAX_MS, "never past 10 min");
+        assert_eq!(
+            rule::refill_quiet_ms(1_000, 20),
+            rule::C1_QUIET_MAX_MS,
+            "never past 10 min"
+        );
         set(K::CacheFloor, 0);
         publish(OFF, 0);
         SIZED_PROBE[c].store(core::ptr::null_mut(), Release);
@@ -3398,31 +4466,58 @@ mod tests {
         let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
         let gib = 1u64 << 30;
         let half = rule::C1_DEMAND_MS / 2;
-        let win = || [SIZED_EVICT_WIN[SIZED_PART][0].load(Relaxed), SIZED_EVICT_WIN[SIZED_PART][1].load(Relaxed)];
+        let win = || {
+            [
+                SIZED_EVICT_WIN[SIZED_PART][0].load(Relaxed),
+                SIZED_EVICT_WIN[SIZED_PART][1].load(Relaxed),
+            ]
+        };
         ROOM_LOW_AT.store(0, Relaxed);
         ROOM_LOW.iter().for_each(|r| r.store(u64::MAX, Relaxed));
         set_sized_probe(SIZED_PART, part_probe);
         PROBE_EVICTS.store(5 * gib, Relaxed);
         let t = 1_000_000;
         roll_window(t);
-        assert_eq!((room_low(), win()), (None, [5 * gib, 5 * gib]), "a first sample: nothing low, and the evictions before it are not the window's");
+        assert_eq!(
+            (room_low(), win()),
+            (None, [5 * gib, 5 * gib]),
+            "a first sample: nothing low, and the evictions before it are not the window's"
+        );
         note_room_low(10 * gib);
         note_room_low(2 * gib);
         note_room_low(9 * gib);
         roll_window(t + half - 1);
-        assert_eq!(room_low(), Some(2 * gib), "the lowest seen, in the same half");
+        assert_eq!(
+            room_low(),
+            Some(2 * gib),
+            "the lowest seen, in the same half"
+        );
         PROBE_EVICTS.store(6 * gib, Relaxed);
         roll_window(t + half);
         note_room_low(9 * gib);
-        assert_eq!((room_low(), win()), (Some(2 * gib), [6 * gib, 5 * gib]), "30 s on: the last half's low and evictions still count");
+        assert_eq!(
+            (room_low(), win()),
+            (Some(2 * gib), [6 * gib, 5 * gib]),
+            "30 s on: the last half's low and evictions still count"
+        );
         PROBE_EVICTS.store(7 * gib, Relaxed);
         roll_window(t + 2 * half);
         note_room_low(9 * gib);
-        assert_eq!((room_low(), win()), (Some(9 * gib), [7 * gib, 6 * gib]), "60 s on: the room the low held back is the caches' again");
+        assert_eq!(
+            (room_low(), win()),
+            (Some(9 * gib), [7 * gib, 6 * gib]),
+            "60 s on: the room the low held back is the caches' again"
+        );
         roll_window(t + 5 * half);
-        assert_eq!((room_low(), win()), (None, [7 * gib, 7 * gib]), "after a quiet spell: both halves forgotten");
+        assert_eq!(
+            (room_low(), win()),
+            (None, [7 * gib, 7 * gib]),
+            "after a quiet spell: both halves forgotten"
+        );
         SIZED_PROBE[SIZED_PART].store(core::ptr::null_mut(), Release);
-        SIZED_EVICT_WIN.iter().for_each(|w| w.iter().for_each(|x| x.store(0, Relaxed)));
+        SIZED_EVICT_WIN
+            .iter()
+            .for_each(|w| w.iter().for_each(|x| x.store(0, Relaxed)));
         ROOM_LOW.iter().for_each(|r| r.store(u64::MAX, Relaxed));
         ROOM_LOW_AT.store(0, Relaxed);
     }
@@ -3433,7 +4528,11 @@ mod tests {
     fn c1_try_a_fresh_map_notes_the_headroom_it_leaves_in_the_window_low() {
         let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
         let gib = 1u64 << 30;
-        let (room0, low0, at0) = (ROOM.load(Relaxed), [ROOM_LOW[0].load(Relaxed), ROOM_LOW[1].load(Relaxed)], ROOM_LOW_AT.load(Relaxed));
+        let (room0, low0, at0) = (
+            ROOM.load(Relaxed),
+            [ROOM_LOW[0].load(Relaxed), ROOM_LOW[1].load(Relaxed)],
+            ROOM_LOW_AT.load(Relaxed),
+        );
         ROOM_LOW.iter().for_each(|r| r.store(u64::MAX, Relaxed));
         ROOM.store(u64::MAX, Relaxed);
         note_mapped(gib);
@@ -3442,10 +4541,18 @@ mod tests {
         note_room_low(6 * gib);
         note_mapped(gib);
         note_mapped(2 * gib);
-        assert_eq!(room_low(), Some(3 * gib), "6 GiB at the sample, 3 GiB mapped since");
+        assert_eq!(
+            room_low(),
+            Some(3 * gib),
+            "6 GiB at the sample, 3 GiB mapped since"
+        );
         set_room(5 * gib, 32 * gib);
         note_mapped(gib);
-        assert_eq!(room_low(), Some(3 * gib), "a later sample's maps count from its own room (5 - 1), the window keeps the low");
+        assert_eq!(
+            room_low(),
+            Some(3 * gib),
+            "a later sample's maps count from its own room (5 - 1), the window keeps the low"
+        );
         note_mapped(8 * gib);
         assert_eq!(room_low(), Some(0), "maps past the room: none left");
         ROOM_LOW.iter().for_each(|r| r.store(u64::MAX, Relaxed));
@@ -3453,13 +4560,21 @@ mod tests {
         CLAIM_LOW.iter().for_each(|r| r.store(u64::MAX, Relaxed));
         note_pool_room(5 * gib);
         note_pool_room(7 * gib);
-        assert_eq!((claim_low(), room_low()), (Some(5 * gib), None), "the pool's room after a take: the claims' window keeps its least");
+        assert_eq!(
+            (claim_low(), room_low()),
+            (Some(5 * gib), None),
+            "the pool's room after a take: the claims' window keeps its least"
+        );
         note_pool_room(0);
         assert_eq!(claim_low(), Some(0), "a take that left the pool no room");
         CLAIM_LOW.iter().for_each(|r| r.store(u64::MAX, Relaxed));
         note_b_room(4 * gib);
         note_pool_room(6 * gib);
-        assert_eq!((claim_low(), room_low()), (Some(4 * gib), None), "B's free bytes over its low mark bound the raises as the pool's room does");
+        assert_eq!(
+            (claim_low(), room_low()),
+            (Some(4 * gib), None),
+            "B's free bytes over its low mark bound the raises as the pool's room does"
+        );
         CLAIM_LOW[0].store(claim0[0], Relaxed);
         CLAIM_LOW[1].store(claim0[1], Relaxed);
         ROOM.store(room0, Relaxed);
@@ -3476,7 +4591,10 @@ mod tests {
         use mempolicy::consts::{set, K};
         let gib = 1u64 << 30;
         let (limit, line, read, landing) = (16 * gib, 12 * gib, 5 * gib, 17 * gib);
-        let (low0, at0) = ([ROOM_LOW[0].load(Relaxed), ROOM_LOW[1].load(Relaxed)], ROOM_LOW_AT.load(Relaxed));
+        let (low0, at0) = (
+            [ROOM_LOW[0].load(Relaxed), ROOM_LOW[1].load(Relaxed)],
+            ROOM_LOW_AT.load(Relaxed),
+        );
         let fresh = || {
             ROOM_LOW.iter().for_each(|r| r.store(u64::MAX, Relaxed));
             ROOM_LOW_AT.store(0, Relaxed);
@@ -3484,11 +4602,28 @@ mod tests {
         set(K::LandingCapRead, 0);
         assert_eq!(landing_of_read(landing, read), landing);
         fresh();
-        background_pass_landed(&none, &|| 0, limit, line, read.saturating_sub(landing), landing, true, None);
-        assert_eq!(room_low(), Some(0), "landing_cap_read 0: the landing past the read took the window to 0");
+        background_pass_landed(
+            &none,
+            &|| 0,
+            limit,
+            line,
+            read.saturating_sub(landing),
+            landing,
+            true,
+            None,
+        );
+        assert_eq!(
+            room_low(),
+            Some(0),
+            "landing_cap_read 0: the landing past the read took the window to 0"
+        );
         set(K::LandingCapRead, 1);
         assert_eq!(landing_of_read(landing, read), read);
-        assert_eq!(landing_of_read(gib, read), gib, "a landing under the read is netted whole");
+        assert_eq!(
+            landing_of_read(gib, read),
+            gib,
+            "a landing under the read is netted whole"
+        );
         fresh();
         let l = landing_of_read(landing, read);
         background_pass_landed(&none, &|| 0, limit, line, read - l, l, true, None);
@@ -3496,7 +4631,11 @@ mod tests {
         fresh();
         let l = landing_of_read(gib, read);
         background_pass_landed(&none, &|| 0, limit, line, read - l, l, true, None);
-        assert_eq!(room_low(), Some(line - read), "a landing under the read: the same room");
+        assert_eq!(
+            room_low(),
+            Some(line - read),
+            "a landing under the read: the same room"
+        );
         ROOM_LOW[0].store(low0[0], Relaxed);
         ROOM_LOW[1].store(low0[1], Relaxed);
         ROOM_LOW_AT.store(at0, Relaxed);
@@ -3544,7 +4683,13 @@ mod tests {
     fn sb_evicted() -> u64 {
         SB_EVICTED_FAKE.load(Relaxed)
     }
-    static SB_FAKE: Buffers = Buffers { reclaimable: sb_reclaimable, request: sb_request, landing: sb_landing, grow: sb_grow, evicted: sb_evicted };
+    static SB_FAKE: Buffers = Buffers {
+        reclaimable: sb_reclaimable,
+        request: sb_request,
+        landing: sb_landing,
+        grow: sb_grow,
+        evicted: sb_evicted,
+    };
 
     struct SbFake;
 
@@ -3558,7 +4703,13 @@ mod tests {
             SB_HEADROOM.store(0, Relaxed);
             SB_EVICTED_FAKE.store(0, Relaxed);
             SB_GROW_ASKS.store(0, Relaxed);
-            for a in [&SB_EVICTED, &SB_EVICT_AT, &SB_GROW_BASE, &SB_GROW_AT, &SB_TAKE_AT] {
+            for a in [
+                &SB_EVICTED,
+                &SB_EVICT_AT,
+                &SB_GROW_BASE,
+                &SB_GROW_AT,
+                &SB_TAKE_AT,
+            ] {
                 a.store(0, Relaxed);
             }
             SB_QUIET_SHIFT.store(0, Relaxed);
@@ -3595,11 +4746,23 @@ mod tests {
         assert_eq!(grow_buffers(gib, t), gib, "no evictions: no grow");
         assert_eq!(SB_GROW_ASKS.load(Relaxed), 0);
         SB_EVICTED_FAKE.store(300 * mib, Relaxed);
-        assert_eq!(grow_buffers(gib, t + 100), gib - 300 * mib, "300 MiB evicted, 1 GiB of room: 300 MiB");
+        assert_eq!(
+            grow_buffers(gib, t + 100),
+            gib - 300 * mib,
+            "300 MiB evicted, 1 GiB of room: 300 MiB"
+        );
         assert_eq!(buffers_grow_counts(), (grows0 + 1, grown0 + 300 * mib));
-        assert_eq!(grow_buffers(gib, t + 1_000), gib, "no eviction since the grow: none (never a fill)");
+        assert_eq!(
+            grow_buffers(gib, t + 1_000),
+            gib,
+            "no eviction since the grow: none (never a fill)"
+        );
         SB_EVICTED_FAKE.store(1300 * mib, Relaxed);
-        assert_eq!(grow_buffers(200 * mib, t + 1_100), 0, "1000 MiB evicted, 200 MiB of room: the room");
+        assert_eq!(
+            grow_buffers(200 * mib, t + 1_100),
+            0,
+            "1000 MiB evicted, 200 MiB of room: the room"
+        );
         SB_EVICTED_FAKE.store(2000 * mib, Relaxed);
         let asks = SB_GROW_ASKS.load(Relaxed);
         assert_eq!(grow_buffers(0, t + 1_200), 0, "no room: none");
@@ -3611,15 +4774,23 @@ mod tests {
         assert!(buffers_take(100 * mib, 0, t + 1_400) != 0, "the take");
         let quiet = rule::refill_quiet_ms(mempolicy::consts::get(K::CacheRefillQuietMs), 1);
         SB_EVICTED_FAKE.store(2100 * mib, Relaxed);
-        assert_eq!(grow_buffers(gib, t + 1_400 + quiet - 1), gib, "within the doubled quiet period from the take: none");
+        assert_eq!(
+            grow_buffers(gib, t + 1_400 + quiet - 1),
+            gib,
+            "within the doubled quiet period from the take: none"
+        );
         SB_EVICTED_FAKE.store(2200 * mib, Relaxed);
-        assert!(grow_buffers(gib, t + 1_400 + quiet) < gib, "past it: a grow");
+        assert!(
+            grow_buffers(gib, t + 1_400 + quiet) < gib,
+            "past it: a grow"
+        );
     }
 
     /// L6 on C1's background trigger: the pool only for what R2a's elastic bytes cannot cover; its bytes landing, never
     /// room, until their bound.
     #[test]
-    fn l6_c1_takes_shared_buffers_only_past_the_caches_elastic_bytes_and_counts_them_landing_not_room() {
+    fn l6_c1_takes_shared_buffers_only_past_the_caches_elastic_bytes_and_counts_them_landing_not_room(
+    ) {
         use mempolicy::consts::{set, K};
         let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
         let (gib, mib) = (1u64 << 30, 1u64 << 20);
@@ -3633,7 +4804,17 @@ mod tests {
             elastic.set(elastic.get() - got);
             got
         };
-        let pass = |room: u64| background_pass_with(&reclaim, &|| elastic.get(), limit, line, line - room, false, None);
+        let pass = |room: u64| {
+            background_pass_with(
+                &reclaim,
+                &|| elastic.get(),
+                limit,
+                line,
+                line - room,
+                false,
+                None,
+            )
+        };
         {
             let _sb = SbFake::on(0);
             BURST.store(u64::MAX, Relaxed);
@@ -3642,7 +4823,11 @@ mod tests {
             publish(ON, line);
             elastic.set(100 * mib);
             pass(low / 2);
-            assert_eq!(SB_ASKS.load(Relaxed), 0, "nothing above the configured size (the knob off): no ask");
+            assert_eq!(
+                SB_ASKS.load(Relaxed),
+                0,
+                "nothing above the configured size (the knob off): no ask"
+            );
             assert_eq!(asked.get(), high - low / 2, "R2a's batch as before");
         }
         let _sb = SbFake::on(gib);
@@ -3653,32 +4838,54 @@ mod tests {
         elastic.set(u64::MAX);
         asked.set(0);
         pass(low / 2);
-        assert_eq!(SB_ASKS.load(Relaxed), 0, "the caches cover the drain: shared_buffers stays");
+        assert_eq!(
+            SB_ASKS.load(Relaxed),
+            0,
+            "the caches cover the drain: shared_buffers stays"
+        );
         elastic.set(100 * mib);
         asked.set(0);
         let (runs0, bytes0) = buffers_counts();
         pass(low / 2);
         let want = rule::buffers_ask(high - low / 2, 100 * mib, gib);
         assert_eq!((SB_ASKS.load(Relaxed), SB_LANDING.load(Relaxed)), (1, want));
-        assert_eq!(want, (high - low / 2 - 100 * mib).div_ceil(2 * mib) * 2 * mib);
-        assert_eq!(asked.get(), high - low / 2, "R2a still runs its batch: its 100 MiB first");
+        assert_eq!(
+            want,
+            (high - low / 2 - 100 * mib).div_ceil(2 * mib) * 2 * mib
+        );
+        assert_eq!(
+            asked.get(),
+            high - low / 2,
+            "R2a still runs its batch: its 100 MiB first"
+        );
         assert_eq!(buffers_counts(), (runs0 + 1, bytes0 + want));
         let room = low / 2 + 100 * mib;
         asked.set(0);
         pass(room);
-        assert_eq!((SB_ASKS.load(Relaxed), asked.get()), (1, 0), "landing: no second ask of the pool, no batch");
+        assert_eq!(
+            (SB_ASKS.load(Relaxed), asked.get()),
+            (1, 0),
+            "landing: no second ask of the pool, no batch"
+        );
         assert_eq!(room_now(), Some((room, limit)), "never the draws' room");
         // held past the bound: present again (decide_ms is 1 at its first read, so the bound is set at 0)
         SB_DUE_MS.store(0, Relaxed);
         assert_eq!(buffers_landing_at(crate::governor::decide_ms().max(1)), 0);
         elastic.set(50 * mib);
         pass(room);
-        assert_eq!((SB_ASKS.load(Relaxed), asked.get()), (1, high - room), "past the bound: R2a's batch, no new ask of the late pool");
+        assert_eq!(
+            (SB_ASKS.load(Relaxed), asked.get()),
+            (1, high - room),
+            "past the bound: R2a's batch, no new ask of the late pool"
+        );
         assert_eq!(SB_DUE_MS.load(Relaxed), 0);
         SB_LANDING.store(0, Relaxed);
         pass(room);
         assert_eq!(SB_ASKS.load(Relaxed), 2);
-        assert!(SB_DUE_MS.load(Relaxed) > 0, "a fresh ask with nothing landing: a fresh credit");
+        assert!(
+            SB_DUE_MS.load(Relaxed) > 0,
+            "a fresh ask with nothing landing: a fresh credit"
+        );
     }
 
     /// L6 on the hook's pass: the pool after R2a; no wait or R6 for its landing bytes within their bound. A gate's climb
@@ -3692,31 +4899,68 @@ mod tests {
         let _sb = SbFake::on(1024 * MIB);
         let g = Fake::new(1100 * MIB, 40 * MIB, 0, 0, 0, 0);
         let c = climb_with(&g, 1000 * MIB, 0);
-        assert_eq!((SB_ASKS.load(Relaxed), c.need), (0, 60 * MIB), "a gate's climb: no ask, and no landing counted");
+        assert_eq!(
+            (SB_ASKS.load(Relaxed), c.need),
+            (0, 60 * MIB),
+            "a gate's climb: no ask, and no landing counted"
+        );
         clear_narrow();
         r1_reset();
         let f = Fake::new(1100 * MIB, 40 * MIB, 0, 0, 0, 0);
         f.now.set(60_000);
         let c = hook_pass_with(&f, 1000 * MIB, 60_000);
-        assert_eq!((SB_ASKS.load(Relaxed), SB_LANDING.load(Relaxed)), (1, 60 * MIB));
-        assert_eq!((c.ran, c.need), (R1 | 1 << Rung::EvictElastic as u8, 0), "R2a's 40 MiB and the pool's 60 MiB landing: covered");
-        assert_eq!(f.order()[..2], [Rung::AllocReturn as u8 + 1, Rung::EvictElastic as u8 + 1]);
+        assert_eq!(
+            (SB_ASKS.load(Relaxed), SB_LANDING.load(Relaxed)),
+            (1, 60 * MIB)
+        );
+        assert_eq!(
+            (c.ran, c.need),
+            (R1 | 1 << Rung::EvictElastic as u8, 0),
+            "R2a's 40 MiB and the pool's 60 MiB landing: covered"
+        );
+        assert_eq!(
+            f.order()[..2],
+            [Rung::AllocReturn as u8 + 1, Rung::EvictElastic as u8 + 1]
+        );
         assert_eq!(HOOK_SINCE.load(Relaxed), 0, "no episode left open");
         let due = SB_DUE_MS.load(Relaxed);
-        assert_eq!(due, 60_000 + rule::buffers_due_ms(60 * MIB, mempolicy::consts::get(mempolicy::consts::K::BufGivebackWriteBw)));
+        assert_eq!(
+            due,
+            60_000
+                + rule::buffers_due_ms(
+                    60 * MIB,
+                    mempolicy::consts::get(mempolicy::consts::K::BufGivebackWriteBw)
+                )
+        );
         for t in [60_100, 60_200, due] {
             f.now.set(t);
-            assert_eq!(hook_pass_with(&f, 1000 * MIB, t), Climbed::default(), "at {t}: landing");
+            assert_eq!(
+                hook_pass_with(&f, 1000 * MIB, t),
+                Climbed::default(),
+                "at {t}: landing"
+            );
         }
         assert_eq!(f.cancels.get(), 0);
         // held past the bound: present again
         f.now.set(due + 1);
         let c = hook_pass_with(&f, 1000 * MIB, due + 1);
-        assert_eq!((c.ran & R6, c.need), (0, 60 * MIB), "past the bound: R1-R4b and the wait");
+        assert_eq!(
+            (c.ran & R6, c.need),
+            (0, 60 * MIB),
+            "past the bound: R1-R4b and the wait"
+        );
         f.now.set(due + 1 + rule::HOOK_GRACE_MS);
         let c = hook_pass_with(&f, 1000 * MIB, due + 1 + rule::HOOK_GRACE_MS);
-        assert_eq!((c.ran & R6, f.cancels.get()), (R6, 1), "a tick on, the need still there: R6");
-        assert_eq!((SB_ASKS.load(Relaxed), SB_DUE_MS.load(Relaxed)), (1, due), "no new ask of a drain behind its bound");
+        assert_eq!(
+            (c.ran & R6, f.cancels.get()),
+            (R6, 1),
+            "a tick on, the need still there: R6"
+        );
+        assert_eq!(
+            (SB_ASKS.load(Relaxed), SB_DUE_MS.load(Relaxed)),
+            (1, due),
+            "no new ask of a drain behind its bound"
+        );
         hook_reset();
         r1_reset();
     }
@@ -3735,14 +4979,26 @@ mod tests {
         f.now.set(70_000);
         waive_wait();
         let c = hook_pass_with(&f, 1000 * MIB, 70_000);
-        assert_eq!((SB_ASKS.load(Relaxed), SB_LANDING.load(Relaxed)), (1, 100 * MIB), "the pool is still asked");
-        assert_eq!((c.ran & R6, f.cancels.get()), (R6, 1), "past the cancel line: R6 in the same pass, the landing bytes count for nothing");
+        assert_eq!(
+            (SB_ASKS.load(Relaxed), SB_LANDING.load(Relaxed)),
+            (1, 100 * MIB),
+            "the pool is still asked"
+        );
+        assert_eq!(
+            (c.ran & R6, f.cancels.get()),
+            (R6, 1),
+            "past the cancel line: R6 in the same pass, the landing bytes count for nothing"
+        );
         assert!(!PAST_CANCEL.load(Relaxed), "one pass only");
         // under the cancel line the same landing bytes cover the need: no wait, no second cancel
         f.landing.set(false);
         hook_reset();
         f.now.set(70_100);
-        assert_eq!(hook_pass_with(&f, 1000 * MIB, 70_100), Climbed::default(), "under the cancel line: landing");
+        assert_eq!(
+            hook_pass_with(&f, 1000 * MIB, 70_100),
+            Climbed::default(),
+            "under the cancel line: landing"
+        );
         assert_eq!(f.cancels.get(), 1);
         hook_reset();
         r1_reset();

@@ -229,14 +229,14 @@ pub(crate) fn fill_scan_key<'scan>(
 pub(crate) fn ginFreeScanKeys(so: &mut GinScanOpaqueData) -> PgResult<()> {
     if let Some(mut work) = so.work.take() {
         work.with(|work| -> PgResult<()> {
-    for entry in work.entries.iter() {
-        if entry.buffer != InvalidBuffer {
-            bm::release_buffer::call(entry.buffer)?;
-        }
-        // list / matchIterator / matchBitmap die with the work drop below.
-    }
-    Ok(())
-    })?;
+            for entry in work.entries.iter() {
+                if entry.buffer != InvalidBuffer {
+                    bm::release_buffer::call(entry.buffer)?;
+                }
+                // list / matchIterator / matchBitmap die with the work drop below.
+            }
+            Ok(())
+        })?;
     }
     // ginscan.c:260 MemoryContextReset(so->keyCtx): both scan contexts
     // outlive the keys until ginendscan deletes them.
@@ -253,143 +253,143 @@ pub(crate) fn ginNewScanKey(
     let state = so.ginstate.expect("ginstate initialized at beginscan");
     let mut owner = GinScanWork::new();
     owner.with(|work| {
-    so.isVoidRes = false;
+        so.isVoidRes = false;
 
-    let mut has_null_query = false;
-    let mut attr_has_normal_scan = [false; GIN_MAX_KEY_COLS];
+        let mut has_null_query = false;
+        let mut attr_has_normal_scan = [false; GIN_MAX_KEY_COLS];
 
-    for skey in keys {
-        if skey.sk_flags & SK_ISNULL != 0 {
-            so.isVoidRes = true;
-            break;
-        }
+        for skey in keys {
+            if skey.sk_flags & SK_ISNULL != 0 {
+                so.isVoidRes = true;
+                break;
+            }
 
-        let kcx = work.kcx();
-        let col = state.col(skey.sk_attno as OffsetNumber);
-        let extracted = crate::secdef::call(col.secdef_proc(GIN_EXTRACTQUERY_PROC), || {
-            crate::opclass::extract_query(
-                kcx,
-                col.extract_query,
-                col.support_collation,
-                skey.sk_argument,
-                skey.sk_strategy,
-            )
-        })?;
-        let crate::opclass::ExtractedQuery {
-            entries: query_values,
-            mut search_mode,
-            jsp_ops,
-            partial_match,
-            map_item_operand,
-            null_flags,
-            trgm_graph,
-            btree_orig,
-        } = extracted;
-
-        if !(GIN_SEARCH_MODE_DEFAULT..=GIN_SEARCH_MODE_ALL).contains(&search_mode) {
-            search_mode = GIN_SEARCH_MODE_ALL;
-        }
-        if search_mode != GIN_SEARCH_MODE_DEFAULT {
-            has_null_query = true;
-        }
-        if query_values.is_empty() && search_mode == GIN_SEARCH_MODE_DEFAULT {
-            so.isVoidRes = true;
-            break;
-        }
-
-        // C: nullFlags -> category codes; null keys need index placeholders.
-        let categories: Vec<GinNullCategory> = (0..query_values.len())
-            .map(|i| {
-                if null_flags.get(i).copied().unwrap_or(false) {
-                    has_null_query = true;
-                    GIN_CAT_NULL_KEY
-                } else {
-                    GIN_CAT_NORM_KEY
-                }
-            })
-            .collect();
-        fill_scan_key(
-            &state,
-            work,
-            skey.sk_attno as OffsetNumber,
-            skey.sk_strategy,
-            search_mode,
-            skey.sk_argument,
-            query_values.as_slice(),
-            btree_orig,
-            &categories,
-            partial_match.as_slice(),
-            jsp_ops,
-            map_item_operand,
-            trgm_graph,
-        )?;
-
-        if search_mode != GIN_SEARCH_MODE_ALL {
-            attr_has_normal_scan[skey.sk_attno as usize - 1] = true;
-        }
-    }
-
-    // Second pass over GIN_SEARCH_MODE_ALL keys (excludeOnly resolution).
-    let mut num_exclude_only = 0usize;
-    for i in 0..work.keys.len() {
-        if work.keys[i].searchMode != GIN_SEARCH_MODE_ALL {
-            continue;
-        }
-        let a = work.keys[i].attnum as usize - 1;
-        if !attr_has_normal_scan[a] {
-            work.keys[i].excludeOnly = false;
-            add_hidden_entry(&state, work, i, GIN_CAT_EMPTY_QUERY)?;
-            attr_has_normal_scan[a] = true;
-        } else {
-            num_exclude_only += 1;
-        }
-    }
-
-    // excludeOnly keys must follow normal keys.
-    if num_exclude_only > 0 {
-        debug_assert!(num_exclude_only < work.keys.len());
-        work.keys.sort_by_key(|k| k.excludeOnly);
-    }
-
-    if work.keys.is_empty() && !so.isVoidRes {
-        has_null_query = true;
-        let kcx2 = work.kcx();
-        let empty_ops = mcx::vec_new_in(kcx2);
-        let empty_map = mcx::vec_new_in(kcx2);
-        fill_scan_key(
-            &state,
-            work,
-            FirstOffsetNumber,
-            InvalidStrategy,
-            GIN_SEARCH_MODE_EVERYTHING,
-            Datum::null(),
-            &[],
-            Datum::null(),
-            &[],
-            &[],
-            empty_ops,
-            empty_map,
-            None,
-        )?;
-    }
-
-    // If the index is version 0, it may be missing null and placeholder
-    // entries, which would render searches for nulls and full-index scans
-    // unreliable.  Throw an error if so.
-    if has_null_query && !so.isVoidRes {
-        let stats = ginGetStats(rel)?;
-        if stats.ginVersion < 1 {
-            return Err(Box::new(
-                ::types_error::PgError::error(
-                    "old GIN indexes do not support whole-index scans nor searches for nulls",
+            let kcx = work.kcx();
+            let col = state.col(skey.sk_attno as OffsetNumber);
+            let extracted = crate::secdef::call(col.secdef_proc(GIN_EXTRACTQUERY_PROC), || {
+                crate::opclass::extract_query(
+                    kcx,
+                    col.extract_query,
+                    col.support_collation,
+                    skey.sk_argument,
+                    skey.sk_strategy,
                 )
-                .with_sqlstate(::types_error::ERRCODE_FEATURE_NOT_SUPPORTED)
-                .with_hint(format!("To fix this, do REINDEX INDEX \"{}\".", rel.name())),
-            ));
-        }
-    }
+            })?;
+            let crate::opclass::ExtractedQuery {
+                entries: query_values,
+                mut search_mode,
+                jsp_ops,
+                partial_match,
+                map_item_operand,
+                null_flags,
+                trgm_graph,
+                btree_orig,
+            } = extracted;
 
-    Ok(())
+            if !(GIN_SEARCH_MODE_DEFAULT..=GIN_SEARCH_MODE_ALL).contains(&search_mode) {
+                search_mode = GIN_SEARCH_MODE_ALL;
+            }
+            if search_mode != GIN_SEARCH_MODE_DEFAULT {
+                has_null_query = true;
+            }
+            if query_values.is_empty() && search_mode == GIN_SEARCH_MODE_DEFAULT {
+                so.isVoidRes = true;
+                break;
+            }
+
+            // C: nullFlags -> category codes; null keys need index placeholders.
+            let categories: Vec<GinNullCategory> = (0..query_values.len())
+                .map(|i| {
+                    if null_flags.get(i).copied().unwrap_or(false) {
+                        has_null_query = true;
+                        GIN_CAT_NULL_KEY
+                    } else {
+                        GIN_CAT_NORM_KEY
+                    }
+                })
+                .collect();
+            fill_scan_key(
+                &state,
+                work,
+                skey.sk_attno as OffsetNumber,
+                skey.sk_strategy,
+                search_mode,
+                skey.sk_argument,
+                query_values.as_slice(),
+                btree_orig,
+                &categories,
+                partial_match.as_slice(),
+                jsp_ops,
+                map_item_operand,
+                trgm_graph,
+            )?;
+
+            if search_mode != GIN_SEARCH_MODE_ALL {
+                attr_has_normal_scan[skey.sk_attno as usize - 1] = true;
+            }
+        }
+
+        // Second pass over GIN_SEARCH_MODE_ALL keys (excludeOnly resolution).
+        let mut num_exclude_only = 0usize;
+        for i in 0..work.keys.len() {
+            if work.keys[i].searchMode != GIN_SEARCH_MODE_ALL {
+                continue;
+            }
+            let a = work.keys[i].attnum as usize - 1;
+            if !attr_has_normal_scan[a] {
+                work.keys[i].excludeOnly = false;
+                add_hidden_entry(&state, work, i, GIN_CAT_EMPTY_QUERY)?;
+                attr_has_normal_scan[a] = true;
+            } else {
+                num_exclude_only += 1;
+            }
+        }
+
+        // excludeOnly keys must follow normal keys.
+        if num_exclude_only > 0 {
+            debug_assert!(num_exclude_only < work.keys.len());
+            work.keys.sort_by_key(|k| k.excludeOnly);
+        }
+
+        if work.keys.is_empty() && !so.isVoidRes {
+            has_null_query = true;
+            let kcx2 = work.kcx();
+            let empty_ops = mcx::vec_new_in(kcx2);
+            let empty_map = mcx::vec_new_in(kcx2);
+            fill_scan_key(
+                &state,
+                work,
+                FirstOffsetNumber,
+                InvalidStrategy,
+                GIN_SEARCH_MODE_EVERYTHING,
+                Datum::null(),
+                &[],
+                Datum::null(),
+                &[],
+                &[],
+                empty_ops,
+                empty_map,
+                None,
+            )?;
+        }
+
+        // If the index is version 0, it may be missing null and placeholder
+        // entries, which would render searches for nulls and full-index scans
+        // unreliable.  Throw an error if so.
+        if has_null_query && !so.isVoidRes {
+            let stats = ginGetStats(rel)?;
+            if stats.ginVersion < 1 {
+                return Err(Box::new(
+                    ::types_error::PgError::error(
+                        "old GIN indexes do not support whole-index scans nor searches for nulls",
+                    )
+                    .with_sqlstate(::types_error::ERRCODE_FEATURE_NOT_SUPPORTED)
+                    .with_hint(format!("To fix this, do REINDEX INDEX \"{}\".", rel.name())),
+                ));
+            }
+        }
+
+        Ok(())
     })?;
     so.work = Some(owner);
     // pgstat_count_index_scan is bumped by the caller (gingetbitmap) through

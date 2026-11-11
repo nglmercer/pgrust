@@ -37,7 +37,11 @@ pub fn debugtup_create_DR() -> DrDebugtup {
 
 impl DrDebugtup {
     pub fn new() -> Self {
-        DrDebugtup { out_ctx: None, hold: false, held: None }
+        DrDebugtup {
+            out_ctx: None,
+            hold: false,
+            held: None,
+        }
     }
 
     // debugStartup (printtup.c:444): show the return type of the tuples.
@@ -109,10 +113,9 @@ impl DrDebugtup {
             let value = function_call1_coll_in(&mut finfo, InvalidOid, out_ctx.mcx(), attr)?;
             // SAFETY: text output fns return a NUL-terminated cstring datum
             // (the contract C's DatumGetCString trusts).
-            let s = unsafe {
-                core::ffi::CStr::from_ptr(value.as_usize() as *const core::ffi::c_char)
-            }
-            .to_bytes();
+            let s =
+                unsafe { core::ffi::CStr::from_ptr(value.as_usize() as *const core::ffi::c_char) }
+                    .to_bytes();
             printatt(&mut out, i as u32 + 1, &typeinfo, i, Some(s));
         }
         let _ = writeln!(out, "\t----");

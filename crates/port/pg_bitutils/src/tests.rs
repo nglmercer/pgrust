@@ -31,7 +31,7 @@ fn one_positions() {
         assert_eq!(pg_rightmost_one_pos32(1u32 << i), i);
         if i > 0 {
             assert_eq!(pg_leftmost_one_pos32((1u32 << i) | 1), i);
-            assert_eq!(pg_rightmost_one_pos32((1u32 << i) | (1u32 << (i - 1))), ((i - 1)));
+            assert_eq!(pg_rightmost_one_pos32((1u32 << i) | (1u32 << (i - 1))), (i - 1));
         }
     }
     for i in 0..64 {

@@ -95,6 +95,7 @@ fn a_rerun_sets_members_leave_the_outer_calls_rows_in_its_out_block() {
     }
     store(&exec, &[]);
     entry.end(exec, true);
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     assert!(sink.rows.lock().unwrap().is_empty(), "the receiver saw nothing from a member's end");
 }
@@ -114,6 +115,7 @@ fn an_init_sets_members_leave_the_outer_calls_rows_in_its_out_block() {
     assert_eq!(out_rows(&exec), [21, 22, 23], "the outer call's rows stay in its out block");
     store(&exec, &[]);
     entry.end(exec, true);
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     assert!(sink.rows.lock().unwrap().is_empty(), "the receiver saw nothing from a member's end");
 }

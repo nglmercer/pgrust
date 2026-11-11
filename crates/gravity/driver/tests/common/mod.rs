@@ -1,7 +1,7 @@
 // gravity_driver_rig's root: a native integration-test rig that reads the program ABI's words as raw pointers. The
 // site's wasm gate checks every workspace member for wasm32, where the rig is empty.
 #![cfg(not(target_family = "wasm"))]
-#![allow(dead_code)]
+#![allow(clippy::duplicate_mod, dead_code)]
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -967,6 +967,7 @@ unsafe fn lookup(ctx: *mut Ctx, nkeys: usize, natts: usize) -> i64 {
     }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C-unwind" fn k_lookup3(ctx: *mut Ctx) -> i64 {
     lookup(ctx, 3, 3)
 }
@@ -974,15 +975,18 @@ pub unsafe extern "C-unwind" fn k_lookup3(ctx: *mut Ctx) -> i64 {
 /// D776: the row a mark names in site 0's own scan (`MARKED_ROW`), stored in site 1 (`SiteKind::RowOf`) per call.
 pub const MARKED_ROW: ScanPos = ScanPos::row(1001, 7, 3);
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C-unwind" fn k_lookup3_marked(ctx: *mut Ctx) -> i64 {
     site_of(ctx, 1).pos = MARKED_ROW;
     lookup(ctx, 3, 3)
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C-unwind" fn k_lookup4(ctx: *mut Ctx) -> i64 {
     lookup(ctx, 4, 2)
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C-unwind" fn k_join(ctx: *mut Ctx) -> i64 {
     if (*ctx).resume == RESUME_NONE {
         keys_from_params(ctx, site_of(ctx, 0), 3);
@@ -1032,6 +1036,7 @@ pub unsafe extern "C-unwind" fn k_join(ctx: *mut Ctx) -> i64 {
     }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C-unwind" fn k_update(ctx: *mut Ctx) -> i64 {
     keys_from_params(ctx, site_of(ctx, 0), 2);
     seek(ctx, 0);
@@ -1062,6 +1067,7 @@ pub unsafe extern "C-unwind" fn k_update(ctx: *mut Ctx) -> i64 {
     }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C-unwind" fn k_lock(ctx: *mut Ctx) -> i64 {
     if (*ctx).resume == RESUME_NONE {
         keys_from_params(ctx, site_of(ctx, 0), 2);
@@ -1102,10 +1108,12 @@ pub unsafe extern "C-unwind" fn k_lock(ctx: *mut Ctx) -> i64 {
     }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C-unwind" fn k_bad(_ctx: *mut Ctx) -> i64 {
     7
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C-unwind" fn k_noop(_ctx: *mut Ctx) -> i64 {
     DONE
 }
@@ -1174,11 +1182,13 @@ unsafe fn range_seek(ctx: *mut Ctx, i: usize) -> i64 {
     0
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C-unwind" fn k_range_count(ctx: *mut Ctx) -> i64 {
     range_count_at(ctx, 0)
 }
 
 /// `k_range_count` over site 1 (a second member's own range site).
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C-unwind" fn k_range_count_s1(ctx: *mut Ctx) -> i64 {
     range_count_at(ctx, 1)
 }
@@ -1210,6 +1220,7 @@ unsafe fn range_count_at(ctx: *mut Ctx, i: usize) -> i64 {
 }
 
 /// The same count as `k_range_count`, over windows: one host call per block, no call in the row loop.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C-unwind" fn k_range_count_w(ctx: *mut Ctx) -> i64 {
     if range_seek(ctx, 0) < 0 {
         return ERROR;
@@ -1250,6 +1261,7 @@ pub unsafe extern "C-unwind" fn k_range_count_w(ctx: *mut Ctx) -> i64 {
 pub const GROUP: RecordLayout = RecordLayout::new(&[KeyKind::I64], &[SlotKind::Count, SlotKind::SumI64]);
 pub const GROUP_INIT: u32 = 4;
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C-unwind" fn k_range_group_share(ctx: *mut Ctx) -> i64 {
     if range_seek(ctx, 0) < 0 {
         return ERROR;
@@ -1285,6 +1297,7 @@ pub unsafe extern "C-unwind" fn k_range_group_share(ctx: *mut Ctx) -> i64 {
     }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C-unwind" fn k_emit_groups(ctx: *mut Ctx) -> i64 {
     let table = HashAgg::at(own(ctx), &GROUP, GROUP_INIT, SHARE);
     let mut i = if (*ctx).resume == RESUME_NONE { 0 } else { (*ctx).resume as usize };
@@ -1342,6 +1355,7 @@ impl Merge for GroupMerge {
 }
 
 /// Two consumed slots: `(count0 + count1, sum0 + sum1)` from `Partials.consumed[0..2]`.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C-unwind" fn k_emit_two(ctx: *mut Ctx) -> i64 {
     let a = count_sum(consumed(ctx, 0));
     let b = count_sum(consumed(ctx, 1));
@@ -1356,6 +1370,7 @@ pub unsafe extern "C-unwind" fn k_emit_two(ctx: *mut Ctx) -> i64 {
     DONE
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C-unwind" fn k_emit_count(ctx: *mut Ctx) -> i64 {
     let agg = count_sum(own(ctx));
     let v = [agg.count(0) as u64, agg.i64(1) as u64];
@@ -1369,11 +1384,13 @@ pub unsafe extern "C-unwind" fn k_emit_count(ctx: *mut Ctx) -> i64 {
     DONE
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C-unwind" fn k_range_rows(ctx: *mut Ctx) -> i64 {
     range_rows(ctx, 0)
 }
 
 /// `k_range_rows` over site 1 (a second UNION ALL arm, multi-emit).
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C-unwind" fn k_range_rows_1(ctx: *mut Ctx) -> i64 {
     range_rows(ctx, 1)
 }
@@ -1576,6 +1593,7 @@ pub fn p_first_row(out_rows: u32) -> Program {
 }
 
 /// # Safety — `ctx` is bound to `p_first_row`.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C-unwind" fn k_range_first_row(ctx: *mut Ctx) -> i64 {
     if range_seek(ctx, 0) < 0 {
         return ERROR;
@@ -1698,11 +1716,13 @@ pub static MEM_SPILL: MemSpillFactory = MemSpillFactory;
 
 /// The spilling group-by: `k_range_group_share` that scatters when the share is full, with
 /// `params[1]` = the partition bits; its emit refills partition by partition.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C-unwind" fn k_range_group_spill(ctx: *mut Ctx) -> i64 {
     range_group_spill(ctx, 0)
 }
 
 /// `k_range_group_spill` over site 1 (a second scan whose fold reuses the first's slot: D165).
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C-unwind" fn k_range_group_spill_1(ctx: *mut Ctx) -> i64 {
     range_group_spill(ctx, 1)
 }
@@ -1755,6 +1775,7 @@ unsafe fn range_group_spill(ctx: *mut Ctx, site: usize) -> i64 {
 
 /// Emits every group: the in-memory table when nothing spilled, else partition by partition
 /// through `SPILL_REFILL` (resume = (EMIT, partition << 32 | record index)).
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C-unwind" fn k_emit_groups_spill(ctx: *mut Ctx) -> i64 {
     use gravity_abi::ctx::resume;
     let parts = gravity_abi::program::spill(ctx, SPILL_PARTS, 0);
@@ -1879,6 +1900,7 @@ pub struct GrowHdr {
 pub const GROW_HDR: u64 = 64;
 
 /// The region at `p` as a `GrowHdr` (its head started at `GROW_HDR` on first touch).
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn grow_hdr<'a>(p: *mut u8) -> &'a mut GrowHdr {
     let h = &mut *(p as *mut GrowHdr);
     if h.head == 0 {
@@ -1892,6 +1914,7 @@ pub static GROW_MOVES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU
 
 /// Every row `v` appended twice: `v` at the head, `!v` at the tail; the region grows (`region_grow`) whenever the next row does
 /// not fit, so a breaker past its share completes instead of failing (D254).
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C-unwind" fn k_range_grow(ctx: *mut Ctx) -> i64 {
     if range_seek(ctx, 0) < 0 {
         return ERROR;
@@ -1938,6 +1961,7 @@ pub unsafe extern "C-unwind" fn k_range_grow(ctx: *mut Ctx) -> i64 {
 }
 
 /// The leader region's rows checked: `(count, sum, sum of the head records, sum of the complemented tail records)`.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn grow_totals(p: *mut u8) -> [u64; 4] {
     let h = grow_hdr(p);
     let len = h.limit as u64;
@@ -1946,6 +1970,7 @@ pub unsafe fn grow_totals(p: *mut u8) -> [u64; 4] {
     [h.count, h.sum, head, tail]
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C-unwind" fn k_emit_grow(ctx: *mut Ctx) -> i64 {
     let v = grow_totals(consumed(ctx, 0));
     let n = [0u8; 4];
@@ -1975,6 +2000,7 @@ pub static GROW_IN_LIMIT: std::sync::atomic::AtomicU64 = std::sync::atomic::Atom
 
 /// `k_range_grow` over the spilling road (`region_grow_in`): a refused grow drops its row (counted in `GROW_IN_REFUSED`)
 /// where a spilling breaker puts it to a partition.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C-unwind" fn k_range_grow_in(ctx: *mut Ctx) -> i64 {
     if range_seek(ctx, 0) < 0 {
         return ERROR;

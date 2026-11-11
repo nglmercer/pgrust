@@ -49,7 +49,12 @@ impl WalGen {
             return None;
         }
         let u = |i: usize| u64::from_le_bytes(b[i..i + 8].try_into().unwrap());
-        Some(WalGen { gen: u(0), publisher_fxid: u(8), base_gen: u(16), base_publisher_fxid: u(24) })
+        Some(WalGen {
+            gen: u(0),
+            publisher_fxid: u(8),
+            base_gen: u(16),
+            base_publisher_fxid: u(24),
+        })
     }
 
     /// The file's text: the magic line, then one `<gen> <publisher fxid>` line per entry (the base first, when any).
@@ -58,7 +63,8 @@ impl WalGen {
         s.push_str(MAGIC);
         s.push('\n');
         if self.base_gen != 0 {
-            s.push_str(&format!("{} {}\n", self.base_gen, self.base_publisher_fxid)); // alloc: Cold
+            s.push_str(&format!("{} {}\n", self.base_gen, self.base_publisher_fxid));
+            // alloc: Cold
         }
         s.push_str(&format!("{} {}\n", self.gen, self.publisher_fxid)); // alloc: Cold
         s
@@ -82,8 +88,16 @@ impl WalGen {
 
 /// The generation an entry list says this directory lacks: the highest `gen` among entries whose publisher
 /// `committed`, when it is above `effective` (the directory's newest committed generation, 0 = none).
-pub fn missing_generation(entries: &[(u64, u64)], effective: u64, committed: &dyn Fn(u64) -> bool) -> Option<u64> {
-    entries.iter().filter(|(g, x)| *g > effective && committed(*x)).map(|(g, _)| *g).max()
+pub fn missing_generation(
+    entries: &[(u64, u64)],
+    effective: u64,
+    committed: &dyn Fn(u64) -> bool,
+) -> Option<u64> {
+    entries
+        .iter()
+        .filter(|(g, x)| *g > effective && committed(*x))
+        .map(|(g, _)| *g)
+        .max()
 }
 
 #[cfg(test)]
@@ -92,11 +106,27 @@ mod tests {
 
     #[test]
     fn stamp_round_trips_through_payload_and_file() {
-        let w = WalGen { gen: 7, publisher_fxid: 900, base_gen: 6, base_publisher_fxid: 850 };
+        let w = WalGen {
+            gen: 7,
+            publisher_fxid: 900,
+            base_gen: 6,
+            base_publisher_fxid: 850,
+        };
         assert_eq!(WalGen::from_payload(&w.payload()), Some(w));
-        assert_eq!(WalGen::decode_entries(w.encode().as_bytes()), Some(vec![(6, 850), (7, 900)]));
-        let first = WalGen { gen: 1, publisher_fxid: 740, base_gen: 0, base_publisher_fxid: 0 };
-        assert_eq!(WalGen::decode_entries(first.encode().as_bytes()), Some(vec![(1, 740)]));
+        assert_eq!(
+            WalGen::decode_entries(w.encode().as_bytes()),
+            Some(vec![(6, 850), (7, 900)])
+        );
+        let first = WalGen {
+            gen: 1,
+            publisher_fxid: 740,
+            base_gen: 0,
+            base_publisher_fxid: 0,
+        };
+        assert_eq!(
+            WalGen::decode_entries(first.encode().as_bytes()),
+            Some(vec![(1, 740)])
+        );
         assert_eq!(WalGen::decode_entries(b"garbage\n1 2\n"), None);
         assert_eq!(WalGen::from_payload(&[0u8; 31]), None);
     }
@@ -104,13 +134,22 @@ mod tests {
     #[test]
     fn a_committed_generation_above_the_files_is_missing() {
         let committed = |x: u64| x != 900; // 900 aborted
-        // the base committed and is here, the newer publisher aborted: nothing missing
-        assert_eq!(missing_generation(&[(6, 850), (7, 900)], 6, &committed), None);
+                                           // the base committed and is here, the newer publisher aborted: nothing missing
+        assert_eq!(
+            missing_generation(&[(6, 850), (7, 900)], 6, &committed),
+            None
+        );
         // the backup stopped at generation 5: the committed base 6 is missing
-        assert_eq!(missing_generation(&[(6, 850), (7, 900)], 5, &committed), Some(6));
+        assert_eq!(
+            missing_generation(&[(6, 850), (7, 900)], 5, &committed),
+            Some(6)
+        );
         // no directory at all (effective 0), first generation committed
         assert_eq!(missing_generation(&[(1, 740)], 0, &committed), Some(1));
         // every generation present (a crash-recovered primary)
-        assert_eq!(missing_generation(&[(1, 740), (2, 741)], 2, &|_| true), None);
+        assert_eq!(
+            missing_generation(&[(1, 740), (2, 741)], 2, &|_| true),
+            None
+        );
     }
 }

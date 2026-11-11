@@ -142,6 +142,7 @@ fn at_eoxact_forgets_combo_state() {
 fn eoxact_releases_combo_cid_storage() {
     setup();
     for i in 0..1000 {
+        #[allow(unused_must_use)]
         GetComboCommandId(i, i + 1);
     }
     STATE.with(|s| assert!(s.borrow().comboCids.capacity() >= 1000));

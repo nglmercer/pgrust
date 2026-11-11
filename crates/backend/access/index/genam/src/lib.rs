@@ -1,5 +1,4 @@
-#![allow(non_snake_case)]
-#![allow(clippy::too_many_arguments)]
+#![allow(clippy::too_many_arguments, non_snake_case)]
 
 #[cfg(test)]
 mod tests;
@@ -50,6 +49,7 @@ fn systable_scan_catalog<'mcx>(
 ) -> PgResult<bool> {
     let mut scan = systable_beginscan(mcx, heap_rel, index_oid, index_ok, None, keys)?;
     let ordered = matches!(scan.arm, SysScanArm::Index { .. });
+    #[allow(clippy::while_let_loop)]
     loop {
         let Some(ntp) = systable_getnext(mcx, &mut scan)? else {
             break;
@@ -83,6 +83,7 @@ pub fn RelationGetIndexScan<'mcx>(
 
 // genam.h SysScanDescData. C's irel/iscan/scan nullable-pointer trio is the
 // closed heap-or-index arm (rule 4); descriptors held by value, no erasure.
+#[allow(clippy::large_enum_variant)]
 pub enum SysScanArm<'mcx> {
     Index {
         irel: Relation<'mcx>,
@@ -115,7 +116,9 @@ pub fn systable_beginscan<'mcx>(
     // C3: a recorded lowering's scan of a catalog reads it whole; the index the scan opens is the scan's own
     if gravity_deps::armed() {
         gravity_deps::note_catalog_scan(heapRelation.rd_id);
-        return gravity_deps::suppressed(|| begin(mcx, heapRelation, indexId, indexOK, snapshot, key));
+        return gravity_deps::suppressed(|| {
+            begin(mcx, heapRelation, indexId, indexOK, snapshot, key)
+        });
     }
     begin(mcx, heapRelation, indexId, indexOK, snapshot, key)
 }
@@ -128,14 +131,12 @@ fn begin<'mcx>(
     snapshot: Option<Rc<SnapshotData<'mcx>>>,
     key: &[ScanKeyData],
 ) -> PgResult<SysScanDescData<'mcx>> {
-    let irel = if indexOK
-        && !miscinit::IgnoreSystemIndexes()
-        && !reindex_is_processing_index(indexId)
-    {
-        Some(indexam::index_open(mcx, indexId, AccessShareLock)?)
-    } else {
-        None
-    };
+    let irel =
+        if indexOK && !miscinit::IgnoreSystemIndexes() && !reindex_is_processing_index(indexId) {
+            Some(indexam::index_open(mcx, indexId, AccessShareLock)?)
+        } else {
+            None
+        };
 
     let slot = tableam::table_slot_create(mcx, heapRelation)?;
     let (snap, registered) = setup_snapshot(mcx, heapRelation.rd_id, snapshot)?;
@@ -144,8 +145,7 @@ fn begin<'mcx>(
     let arm = match irel {
         Some(irel) => {
             let idxkey = convert_scan_keys(mcx, &irel, key)?;
-            let mut iscan =
-                indexam::index_beginscan(mcx, heapRelation, &irel, snap, nkeys, 0)?;
+            let mut iscan = indexam::index_beginscan(mcx, heapRelation, &irel, snap, nkeys, 0)?;
             indexam::index_rescan(&mut iscan, Some(&idxkey), None)?;
             SysScanArm::Index { irel, iscan }
         }
@@ -186,8 +186,7 @@ pub fn systable_getnext<'a, 'mcx>(
     let SysScanDescData { arm, slot, .. } = sysscan;
     let found = match arm {
         SysScanArm::Index { iscan, .. } => {
-            let found =
-                indexam::index_getnext_slot(mcx, iscan, ForwardScanDirection, slot)?;
+            let found = indexam::index_getnext_slot(mcx, iscan, ForwardScanDirection, slot)?;
             if found && iscan.xs_recheck {
                 return Err(lossy_sysscan());
             }
@@ -217,12 +216,10 @@ pub fn systable_recheck_tuple<'mcx>(
         snapmgr_seams::get_catalog_snapshot::call(sysscan.heap_rel.rd_id)?,
     )?);
 
-    let result = tableam::table_tuple_satisfies_snapshot(
-        &sysscan.heap_rel,
-        &mut sysscan.slot,
-        &freshsnap,
-    )?;
+    let result =
+        tableam::table_tuple_satisfies_snapshot(&sysscan.heap_rel, &mut sysscan.slot, &freshsnap)?;
 
+    #[allow(clippy::unnecessary_literal_unwrap)]
     snapmgr_seams::unregister_snapshot::call(freshsnap.expect("registered above"));
 
     handle_concurrent_abort()?;
@@ -409,7 +406,10 @@ pub fn systable_inplace_update_begin<'mcx>(
         })?;
         if locked {
             let copy = heaptuple::heap_copytuple(mcx, &oldtup)?;
-            return Ok(Some((copy, scan_opt.take().expect("scan released on success"))));
+            return Ok(Some((
+                copy,
+                scan_opt.take().expect("scan released on success"),
+            )));
         }
     }
 }
@@ -424,10 +424,7 @@ pub fn systable_inplace_update_finish(
     systable_endscan(mcx, state)
 }
 
-pub fn systable_inplace_update_cancel(
-    mcx: Mcx<'_>,
-    state: SysScanDescData<'_>,
-) -> PgResult<()> {
+pub fn systable_inplace_update_cancel(mcx: Mcx<'_>, state: SysScanDescData<'_>) -> PgResult<()> {
     let (oldtup, buffer) = slot_buffer_tuple(&state.slot);
     heapam::heap_inplace_unlock(&state.heap_rel, &oldtup, buffer)?;
     systable_endscan(mcx, state)
@@ -482,10 +479,9 @@ pub fn BuildIndexValueDescription<'mcx>(
             let mut finfo = fmgr_core::fmgr_info(foutoid)?;
             let out = fmgr_core::function_call1_coll_in(&mut finfo, 0, mcx, values[i])?;
             // SAFETY: output fns return a NUL-terminated cstring datum.
-            let s = unsafe {
-                core::ffi::CStr::from_ptr(out.as_usize() as *const core::ffi::c_char)
-            }
-            .to_bytes();
+            let s =
+                unsafe { core::ffi::CStr::from_ptr(out.as_usize() as *const core::ffi::c_char) }
+                    .to_bytes();
             // Diagnostic detail (unique-violation key); a type's text output may
             // be non-UTF-8 in a SQL_ASCII database. Use lossy, not a panic.
             buf.push_str(&String::from_utf8_lossy(s));
@@ -532,9 +528,12 @@ pub fn index_compute_xid_horizon_for_tuples<'mcx>(
         // SAFETY: itup is a live IndexTuple image on the locked page; t_tid
         // is its leading 6 bytes (ItemPointerCopy(&itup->t_tid, ..)).
         let tid = unsafe {
-            itup.cast::<types_tuple::itemptr::ItemPointerData>().read_unaligned()
+            itup.cast::<types_tuple::itemptr::ItemPointerData>()
+                .read_unaligned()
         };
-        delstate.deltids.push(tableam::TM_IndexDelete { tid, id: i as i16 });
+        delstate
+            .deltids
+            .push(tableam::TM_IndexDelete { tid, id: i as i16 });
         delstate.status.push(tableam::TM_IndexStatus {
             idxoffnum: offnum,
             knowndeletable: true, // LP_DEAD-marked
@@ -545,8 +544,7 @@ pub fn index_compute_xid_horizon_for_tuples<'mcx>(
     }
 
     // determine the actual xid horizon
-    let snapshot_conflict_horizon =
-        tableam::table_index_delete_tuples(mcx, hrel, &mut delstate)?;
+    let snapshot_conflict_horizon = tableam::table_index_delete_tuples(mcx, hrel, &mut delstate)?;
 
     // tableam agrees that all items are deletable
     debug_assert_eq!(delstate.ndeltids as usize, itemnos.len());
@@ -587,10 +585,7 @@ fn skey_vec<'mcx>(mcx: Mcx<'mcx>, cap: usize) -> PgResult<PgVec<'mcx, ScanKeyDat
     Ok(v)
 }
 
-fn skey_slice_in<'mcx>(
-    mcx: Mcx<'mcx>,
-    key: &[ScanKeyData],
-) -> PgResult<PgVec<'mcx, ScanKeyData>> {
+fn skey_slice_in<'mcx>(mcx: Mcx<'mcx>, key: &[ScanKeyData]) -> PgResult<PgVec<'mcx, ScanKeyData>> {
     let mut v = skey_vec(mcx, key.len())?;
     for k in key {
         v.push(k.clone());

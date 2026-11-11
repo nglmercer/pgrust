@@ -238,7 +238,7 @@ impl<'g> CountsEmit<'g, '_> {
         }
         b.br(h, &next[..]);
         b.switch_to(l_done);
-        mcx::to_vec_in(&b.block_params(l_done)[..], self.mcx)
+        mcx::to_vec_in(b.block_params(l_done), self.mcx)
     }
 
     /// Every call's count into a stack area, 16 bytes each (the datum, then its valid word: always), as the row's cells by aggno.

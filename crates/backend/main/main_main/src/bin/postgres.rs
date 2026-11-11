@@ -12,24 +12,34 @@
 // Both native arms sit under `init_small::oom::Rescue`: a failed allocation releases the emergency reserve and is
 // retried once, so one failed small allocation under memory pressure ends its statement with out-of-memory
 // instead of aborting every session (init_small oom.rs).
-#[cfg(all(not(target_family = "wasm"), not(debug_assertions), not(feature = "pagepool-global")))]
+#[cfg(all(
+    not(target_family = "wasm"),
+    not(debug_assertions),
+    not(feature = "pagepool-global")
+))]
 #[global_allocator]
-static GLOBAL: init_small::oom::Rescue<mimalloc::MiMalloc> = init_small::oom::Rescue(mimalloc::MiMalloc);
+static GLOBAL: init_small::oom::Rescue<mimalloc::MiMalloc> =
+    init_small::oom::Rescue(mimalloc::MiMalloc);
 
-#[cfg(all(not(target_family = "wasm"), debug_assertions, not(feature = "pagepool-global")))]
+#[cfg(all(
+    not(target_family = "wasm"),
+    debug_assertions,
+    not(feature = "pagepool-global")
+))]
 #[global_allocator]
-static GLOBAL: init_small::oom::Rescue<alloc_track::Tracker> = init_small::oom::Rescue(alloc_track::Tracker(mimalloc::MiMalloc));
+static GLOBAL: init_small::oom::Rescue<alloc_track::Tracker> =
+    init_small::oom::Rescue(alloc_track::Tracker(mimalloc::MiMalloc));
 
 // P6 (`pagepool-global`, default off): the pool's allocator; the pool starts at the first allocation.
 #[cfg(all(not(target_family = "wasm"), feature = "pagepool-global"))]
 #[global_allocator]
-static GLOBAL: init_small::oom::Rescue<pagepool::PoolAlloc> = init_small::oom::Rescue(pagepool::PoolAlloc);
+static GLOBAL: init_small::oom::Rescue<pagepool::PoolAlloc> =
+    init_small::oom::Rescue(pagepool::PoolAlloc);
 // The user 2026-10-18 ("for now can we run mimalloc on x86 and hearth on graviton?"; x86_64 too since D4872): with
 // PGRUST_ALLOCATOR unset, Hearth on Linux aarch64 and x86_64, mimalloc elsewhere (a constructor at .init_array.00050:
 // before `tune_allocator` below, whose env reads are the first allocation).
 #[cfg(all(not(target_family = "wasm"), feature = "pagepool-global"))]
 pagepool::by_arch_default!();
-
 
 /// D4682: the calling thread's retained heap: over its default theap's pages, the committed bytes less the live blocks'
 /// (mimalloc's area visit, no block walk). The cache arena's heap is the cache ladder's and is not counted here.
@@ -53,13 +63,22 @@ fn thread_retained_bytes() -> usize {
     ) -> bool {
         // SAFETY: mimalloc passes a valid area for the visit's duration; `arg` is the caller's usize.
         let (a, sum) = unsafe { (&*area, &mut *arg.cast::<usize>()) };
-        *sum += a.committed.saturating_sub(a.used.saturating_mul(a.full_block_size));
+        *sum += a
+            .committed
+            .saturating_sub(a.used.saturating_mul(a.full_block_size));
         true
     }
     let mut sum = 0usize;
     // SAFETY: the calling thread's own default theap, visited on that thread (as mimalloc's own collect does); areas
     // only (visit_blocks false), `sum` outlives the visit.
-    unsafe { mi_theap_visit_blocks(mi_theap_get_default(), false, Some(area), (&raw mut sum).cast()) };
+    unsafe {
+        mi_theap_visit_blocks(
+            mi_theap_get_default(),
+            false,
+            Some(area),
+            (&raw mut sum).cast(),
+        )
+    };
     sum
 }
 
@@ -87,15 +106,19 @@ mod alloc_track {
     // (SIGWINCH does not fire in the supervised server). unlink(2) is the
     // test-and-clear, polled every 4096 tracked allocations.
     pub static DUMP_FILE: AtomicPtr<libc::c_char> = AtomicPtr::new(std::ptr::null_mut());
+    #[allow(dead_code)]
     static DUMP_POLL: AtomicUsize = AtomicUsize::new(0);
 
+    #[allow(dead_code)]
     fn dump_requested() -> bool {
         if DUMP_REQ.swap(false, Relaxed) {
             return true;
         }
         let f = DUMP_FILE.load(Relaxed);
         // SAFETY: f is a leaked NUL-terminated CString set once at boot.
-        !f.is_null() && DUMP_POLL.fetch_add(1, Relaxed) & 0xfff == 0 && unsafe { libc::unlink(f) } == 0
+        !f.is_null()
+            && DUMP_POLL.fetch_add(1, Relaxed) & 0xfff == 0
+            && unsafe { libc::unlink(f) } == 0
     }
 
     const BT_DEPTH: usize = 28;
@@ -117,6 +140,7 @@ mod alloc_track {
         static TRACKED: Cell<(u8, Option<&'static str>)> = const { Cell::new((0, None)) };
     }
 
+    #[allow(dead_code)]
     fn thread_name() -> &'static str {
         TRACKED.with(|t| {
             let (tracked, name) = t.get();
@@ -124,7 +148,11 @@ mod alloc_track {
                 return n;
             }
             let n: &'static str = Box::leak(
-                std::thread::current().name().unwrap_or("<unnamed>").to_owned().into_boxed_str(),
+                std::thread::current()
+                    .name()
+                    .unwrap_or("<unnamed>")
+                    .to_owned()
+                    .into_boxed_str(),
             );
             t.set((tracked, Some(n)));
             n
@@ -132,6 +160,7 @@ mod alloc_track {
     }
 
     #[inline]
+    #[allow(dead_code)]
     fn thread_tracked() -> bool {
         match TRACKED.get() {
             (2, _) => true,
@@ -154,11 +183,7 @@ mod alloc_track {
         core::arch::asm!("mov {}, x29", out(reg) fp);
         let mut n = 0;
         let mut prev = 0usize;
-        while n < BT_DEPTH
-            && fp > prev
-            && fp % 8 == 0
-            && (prev == 0 || fp - prev < (64 << 20))
-        {
+        while n < BT_DEPTH && fp > prev && fp % 8 == 0 && (prev == 0 || fp - prev < (64 << 20)) {
             let lr = *((fp + 8) as *const usize);
             if lr < 0x1_0000 {
                 break;
@@ -174,6 +199,7 @@ mod alloc_track {
     // x86_64 frame-pointer walk (rbp chain; Apple targets keep frame
     // pointers, and debug builds elsewhere do too): same guards as above.
     #[cfg(target_arch = "x86_64")]
+    #[allow(dead_code)]
     unsafe fn backtrace_fp(buf: &mut [usize; BT_DEPTH]) -> usize {
         let mut fp: usize;
         core::arch::asm!("mov {}, rbp", out(reg) fp);
@@ -201,6 +227,7 @@ mod alloc_track {
         0
     }
 
+    #[allow(dead_code)]
     fn record_alloc(p: *mut u8, l: Layout) {
         if p.is_null() || !ENABLED.load(Relaxed) {
             return;
@@ -215,8 +242,15 @@ mod alloc_track {
                 // SAFETY: fp walk with monotonic + alignment guards.
                 let n = unsafe { backtrace_fp(&mut bt) };
                 let mut g = LIVE.lock().unwrap_or_else(|e| e.into_inner());
-                g.get_or_insert_with(HashMap::new)
-                    .insert(p as usize, Rec { tname: thread_name(), size: l.size(), bt, n });
+                g.get_or_insert_with(HashMap::new).insert(
+                    p as usize,
+                    Rec {
+                        tname: thread_name(),
+                        size: l.size(),
+                        bt,
+                        n,
+                    },
+                );
                 if dump_requested() {
                     if let Some(m) = g.as_ref() {
                         dump_map(m, "mid-run");
@@ -227,6 +261,7 @@ mod alloc_track {
         });
     }
 
+    #[allow(dead_code)]
     fn record_free(p: *mut u8) {
         if p.is_null() || !ENABLED.load(Relaxed) {
             return;
@@ -262,14 +297,18 @@ mod alloc_track {
             e.0 += 1;
             e.1 += r.size;
         }
-        let mut rows: Vec<(&'static str, &[usize], usize, usize)> =
-            groups.into_iter().map(|((t, k), (c, b))| (t, k, c, b)).collect();
+        let mut rows: Vec<(&'static str, &[usize], usize, usize)> = groups
+            .into_iter()
+            .map(|((t, k), (c, b))| (t, k, c, b))
+            .collect();
+        #[allow(clippy::unnecessary_sort_by)]
         rows.sort_by(|a, b| b.3.cmp(&a.3));
         let mut per_thread: HashMap<&'static str, usize> = HashMap::new();
         for r in m.values() {
             *per_thread.entry(r.tname).or_insert(0) += r.size;
         }
         let mut pt: Vec<_> = per_thread.into_iter().collect();
+        #[allow(clippy::unnecessary_sort_by)]
         pt.sort_by(|a, b| b.1.cmp(&a.1));
         for (t, b) in pt.iter().take(8) {
             eprintln!("ALLOC-TRACK thread: {t} live_bytes={b}");
@@ -283,7 +322,13 @@ mod alloc_track {
         );
         for (tname, bt, count, bytes) in rows.iter().take(200) {
             let addrs: Vec<String> = bt.iter().map(|a| format!("0x{a:x}")).collect();
-            eprintln!("ALLOC-TRACK leak: thread={} n={} bytes={} bt={}", tname, count, bytes, addrs.join(" "));
+            eprintln!(
+                "ALLOC-TRACK leak: thread={} n={} bytes={} bt={}",
+                tname,
+                count,
+                bytes,
+                addrs.join(" ")
+            );
         }
     }
 
@@ -306,6 +351,7 @@ mod alloc_track {
         0
     }
 
+    #[allow(dead_code)]
     pub struct Tracker(pub mimalloc::MiMalloc);
 
     unsafe impl GlobalAlloc for Tracker {
@@ -345,27 +391,40 @@ use antithesis_instrumentation as _;
 /// No allocation (the allocator's start reads it before the first block).
 #[cfg(not(target_family = "wasm"))]
 fn mempolicy_knob_on(policy: &[u8], knob: &[u8]) -> Option<bool> {
-    policy.split(|&b| b == b',').filter_map(|entry| {
-        let mut kv = entry.splitn(2, |&b| b == b'=');
-        let (Some(k), Some(v)) = (kv.next(), kv.next()) else { return None };
-        let (k, v) = (k.trim_ascii(), v.trim_ascii());
-        (k == knob && !v.is_empty() && v.iter().all(u8::is_ascii_digit)).then(|| v.iter().any(|&b| b != b'0'))
-    }).next_back()
+    policy
+        .split(|&b| b == b',')
+        .filter_map(|entry| {
+            let mut kv = entry.splitn(2, |&b| b == b'=');
+            let (Some(k), Some(v)) = (kv.next(), kv.next()) else {
+                return None;
+            };
+            let (k, v) = (k.trim_ascii(), v.trim_ascii());
+            (k == knob && !v.is_empty() && v.iter().all(u8::is_ascii_digit))
+                .then(|| v.iter().any(|&b| b != b'0'))
+        })
+        .next_back()
 }
 
 /// `mempolicy_knob_on`'s integer: the last entry naming `knob` with an integer (pagepool P2: the pool's knobs, read at the
 /// allocator's start). No allocation.
 #[cfg(not(target_family = "wasm"))]
 fn mempolicy_knob_u64(policy: &[u8], knob: &[u8]) -> Option<u64> {
-    policy.split(|&b| b == b',').filter_map(|entry| {
-        let mut kv = entry.splitn(2, |&b| b == b'=');
-        let (Some(k), Some(v)) = (kv.next(), kv.next()) else { return None };
-        let (k, v) = (k.trim_ascii(), v.trim_ascii());
-        if k != knob || v.is_empty() || !v.iter().all(u8::is_ascii_digit) {
-            return None;
-        }
-        v.iter().try_fold(0u64, |n, &d| n.checked_mul(10)?.checked_add(u64::from(d - b'0')))
-    }).next_back()
+    policy
+        .split(|&b| b == b',')
+        .filter_map(|entry| {
+            let mut kv = entry.splitn(2, |&b| b == b'=');
+            let (Some(k), Some(v)) = (kv.next(), kv.next()) else {
+                return None;
+            };
+            let (k, v) = (k.trim_ascii(), v.trim_ascii());
+            if k != knob || v.is_empty() || !v.iter().all(u8::is_ascii_digit) {
+                return None;
+            }
+            v.iter().try_fold(0u64, |n, &d| {
+                n.checked_mul(10)?.checked_add(u64::from(d - b'0'))
+            })
+        })
+        .next_back()
 }
 
 // Opt-in allocator settings (lane memfree, memresearch (c)), PGRUST_ALLOC_TUNE=1:
@@ -436,7 +495,10 @@ extern "C" fn tune_allocator() {
         }
         if !pool {
             // SAFETY: a live block of the global allocator (mimalloc under the wrapper): mi_usable_size's contract.
-            init_small::oom::count_allocations(true, Some(|p| unsafe { libmimalloc_sys::mi_usable_size(p as *const core::ffi::c_void) }));
+            init_small::oom::count_allocations(
+                true,
+                Some(|p| unsafe { libmimalloc_sys::mi_usable_size(p as *const core::ffi::c_void) }),
+            );
         }
     }
     // D4556 (the memory policy's charge_usable knob, on by default; PGRUST_MEMPOLICY=charge_usable=0 turns it off): door 1 charges each block's rounding
@@ -446,9 +508,14 @@ extern "C" fn tune_allocator() {
     // SAFETY: as above.
     let policy = unsafe {
         let v = libc::getenv(c"PGRUST_MEMPOLICY".as_ptr());
-        if v.is_null() { &[][..] } else { core::ffi::CStr::from_ptr(v).to_bytes() }
+        if v.is_null() {
+            &[][..]
+        } else {
+            core::ffi::CStr::from_ptr(v).to_bytes()
+        }
     };
-    let default = mempolicy::consts::KNOBS[mempolicy::consts::K::ChargeUsable as usize].default != 0;
+    let default =
+        mempolicy::consts::KNOBS[mempolicy::consts::K::ChargeUsable as usize].default != 0;
     if mempolicy_knob_on(policy, b"charge_usable").unwrap_or(default) {
         // P6: PoolAlloc hands out exactly its size for the layout: door 1's rounding reads no block
         #[cfg(feature = "pagepool-global")]
@@ -457,7 +524,9 @@ extern "C" fn tune_allocator() {
         }
         if !pool {
             // SAFETY: as above.
-            init_small::oom::charge_usable(true, |p| unsafe { libmimalloc_sys::mi_usable_size(p as *const core::ffi::c_void) });
+            init_small::oom::charge_usable(true, |p| unsafe {
+                libmimalloc_sys::mi_usable_size(p as *const core::ffi::c_void)
+            });
         }
     }
     // pagepool: the reservation only (no thread, no heap); PGRUST_POOL_* unset, nothing. Its knobs from PGRUST_MEMPOLICY
@@ -583,7 +652,8 @@ mod pool_mcx {
     }
 
     unsafe fn take(bytes: usize, align: usize, life: Lifetime, zeroed: bool) -> *mut u8 {
-        let hint = Hint::new(class(life), Tag::MCX).zero(if zeroed { Zero::Dense } else { Zero::No });
+        let hint =
+            Hint::new(class(life), Tag::MCX).zero(if zeroed { Zero::Dense } else { Zero::No });
         pagepool::take(bytes, align, hint).map_or(null_mut(), |b| b.as_ptr().cast())
     }
 
@@ -602,7 +672,8 @@ mod pool_mcx {
 
     unsafe fn resize(p: *mut u8, old: usize, new: usize, align: usize) -> *mut u8 {
         // SAFETY: as `give`, the block of `old` bytes.
-        unsafe { pagepool::resize(NonNull::new_unchecked(p), old, new, align) }.map_or(null_mut(), |b| b.as_ptr().cast())
+        unsafe { pagepool::resize(NonNull::new_unchecked(p), old, new, align) }
+            .map_or(null_mut(), |b| b.as_ptr().cast())
     }
 
     fn release() {
@@ -613,7 +684,8 @@ mod pool_mcx {
     }
 
     fn in_use() -> Option<usize> {
-        init_small::oom::allocated_bytes().map(|b| b.saturating_add(memledger::pagepool_total().max(0) as usize))
+        init_small::oom::allocated_bytes()
+            .map(|b| b.saturating_add(memledger::pagepool_total().max(0) as usize))
     }
 
     fn committed() -> usize {
@@ -646,7 +718,12 @@ mod pool_mcx {
 
     fn reading() -> memledger::PoolReading {
         let s = pagepool::stats();
-        memledger::PoolReading { claimed: s.claimed as u64, warm_free: s.warm_free() as u64, shelved: s.shelved as u64, stranded: s.stranded as u64 }
+        memledger::PoolReading {
+            claimed: s.claimed as u64,
+            warm_free: s.warm_free() as u64,
+            shelved: s.shelved as u64,
+            stranded: s.stranded as u64,
+        }
     }
 
     /// pppress card 9: the pool's bytes door 1 charged (`PoolAlloc`'s blocks at their good size; 0 with it off or not
@@ -659,7 +736,12 @@ mod pool_mcx {
         0
     }
 
-    static SOURCE: BlockSource = BlockSource { take, give, resize, usable: pagepool::usable };
+    static SOURCE: BlockSource = BlockSource {
+        take,
+        give,
+        resize,
+        usable: pagepool::usable,
+    };
 
     /// The pool on, whichever switch turned it on: the ledger sees its claims (the pool door), the views its reading, the
     /// governor its bytes beside the allocator's. A consumer that is not mcx (PGRUST_POOL_GRAVITY=1 alone) claims pool RAM
@@ -699,7 +781,9 @@ fn run() {
     // any seam install — set-once at boot is the house pattern. Everything
     // but `--stdio-wire` / `--sim-net` (all the C dispatch options included)
     // boots the socket provider, i.e. the unchanged native byte path.
-    let arg1 = std::env::args_os().nth(1).map(|a| a.to_string_lossy().into_owned());
+    let arg1 = std::env::args_os()
+        .nth(1)
+        .map(|a| a.to_string_lossy().into_owned());
     // --help / -? / --version / -V print their text and nothing else: the instruments and the QoS memory governor
     // (whose armed bar is a LOG line on stderr) start only for a real run.
     let info_only = matches!(arg1.as_deref(), Some("--help" | "-?" | "--version" | "-V"));
@@ -826,7 +910,11 @@ fn run() {
     if !pool {
         init_small::oom::set_cache_alloc(allocarena::cache_alloc, allocarena::cache_realloc);
         // LADDER-DESIGN 6a: the 64-512 KiB images' own runs, recognized at free / realloc by their range
-        init_small::oom::set_own_pages(allocarena::own::range(), allocarena::own_free, allocarena::own_resize);
+        init_small::oom::set_own_pages(
+            allocarena::own::range(),
+            allocarena::own_free,
+            allocarena::own_resize,
+        );
         let _ = allocarena::start_cache_heap();
     }
     // P6: a cache scope's blocks are the pool allocator's cache class
@@ -858,7 +946,10 @@ fn run() {
             );
         }
         // pagepool P2: plus the pool's published resident bytes (0 while it is off; accounting only, see present_or_zero)
-        memruntime::AllocatorStats { current_rss: rss, current_commit: commit.saturating_add(pool_mcx::present_or_zero()) }
+        memruntime::AllocatorStats {
+            current_rss: rss,
+            current_commit: commit.saturating_add(pool_mcx::present_or_zero()),
+        }
     });
     // D3243 diagnostic: the allocator's live bytes (None unless PGRUST_ALLOC_COUNT=1 armed the count) and committed bytes,
     // beside the governor's resident measure in the idle census and the watchdog's trip / cancel lines.
@@ -898,8 +989,7 @@ fn run() {
     }
     // FPBUDGET-1 debug instrument: process-global live-context census
     // (name -> count), dumped at each backend exit. Diagnostic only.
-    if !info_only && std::env::var_os("PGRUST_MCXT_CENSUS").is_some()
-    {
+    if !info_only && std::env::var_os("PGRUST_MCXT_CENSUS").is_some() {
         mcx::debug_census::enable();
         eprintln!("MCXT-CENSUS: enabled (on={})", mcx::debug_census::on());
     }
@@ -915,14 +1005,20 @@ fn run() {
         if flag("all") {
             alloc_track::ALL_THREADS.store(true, std::sync::atomic::Ordering::Relaxed);
         }
-        if let Some(path) = v.split(',').find_map(|x| x.trim().strip_prefix("dumpfile=")) {
+        if let Some(path) = v
+            .split(',')
+            .find_map(|x| x.trim().strip_prefix("dumpfile="))
+        {
             if let Ok(c) = std::ffi::CString::new(path) {
                 alloc_track::DUMP_FILE.store(c.into_raw(), std::sync::atomic::Ordering::Relaxed);
             }
         }
         if flag("dump") {
             unsafe {
-                libc::signal(libc::SIGWINCH, alloc_track::request_dump as extern "C" fn(libc::c_int) as usize);
+                libc::signal(
+                    libc::SIGWINCH,
+                    alloc_track::request_dump as extern "C" fn(libc::c_int) as usize,
+                );
             }
         }
         unsafe { libc::atexit(alloc_track::dump) };
@@ -948,10 +1044,20 @@ mod tests {
         assert_eq!(super::mempolicy_knob_on(b"", k), None);
         assert_eq!(super::mempolicy_knob_on(b"ledger_home=1", k), None);
         assert_eq!(super::mempolicy_knob_on(b"charge_usable=0", k), Some(false));
-        assert_eq!(super::mempolicy_knob_on(b" charge_usable = 1 ,ledger_floor=1", k), Some(true));
-        assert_eq!(super::mempolicy_knob_on(b"charge_usable=1,charge_usable=0", k), Some(false));
+        assert_eq!(
+            super::mempolicy_knob_on(b" charge_usable = 1 ,ledger_floor=1", k),
+            Some(true)
+        );
+        assert_eq!(
+            super::mempolicy_knob_on(b"charge_usable=1,charge_usable=0", k),
+            Some(false)
+        );
         assert_eq!(super::mempolicy_knob_on(b"charge_usable=x", k), None);
-        assert_eq!(mempolicy::consts::KNOBS[mempolicy::consts::K::ChargeUsable as usize].default, 1, "on by default");
+        assert_eq!(
+            mempolicy::consts::KNOBS[mempolicy::consts::K::ChargeUsable as usize].default,
+            1,
+            "on by default"
+        );
     }
 
     /// pagepool P2: the allocator's start reads the pool's knobs from PGRUST_MEMPOLICY's text (the policy's start is too
@@ -962,20 +1068,40 @@ mod tests {
         let k = b"pool_block_min";
         assert_eq!(super::mempolicy_knob_u64(b"", k), None);
         assert_eq!(super::mempolicy_knob_u64(b"pool_block_min_x=5", k), None);
-        assert_eq!(super::mempolicy_knob_u64(b" pool_block_min = 65536 ,ledger_floor=1", k), Some(65536));
-        assert_eq!(super::mempolicy_knob_u64(b"pool_block_min=1,pool_block_min=1073741824", k), Some(1 << 30));
+        assert_eq!(
+            super::mempolicy_knob_u64(b" pool_block_min = 65536 ,ledger_floor=1", k),
+            Some(65536)
+        );
+        assert_eq!(
+            super::mempolicy_knob_u64(b"pool_block_min=1,pool_block_min=1073741824", k),
+            Some(1 << 30)
+        );
         assert_eq!(super::mempolicy_knob_u64(b"pool_block_min=1k", k), None);
-        assert_eq!(super::mempolicy_knob_u64(b"pool_block_min=99999999999999999999999", k), None);
-        assert_eq!(mempolicy::consts::KNOBS[mempolicy::consts::K::PoolBlockMin as usize].name, "pool_block_min");
+        assert_eq!(
+            super::mempolicy_knob_u64(b"pool_block_min=99999999999999999999999", k),
+            None
+        );
+        assert_eq!(
+            mempolicy::consts::KNOBS[mempolicy::consts::K::PoolBlockMin as usize].name,
+            "pool_block_min"
+        );
     }
 
     /// pagepool P2 (ppgrav's find): a pool switched on by another consumer (PGRUST_POOL_GRAVITY=1, MCX unset) gets the
     /// ledger's hooks but not mcx's, and its claims reach the ledger (pool_claimed > 0).
     #[test]
     fn a_pool_on_without_mcx_still_reaches_the_ledger() {
-        assert_eq!(super::pool_hooks(true, false), (true, false), "GRAVITY alone: the ledger's hooks, not mcx's");
+        assert_eq!(
+            super::pool_hooks(true, false),
+            (true, false),
+            "GRAVITY alone: the ledger's hooks, not mcx's"
+        );
         assert_eq!(super::pool_hooks(true, true), (true, true));
-        assert_eq!(super::pool_hooks(false, true), (false, false), "no pool: nothing");
+        assert_eq!(
+            super::pool_hooks(false, true),
+            (false, false),
+            "no pool: nothing"
+        );
         assert_eq!(super::pool_hooks(false, false), (false, false));
         if !pagepool::init(&pagepool::Config::from_policy()) {
             return; // no reservation on this host: the pool stays off, as in the server
@@ -988,7 +1114,12 @@ mod tests {
             // PoolAlloc claimed before the door (its warm runs may serve this take): the door posted those claims
             assert!(before > 0, "the claims before the door reached the ledger");
         } else {
-            assert!(memledger::pool_claimed() > before, "the claim reached the ledger: {} -> {}", before, memledger::pool_claimed());
+            assert!(
+                memledger::pool_claimed() > before,
+                "the claim reached the ledger: {} -> {}",
+                before,
+                memledger::pool_claimed()
+            );
         }
         assert!(memledger::pool_probed(), "the views read the pool");
         // SAFETY: the block take just served, never used again.
@@ -1000,7 +1131,11 @@ mod tests {
     /// atomic loads, never a sweep).
     #[test]
     fn the_pools_committed_term_is_its_present_bytes_and_cheap() {
-        assert_eq!(super::pool_mcx::present_or_zero(), 0, "the pool off: no term");
+        assert_eq!(
+            super::pool_mcx::present_or_zero(),
+            0,
+            "the pool off: no term"
+        );
         if !pagepool::init(&pagepool::Config::from_policy()) {
             return; // no reservation on this host: the pool stays off, as in the server
         }
@@ -1008,8 +1143,12 @@ mod tests {
         let _ = pagepool::refresh_present();
         let present = super::pool_mcx::present_or_zero();
         // claimed counts the superpages; present adds the metadata zone (its own mapping, never claimed through the door)
-        let bound = memledger::pool_claimed().max(0) as u64 + pagepool::meta_present().unwrap_or(0) as u64;
-        assert!(present as u64 <= bound, "present {present} within claimed + metadata {bound}");
+        let bound =
+            memledger::pool_claimed().max(0) as u64 + pagepool::meta_present().unwrap_or(0) as u64;
+        assert!(
+            present as u64 <= bound,
+            "present {present} within claimed + metadata {bound}"
+        );
         // RBR's retained = (mimalloc present + pool present) - (mimalloc live + pool in-use) shows the pool's
         // warm present once only if the owners' pool bytes (pagepool_total) are the pool's in-use bytes: a mcx block taken
         // through the source moves both by the same bytes, and its give moves both back
@@ -1020,15 +1159,25 @@ mod tests {
         let layout = std::alloc::Layout::from_size_align(256 << 10, 8).unwrap();
         use mcx::Allocator as _;
         let p = ctx.mcx().allocate(layout).expect("a pooled block");
-        assert!(pagepool::owns(p.cast::<u8>().as_ptr()), "the source served it");
+        assert!(
+            pagepool::owns(p.cast::<u8>().as_ptr()),
+            "the source served it"
+        );
         let (total, used) = (memledger::pagepool_total() - total0, mcx_in_use() - use0);
         assert!(total > 0, "the owner's pool bytes moved");
-        assert_eq!(total, used, "pagepool_total moves as the pool's in-use bytes");
+        assert_eq!(
+            total, used,
+            "pagepool_total moves as the pool's in-use bytes"
+        );
         // SAFETY: the chunk this context handed out for `layout`, freed once
         unsafe { ctx.mcx().deallocate(p.cast(), layout) };
         drop(ctx);
         pagepool::flush_shelf();
-        assert_eq!((memledger::pagepool_total() - total0, mcx_in_use() - use0), (0, 0), "and both move back");
+        assert_eq!(
+            (memledger::pagepool_total() - total0, mcx_in_use() - use0),
+            (0, 0),
+            "and both move back"
+        );
         let n = 100_000u32;
         let t = std::time::Instant::now();
         let mut sum = 0usize;

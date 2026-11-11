@@ -144,6 +144,7 @@ impl Rerun {
         let outer = |i: usize| gx.graph.reruns[i].pipelines.len() > set_ms.len() && set_ms.iter().all(|m| gx.graph.reruns[i].pipelines.contains(m));
         let other = |q: usize| gx.graph.reruns.iter().enumerate().any(|(i, r)| i != set && r.pipelines.contains(&(q as u16)) && !outer(i));
         let mut runs = false;
+        #[allow(clippy::nonminimal_bool)]
         for q in members.into_iter().filter(|&q| !(rearmed(gx, set_ms, q) && other(q)) && !nested_away(gx, set, q as u16)) {
             // D1018 item 9 (b): a member PG keeps (graph.kept) runs at the set's first run only
             let kept = gx.graph.kept.contains(&(q as u16));
@@ -850,6 +851,30 @@ impl Rerun {
     }
 }
 
+/// D4237: WindowAgg reader `k`'s pulled fill `fill` (the exact request, ops/window/lower.rs `pulled`) is re-armed by the one
+/// rerun set holding it, as PostgreSQL's ExecReScanWindowAgg empties the spool at each rescan and spool_tuples reads the
+/// child again from its start as far as the reader's rows need: the set's run empties the window object's spool and starts
+/// its pulled set again (lifetime/mod.rs `program`'s `Runner::Window`, exec ops/window/proto.rs `rearm`), never runs it. The set is a nest's or SubPlan's (a
+/// recursive union's term set re-runs through its own pull), it holds the fill and every pipeline feeding it, none kept
+/// across its runs (`graph.kept`) and none held by another set; the reader is a member of the set and of no other, or the
+/// inner whose re-open runs the set with no Memoize in it (a hit replays rows the set's next run does not re-read).
+pub(crate) fn rearms_window_fill(gx: &crate::graph::Gx<'_, '_>, k: usize, fill: usize) -> bool {
+    let rs = &gx.graph.reruns;
+    let ps = gx.pipelines();
+    let held = |q: usize| rs.iter().filter(move |r| r.pipelines.contains(&(q as u16)));
+    let mut sets = held(fill);
+    let (Some(r), None) = (sets.next(), sets.next()) else { return false };
+    if r.plan_id == gravity_decompose::ops::shared::setop::RECURSIVE_SET {
+        return false;
+    }
+    let only_r = |q: usize| held(q).count() == 1 && r.pipelines.contains(&(q as u16));
+    let reader = match k < ps.len() {
+        true => only_r(k),
+        false => owner_set(gx, k) == Some((r.node_id, r.plan_id)) && crate::ops::memoize::lower::at(&ps[k]).is_none(),
+    };
+    reader && crate::ops::ctescan::lower::fed(gx, fill).into_iter().all(|q| only_r(q) && !gx.graph.kept.contains(&(q as u16)))
+}
+
 #[cfg(test)]
 mod tests {
     use gravity_abi::breaker::{Breaker, BreakerKind};
@@ -1295,28 +1320,4 @@ mod tests {
             assert!(matches!(e, Reason::Shape { why } if why.0 == D_RERUN_SHARED), "{e:?}");
         }
     }
-}
-
-/// D4237: WindowAgg reader `k`'s pulled fill `fill` (the exact request, ops/window/lower.rs `pulled`) is re-armed by the one
-/// rerun set holding it, as PostgreSQL's ExecReScanWindowAgg empties the spool at each rescan and spool_tuples reads the
-/// child again from its start as far as the reader's rows need: the set's run empties the window object's spool and starts
-/// its pulled set again (lifetime/mod.rs `program`'s `Runner::Window`, exec ops/window/proto.rs `rearm`), never runs it. The set is a nest's or SubPlan's (a
-/// recursive union's term set re-runs through its own pull), it holds the fill and every pipeline feeding it, none kept
-/// across its runs (`graph.kept`) and none held by another set; the reader is a member of the set and of no other, or the
-/// inner whose re-open runs the set with no Memoize in it (a hit replays rows the set's next run does not re-read).
-pub(crate) fn rearms_window_fill(gx: &crate::graph::Gx<'_, '_>, k: usize, fill: usize) -> bool {
-    let rs = &gx.graph.reruns;
-    let ps = gx.pipelines();
-    let held = |q: usize| rs.iter().filter(move |r| r.pipelines.contains(&(q as u16)));
-    let mut sets = held(fill);
-    let (Some(r), None) = (sets.next(), sets.next()) else { return false };
-    if r.plan_id == gravity_decompose::ops::shared::setop::RECURSIVE_SET {
-        return false;
-    }
-    let only_r = |q: usize| held(q).count() == 1 && r.pipelines.contains(&(q as u16));
-    let reader = match k < ps.len() {
-        true => only_r(k),
-        false => owner_set(gx, k) == Some((r.node_id, r.plan_id)) && crate::ops::memoize::lower::at(&ps[k]).is_none(),
-    };
-    reader && crate::ops::ctescan::lower::fed(gx, fill).into_iter().all(|q| only_r(q) && !gx.graph.kept.contains(&(q as u16)))
 }

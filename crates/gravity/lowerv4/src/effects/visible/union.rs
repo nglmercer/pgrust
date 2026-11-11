@@ -40,7 +40,7 @@ pub(crate) fn calm_emit(gx: &Gx<'_, '_>, emit: usize, calm: &dyn Fn(Node<'_>) ->
     gx.pipelines()[emit].ops.iter().all(|op| match op {
         Op::Append(AppendDesc::Union { .. }) => true,
         Op::Filter(x) => calm(*x),
-        Op::Project(l) => l.iter().all(|x| calm(x)),
+        Op::Project(l) => l.iter().all(calm),
         _ => false,
     })
 }

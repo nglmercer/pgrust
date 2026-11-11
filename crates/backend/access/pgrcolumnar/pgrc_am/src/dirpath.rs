@@ -36,7 +36,8 @@ fn cpath(path: &str) -> PgResult<CString> {
 }
 
 fn io_err(what: &str, path: &str, errno: i32) -> Box<PgError> {
-    Box::<PgError>::new( // alloc: Cold
+    Box::<PgError>::new(
+        // alloc: Cold
         PgError::error(format!("pgrcolumnar: {what}: {path} (errno {errno})")) // alloc: Cold
             .with_sqlstate(types_error::ERRCODE_IO_ERROR),
     )
@@ -158,7 +159,10 @@ pub fn create_table_dir(locator: RelFileLocator, backend: ProcNumber) -> PgResul
     mkdir_if_absent(&dir)?;
     // IX0: a reused relfilenumber must not inherit an old counter its new rowid file and WAL never reserved
     crate::rowid_alloc::forget(&dir);
-    crate::catalog::create((locator.spcOid, locator.dbOid, locator.relNumber as u64), &dir);
+    crate::catalog::create(
+        (locator.spcOid, locator.dbOid, locator.relNumber as u64),
+        &dir,
+    );
     Ok(())
 }
 
@@ -170,7 +174,13 @@ pub fn remove_dir_by_locator(locator: RelFileLocator, backend: ProcNumber) -> Pg
 /// Whether the relation's (empty) main fork exists: smgr creates it with every relfilenumber, beside the table directory
 /// (`create_table_dir`), so a main fork without its directory is a removed directory, never a relation not yet written.
 pub fn main_fork_exists(locator: RelFileLocator, backend: ProcNumber) -> bool {
-    let Ok(c) = cpath(&relpath::GetRelationPath(locator, backend, ForkNumber::MAIN_FORKNUM)) else { return false };
+    let Ok(c) = cpath(&relpath::GetRelationPath(
+        locator,
+        backend,
+        ForkNumber::MAIN_FORKNUM,
+    )) else {
+        return false;
+    };
     let mut info = vfs::FileInfo::zeroed();
     vfs::stat(&c, &mut info) == 0
 }
@@ -179,7 +189,13 @@ pub fn main_fork_exists(locator: RelFileLocator, backend: ProcNumber) -> bool {
 /// 8-byte magic, `V1_MAGIC`); this engine never writes the main fork.
 pub fn v1_segment(locator: RelFileLocator, backend: ProcNumber) -> bool {
     const V1_MAGIC: [u8; 8] = 0x6362_7374_6f72_6531u64.to_le_bytes();
-    let Ok(c) = cpath(&relpath::GetRelationPath(locator, backend, ForkNumber::MAIN_FORKNUM)) else { return false };
+    let Ok(c) = cpath(&relpath::GetRelationPath(
+        locator,
+        backend,
+        ForkNumber::MAIN_FORKNUM,
+    )) else {
+        return false;
+    };
     let fd = vfs::open(&c, libc::O_RDONLY | libc::O_CLOEXEC, 0);
     if fd < 0 {
         return false;
@@ -213,7 +229,11 @@ pub fn boot_id() -> Option<String> {
 }
 
 fn unsynced_path(dir: &str) -> String {
-    format!("{}/{}", pgrc_format::spool::UNSYNCED_DIR, pgrc_format::spool::unsynced_name(dir))
+    format!(
+        "{}/{}",
+        pgrc_format::spool::UNSYNCED_DIR,
+        pgrc_format::spool::unsynced_name(dir)
+    )
 }
 
 fn exists(path: &str) -> PgResult<bool> {
@@ -238,7 +258,11 @@ pub fn mark_unsynced(dir: &str) -> PgResult<()> {
     }
     let tmp = format!("{path}.tmp");
     let body = format!("{}\n", boot_id().unwrap_or_else(|| "unknown".to_string()));
-    let fd = vfs::open(&cpath(&tmp)?, libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC | libc::O_CLOEXEC, 0o600);
+    let fd = vfs::open(
+        &cpath(&tmp)?,
+        libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC | libc::O_CLOEXEC,
+        0o600,
+    );
     if fd < 0 {
         return Err(io_err("open failed", &tmp, vfs::get_errno()));
     }
@@ -320,7 +344,10 @@ pub fn remove_dir_contents(dir: &str) -> PgResult<()> {
 pub fn truncate_table_dir(locator: RelFileLocator, backend: ProcNumber) -> PgResult<()> {
     let dir = table_dir_path(locator, backend);
     remove_dir_contents(&dir)?;
-    crate::catalog::create((locator.spcOid, locator.dbOid, locator.relNumber as u64), &dir);
+    crate::catalog::create(
+        (locator.spcOid, locator.dbOid, locator.relNumber as u64),
+        &dir,
+    );
     Ok(())
 }
 
@@ -368,7 +395,8 @@ fn unlink_entries(dir: &str, c: &CString) -> PgResult<bool> {
         if vfs::unlink(&p) != 0 {
             let errno = vfs::get_errno();
             if errno != libc::ENOENT {
-                return Err(io_err("unlink failed", &format!("{dir}/{name}"), errno)); // alloc: Cold
+                return Err(io_err("unlink failed", &format!("{dir}/{name}"), errno));
+                // alloc: Cold
             }
         }
     }

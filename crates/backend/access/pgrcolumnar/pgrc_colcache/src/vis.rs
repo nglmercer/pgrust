@@ -5,7 +5,10 @@ use types_core::xact::TransactionIdIsValid;
 use types_core::{CommandId, TransactionId};
 use types_error::PgResult;
 use types_snapshot::SnapshotData;
-use types_tuple::{HEAP_COMBOCID, HEAP_MOVED, HEAP_XMAX_COMMITTED, HEAP_XMAX_INVALID, HEAP_XMAX_IS_LOCKED_ONLY, HEAP_XMAX_IS_MULTI, HEAP_XMIN_COMMITTED, HEAP_XMIN_FROZEN, HEAP_XMIN_INVALID};
+use types_tuple::{
+    HEAP_COMBOCID, HEAP_MOVED, HEAP_XMAX_COMMITTED, HEAP_XMAX_INVALID, HEAP_XMAX_IS_LOCKED_ONLY,
+    HEAP_XMAX_IS_MULTI, HEAP_XMIN_COMMITTED, HEAP_XMIN_FROZEN, HEAP_XMIN_INVALID,
+};
 
 use crate::block::Hdr;
 
@@ -40,8 +43,14 @@ impl SnapView for Mvcc<'_, '_> {
 
 /// `Some(v)` decides the row; `None` = inserted and visible so far, go on to xmax.
 fn xmin_half(h: &Hdr, s: &dyn SnapView) -> PgResult<Option<bool>> {
-    debug_assert!(h.infomask & HEAP_COMBOCID == 0, "combo cid on a companion row");
-    debug_assert!(h.infomask & HEAP_MOVED == 0, "VACUUM FULL moved a companion row");
+    debug_assert!(
+        h.infomask & HEAP_COMBOCID == 0,
+        "combo cid on a companion row"
+    );
+    debug_assert!(
+        h.infomask & HEAP_MOVED == 0,
+        "VACUUM FULL moved a companion row"
+    );
     if h.infomask & HEAP_XMIN_COMMITTED == 0 {
         if h.infomask & HEAP_XMIN_INVALID != 0 || !TransactionIdIsValid(h.xmin) {
             return Ok(Some(false));
@@ -74,10 +83,16 @@ pub fn tomb_visible(h: &Hdr, s: &dyn SnapView) -> PgResult<bool> {
     if let Some(v) = xmin_half(h, s)? {
         return Ok(v);
     }
-    if h.infomask & HEAP_XMAX_INVALID != 0 || !TransactionIdIsValid(h.xmax) || HEAP_XMAX_IS_LOCKED_ONLY(h.infomask) {
+    if h.infomask & HEAP_XMAX_INVALID != 0
+        || !TransactionIdIsValid(h.xmax)
+        || HEAP_XMAX_IS_LOCKED_ONLY(h.infomask)
+    {
         return Ok(true);
     }
-    debug_assert!(h.infomask & HEAP_XMAX_IS_MULTI == 0, "block decode refuses multixact tombstones");
+    debug_assert!(
+        h.infomask & HEAP_XMAX_IS_MULTI == 0,
+        "block decode refuses multixact tombstones"
+    );
     if current_xmin {
         // Inserted and deleted by this transaction needs a combo cid: never on a companion.
         return Ok(!s.is_current(h.xmax));

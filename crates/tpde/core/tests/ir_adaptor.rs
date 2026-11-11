@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #![cfg(feature = "upstream-oracle")]
 
+#[rustfmt::skip]
 #[path = "../../test-support/oracle.rs"]
 mod oracle;
 #[allow(dead_code)]
+#[rustfmt::skip]
 #[path = "../../test-support/dependencies.rs"]
 mod dependencies;
 use tpde_core::ir_adaptor;

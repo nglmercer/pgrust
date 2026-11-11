@@ -1165,6 +1165,7 @@ struct RecordInData {
 }
 
 #[cold]
+#[allow(clippy::extra_unused_lifetimes)]
 fn malformed_record<'a>(
     escontext: Option<&mut ::types_fmgr::ErrorSaveNode>,
     string: &[u8],

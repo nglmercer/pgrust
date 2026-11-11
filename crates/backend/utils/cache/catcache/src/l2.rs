@@ -21,6 +21,7 @@ use types_tuple::{HeapTupleData, ItemPointerData};
 
 use crate::compute::{CatCKey, CCFastKind};
 use crate::graph::build_positive_payload;
+#[allow(unused_imports)]
 use crate::{eq_stored, pack_ref, stored_bytes, with_state, CATCACHE_MAXKEYS, IMG_PREFIX};
 
 /// 8-aligned (MAXALIGN) owned byte buffer on the global heap: tuple images
@@ -95,6 +96,7 @@ impl CatL2Entry {
     }
 
     /// Borrow this entry's logical keys as probe keys (for prune matching).
+    #[allow(dead_code)]
     pub(crate) fn probe_keys(&self, kinds: &[CCFastKind; 4], nkeys: i32) -> [CatCKey<'_>; 4] {
         let mut out = [CatCKey::UNUSED; 4];
         for i in 0..nkeys as usize {

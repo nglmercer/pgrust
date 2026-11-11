@@ -2,9 +2,7 @@
 //! oracle, so format strings are C-exact. timestamptz_to_str mirrors C's
 //! backend/frontend link seam (waldesc installs the compat.c flavor).
 
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(non_camel_case_types)]
+#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
 
 use core::cell::Cell;
 use stringinfo::StringInfo;
@@ -13,7 +11,6 @@ use types_error::{PgError, PgResult};
 use xlogreader_seams::XLogReaderState;
 
 pub mod brindesc;
-pub mod spgdesc;
 pub mod clogdesc;
 pub mod committsdesc;
 pub mod dbasedesc;
@@ -30,6 +27,7 @@ pub mod relmapdesc;
 pub mod replorigindesc;
 pub mod seqdesc;
 pub mod smgrdesc;
+pub mod spgdesc;
 pub mod standbydesc;
 pub mod tblspcdesc;
 pub mod xactdesc;
@@ -76,7 +74,9 @@ pub(crate) use appendf;
 
 #[cold]
 pub(crate) fn record_truncated(what: &'static str) -> Box<PgError> {
-    Box::new(PgError::error(format!("WAL record payload too short for {what}")))
+    Box::new(PgError::error(format!(
+        "WAL record payload too short for {what}"
+    )))
 }
 
 // Bounds-checked native-endian view of a record payload (the C struct cast).
@@ -85,7 +85,10 @@ pub(crate) struct Rec<'a>(pub &'a [u8]);
 
 impl Rec<'_> {
     pub fn u8(&self, off: usize, what: &'static str) -> PgResult<u8> {
-        self.0.get(off).copied().ok_or_else(|| record_truncated(what))
+        self.0
+            .get(off)
+            .copied()
+            .ok_or_else(|| record_truncated(what))
     }
     pub fn u16(&self, off: usize, what: &'static str) -> PgResult<u16> {
         Ok(u16::from_ne_bytes(self.arr::<2>(off, what)?))

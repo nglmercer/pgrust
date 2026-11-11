@@ -58,6 +58,7 @@ pub struct RangeRecipe {
     missing: Arc<[(bool, u64)]>,
     /// The by-reference fast defaults' images, copied out of the relcache at the recipe's build (the recipe outlives any
     /// one relcache entry; its key's relcache epoch retires it at an ALTER), 8-byte aligned.
+    #[allow(dead_code)]
     missing_imgs: Arc<[Box<[u64]>]>,
     /// Road `heap.stream` (V4R-32): the program's `VERDICT_STREAM` enable, set by exec's `src.verdicts` at prepare (the bit
     /// is the program's, the same for every execution of this recipe); off until then (a recipe no v4 program declared).

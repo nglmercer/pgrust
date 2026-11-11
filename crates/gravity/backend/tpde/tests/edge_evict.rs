@@ -147,6 +147,7 @@ fn demotion_program(nk: usize, nm: usize, phi_uses: usize) -> Program {
 
 /// `demotion_program` with `nc` loop-carried counters (register-state's
 /// shape: many loop-carried phis per block, beyond the pinned budget).
+#[allow(non_snake_case)]
 fn demotion_program_nc(nk: usize, nm: usize, phi_uses: usize, NC: usize) -> Program {
     let mut s = String::from(
         r#"

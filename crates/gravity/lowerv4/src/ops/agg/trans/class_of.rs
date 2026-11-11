@@ -119,7 +119,7 @@ mod tests {
         for (class, fnoid, var) in [(Class::SumNum, 2114, Register::SumNumVar), (Class::AvgNum, 2103, Register::AvgNumVar), (Class::Min(Ext::Num), 2146, Register::MinNum)] {
             let d = decl(class, fnoid);
             SEEN.lock().unwrap().clear();
-            (v.shape(&d), v.order(&d));
+            v.shape(&d); v.order(&d);
             assert_eq!(*SEEN.lock().unwrap(), [var, var], "{:?}", d.reg);
             assert!(d.reg != var || var == Register::MinNum, "the caller's decl keeps its packed register");
         }

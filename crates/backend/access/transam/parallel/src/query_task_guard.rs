@@ -250,7 +250,8 @@ pub struct QueryTaskBindingGuard {
 
 /// The leader's account in the memory ledger (`ParallelShared::parallel_leader_proc_number`'s backend slot).
 pub(crate) fn leader_account(shared: &ParallelShared) -> memledger::Acct {
-    u32::try_from(shared.parallel_leader_proc_number).map_or(memledger::Acct::UNBOUND, memledger::Acct::backend)
+    u32::try_from(shared.parallel_leader_proc_number)
+        .map_or(memledger::Acct::UNBOUND, memledger::Acct::backend)
 }
 
 impl QueryTaskBindingGuard {
@@ -274,7 +275,9 @@ impl QueryTaskBindingGuard {
             snapshot_pushed: false,
             parallel_mode: false,
             armed: true,
-            account: Some(memledger::charge::enter_as(memledger::charge::context_of(leader_account(shared)).0)),
+            account: Some(memledger::charge::enter_as(
+                memledger::charge::context_of(leader_account(shared)).0,
+            )),
         };
 
         let setup = (|| {
@@ -561,10 +564,12 @@ impl QueryTaskBindingGuard {
     /// the FULL unbind (retention over) and returns the error.
     fn resume_statement(&mut self, shared: &Arc<ParallelShared>) -> PgResult<()> {
         debug_assert!(!self.armed, "sticky resume over an armed guard");
-        self.saved_worker_shared = super::MY_WORKER_SHARED
-            .with(|slot| slot.borrow_mut().replace(Arc::clone(shared)));
+        self.saved_worker_shared =
+            super::MY_WORKER_SHARED.with(|slot| slot.borrow_mut().replace(Arc::clone(shared)));
         self.armed = true;
-        self.account = Some(memledger::charge::enter_as(memledger::charge::context_of(leader_account(shared)).0));
+        self.account = Some(memledger::charge::enter_as(
+            memledger::charge::context_of(leader_account(shared)).0,
+        ));
         let setup = (|| {
             xact::SetParallelStartTimestamps(shared.xact_ts, shared.stmt_ts);
             self.transaction_started = true;
@@ -671,9 +676,7 @@ fn retain_first(first: &mut Option<Box<PgError>>, result: PgResult<()>) {
 /// PGRUST_RUNTIME_LAZYBIND=0 restores the eager per-engagement bind.
 pub fn lazy_bind_enabled() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| {
-        std::env::var("PGRUST_RUNTIME_LAZYBIND").map_or(true, |v| v.trim() != "0")
-    })
+    *ON.get_or_init(|| std::env::var("PGRUST_RUNTIME_LAZYBIND").map_or(true, |v| v.trim() != "0"))
 }
 
 /// PGRUST_RUNTIME_STICKY=0 disables session-affine retention (lazy bind
@@ -906,9 +909,7 @@ impl DeferredQueryTaskBinding {
             let mut slot = slot.borrow_mut();
             match slot.as_ref() {
                 Some(sticky)
-                    if !(sticky_allowed
-                        && sticky_bind_enabled()
-                        && sticky.matches(shared)) =>
+                    if !(sticky_allowed && sticky_bind_enabled() && sticky.matches(shared)) =>
                 {
                     slot.take()
                 }

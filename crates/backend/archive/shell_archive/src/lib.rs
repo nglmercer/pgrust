@@ -1,8 +1,7 @@
 //! shell_archive.c. ArchiveModuleCallbacks is pgarch's ArchiveModule enum
 //! (shell is the only in-core provider); check_configured returns errdetail text.
 
-#![allow(non_snake_case)]
-#![allow(clippy::result_large_err)]
+#![allow(clippy::result_large_err, non_snake_case)]
 
 use elog::{elog, ereport};
 use init_small::globals as g;
@@ -22,7 +21,9 @@ fn loc(funcname: &'static str) -> ErrorLocation {
 }
 
 fn archive_command() -> String {
-    guc_tables::vars::XLogArchiveCommand.read().unwrap_or_default()
+    guc_tables::vars::XLogArchiveCommand
+        .read()
+        .unwrap_or_default()
 }
 
 /// `None` = configured; `Some` = the arch_module_check_errdetail text.
@@ -67,9 +68,16 @@ pub fn shell_archive_file(file: &str, path: Option<&str>) -> PgResult<bool> {
 }
 
 pub fn classify_archive_failure(rc: i32) -> (types_error::ErrorLevel, String) {
-    let lev = if wait_error::wait_result_is_any_signal(rc, true) { FATAL } else { LOG };
+    let lev = if wait_error::wait_result_is_any_signal(rc, true) {
+        FATAL
+    } else {
+        LOG
+    };
     let msg = if wait_error::WIFEXITED(rc) {
-        format!("archive command failed with exit code {}", wait_error::WEXITSTATUS(rc))
+        format!(
+            "archive command failed with exit code {}",
+            wait_error::WEXITSTATUS(rc)
+        )
     } else if wait_error::WIFSIGNALED(rc) {
         format!(
             "archive command was terminated by signal {}: {}",

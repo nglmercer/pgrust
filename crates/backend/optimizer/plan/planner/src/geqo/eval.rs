@@ -65,10 +65,14 @@ pub(super) fn gimme_tree<'mcx>(
 ) -> PgResult<Option<RelId>> {
     let mut clumps: Vec<Clump> = Vec::new();
 
+    #[allow(clippy::needless_range_loop)]
     for rel_count in 0..num_gene as usize {
         let cur_rel_index = tour[rel_count] as usize;
         let cur_rel = initial_rels[cur_rel_index - 1];
-        let cur_clump = Clump { joinrel: cur_rel, size: 1 };
+        let cur_clump = Clump {
+            joinrel: cur_rel,
+            size: 1,
+        };
         clumps = merge_clump(run, clumps, cur_clump, num_gene, false)?;
     }
 
@@ -90,6 +94,7 @@ pub(super) fn gimme_tree<'mcx>(
 // Merge new_clump into the clumps (repeating while successful); else insert
 // keeping larger clumps first. `force` merges any legal join (even a
 // cartesian), otherwise only "desirable" ones.
+#[allow(clippy::only_used_in_recursion)]
 fn merge_clump<'mcx>(
     run: &mut PlannerRun<'mcx>,
     mut clumps: Vec<Clump>,

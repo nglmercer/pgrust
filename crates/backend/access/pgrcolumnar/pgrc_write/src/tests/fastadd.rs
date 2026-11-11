@@ -13,11 +13,19 @@ use crate::stats::{StatsState, LOOSE_MAX};
 use crate::walsink::NoWal;
 use crate::{WriteError, WriteResult};
 use pgrc_format::ident::schema_fingerprint;
-use pgrc_format::manifest::{part_fingerprint, part_fingerprints, schemas, stats_ref, PartRecord, SchemaEntry, MANIFESTF_SCHEMAS};
+use pgrc_format::manifest::{
+    part_fingerprint, part_fingerprints, schemas, stats_ref, PartRecord, SchemaEntry,
+    MANIFESTF_SCHEMAS,
+};
 use pgrc_format::wal::PublishKind;
 
 fn spec_of(cols: &[ColSchema]) -> PartSpec {
-    PartSpec { spc: SPC, db: DB, relfilenumber: RELFILENUMBER, schema_fingerprint: schema_fingerprint(cols) }
+    PartSpec {
+        spc: SPC,
+        db: DB,
+        relfilenumber: RELFILENUMBER,
+        schema_fingerprint: schema_fingerprint(cols),
+    }
 }
 
 /// `n` rows of a two-int8-column table, one part, published by `fxid`.
@@ -25,11 +33,28 @@ fn publish_two(vfs: &mut MemVfs, kit: &mut Kit, fxid: u64, n: u64) -> WriteResul
     let mut w = open_writer(vec![int8_col(1), int8_col(2)], stamp(fxid, 1));
     for i in 0..n {
         let sources: [&dyn crate::elect::CandidateSource; 1] = [&kit.cands];
-        let mut env = SealEnv { vfs, sources: &sources, resolver: &kit.resolver, shred: &mut kit.shred, shred_opts: &kit.opts };
-        w.append_row(&[RawDatum::Word(i), RawDatum::Word(i * 7)], &mut kit.ext, &mut env).expect("append");
+        let mut env = SealEnv {
+            vfs,
+            sources: &sources,
+            resolver: &kit.resolver,
+            shred: &mut kit.shred,
+            shred_opts: &kit.opts,
+        };
+        w.append_row(
+            &[RawDatum::Word(i), RawDatum::Word(i * 7)],
+            &mut kit.ext,
+            &mut env,
+        )
+        .expect("append");
     }
     let sources: [&dyn crate::elect::CandidateSource; 1] = [&kit.cands];
-    let mut env = SealEnv { vfs, sources: &sources, resolver: &kit.resolver, shred: &mut kit.shred, shred_opts: &kit.opts };
+    let mut env = SealEnv {
+        vfs,
+        sources: &sources,
+        resolver: &kit.resolver,
+        shred: &mut kit.shred,
+        shred_opts: &kit.opts,
+    };
     w.finish(&mut env).expect("finish");
     w.publish(vfs, &Probe::new(TxnVerdict::Committed))
 }
@@ -47,7 +72,13 @@ fn one_column_table(vfs: &mut MemVfs, kit: &mut Kit, parts: u64) -> PublishOutco
 }
 
 /// The ALTER's ext-only publish to `new`, describing `old` when `describe`.
-fn alter(vfs: &mut MemVfs, old: &[ColSchema], new: &[ColSchema], fxid: u64, describe: bool) -> WriteResult<PublishOutcome> {
+fn alter(
+    vfs: &mut MemVfs,
+    old: &[ColSchema],
+    new: &[ColSchema],
+    fxid: u64,
+    describe: bool,
+) -> WriteResult<PublishOutcome> {
     let old = old.to_vec();
     let mut edit = |_: Option<&Manifest>, b: &mut PlanBuilder<'_>| -> WriteResult<()> {
         if describe {
@@ -55,11 +86,25 @@ fn alter(vfs: &mut MemVfs, old: &[ColSchema], new: &[ColSchema], fxid: u64, desc
         }
         Ok(())
     };
-    publish_ext(vfs, &mut NoWal, DIR, &spec_of(new), fxid, &Probe::new(TxnVerdict::Committed), BaseStats::None, &mut edit)
+    publish_ext(
+        vfs,
+        &mut NoWal,
+        DIR,
+        &spec_of(new),
+        fxid,
+        &Probe::new(TxnVerdict::Committed),
+        BaseStats::None,
+        &mut edit,
+    )
 }
 
 fn refused(r: WriteResult<PublishOutcome>) -> bool {
-    matches!(r, Err(WriteError::Contract { detail: "manifest base identity mismatch" }))
+    matches!(
+        r,
+        Err(WriteError::Contract {
+            detail: "manifest base identity mismatch"
+        })
+    )
 }
 
 #[test]
@@ -69,16 +114,38 @@ fn an_add_column_lists_the_old_parts_under_their_schema_and_later_publishes_keep
     let (one, two) = (vec![int8_col(1)], vec![int8_col(1), int8_col(2)]);
     let (fp1, fp2) = (schema_fingerprint(&one), schema_fingerprint(&two));
     let before = one_column_table(&mut vfs, &mut kit, 3);
-    assert!(refused(alter(&mut vfs, &one, &two, 200, false)), "a schema change nothing describes refuses, as before");
+    assert!(
+        refused(alter(&mut vfs, &one, &two, 200, false)),
+        "a schema change nothing describes refuses, as before"
+    );
     let out = alter(&mut vfs, &one, &two, 201, true).expect("the ALTER's publish");
     let m = &out.manifest;
-    assert_eq!((m.header.schema_fingerprint, m.header.prev_gen, m.parts.len()), (fp2, before.gen, 3));
+    assert_eq!(
+        (
+            m.header.schema_fingerprint,
+            m.header.prev_gen,
+            m.parts.len()
+        ),
+        (fp2, before.gen, 3)
+    );
     assert_ne!(m.header.flags & MANIFESTF_SCHEMAS, 0);
-    let want = SchemaEntry { fingerprint: fp1, cols: one.iter().map(|c| ColSchema { semantics: TypeSemantics::Opaque, ..*c }).collect(), runs: vec![(0, 2)] };
+    let want = SchemaEntry {
+        fingerprint: fp1,
+        cols: one
+            .iter()
+            .map(|c| ColSchema {
+                semantics: TypeSemantics::Opaque,
+                ..*c
+            })
+            .collect(),
+        runs: vec![(0, 2)],
+    };
     assert_eq!(schemas(m).unwrap(), vec![want.clone()]);
     assert_eq!(part_fingerprints(m).unwrap(), vec![fp1; 3]);
     let probe = Probe::new(TxnVerdict::Committed);
-    let on_disk = effective_manifest(&mut vfs, DIR, &probe, None).expect("walk").expect("effective");
+    let on_disk = effective_manifest(&mut vfs, DIR, &probe, None)
+        .expect("walk")
+        .expect("effective");
     assert_eq!(&on_disk, m, "the record is on disk as published");
 
     // a part of the new schema: new parts take the publisher's schema, the old ones keep theirs
@@ -93,7 +160,13 @@ fn an_add_column_lists_the_old_parts_under_their_schema_and_later_publishes_keep
     let mut w = open_writer(one.clone(), stamp(203, 1));
     append_int8_rows(&mut w, &mut vfs, &mut kit, 10, |i| Some(i as i64));
     let sources: [&dyn crate::elect::CandidateSource; 1] = [&kit.cands];
-    let mut env = SealEnv { vfs: &mut vfs, sources: &sources, resolver: &kit.resolver, shred: &mut kit.shred, shred_opts: &kit.opts };
+    let mut env = SealEnv {
+        vfs: &mut vfs,
+        sources: &sources,
+        resolver: &kit.resolver,
+        shred: &mut kit.shred,
+        shred_opts: &kit.opts,
+    };
     w.finish(&mut env).expect("finish");
     assert!(refused(w.publish(&mut vfs, &probe)));
 
@@ -102,11 +175,30 @@ fn an_add_column_lists_the_old_parts_under_their_schema_and_later_publishes_keep
     let m = &out.manifest;
     assert_eq!(m.header.schema_fingerprint, fp1);
     assert_eq!(part_fingerprints(m).unwrap(), vec![fp1, fp1, fp1, fp2]);
-    assert_eq!(schemas(m).unwrap().iter().map(|e| (e.fingerprint, e.runs.clone())).collect::<Vec<_>>(), vec![(fp2, vec![(3, 3)])]);
+    assert_eq!(
+        schemas(m)
+            .unwrap()
+            .iter()
+            .map(|e| (e.fingerprint, e.runs.clone()))
+            .collect::<Vec<_>>(),
+        vec![(fp2, vec![(3, 3)])]
+    );
 }
 
 fn rec(part_no: u32) -> PartRecord {
-    PartRecord { rows: 10, file_len: 4096, footer_off: 2048, dv_gen: 0, dv_len: 0, part_no, flags: 0, granule_count: 1, band_count: 1, dv_crc: 0, granule_rows: 0 }
+    PartRecord {
+        rows: 10,
+        file_len: 4096,
+        footer_off: 2048,
+        dv_gen: 0,
+        dv_len: 0,
+        part_no,
+        flags: 0,
+        granule_count: 1,
+        band_count: 1,
+        dv_crc: 0,
+        granule_rows: 0,
+    }
 }
 
 /// A manifest of parts 0, 2, 4, 6 at the old schema under a header at the new one (the ALTER's generation).
@@ -143,14 +235,28 @@ fn a_carried_part_keeps_its_schema_and_a_new_one_splits_the_run() {
     // a DV upsert of an old part keeps its schema; a part carried from elsewhere (not the base's, not installed)
     // takes the publisher's, and splits the run it falls in
     let mut b = PublishPlan::build(Some(&base), &spec_of(&two), 61, PublishKind::Compile);
-    b.upsert(PartRecord { dv_gen: 4, dv_len: 64, dv_crc: 9, ..rec(2) });
+    b.upsert(PartRecord {
+        dv_gen: 4,
+        dv_len: 64,
+        dv_crc: 9,
+        ..rec(2)
+    });
     b.upsert(rec(3));
     let m = b.finish().expect("finish").manifest;
-    assert_eq!(m.parts.iter().map(|p| p.part_no).collect::<Vec<_>>(), vec![0, 2, 3, 4, 6]);
-    assert_eq!(part_fingerprints(&m).unwrap(), vec![fp1, fp1, fp2, fp1, fp1]);
+    assert_eq!(
+        m.parts.iter().map(|p| p.part_no).collect::<Vec<_>>(),
+        vec![0, 2, 3, 4, 6]
+    );
+    assert_eq!(
+        part_fingerprints(&m).unwrap(),
+        vec![fp1, fp1, fp2, fp1, fp1]
+    );
     assert_eq!(schemas(&m).unwrap()[0].runs, vec![(0, 2), (4, 6)]);
     let back = Manifest::decode(&m.encode()).expect("decodes");
-    assert_eq!(part_fingerprints(&back).unwrap(), vec![fp1, fp1, fp2, fp1, fp1]);
+    assert_eq!(
+        part_fingerprints(&back).unwrap(),
+        vec![fp1, fp1, fp2, fp1, fp1]
+    );
 }
 
 #[test]
@@ -161,17 +267,33 @@ fn retiring_every_old_part_drops_the_record() {
         b.retire(n);
     }
     let m = b.finish().expect("finish").manifest;
-    assert_eq!((part_fingerprints(&m).unwrap(), schemas(&m).unwrap()[0].runs.clone()), (vec![fp1], vec![(6, 6)]));
+    assert_eq!(
+        (
+            part_fingerprints(&m).unwrap(),
+            schemas(&m).unwrap()[0].runs.clone()
+        ),
+        (vec![fp1], vec![(6, 6)])
+    );
     let mut b = PublishPlan::build(Some(&m), &spec_of(&two), 63, PublishKind::Compact);
     b.retire(6);
     b.upsert(rec(9));
     let m = b.finish().expect("finish").manifest;
-    assert_eq!(m.header.flags & MANIFESTF_SCHEMAS, 0, "no part left under the old schema: no record, no flag");
-    assert_eq!((part_fingerprints(&m).unwrap(), m.header.schema_fingerprint), (vec![fp2], fp2));
+    assert_eq!(
+        m.header.flags & MANIFESTF_SCHEMAS,
+        0,
+        "no part left under the old schema: no record, no flag"
+    );
+    assert_eq!(
+        (part_fingerprints(&m).unwrap(), m.header.schema_fingerprint),
+        (vec![fp2], fp2)
+    );
     // and a later publish of the new schema over it is an ordinary one
     let mut b = PublishPlan::build(Some(&m), &spec_of(&two), 64, PublishKind::Bulk);
     b.upsert(rec(10));
-    assert_eq!(b.finish().expect("finish").manifest.header.flags & MANIFESTF_SCHEMAS, 0);
+    assert_eq!(
+        b.finish().expect("finish").manifest.header.flags & MANIFESTF_SCHEMAS,
+        0
+    );
 }
 
 /// Stats runs bind the schema of the generation that wrote them: after the ALTER, the runs written before it (bound to
@@ -186,7 +308,12 @@ fn stats_runs_written_before_the_alter_still_load() {
     while stats_ref(&last.manifest).expect("stats ref").is_none() {
         let mut w = open_writer(one.clone(), stamp(100 + n, 1));
         append_int8_rows(&mut w, &mut vfs, &mut kit, 10, |i| Some(i as i64));
-        last = finish_and_publish(&mut w, &mut vfs, &mut kit, &Probe::new(TxnVerdict::Committed));
+        last = finish_and_publish(
+            &mut w,
+            &mut vfs,
+            &mut kit,
+            &Probe::new(TxnVerdict::Committed),
+        );
         n += 1;
         assert!(n < 3 * LOOSE_MAX as u64, "no stats root");
     }
@@ -199,7 +326,10 @@ fn stats_runs_written_before_the_alter_still_load() {
     })
     .expect("the old runs load under the new header");
     assert!(st.runs.iter().map(|r| r.parts.len()).sum::<usize>() > 0);
-    assert!(walked < out.manifest.parts.len(), "not every part walked ({walked})");
+    assert!(
+        walked < out.manifest.parts.len(),
+        "not every part walked ({walked})"
+    );
     // and a publish of the new schema over it (its loose parts and the old runs) succeeds
     publish_two(&mut vfs, &mut kit, 501, 10).expect("publish after the alter");
 }

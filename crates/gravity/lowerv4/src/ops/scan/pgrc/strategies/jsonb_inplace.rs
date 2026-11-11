@@ -313,6 +313,7 @@ fn any_words(b: &mut FunctionBuilder<'_>, env: &mut Env, p: Value, null: Value, 
 fn claim(c: &Compiled<'_>, i: usize) -> Option<(Field, u32)> {
     let (ExprNode::Op(n) | ExprNode::Func(n)) = &c.prog.nodes[i] else { return None };
     let call = &c.prog.sites[n.site.0 as usize];
+    #[allow(clippy::question_mark)]
     let Some(ne) = gravity_fn::typesem::pgrc::text_eq_ne(call.funcid) else { return None };
     if call.args.len != 2 || !deterministic(call.collation) {
         return None;

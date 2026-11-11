@@ -14,8 +14,12 @@ fn find_join_domain_reports_missing_domain() {
     let relids = relids_add_member(mcx, &relids_empty(), 1);
     let err = find_join_domain(&run, &relids).expect_err("C elog(ERROR)s without a domain");
     assert_eq!(err.message(), "failed to find appropriate JoinDomain");
-    run.root.join_domains.push(JoinDomain { jd_relids: relids_add_member(mcx, &relids_empty(), 2) });
-    run.root.join_domains.push(JoinDomain { jd_relids: relids_empty() });
+    run.root.join_domains.push(JoinDomain {
+        jd_relids: relids_add_member(mcx, &relids_empty(), 2),
+    });
+    run.root.join_domains.push(JoinDomain {
+        jd_relids: relids_empty(),
+    });
     assert_eq!(find_join_domain(&run, &relids).unwrap(), 1);
 }
 
@@ -26,7 +30,16 @@ fn add_setop_child_rel_equivalences_reports_too_few_pathkeys() {
     let ctx = mcx::MemoryContext::new_bump("equivclass-test");
     let mcx = ctx.mcx();
     let mut run = PlannerRun::new(mcx);
-    let expr = Node::mk(mcx, Var { varno: 1, varattno: 1, vartype: 23, ..Default::default() }).unwrap();
+    let expr = Node::mk(
+        mcx,
+        Var {
+            varno: 1,
+            varattno: 1,
+            vartype: 23,
+            ..Default::default()
+        },
+    )
+    .unwrap();
     let tle = Node::mk(
         mcx,
         TargetEntry {

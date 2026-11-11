@@ -120,7 +120,7 @@ fn pipe_given(gx: &Gx<'_, '_>, p: &PipelineNode<'_>, upto: usize, feeds: &mut Pg
         // index's scan keyed by them): or, in a nest's inner, a user table's index through builtin operators whose
         // operator class and key operators neither act nor raise (`quiet_ix`): the AM calls only those
         Source::Index { keys, recheck, indexid, .. } => (sys(*indexid) || quiet_ix(gx, *indexid, keys)) && builtin_ix(gx, *indexid, keys) && keys.iter().all(|x| sys(x.opno) && q(x.value)) && all(recheck),
-        Source::Values { lists, .. } => lists.iter().all(|row| row.as_list().is_some_and(|r| all(r))),
+        Source::Values { lists, .. } => lists.iter().all(|row| row.as_list().is_some_and(&all)),
         Source::Bitmap { plan, recheck, .. } => vals.is_none() && crate::effects::bitmap_all(plan, &|i, k, _| builtin_ix(gx, i, k)) && all(recheck),
         _ => false,
     };
@@ -226,7 +226,7 @@ pub(crate) fn window_peers_free(d: &gravity_decompose::ops::window::WindowDesc<'
     use gravity_decompose::ops::window::WinFnKind;
     d.functions.iter().all(|f| match f.kind {
         WinFnKind::Rank | WinFnKind::DenseRank | WinFnKind::PercentRank | WinFnKind::CumeDist => true,
-        WinFnKind::Aggregate => !matches!(d.frame.mode, FrameMode::Rows) && (types_core::quiet::peer_order_free(f.func.winfnoid) || f.func.args.iter().all(|a| alike(a))),
+        WinFnKind::Aggregate => !matches!(d.frame.mode, FrameMode::Rows) && (types_core::quiet::peer_order_free(f.func.winfnoid) || f.func.args.iter().all(alike)),
         _ => false,
     })
 }
@@ -235,6 +235,7 @@ pub(crate) fn window_peers_free(d: &gravity_decompose::ops::window::WindowDesc<'
 /// (`q` and all it consumes) can raise or calls a user or volatile function. PG runs the inner only once a matchable outer
 /// tuple needs it, and a spooled inner only as far as the join reads; v4 runs it whole, first. D1289: the outer, pipeline
 /// `q`'s ops before `upto` (the merge's), where a RIGHT join stops fetching at its first NULLS LAST NULL key.
+#[allow(dead_code)]
 pub(crate) fn may_act(gx: &Gx<'_, '_>, q: usize, upto: usize) -> bool {
     may_act_but(gx, q, upto, None)
 }

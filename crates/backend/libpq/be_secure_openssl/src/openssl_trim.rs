@@ -7,7 +7,7 @@
 //! - what the linked library actually provides: fetching SM4 / ARIA must fail (they live in the default provider
 //!   when present), while AES-GCM / SHA-256 / SM3 must work, and the digests pgcrypto's digest() / hmac() can name
 //!   (EVP_get_digestbyname) must still resolve.
-//! Skipped for system-OpenSSL builds (DEP_OPENSSL_VENDORED != 1) and off Linux.
+//!   Skipped for system-OpenSSL builds (DEP_OPENSSL_VENDORED != 1) and off Linux.
 
 /// Disabled by scripts/openssl-src-perl.sh (and openssl-src's `no-dso` feature, set in this crate's Cargo.toml).
 const TRIMMED: &[&str] = &[
@@ -52,7 +52,10 @@ fn trim_applied_to_vendored_openssl() {
         eprintln!("skipped: not a vendored Linux OpenSSL build");
         return;
     }
-    let disabled: Vec<&str> = env!("PGRUST_OPENSSL_DISABLED").split(',').filter(|s| !s.is_empty()).collect();
+    let disabled: Vec<&str> = env!("PGRUST_OPENSSL_DISABLED")
+        .split(',')
+        .filter(|s| !s.is_empty())
+        .collect();
     let missing: Vec<&&str> = TRIMMED.iter().filter(|m| !disabled.contains(m)).collect();
     assert!(
         missing.is_empty(),
@@ -60,7 +63,10 @@ fn trim_applied_to_vendored_openssl() {
          overridden, or the repo's .cargo/config.toml [env] bypassed? Rebuild openssl-sys (cargo clean -p openssl-sys)."
     );
     let dropped: Vec<&&str> = KEPT.iter().filter(|m| disabled.contains(m)).collect();
-    assert!(dropped.is_empty(), "the vendored OpenSSL disables modules pgrust keeps (D4503): {dropped:?}");
+    assert!(
+        dropped.is_empty(),
+        "the vendored OpenSSL disables modules pgrust keeps (D4503): {dropped:?}"
+    );
 }
 
 #[cfg(pgrust_ossl3)]
@@ -72,17 +78,32 @@ fn trimmed_algorithms_absent_from_the_linked_library() {
     }
     use openssl::cipher::Cipher;
     use openssl::md::Md;
-    assert!(Cipher::fetch(None, "AES-128-GCM", None).is_ok(), "AES-128-GCM must be available");
-    assert!(Md::fetch(None, "SHA256", None).is_ok(), "SHA-256 must be available");
+    assert!(
+        Cipher::fetch(None, "AES-128-GCM", None).is_ok(),
+        "AES-128-GCM must be available"
+    );
+    assert!(
+        Md::fetch(None, "SHA256", None).is_ok(),
+        "SHA-256 must be available"
+    );
     for name in ["SM4-CBC", "ARIA-128-CBC"] {
-        assert!(Cipher::fetch(None, name, None).is_err(), "{name} is still in the linked OpenSSL (D4503 trim lost)");
+        assert!(
+            Cipher::fetch(None, name, None).is_err(),
+            "{name} is still in the linked OpenSSL (D4503 trim lost)"
+        );
     }
-    assert!(Md::fetch(None, "SM3", None).is_ok(), "SM3 must be available (pgcrypto digest(.., 'sm3'))");
+    assert!(
+        Md::fetch(None, "SM3", None).is_ok(),
+        "SM3 must be available (pgcrypto digest(.., 'sm3'))"
+    );
     // pgcrypto hashing.rs px_find_digest: a NULL here turns "Cipher cannot be initialized" into "No such hash algorithm"
     for name in ["sm3", "md4", "mdc2", "whirlpool", "ripemd160"] {
         let c = std::ffi::CString::new(name).unwrap();
         // SAFETY: c is NUL-terminated; the result is a static table entry OpenSSL owns (only compared with NULL).
         let md = unsafe { openssl_sys::EVP_get_digestbyname(c.as_ptr()) };
-        assert!(!md.is_null(), "EVP_get_digestbyname({name}) is NULL: pgcrypto's digest()/hmac() result would change");
+        assert!(
+            !md.is_null(),
+            "EVP_get_digestbyname({name}) is NULL: pgcrypto's digest()/hmac() result would change"
+        );
     }
 }

@@ -42,7 +42,7 @@ pub unsafe fn walk_lines(page: &PageRef<'_>, lines: u16, want: usize, vis: &mut 
         nvis += 1;
     }
     vis[..nvis].reverse();
-    Ok((nvis, (nonulls as u16) * PAGE_NONULLS | (full as u16) * PAGE_FULL))
+    Ok((nvis, ((nonulls as u16) * PAGE_NONULLS) | ((full as u16) * PAGE_FULL)))
 }
 
 

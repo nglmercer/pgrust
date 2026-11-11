@@ -1,5 +1,4 @@
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use std::cell::{Cell, UnsafeCell};
 use std::mem::ManuallyDrop;
@@ -1038,6 +1037,7 @@ pub fn DeleteAllExportedSnapshotFiles() {
         Ok(d) => d,
         Err(_) => return, // descriptor-pressure path has already reported
     };
+    #[allow(clippy::while_let_loop)]
     loop {
         match fd::ReadDirExtended(s_dir, SNAPSHOT_EXPORT_DIR, types_error::LOG) {
             Ok(Some(de)) => {

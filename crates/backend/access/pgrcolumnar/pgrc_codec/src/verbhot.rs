@@ -30,14 +30,14 @@ use crate::section::{
     extend_word, frame_base, frame_start, open_section, payload_region, read_le_w, value_base,
 };
 use pgrc_format::abi::{
-    narrow_each, refuse_decode_narrow, NarrowInt, NarrowOut,
-    refuse_decode_codes, refuse_dict_handle, validity_from_ctx, ByteArena, CodecVtable, DecodeOut,
-    KernelCtx, KernelKey, Selection, ValidityVerdict,
+    narrow_each, refuse_decode_codes, refuse_decode_narrow, refuse_dict_handle, validity_from_ctx,
+    ByteArena, CodecVtable, DecodeOut, KernelCtx, KernelKey, NarrowInt, NarrowOut, Selection,
+    ValidityVerdict,
 };
 use pgrc_format::class::{CLASS_BOOL, CLASS_BYVAL, CLASS_F32, CLASS_F64, CLASS_FIXED};
 use pgrc_format::enc::EncodingId;
 use pgrc_format::geom::{FRAME_VALUES, GRANULE_ROWS};
-use pgrc_format::meta::{ProbeAnswer, MetaProbe};
+use pgrc_format::meta::{MetaProbe, ProbeAnswer};
 use pgrc_format::part::{OVERFLOW_MARK, STREAMF_SIGNED};
 use pgrc_format::wire::{varlena_4b_u_payload_len, varlena_entry_at};
 use pgrc_format::{FormatError, FormatResult};
@@ -110,7 +110,10 @@ fn vh_full_byval<const W: usize>(
 /// The byval widen into a lane of the column's width: at `W == T::WIDTH` a
 /// straight copy of the granule's body, else the sign-resolved widen (or
 /// the low bytes) per value.
-fn vh_narrow_byval<const W: usize, T: NarrowInt>(ctx: &KernelCtx<'_>, out: &mut [T]) -> FormatResult<u32> {
+fn vh_narrow_byval<const W: usize, T: NarrowInt>(
+    ctx: &KernelCtx<'_>,
+    out: &mut [T],
+) -> FormatResult<u32> {
     let v = open_words(ctx)?;
     let n = v.values as usize;
     if out.len() < n {
@@ -134,7 +137,11 @@ fn vh_narrow_byval<const W: usize, T: NarrowInt>(ctx: &KernelCtx<'_>, out: &mut 
 }
 
 fn vh_dec_narrow<const W: usize>(ctx: &KernelCtx<'_>, out: NarrowOut<'_>) -> FormatResult<u32> {
-    narrow_each(out, |o| vh_narrow_byval::<W, i16>(ctx, o), |o| vh_narrow_byval::<W, i32>(ctx, o))
+    narrow_each(
+        out,
+        |o| vh_narrow_byval::<W, i16>(ctx, o),
+        |o| vh_narrow_byval::<W, i32>(ctx, o),
+    )
 }
 
 fn vh_sel_byval<const W: usize>(

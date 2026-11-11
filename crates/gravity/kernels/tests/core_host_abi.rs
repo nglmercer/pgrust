@@ -15,7 +15,9 @@ const LAYOUT: RecordLayout = RecordLayout::with_sentinel(&[], &[], true, None);
 const BYTES: u32 = HashAgg::bytes(&LAYOUT, 1);
 
 #[test]
+#[allow(clippy::assertions_on_constants, unused_attributes)]
 fn record_opens_the_one_record_once_and_answers_the_same_pointer() {
+    #[allow(clippy::assertions_on_constants)]
     assert!(BYTES <= par_scan_count::BYTES, "the test layout fits the rig's partial");
     let mut rig = Rig::new(programs::par_scan_count(Oids::T_A), vec![]);
     let ctx = rig.ctx();

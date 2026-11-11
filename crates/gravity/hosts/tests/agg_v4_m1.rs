@@ -10,7 +10,6 @@ use pgrc_qa::corpus::{build_fixture, int8_fixture};
 use pgrc_write::writer::PartCutPolicy;
 
 #[path = "common/granule_fixtures.rs"]
-#[allow(dead_code)]
 mod granule_fixtures;
 use granule_fixtures::*;
 
@@ -165,7 +164,7 @@ fn a_negative_offset_or_limit_raises_postgres_s_error_and_sqlstate() {
 fn the_dense_domain_is_the_parts_exact_extrema_and_nulls_add_nothing() {
     let policy = PartCutPolicy { max_rows: 16_384, ..PartCutPolicy::default() };
     let value = |i: u64| (i >= 16_384 && i % 7 != 3).then(|| -40 + (i as i64 * 37) % 1_000);
-    let bf = build_fixture(int8_fixture("gravity_facts_dense", 7351, 40_000, vec![], policy.clone(), value));
+    let bf = build_fixture(int8_fixture("gravity_facts_dense", 7351, 40_000, vec![], policy, value));
     let list = part_list(&bf);
     assert!(list.len() >= 3, "three parts, got {}", list.len());
     let (lo, hi) = (0..40_000).filter_map(value).fold((i64::MAX, i64::MIN), |(l, h), v| (l.min(v), h.max(v)));

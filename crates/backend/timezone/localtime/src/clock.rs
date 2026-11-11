@@ -370,6 +370,7 @@ pub(crate) fn timesub(timep: pg_time_t, offset: i32, sp: Option<&TzState>) -> Op
     let tm_sec = (rem % SECSPERMIN) as i32 + hit as i32;
 
     let leap = is_leap(y);
+    #[allow(clippy::redundant_locals)]
     let mut idays = idays;
     let mut tm_mon = 0usize;
     while idays >= mon_lengths(leap, tm_mon) {

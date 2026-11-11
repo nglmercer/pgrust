@@ -1,5 +1,4 @@
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 //! src/backend/storage/sync/sync.c — pending-fsync/unlink tracking for the
 //! checkpointer and standalone backends.
@@ -186,6 +185,7 @@ pub fn SyncPostCheckpoint() -> PgResult<()> {
     let ckpt_ctr = CHECKPOINT_CYCLE_CTR.with(|c| c.get());
     let mut absorb_counter = UNLINKS_PER_ABSORB;
     let mut idx = 0usize;
+    #[allow(clippy::while_let_loop)]
     loop {
         let Some(entry) = with_pending(|p| p.unlinks.get(idx).copied()).flatten() else {
             break;

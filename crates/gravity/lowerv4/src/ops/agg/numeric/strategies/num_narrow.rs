@@ -276,7 +276,7 @@ mod tests {
         let mut n = 0;
         let ats: &[usize] = if img[0] & 1 == 0 { &[0, 4] } else { &[0, 1, 3, 6] };
         for &at in ats {
-            let mut buf = vec![0xA5u8; 48]; // alloc: Program
+            let mut buf = [0xA5u8; 48]; // alloc: Program
             let base = (buf.as_ptr() as usize).next_multiple_of(8) - buf.as_ptr() as usize + 8 + at;
             buf[base..base + img.len()].copy_from_slice(img);
             let p = buf[base..].as_ptr();

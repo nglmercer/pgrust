@@ -297,6 +297,7 @@ impl NumToChar<'_> {
             } else {
                 if self.number_at(self.number_p) == b'.' {
                     let lr_is_dot = self.last_relevant_is_dot();
+                    #[allow(clippy::if_same_then_else)]
                     if self.last_relevant.is_none() || !lr_is_dot {
                         let dec = self.loc.decimal;
                         self.write_locale_symbol(dec);
@@ -380,6 +381,7 @@ pub fn num_processor_to_char(
 }
 
 // The locale source is a parameter so tests can inject symbols no installed locale carries.
+#[allow(clippy::nonminimal_bool)]
 fn num_processor_to_char_with(
     nodes: &[FormatNode],
     num: &mut NUMDesc,

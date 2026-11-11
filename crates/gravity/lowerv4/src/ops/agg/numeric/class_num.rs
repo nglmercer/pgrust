@@ -16,6 +16,7 @@ use gravity_decompose::ops::shared::agg::{AggDecl, Register as R, NONE};
 use gravity_fn::agg_final::{NO_MANTISSA, SENT_HI};
 use gravity_ir::builder::FunctionBuilder;
 use gravity_expr::emit::CellValid;
+#[allow(unused_imports)]
 use gravity_ir::{ConvOp, HostFlags, IntBinOp, IntCond, Type, Value};
 
 use crate::face::fold::{Acc, AccShape, AnswerForm, ClassImpl, FinalOrder, FoldClass};
@@ -34,6 +35,7 @@ crate::strategies! {
     NUM_LEAN = 121, "num.lean", NumHeap;
 }
 
+#[allow(clippy::needless_update)]
 pub(crate) const ROWS: crate::ops::Table =
     crate::ops::Table { kinds: &[(KindId::ClassNumPacked, &ClassImpl(&NUM))], strategies: &[(crate::face::strategy::NUM_LEAN, &LeanRoad)], ..crate::ops::NONE };
 
@@ -196,7 +198,7 @@ fn add_window<'g>(b: &mut FunctionBuilder<'_>, env: &Env<'g, '_>, wide: bool, a:
     let v = if wide { mcx::to_vec_in(&add_carry(b, env, a, c)[..], env.mcx) } else { let (lo, hi) = add_sum(b, env, a[0], a[1], c[0], c[1]); mcx::pg_vec![in env.mcx; lo, hi] };
     b.br(l_join, &v[..]);
     b.switch_to(l_join);
-    mcx::to_vec_in(&b.block_params(l_join)[..], env.mcx)
+    mcx::to_vec_in(b.block_params(l_join), env.mcx)
 }
 
 

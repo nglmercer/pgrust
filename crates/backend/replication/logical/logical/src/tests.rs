@@ -70,6 +70,7 @@ fn output_plugin_must_be_named_in_output_plugin_libraries() {
 // filter_prepare_cb is registered (row
 // a186-candidate-fp-logical-logical-da164a0c0e8328ab5f83-1).
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn twophase_enabled_by_every_prepare_family_callback() {
     fn noop_prepare(
         _: &mut crate::OutputPluginContext,

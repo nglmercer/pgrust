@@ -12,10 +12,7 @@ use pgrc_format::abi::ColumnMetaBuilder;
 
 /// Build chunk-local ColBuffers for rows [lo, hi) of the mixed corpus.
 fn chunk_cols(lo: u64, hi: u64) -> Vec<ColBuffer> {
-    let mut cols = vec![
-        ColBuffer::new(int8_col(1)),
-        ColBuffer::new(text_col(2)),
-    ];
+    let mut cols = vec![ColBuffer::new(int8_col(1)), ColBuffer::new(text_col(2))];
     let mut ext = crate::ingest::NoExternalDetoast;
     for i in lo..hi {
         with_mixed_row(i, |row| {
@@ -25,9 +22,8 @@ fn chunk_cols(lo: u64, hi: u64) -> Vec<ColBuffer> {
                     RawDatum::Word(w) => cols[c].append_word(*w).expect("word"),
                     RawDatum::Bytes(b) => {
                         let mut scratch = Vec::new();
-                        let (p, _) =
-                            crate::ingest::normalize_varlena(b, &mut ext, &mut scratch)
-                                .expect("normalize");
+                        let (p, _) = crate::ingest::normalize_varlena(b, &mut ext, &mut scratch)
+                            .expect("normalize");
                         cols[c].append_varlena_payload(p).expect("varlena");
                     }
                 }
@@ -44,7 +40,9 @@ fn seal_bytes(cols: &[ColBuffer]) -> Vec<u8> {
     let kit = Kit::new();
     let sources: [&dyn crate::elect::CandidateSource; 1] = [&kit.cands];
     let mut builders: Vec<Box<dyn ColumnMetaBuilder>> = (0..cols.len())
-        .map(|_| Box::new(crate::meta_standin::StandinMetaBuilder::new()) as Box<dyn ColumnMetaBuilder>)
+        .map(|_| {
+            Box::new(crate::meta_standin::StandinMetaBuilder::new()) as Box<dyn ColumnMetaBuilder>
+        })
         .collect();
     let spec = crate::seal::PartSpec {
         spc: SPC,
@@ -67,7 +65,8 @@ fn seal_bytes(cols: &[ColBuffer]) -> Vec<u8> {
         0,
     )
     .expect("seal");
-    vfs.read_full(&format!("{DIR}/{}", sealed.tmp_name)).expect("bytes")
+    vfs.read_full(&format!("{DIR}/{}", sealed.tmp_name))
+        .expect("bytes")
 }
 
 /// Splice the given chunk ranges in order into part-level buffers.
@@ -91,7 +90,11 @@ fn splice_replays_serial_state_exactly() {
     for (s, p) in serial.iter().zip(par.iter()) {
         assert_eq!(s.rows(), p.rows());
         assert_eq!(s.has_null(), p.has_null());
-        assert_eq!(s.approx_bytes(), p.approx_bytes(), "heap/word/validity sizes");
+        assert_eq!(
+            s.approx_bytes(),
+            p.approx_bytes(),
+            "heap/word/validity sizes"
+        );
         let ss = s.stream_stats();
         let ps = p.stream_stats();
         assert_eq!(ss.rows, ps.rows);
@@ -104,7 +107,11 @@ fn splice_replays_serial_state_exactly() {
             p.logical_hash().expect("hash").digest()
         );
     }
-    assert_eq!(seal_bytes(&serial), seal_bytes(&par), "frozen-face byte oracle");
+    assert_eq!(
+        seal_bytes(&serial),
+        seal_bytes(&par),
+        "frozen-face byte oracle"
+    );
 }
 
 /// Leg 2 (tooth): OUT-OF-ORDER replay is CAUGHT by the byte oracle — the
@@ -125,10 +132,12 @@ fn out_of_order_replay_is_caught_by_the_byte_diff() {
 /// typed refusal — the structural defect class the splice contract excludes.
 #[test]
 fn splice_seam_alignment_guard_fires() {
-    let mut part = vec![ColBuffer::new(int8_col(1)), ColBuffer::new(text_col(2))];
+    let mut part = [ColBuffer::new(int8_col(1)), ColBuffer::new(text_col(2))];
     let a = chunk_cols(0, 37); // deliberately unaligned
     for (i, cb) in a.iter().enumerate() {
-        part[i].splice_chunk(cb).expect("first splice lands anywhere");
+        part[i]
+            .splice_chunk(cb)
+            .expect("first splice lands anywhere");
     }
     let b = chunk_cols(37, 101);
     let err = part[0].splice_chunk(&b[0]).expect_err("must refuse");

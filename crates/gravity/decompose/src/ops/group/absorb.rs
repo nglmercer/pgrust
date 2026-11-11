@@ -86,6 +86,7 @@ fn dirs_of<'p>(b: &Builder<'p, '_>, plan: &'p Plan<'p>, cols: &[i16], colls: &[u
         return None;
     }
     let mut dirs = ArenaVec::with_capacity_in(n, b.arena);
+    #[allow(clippy::needless_range_loop)]
     for i in 0..n {
         let (c, coll) = (cols[i], colls.get(i).copied().unwrap_or(0));
         if s.sortColIdx[i] != c || s.collations.get(i).copied().unwrap_or(0) != coll || c < 1 || c as usize > sp.targetlist.len() {

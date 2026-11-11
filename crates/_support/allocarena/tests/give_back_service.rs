@@ -10,7 +10,8 @@
 //! Its own test binary: the release wake and the service are process-wide.
 
 #[global_allocator]
-static GLOBAL: init_small::oom::Rescue<mimalloc::MiMalloc> = init_small::oom::Rescue(mimalloc::MiMalloc);
+static GLOBAL: init_small::oom::Rescue<mimalloc::MiMalloc> =
+    init_small::oom::Rescue(mimalloc::MiMalloc);
 
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 
@@ -46,7 +47,10 @@ fn wake() {}
 
 /// A part-cache image's build: its block on the cache road (a run of its own at this size).
 fn image(fill: u8) -> Vec<u8> {
-    let _scope = memledger::arena::cache_scope_for(memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache)), memledger::Kind::Region);
+    let _scope = memledger::arena::cache_scope_for(
+        memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache)),
+        memledger::Kind::Region,
+    );
     vec![fill; RUN]
 }
 
@@ -55,7 +59,11 @@ fn account(a: Acct) -> i64 {
 }
 
 /// `f` on a fresh thread bound to backend `slot`, marked inline-ok (the service's thread) or not (a statement's).
-fn on_thread<R: Send + 'static>(slot: u32, marked: bool, f: impl FnOnce() -> R + Send + 'static) -> R {
+fn on_thread<R: Send + 'static>(
+    slot: u32,
+    marked: bool,
+    f: impl FnOnce() -> R + Send + 'static,
+) -> R {
     std::thread::spawn(move || {
         memledger::bind_backend(slot, 5000 + slot);
         if marked {
@@ -78,9 +86,14 @@ fn fallbacks_since(f0: [u64; 4]) -> [u64; 4] {
 }
 
 #[test]
-fn h3_the_service_turns_runs_away_at_its_cap_and_when_stalled_counted_and_reaping_is_the_landing_at_each_batch() {
+fn h3_the_service_turns_runs_away_at_its_cap_and_when_stalled_counted_and_reaping_is_the_landing_at_each_batch(
+) {
     init_small::oom::set_cache_alloc(allocarena::cache_alloc, allocarena::cache_realloc);
-    init_small::oom::set_own_pages(allocarena::own::range(), allocarena::own_free, allocarena::own_resize);
+    init_small::oom::set_own_pages(
+        allocarena::own::range(),
+        allocarena::own_free,
+        allocarena::own_resize,
+    );
     assert!(allocarena::start_cache_heap(), "the cache heap");
     let _ = allocarena::own::flush();
     allocarena::own::set_service(stalled, 1);
@@ -93,7 +106,10 @@ fn h3_the_service_turns_runs_away_at_its_cap_and_when_stalled_counted_and_reapin
     // the same thread (C1's inline take) hands the hot runs over: the backlog fills to its cap, the last two runs are
     // turned away and given back on the flushing thread
     let images: Vec<Vec<u8>> = (0..HOT_RUNS + 2).map(|i| image(i as u8 | 1)).collect();
-    assert!(images.iter().all(|v| allocarena::own::owns(v.as_ptr())), "every image is an own run");
+    assert!(
+        images.iter().all(|v| allocarena::own::owns(v.as_ptr())),
+        "every image is an own run"
+    );
     let (freed_gives, flush_gives, flushed) = on_thread(3, false, move || {
         let g0 = allocarena::own::thread_gives();
         drop(images);
@@ -101,17 +117,40 @@ fn h3_the_service_turns_runs_away_at_its_cap_and_when_stalled_counted_and_reapin
         let n = allocarena::own::flush();
         (g1 - g0, allocarena::own::thread_gives() - g1, n)
     });
-    assert_eq!((freed_gives, flushed), (0, HOT_RUNS * RUN), "the trim gave nothing back on its thread; the flush took the hot pool");
-    assert_eq!(allocarena::own::landing_bytes(), CAP, "the backlog never passes its cap");
-    assert_eq!(flush_gives, 2, "the two runs past the cap were given back on the flushing thread");
-    assert_eq!(fallbacks_since(f0), [2, 2 * RUN as u64, 0, 0], "and counted at the cap");
+    assert_eq!(
+        (freed_gives, flushed),
+        (0, HOT_RUNS * RUN),
+        "the trim gave nothing back on its thread; the flush took the hot pool"
+    );
+    assert_eq!(
+        allocarena::own::landing_bytes(),
+        CAP,
+        "the backlog never passes its cap"
+    );
+    assert_eq!(
+        flush_gives, 2,
+        "the two runs past the cap were given back on the flushing thread"
+    );
+    assert_eq!(
+        fallbacks_since(f0),
+        [2, 2 * RUN as u64, 0, 0],
+        "and counted at the cap"
+    );
     assert_eq!(allocarena::own::service_cap(), CAP);
-    assert_eq!(account(Acct::REAPING) - reaping0, CAP as i64, "REAPING is the landing");
+    assert_eq!(
+        account(Acct::REAPING) - reaping0,
+        CAP as i64,
+        "REAPING is the landing"
+    );
 
     // the service's drain (marked): nothing left, no drawer drain counted
     let n = on_thread(4, true, allocarena::own::drain_landing);
     assert_eq!((n, allocarena::own::landing_bytes()), (CAP, 0));
-    assert_eq!(allocarena::own::drawer_drains(), d0, "the service's own drains are no drawer drains");
+    assert_eq!(
+        allocarena::own::drawer_drains(),
+        d0,
+        "the service's own drains are no drawer drains"
+    );
 
     // 2. the dead-man rule: a run waits, the service stalls, the next run past the hot pool is given back on its thread
     let images: Vec<Vec<u8>> = (0..HOT_RUNS + 1).map(|i| image(i as u8 | 1)).collect();
@@ -124,31 +163,57 @@ fn h3_the_service_turns_runs_away_at_its_cap_and_when_stalled_counted_and_reapin
         allocarena::own::thread_gives() - g0
     });
     STALLED.store(false, Relaxed);
-    assert_eq!(allocarena::own::landing_bytes(), RUN, "the run before the stall waits");
-    assert_eq!(gives, 1, "the run that met the stalled service was given back on its thread");
-    assert_eq!(fallbacks_since(f0), [2, 2 * RUN as u64, 1, RUN as u64], "and counted past the dead-man stretch");
+    assert_eq!(
+        allocarena::own::landing_bytes(),
+        RUN,
+        "the run before the stall waits"
+    );
+    assert_eq!(
+        gives, 1,
+        "the run that met the stalled service was given back on its thread"
+    );
+    assert_eq!(
+        fallbacks_since(f0),
+        [2, 2 * RUN as u64, 1, RUN as u64],
+        "and counted past the dead-man stretch"
+    );
 
     // 3. A1: the hot pool handed over (exactly the cap, nothing turned away), then the service's paced batches: REAPING
     // equals the landing at each batch boundary
     let n = on_thread(4, true, allocarena::own::drain_landing);
     assert_eq!(n, RUN);
     let flushed = on_thread(6, false, allocarena::own::flush);
-    assert_eq!((flushed, allocarena::own::landing_bytes()), (HOT_RUNS * RUN, CAP));
-    assert_eq!(fallbacks_since(f0), [2, 2 * RUN as u64, 1, RUN as u64], "a backlog at its cap turns nothing away");
+    assert_eq!(
+        (flushed, allocarena::own::landing_bytes()),
+        (HOT_RUNS * RUN, CAP)
+    );
+    assert_eq!(
+        fallbacks_since(f0),
+        [2, 2 * RUN as u64, 1, RUN as u64],
+        "a backlog at its cap turns nothing away"
+    );
     let left = 2 * BATCH;
     let boundaries = on_thread(4, true, move || {
         let mut seen = Vec::new();
         while allocarena::own::landing_bytes() > left {
             let n = allocarena::own::drain_landing_upto(BATCH);
             memledger::fold();
-            seen.push((n, allocarena::own::landing_bytes() as i64, account(Acct::REAPING)));
+            seen.push((
+                n,
+                allocarena::own::landing_bytes() as i64,
+                account(Acct::REAPING),
+            ));
         }
         seen
     });
     assert_eq!(boundaries.len(), (CAP - left) / BATCH);
     for (n, landing, reaping) in &boundaries {
         assert_eq!(*n, BATCH, "a batch is the service's cap");
-        assert_eq!(reaping - reaping0, *landing, "A1: REAPING == LANDING_BYTES at the batch boundary: {boundaries:?}");
+        assert_eq!(
+            reaping - reaping0,
+            *landing,
+            "A1: REAPING == LANDING_BYTES at the batch boundary: {boundaries:?}"
+        );
     }
     assert_eq!(allocarena::own::drawer_drains(), d0);
 
@@ -159,8 +224,20 @@ fn h3_the_service_turns_runs_away_at_its_cap_and_when_stalled_counted_and_reapin
         memledger::fold();
         (n, account(Acct::backend(7)) - a0)
     });
-    assert_eq!((n, own), (left, 0), "A5: the drawing thread's account is unchanged across its drain");
+    assert_eq!(
+        (n, own),
+        (left, 0),
+        "A5: the drawing thread's account is unchanged across its drain"
+    );
     let d = allocarena::own::drawer_drains();
-    assert_eq!((d.0 - d0.0, d.1 - d0.1), (1, left as u64), "the drawer drain is counted");
-    assert_eq!((allocarena::own::landing_bytes(), account(Acct::REAPING)), (0, reaping0), "nothing waits, REAPING is back");
+    assert_eq!(
+        (d.0 - d0.0, d.1 - d0.1),
+        (1, left as u64),
+        "the drawer drain is counted"
+    );
+    assert_eq!(
+        (allocarena::own::landing_bytes(), account(Acct::REAPING)),
+        (0, reaping0),
+        "nothing waits, REAPING is back"
+    );
 }

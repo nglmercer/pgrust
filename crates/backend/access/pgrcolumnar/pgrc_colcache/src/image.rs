@@ -4,7 +4,7 @@ use std::sync::{Arc, Weak};
 
 use pgrc_marks::{BlockMarks, GateOutcome, Locator, Registry, WINDOW};
 use types_core::xact::{TransactionIdIsNormal, TransactionIdPrecedes};
-use types_core::{Oid, TransactionId, InvalidTransactionId, BLCKSZ};
+use types_core::{InvalidTransactionId, Oid, TransactionId, BLCKSZ};
 use types_error::PgResult;
 use types_tuple::{HEAP_XMIN_COMMITTED, HEAP_XMIN_FROZEN, HEAP_XMIN_INVALID};
 
@@ -47,7 +47,9 @@ impl CompanionImage {
         Arc::ptr_eq(&self.marks, marks)
             && !marks.poisoned()
             && self.seq == marks.seq()
-            && (self.recent.is_empty() || !TransactionIdIsNormal(self.oldest_recent) || !TransactionIdPrecedes(self.oldest_recent, txn.oldest_clog()))
+            && (self.recent.is_empty()
+                || !TransactionIdIsNormal(self.oldest_recent)
+                || !TransactionIdPrecedes(self.oldest_recent, txn.oldest_clog()))
     }
 
     /// Rows visible to `snap`, `(block, row index)` in TID order.
@@ -82,12 +84,23 @@ impl CompanionImage {
     }
 
     fn publish(&self) {
-        self.chunks.iter().flatten().for_each(|c| c.charge.publish());
+        self.chunks
+            .iter()
+            .flatten()
+            .for_each(|c| c.charge.publish());
     }
 
     fn unpublish(&self, keep: Option<&CompanionImage>) {
-        for (b, c) in self.chunks.iter().enumerate().filter_map(|(b, c)| Some((b, c.as_ref()?))) {
-            if !keep.and_then(|k| k.chunk(b as u32)).is_some_and(|k| Arc::ptr_eq(k, c)) {
+        for (b, c) in self
+            .chunks
+            .iter()
+            .enumerate()
+            .filter_map(|(b, c)| Some((b, c.as_ref()?)))
+        {
+            if !keep
+                .and_then(|k| k.chunk(b as u32))
+                .is_some_and(|k| Arc::ptr_eq(k, c))
+            {
                 c.charge.unpublish();
             }
         }
@@ -118,11 +131,25 @@ pub enum NoImage {
 
 /// With `arm = false` nothing is armed and the result is not current at any seq (seq 0 is never a published cycle).
 #[allow(clippy::too_many_arguments)]
-fn refresh(loc: Locator, relid: Oid, kind: Kind, base: Option<&CompanionImage>, marks: &Arc<BlockMarks>, src: &dyn PageSource, txn: &dyn TxnOracle, arm: bool, window: u32) -> PgResult<Result<CompanionImage, NoImage>> {
+fn refresh(
+    loc: Locator,
+    relid: Oid,
+    kind: Kind,
+    base: Option<&CompanionImage>,
+    marks: &Arc<BlockMarks>,
+    src: &dyn PageSource,
+    txn: &dyn TxnOracle,
+    arm: bool,
+    window: u32,
+) -> PgResult<Result<CompanionImage, NoImage>> {
     let tomb = kind == Kind::Tomb;
     let base = base.filter(|b| Arc::ptr_eq(&b.marks, marks) && b.kind == kind);
     let prev_n = base.map_or(0, |b| b.nblocks);
-    let s0 = if arm { marks.begin_refresh(prev_n, window) } else { 0 };
+    let s0 = if arm {
+        marks.begin_refresh(prev_n, window)
+    } else {
+        0
+    };
     let n = src.nblocks()?;
     let cx = Ctx::new(txn);
     let mut todo: Vec<u32> = Vec::new();
@@ -144,12 +171,20 @@ fn refresh(loc: Locator, relid: Oid, kind: Kind, base: Option<&CompanionImage>, 
         let mut i = 0;
         while i < b.recent.len() {
             let blk = b.recent[i].0;
-            let j = b.recent[i..].iter().position(|r| r.0 != blk).map_or(b.recent.len(), |k| i + k);
+            let j = b.recent[i..]
+                .iter()
+                .position(|r| r.0 != blk)
+                .map_or(b.recent.len(), |k| i + k);
             if blk < n && todo.binary_search(&blk).is_err() {
                 if let Some(c) = &b.chunks[blk as usize] {
                     let stale = b.recent[i..j].iter().any(|&(_, r)| {
                         let h = &c.hdr[r as usize];
-                        [h.xmin, h.xmax].iter().any(|&x| TransactionIdIsNormal(x) && TransactionIdPrecedes(x, oldest_clog) && !(x == h.xmin && h.infomask & HEAP_XMIN_FROZEN == HEAP_XMIN_FROZEN))
+                        [h.xmin, h.xmax].iter().any(|&x| {
+                            TransactionIdIsNormal(x)
+                                && TransactionIdPrecedes(x, oldest_clog)
+                                && !(x == h.xmin
+                                    && h.infomask & HEAP_XMIN_FROZEN == HEAP_XMIN_FROZEN)
+                        })
                     });
                     if stale {
                         redo.push(blk);
@@ -182,7 +217,10 @@ fn refresh(loc: Locator, relid: Oid, kind: Kind, base: Option<&CompanionImage>, 
         let mut i = 0;
         while i < b.recent.len() {
             let blk = b.recent[i].0;
-            let j = b.recent[i..].iter().position(|r| r.0 != blk).map_or(b.recent.len(), |k| i + k);
+            let j = b.recent[i..]
+                .iter()
+                .position(|r| r.0 != blk)
+                .map_or(b.recent.len(), |k| i + k);
             if blk < n && todo.binary_search(&blk).is_err() {
                 if let Some(c) = chunks[blk as usize].clone() {
                     let mut cur: Option<BlockImage> = None;
@@ -191,7 +229,9 @@ fn refresh(loc: Locator, relid: Oid, kind: Kind, base: Option<&CompanionImage>, 
                         if let Some(settle) = reclassify(&mut h, tomb, &cx)? {
                             let from = cur.as_ref().unwrap_or(&c);
                             cur = Some(from.with_row(r as usize, h, settle));
-                        } else if h.infomask & HEAP_XMIN_COMMITTED != c.hdr[r as usize].infomask & HEAP_XMIN_COMMITTED {
+                        } else if h.infomask & HEAP_XMIN_COMMITTED
+                            != c.hdr[r as usize].infomask & HEAP_XMIN_COMMITTED
+                        {
                             let from = cur.as_ref().unwrap_or(&c);
                             cur = Some(from.with_row(r as usize, h, false));
                         }
@@ -233,13 +273,31 @@ fn refresh(loc: Locator, relid: Oid, kind: Kind, base: Option<&CompanionImage>, 
         _ => SETTLED_VER.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1,
     };
     let builds = base.filter(|_| arm).map_or(0, |b| b.builds) + 1;
-    Ok(Ok(CompanionImage { loc, relid, kind, seq: s0, nblocks: n, chunks, recent, oldest_recent, bytes, marks: Arc::clone(marks), redecoded: decoded, settled_ver, builds, live, refbit: AtomicBool::new(false), mapped: AtomicBool::new(false) }))
+    Ok(Ok(CompanionImage {
+        loc,
+        relid,
+        kind,
+        seq: s0,
+        nblocks: n,
+        chunks,
+        recent,
+        oldest_recent,
+        bytes,
+        marks: Arc::clone(marks),
+        redecoded: decoded,
+        settled_ver,
+        builds,
+        live,
+        refbit: AtomicBool::new(false),
+        mapped: AtomicBool::new(false),
+    }))
 }
 
 static SETTLED_VER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 fn has_settled(c: &Option<Arc<BlockImage>>) -> bool {
-    c.as_ref().is_some_and(|c| c.all_settled && c.rows() > 0 || c.settled.iter().any(|w| *w != 0))
+    c.as_ref()
+        .is_some_and(|c| c.all_settled && c.rows() > 0 || c.settled.iter().any(|w| *w != 0))
 }
 
 /// Whether a chunk holding settled rows was replaced, added or dropped.
@@ -274,7 +332,10 @@ impl Images {
     }
 
     pub fn with_window(window: u32) -> Images {
-        Images { map: Arc::new(pgsync::Mutex::new(HashMap::new())), window }
+        Images {
+            map: Arc::new(pgsync::Mutex::new(HashMap::new())),
+            window,
+        }
     }
 
     pub fn get(&self, loc: Locator) -> Option<Arc<CompanionImage>> {
@@ -317,7 +378,15 @@ impl Images {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn current(&self, reg: &Registry, loc: Locator, relid: Oid, kind: Kind, src: &dyn PageSource, txn: &dyn TxnOracle) -> PgResult<Result<Arc<CompanionImage>, NoImage>> {
+    pub fn current(
+        &self,
+        reg: &Registry,
+        loc: Locator,
+        relid: Oid,
+        kind: Kind,
+        src: &dyn PageSource,
+        txn: &dyn TxnOracle,
+    ) -> PgResult<Result<Arc<CompanionImage>, NoImage>> {
         if let Some(b) = self.get(loc) {
             if b.kind == kind && b.is_current(&b.marks, txn) {
                 b.refbit.store(true, Ordering::Relaxed);
@@ -347,7 +416,17 @@ impl Images {
                             return Ok(Ok(Arc::clone(b)));
                         }
                     }
-                    let img = match refresh(loc, relid, kind, base.as_deref(), &marks, src, txn, true, self.window)? {
+                    let img = match refresh(
+                        loc,
+                        relid,
+                        kind,
+                        base.as_deref(),
+                        &marks,
+                        src,
+                        txn,
+                        true,
+                        self.window,
+                    )? {
                         Ok(img) => img,
                         Err(e) => {
                             self.unmap(loc);
@@ -375,7 +454,11 @@ impl Images {
                     if let Some(o) = old {
                         o.unpublish(Some(&img));
                     }
-                    pgrc_read::mem::register(Box::new(ImageVictim { map: Arc::downgrade(&self.map), loc, img: Arc::downgrade(&img) }));
+                    pgrc_read::mem::register(Box::new(ImageVictim {
+                        map: Arc::downgrade(&self.map),
+                        loc,
+                        img: Arc::downgrade(&img),
+                    }));
                     drop(g);
                     return Ok(Ok(img));
                 }
@@ -396,17 +479,26 @@ struct ImageVictim {
 }
 
 impl ImageVictim {
-    fn published(&self, map: &HashMap<Locator, Arc<CompanionImage>>) -> Option<Arc<CompanionImage>> {
-        self.img.upgrade().filter(|i| map.get(&self.loc).is_some_and(|c| Arc::ptr_eq(c, i)))
+    fn published(
+        &self,
+        map: &HashMap<Locator, Arc<CompanionImage>>,
+    ) -> Option<Arc<CompanionImage>> {
+        self.img
+            .upgrade()
+            .filter(|i| map.get(&self.loc).is_some_and(|c| Arc::ptr_eq(c, i)))
     }
 }
 
 impl pgrc_read::mem::Victim for ImageVictim {
     fn visit(&self) -> pgrc_read::mem::Sweep {
         use pgrc_read::mem::Sweep;
-        let Some(map) = self.map.upgrade() else { return Sweep::Dead };
+        let Some(map) = self.map.upgrade() else {
+            return Sweep::Dead;
+        };
         let mut m = pgsync::lock(&map);
-        let Some(img) = self.published(&m) else { return Sweep::Dead };
+        let Some(img) = self.published(&m) else {
+            return Sweep::Dead;
+        };
         if img.refbit.swap(false, Ordering::Relaxed) {
             return Sweep::Referenced;
         }
@@ -425,7 +517,9 @@ impl pgrc_read::mem::Victim for ImageVictim {
     }
 
     fn dead(&self) -> bool {
-        self.map.upgrade().is_none_or(|map| self.published(&pgsync::lock(&map)).is_none())
+        self.map
+            .upgrade()
+            .is_none_or(|map| self.published(&pgsync::lock(&map)).is_none())
     }
 }
 
@@ -435,12 +529,22 @@ pub fn images() -> &'static Images {
     IMAGES.get_or_init(Images::new)
 }
 
-pub fn current(loc: Locator, relid: Oid, kind: Kind, src: &dyn PageSource, txn: &dyn TxnOracle) -> PgResult<Result<Arc<CompanionImage>, NoImage>> {
+pub fn current(
+    loc: Locator,
+    relid: Oid,
+    kind: Kind,
+    src: &dyn PageSource,
+    txn: &dyn TxnOracle,
+) -> PgResult<Result<Arc<CompanionImage>, NoImage>> {
     images().current(pgrc_marks::registry(), loc, relid, kind, src, txn)
 }
 
 /// Per block, the image's rows that are not dead to all must be exactly the page's live rows (masked fingerprints).
-pub fn verify(img: &CompanionImage, src: &dyn PageSource, txn: &dyn TxnOracle) -> PgResult<Vec<u32>> {
+pub fn verify(
+    img: &CompanionImage,
+    src: &dyn PageSource,
+    txn: &dyn TxnOracle,
+) -> PgResult<Vec<u32>> {
     let tomb = img.tomb();
     let cx = Ctx::new(txn);
     let mut bad = Vec::new();

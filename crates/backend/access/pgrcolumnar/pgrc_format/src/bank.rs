@@ -122,7 +122,11 @@ impl LogicalColHash {
     #[inline]
     pub fn word_digests(w: u64, width: usize) -> (u64, u64, u64) {
         debug_assert!((1..=8).contains(&width));
-        let wm = if width >= 8 { w } else { w & ((1u64 << (8 * width)) - 1) };
+        let wm = if width >= 8 {
+            w
+        } else {
+            w & ((1u64 << (8 * width)) - 1)
+        };
         (wm, fold64(WORD_LO[width], wm), fold64(WORD_HI[width], wm))
     }
 
@@ -181,7 +185,11 @@ mod writer_fast_tests {
             x = crate::ident::mix64(x);
             let v: Vec<u8> = (0..len).map(|i| (x >> (i % 56)) as u8).collect();
             let (lo, hi) = row_digests(&v);
-            assert_eq!((lo, hi), (row_digest(LANE_LO_SEED, &v), row_digest(LANE_HI_SEED, &v)), "len {len}");
+            assert_eq!(
+                (lo, hi),
+                (row_digest(LANE_LO_SEED, &v), row_digest(LANE_HI_SEED, &v)),
+                "len {len}"
+            );
             for _ in 0..3 {
                 a.lo = a.lo.wrapping_add(row_digest(LANE_LO_SEED, &v));
                 a.hi = a.hi.wrapping_add(row_digest(LANE_HI_SEED, &v));
@@ -222,20 +230,68 @@ mod writer_fast_tests {
     }
 
     const WORD_GOLDEN: [(u64, usize, (u64, u64, u64)); 8] = [
-        (0x0000_0000_0000_0000, 1, (0x03d3_1556_e7fe_fc85, 0x8a32_32b5_7294_34a4, 1)),
-        (0x0000_0000_0000_00ff, 1, (0xe03a_27fe_daca_c2a0, 0x2446_595b_bbb0_f846, 1)),
-        (0x0000_0000_0000_1234, 2, (0xe23b_7fe0_9bc2_5680, 0xf693_de45_54d3_cb28, 1)),
-        (0x0000_0000_dead_beef, 4, (0xc636_87bc_0b7a_d12b, 0x51fe_4e76_5691_5472, 1)),
-        (0x8000_0000_0000_0001, 3, (0x89ff_bdfa_4fec_ede2, 0xea6b_ebd0_2cb3_3ecf, 1)),
-        (0x0123_4567_89ab_cdef, 8, (0xd558_4944_aada_2077, 0x6157_8c8f_ec97_c30d, 1)),
-        (0xffff_ffff_ffff_ffff, 8, (0x96ce_b7ba_115f_0fe0, 0x11d1_6d31_6bf1_8199, 1)),
-        (0x3ff8_0000_0000_0000, 8, (0xa17e_d6ee_0bac_0884, 0x14a0_a66e_15f3_f0ce, 1)),
+        (
+            0x0000_0000_0000_0000,
+            1,
+            (0x03d3_1556_e7fe_fc85, 0x8a32_32b5_7294_34a4, 1),
+        ),
+        (
+            0x0000_0000_0000_00ff,
+            1,
+            (0xe03a_27fe_daca_c2a0, 0x2446_595b_bbb0_f846, 1),
+        ),
+        (
+            0x0000_0000_0000_1234,
+            2,
+            (0xe23b_7fe0_9bc2_5680, 0xf693_de45_54d3_cb28, 1),
+        ),
+        (
+            0x0000_0000_dead_beef,
+            4,
+            (0xc636_87bc_0b7a_d12b, 0x51fe_4e76_5691_5472, 1),
+        ),
+        (
+            0x8000_0000_0000_0001,
+            3,
+            (0x89ff_bdfa_4fec_ede2, 0xea6b_ebd0_2cb3_3ecf, 1),
+        ),
+        (
+            0x0123_4567_89ab_cdef,
+            8,
+            (0xd558_4944_aada_2077, 0x6157_8c8f_ec97_c30d, 1),
+        ),
+        (
+            0xffff_ffff_ffff_ffff,
+            8,
+            (0x96ce_b7ba_115f_0fe0, 0x11d1_6d31_6bf1_8199, 1),
+        ),
+        (
+            0x3ff8_0000_0000_0000,
+            8,
+            (0xa17e_d6ee_0bac_0884, 0x14a0_a66e_15f3_f0ce, 1),
+        ),
     ];
     const BYTES_GOLDEN: [(&[u8], u64, (u64, u64, u64)); 5] = [
         (b"", 1, (0x39fa_ba74_0d38_e594, 0x647d_5284_2ebe_9f6c, 1)),
-        (b"alpha", 3, (0xbfad_a745_db75_8acf, 0x87c7_c154_58c7_97fb, 3)),
-        (b"abcdefgh", 2, (0x232b_0a72_a019_1c94, 0x6e84_e92f_6b59_d53e, 2)),
-        (b"abcdefghi", 5, (0x7e51_8eb8_6019_84a0, 0x9794_4c87_73b8_16d1, 5)),
-        (b"sample.bin row 42 of 999", 1000, (0x5187_3a2d_d437_77a8, 0xd63a_cb7c_9880_3510, 1000)),
+        (
+            b"alpha",
+            3,
+            (0xbfad_a745_db75_8acf, 0x87c7_c154_58c7_97fb, 3),
+        ),
+        (
+            b"abcdefgh",
+            2,
+            (0x232b_0a72_a019_1c94, 0x6e84_e92f_6b59_d53e, 2),
+        ),
+        (
+            b"abcdefghi",
+            5,
+            (0x7e51_8eb8_6019_84a0, 0x9794_4c87_73b8_16d1, 5),
+        ),
+        (
+            b"sample.bin row 42 of 999",
+            1000,
+            (0x5187_3a2d_d437_77a8, 0xd63a_cb7c_9880_3510, 1000),
+        ),
     ];
 }

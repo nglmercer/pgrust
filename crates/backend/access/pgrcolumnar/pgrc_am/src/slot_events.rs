@@ -70,7 +70,10 @@ mod tests {
         crate::catalog::invalidate_relid(4242);
         crate::catalog::remove_dir(dir);
         let seen = SEEN.lock().unwrap().clone();
-        let mine: Vec<&String> = seen.iter().filter(|s| s.contains("991001") || s.contains("4242")).collect();
+        let mine: Vec<&String> = seen
+            .iter()
+            .filter(|s| s.contains("991001") || s.contains("4242"))
+            .collect();
         assert_eq!(
             mine,
             vec![

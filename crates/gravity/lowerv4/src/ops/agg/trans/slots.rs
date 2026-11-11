@@ -6,6 +6,7 @@
 //! count sentinel, and a final's call of one of gravity_expr's `agg_final` hosts. The layout carries the hosted
 //! aggregates' `AggState` slots (fold/hosted.rs, V4R-277). Its tests hold v4's records to abi's: two partials folded by `Rec::fold` are the record that saw every
 //! row, which is abi's add_* over the rows. Registers nothing; every fold end reads it (keyed too, through plain.rs).
+#[allow(unused_imports)]
 use gravity_abi::breaker::{HashAgg, RecordLayout, SlotKind, HASHAGG_HDR, LAYOUT_IMPLICIT_COUNT, LAYOUT_WORDS};
 use gravity_abi::ctx::{hdr, partials};
 use gravity_abi::program::prog;
@@ -69,7 +70,7 @@ pub(crate) fn sentinel(b: &mut FunctionBuilder<'_>, env: &Env, l: &RecordLayout,
     let cur = b.load(Type::I64, rec, o);
     let v = b.int_bin(IntBinOp::Add, cur, n);
     b.store(rec, o, v);
-    if let Some(j) = (0..l.nslots()).find(|&j| l.has_validity() && l.slot_off(j) == l.sentinel_off() as u32) {
+    if let Some(j) = (0..l.nslots()).find(|&j| l.has_validity() && l.slot_off(j) == l.sentinel_off()) {
         let any = b.icmp(IntCond::Ne, n, env.zero);
         mark(b, env, rec, slot_valid(l, j as u16), any);
     }
@@ -332,7 +333,7 @@ mod conform {
         let (l, slots) = layout(gs, validity, ds);
         let aggs: Vec<AggDecl<'_>> = gs.iter().zip(&slots).map(|(&g, &s)| decl(ctx.mcx(), g, s, if ds { s + 1 } else { NONE })).collect();
         let cells: Vec<Cell> = gs.iter().map(|g| Cell::of_expr(ExprOut { rep: g.rep, typid: g.typid, life: ExprLife::Row }, 0, 0, Nullable::Maybe)).collect();
-        let sentinel = (0..l.nslots()).find(|&j| l.flags & LAYOUT_IMPLICIT_COUNT != 0 && l.slot_off(j) == l.sentinel_off() as u32);
+        let sentinel = (0..l.nslots()).find(|&j| l.flags & LAYOUT_IMPLICIT_COUNT != 0 && l.slot_off(j) == l.sentinel_off());
         let mut want = table(&l);
         for &(v, null) in rows {
             let r = rec(&mut want);

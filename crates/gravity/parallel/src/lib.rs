@@ -817,7 +817,7 @@ fn run_body<D: AsDerive + ?Sized>(entry: &mut Entry, exec: &mut Exec, binding: &
 }
 
 /// D1702: `run_body` with `current` the entry's installed slot.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::redundant_guards, clippy::too_many_arguments)]
 fn run_slotted<D: AsDerive + ?Sized>(entry: &mut Entry, exec: &mut Exec, binding: &mut Binding<'_>, derive: &mut D, pool: &dyn Pool, plan: &dyn Plan, recheck: &mut dyn FnMut(&mut Entry, &mut Exec, &mut Binding<'_>, &mut D, u8) -> Result<bool>, current: &gravity_driver::CurrentCell) -> Result<u64> {
     let program = exec.node_mut().program().clone();
     let recorded = entry.recording(&program);
@@ -843,11 +843,13 @@ fn run_slotted<D: AsDerive + ?Sized>(entry: &mut Entry, exec: &mut Exec, binding
             match plan.rerun_owner(p) {
                 // setop_rec-0043: a CTE's plan the set re-arms, its store opened for the owner and the CTE's readers
                 Some(owner) => match plan.pull_readers(p) {
+                    #[allow(clippy::redundant_guards)]
                     r if r.is_empty() => entry.skip_rerun(exec, owner)?,
                     r => entry.skip_rearmed(exec, owner, r)?,
                 },
                 // M8 (RT-2f): a pulled CTE's plan: its store edge kept, opened zeroed for its readers
                 None => match plan.pull_readers(p) {
+                    #[allow(clippy::redundant_guards)]
                     r if r.is_empty() => entry.skip_deferred(exec),
                     r => entry.skip_pulled(exec, r)?,
                 },

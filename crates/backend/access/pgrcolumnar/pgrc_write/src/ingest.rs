@@ -142,10 +142,11 @@ pub fn normalize_varlena<'a>(
                 TOAST_PGLZ => {
                     scratch.clear();
                     pgrc_format::try_resize(scratch, rawsize, 0, "ingest")?;
-                    let n = pglz::pglz_decompress_slice(&image[8..total], scratch, true)
-                        .ok_or(WriteError::Contract {
+                    let n = pglz::pglz_decompress_slice(&image[8..total], scratch, true).ok_or(
+                        WriteError::Contract {
                             detail: "corrupt pglz toast payload",
-                        })?;
+                        },
+                    )?;
                     if n != rawsize {
                         return Err(WriteError::Contract {
                             detail: "pglz toast rawsize mismatch",
@@ -316,7 +317,8 @@ impl ColBuffer {
     /// D3343: the heap bytes this buffer holds (its capacity, side channel included).
     pub fn held_bytes(&self) -> u64 {
         let side = self.dict_side.as_ref().map_or(0, |d| d.rows.capacity() * 8);
-        (self.words.capacity() * 8 + self.heap.capacity() + self.validity.capacity() * 8 + side) as u64
+        (self.words.capacity() * 8 + self.heap.capacity() + self.validity.capacity() * 8 + side)
+            as u64
     }
 
     /// CONVERT W3-2b: the owner this buffer's blocks are charged to (`None`: uncharged). What the seal derives from
@@ -373,8 +375,12 @@ impl ColBuffer {
     pub fn reserve_rows(&mut self, rows: usize, heap_payload: usize) -> WriteResult<()> {
         pgrc_format::try_reserve_more(&mut self.words, rows, "ingest")?; // alloc: Exec charged self.charge
         pgrc_format::try_reserve_more(&mut self.validity, rows.div_ceil(64) + 1, "ingest")?; // alloc: Exec charged self.charge
-        if matches!(self.schema.class, StorageClass::Fixed { .. } | StorageClass::VarlenaVerbatim) {
-            pgrc_format::try_reserve_more(&mut self.heap, heap_payload + rows * 12 + 8, "ingest")?; // alloc: Exec charged self.charge
+        if matches!(
+            self.schema.class,
+            StorageClass::Fixed { .. } | StorageClass::VarlenaVerbatim
+        ) {
+            pgrc_format::try_reserve_more(&mut self.heap, heap_payload + rows * 12 + 8, "ingest")?;
+            // alloc: Exec charged self.charge
         }
         self.sync_charge();
         Ok(())
@@ -384,7 +390,10 @@ impl ColBuffer {
     /// splicing `chunks` (exact word / validity totals, heap + one 8-B pad
     /// per seam) so the splice never regrows — capacity only, bytes cannot
     /// move.
-    pub fn reserve_splice<'c>(&mut self, chunks: impl Iterator<Item = &'c ColBuffer>) -> WriteResult<()> {
+    pub fn reserve_splice<'c>(
+        &mut self,
+        chunks: impl Iterator<Item = &'c ColBuffer>,
+    ) -> WriteResult<()> {
         let (mut w, mut v, mut h) = (0usize, 0usize, 0usize);
         for c in chunks {
             w += c.words.len();
@@ -393,7 +402,10 @@ impl ColBuffer {
         }
         pgrc_format::try_reserve_more(&mut self.words, w, "ingest")?; // alloc: Exec charged self.charge
         pgrc_format::try_reserve_more(&mut self.validity, v, "ingest")?; // alloc: Exec charged self.charge
-        if matches!(self.schema.class, StorageClass::Fixed { .. } | StorageClass::VarlenaVerbatim) {
+        if matches!(
+            self.schema.class,
+            StorageClass::Fixed { .. } | StorageClass::VarlenaVerbatim
+        ) {
             pgrc_format::try_reserve_more(&mut self.heap, h, "ingest")?; // alloc: Exec charged self.charge
         }
         self.sync_charge();
@@ -453,7 +465,11 @@ impl ColBuffer {
     /// The buffers' capacities (words, validity, heap).
     #[cfg(test)]
     pub(crate) fn capacities(&self) -> [usize; 3] {
-        [self.words.capacity(), self.validity.capacity(), self.heap.capacity()]
+        [
+            self.words.capacity(),
+            self.validity.capacity(),
+            self.heap.capacity(),
+        ]
     }
 
     fn push_validity(&mut self, valid: bool) {
@@ -509,7 +525,11 @@ impl ColBuffer {
         // one-word form (PGRC-WRITER-FAST `word`): the digests from the
         // masked word (a repeat of the previous value re-adds its digests —
         // `run`), the constancy check on the masked word.
-        let mask = if width >= 8 { u64::MAX } else { (1u64 << (8 * width)) - 1 };
+        let mask = if width >= 8 {
+            u64::MAX
+        } else {
+            (1u64 << (8 * width)) - 1
+        };
         let wm = w & mask;
         match self.run_last {
             Some((pw, lo, hi)) if pw == wm => self.hash.add(lo, hi),
@@ -521,7 +541,12 @@ impl ColBuffer {
         }
         self.value_bytes += width as u64;
         match &self.first_canon {
-            None => self.first_canon = Some(pgrc_format::try_to_vec(&w.to_le_bytes()[..width], "ingest")?),
+            None => {
+                self.first_canon = Some(pgrc_format::try_to_vec(
+                    &w.to_le_bytes()[..width],
+                    "ingest",
+                )?)
+            }
             Some(first) => {
                 if self.constant {
                     let mut f = [0u8; 8];
@@ -594,14 +619,22 @@ impl ColBuffer {
         self.reserve(n, 0)?;
         match (d, self.schema.class) {
             (RawDatum::Null, _) => (0..n).for_each(|_| self.append_null()),
-            (RawDatum::Word(w), StorageClass::ByvalWord { .. } | StorageClass::F32 | StorageClass::F64 | StorageClass::Bool) => {
+            (
+                RawDatum::Word(w),
+                StorageClass::ByvalWord { .. }
+                | StorageClass::F32
+                | StorageClass::F64
+                | StorageClass::Bool,
+            ) => {
                 for _ in 0..n {
                     self.append_word(w)?;
                 }
             }
             (RawDatum::Bytes(b), StorageClass::Fixed { len }) => {
                 if b.len() != len as usize {
-                    return Err(WriteError::Contract { detail: "fixed image length mismatch" });
+                    return Err(WriteError::Contract {
+                        detail: "fixed image length mismatch",
+                    });
                 }
                 pad8(&mut self.heap);
                 let off = self.heap.len() as u64;
@@ -613,11 +646,16 @@ impl ColBuffer {
                 let (payload, _) = normalize_varlena(b, &mut NoExternalDetoast, &mut scratch)?;
                 pad8(&mut self.heap);
                 let off = self.heap.len() as u64;
-                self.heap.extend_from_slice(&varlena_header_4b_u(payload.len() as u32).to_le_bytes());
+                self.heap
+                    .extend_from_slice(&varlena_header_4b_u(payload.len() as u32).to_le_bytes());
                 self.heap.extend_from_slice(payload);
                 self.repeat_image(off, payload, n, true);
             }
-            _ => return Err(WriteError::Contract { detail: "datum shape does not match column class" }),
+            _ => {
+                return Err(WriteError::Contract {
+                    detail: "datum shape does not match column class",
+                })
+            }
         }
         Ok(())
     }
@@ -655,7 +693,10 @@ impl ColBuffer {
         }
         let byval = matches!(
             self.schema.class,
-            StorageClass::ByvalWord { .. } | StorageClass::F32 | StorageClass::F64 | StorageClass::Bool
+            StorageClass::ByvalWord { .. }
+                | StorageClass::F32
+                | StorageClass::F64
+                | StorageClass::Bool
         );
         if !byval {
             for (i, &nl) in nulls.iter().enumerate() {
@@ -669,7 +710,11 @@ impl ColBuffer {
         }
         let is_bool = self.schema.class == StorageClass::Bool;
         let width = word_canonical_width(self.schema.class);
-        let mask = if width >= 8 { u64::MAX } else { (1u64 << (8 * width)) - 1 };
+        let mask = if width >= 8 {
+            u64::MAX
+        } else {
+            (1u64 << (8 * width)) - 1
+        };
         let r0 = self.rows as usize;
         let nnull = nulls.iter().filter(|&&nl| nl).count();
         pgrc_format::try_reserve_more(&mut self.words, n, "ingest")?; // alloc: Exec charged self.charge
@@ -709,7 +754,11 @@ impl ColBuffer {
         let first_new = if nnull == 0 {
             added.first().copied()
         } else {
-            added.iter().zip(nulls).find(|(_, &nl)| !nl).map(|(&w, _)| w)
+            added
+                .iter()
+                .zip(nulls)
+                .find(|(_, &nl)| !nl)
+                .map(|(&w, _)| w)
         };
         let f0 = first.or(first_new.map(|w| w & mask)).unwrap_or(0);
         let mut diff = 0u64;
@@ -757,7 +806,12 @@ impl ColBuffer {
         let last_new = if nnull == 0 {
             added.last().copied()
         } else {
-            added.iter().zip(nulls).rev().find(|(_, &nl)| !nl).map(|(&w, _)| w)
+            added
+                .iter()
+                .zip(nulls)
+                .rev()
+                .find(|(_, &nl)| !nl)
+                .map(|(&w, _)| w)
         };
         let run_last = match last_new {
             Some(w) => Some(LogicalColHash::word_digests(w, width)),
@@ -768,7 +822,10 @@ impl ColBuffer {
             h.observe_null();
         }
         if let Some(w) = first_w {
-            self.first_canon = Some(pgrc_format::try_to_vec(&w.to_le_bytes()[..width], "ingest")?);
+            self.first_canon = Some(pgrc_format::try_to_vec(
+                &w.to_le_bytes()[..width],
+                "ingest",
+            )?);
         }
         self.hash.merge(&h);
         self.has_null |= nnull != 0;
@@ -832,9 +889,11 @@ impl ColBuffer {
                 self.append_null();
                 continue;
             }
-            let image = arena.get(off as usize..off as usize + len as usize).ok_or(WriteError::Contract {
-                detail: "image span out of bounds",
-            })?;
+            let image = arena.get(off as usize..off as usize + len as usize).ok_or(
+                WriteError::Contract {
+                    detail: "image span out of bounds",
+                },
+            )?;
             if fixed {
                 self.append_fixed(image)?;
             } else if let Some(payload) = plain_4b_payload(image) {
@@ -882,9 +941,11 @@ impl ColBuffer {
                 nnull += 1;
                 continue;
             }
-            let image = arena.get(off as usize..off as usize + len as usize).ok_or(WriteError::Contract {
-                detail: "image span out of bounds",
-            })?;
+            let image = arena.get(off as usize..off as usize + len as usize).ok_or(
+                WriteError::Contract {
+                    detail: "image span out of bounds",
+                },
+            )?;
             let r = r0 + i;
             validity[r >> 6] |= 1 << (r & 63);
             pad8(heap);
@@ -1137,9 +1198,8 @@ impl ColBuffer {
             return Ok(None);
         }
         let off = self.words[row as usize] as usize;
-        let (_, payload) =
-            pgrc_format::wire::varlena_entry_at(&self.heap, off, "col heap entry")
-                .map_err(WriteError::Format)?;
+        let (_, payload) = pgrc_format::wire::varlena_entry_at(&self.heap, off, "col heap entry")
+            .map_err(WriteError::Format)?;
         Ok(Some(payload))
     }
 
@@ -1177,11 +1237,18 @@ impl ColBuffer {
                 .heap
                 .get(off..off + 4)
                 .and_then(|h| h.try_into().ok())
-                .ok_or(WriteError::Format(pgrc_format::FormatError::Bounds { at: "col heap entry" }))?;
-            let len = pgrc_format::wire::varlena_4b_u_payload_len(u32::from_le_bytes(head), "col heap entry")
-                .map_err(WriteError::Format)? as usize;
+                .ok_or(WriteError::Format(pgrc_format::FormatError::Bounds {
+                    at: "col heap entry",
+                }))?;
+            let len = pgrc_format::wire::varlena_4b_u_payload_len(
+                u32::from_le_bytes(head),
+                "col heap entry",
+            )
+            .map_err(WriteError::Format)? as usize;
             if off + 4 + len > self.heap.len() {
-                return Err(WriteError::Format(pgrc_format::FormatError::Bounds { at: "col heap entry" }));
+                return Err(WriteError::Format(pgrc_format::FormatError::Bounds {
+                    at: "col heap entry",
+                }));
             }
             lens.push(len as u64);
             nulls.push(false);
@@ -1253,11 +1320,15 @@ impl ColBuffer {
                 rows: cs.rows.clone(),
             }),
             (_, Some(mut acc), Some(cs))
-                if acc.rows.len() as u64 == self.rows
-                    && cs.rows.len() as u64 == chunk.rows =>
+                if acc.rows.len() as u64 == self.rows && cs.rows.len() as u64 == chunk.rows =>
             {
-                let mut xlat: memledger::ChargedVec<u32> = memledger::ChargedVec::new(self.owner(), memledger::Kind::Region);
-                xlat.try_reserve(cs.sources.len()).map_err(|_| WriteError::Format(pgrc_format::FormatError::OutOfMemory { bytes: cs.sources.len() * core::mem::size_of::<u32>() }))?;
+                let mut xlat: memledger::ChargedVec<u32> =
+                    memledger::ChargedVec::new(self.owner(), memledger::Kind::Region);
+                xlat.try_reserve(cs.sources.len()).map_err(|_| {
+                    WriteError::Format(pgrc_format::FormatError::OutOfMemory {
+                        bytes: cs.sources.len() * core::mem::size_of::<u32>(),
+                    })
+                })?;
                 for s in &cs.sources {
                     let idx = match acc
                         .sources
@@ -1274,7 +1345,8 @@ impl ColBuffer {
                 }
                 pgrc_format::try_reserve_more(&mut acc.rows, cs.rows.len(), "ingest")?; // alloc: Exec charged self.charge
                 for &slot in &cs.rows {
-                    acc.rows.push(if slot == DICT_ROW_PLAIN { // alloc: Exec charged self.charge
+                    acc.rows.push(if slot == DICT_ROW_PLAIN {
+                        // alloc: Exec charged self.charge
                         DICT_ROW_PLAIN
                     } else {
                         let src = (slot >> 32) as u32;
@@ -1374,7 +1446,11 @@ fn set_bits(v: &mut [u64], lo: usize, hi: usize) {
         let w = r >> 6;
         let b = r & 63;
         let n = (64 - b).min(hi - r);
-        let m = if n == 64 { u64::MAX } else { ((1u64 << n) - 1) << b };
+        let m = if n == 64 {
+            u64::MAX
+        } else {
+            ((1u64 << n) - 1) << b
+        };
         v[w] |= m;
         r += n;
     }
@@ -1393,7 +1469,10 @@ mod lane_tests {
     use crate::testkit::{bool_col, fixed16_col, img_4b_u, int8_col, text_col};
 
     fn word_col(class: StorageClass) -> ColSchema {
-        ColSchema { class, ..int8_col(1) }
+        ColSchema {
+            class,
+            ..int8_col(1)
+        }
     }
 
     fn same(a: &ColBuffer, b: &ColBuffer) {
@@ -1401,16 +1480,37 @@ mod lane_tests {
         assert_eq!(a.heap, b.heap);
         assert_eq!(a.validity, b.validity);
         assert_eq!(
-            (a.has_null, a.rows, a.nonnull, a.value_bytes, a.oversize_values, a.oversize_bytes, a.constant),
-            (b.has_null, b.rows, b.nonnull, b.value_bytes, b.oversize_values, b.oversize_bytes, b.constant)
+            (
+                a.has_null,
+                a.rows,
+                a.nonnull,
+                a.value_bytes,
+                a.oversize_values,
+                a.oversize_bytes,
+                a.constant
+            ),
+            (
+                b.has_null,
+                b.rows,
+                b.nonnull,
+                b.value_bytes,
+                b.oversize_values,
+                b.oversize_bytes,
+                b.constant
+            )
         );
         assert_eq!(a.first_canon, b.first_canon);
         assert_eq!(a.hash.digest(), b.hash.digest());
-        assert_eq!(a.logical_hash().unwrap().digest(), b.logical_hash().unwrap().digest());
+        assert_eq!(
+            a.logical_hash().unwrap().digest(),
+            b.logical_hash().unwrap().digest()
+        );
     }
 
     fn lcg(state: &mut u64) -> u64 {
-        *state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        *state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         *state >> 33
     }
 
@@ -1429,9 +1529,18 @@ mod lane_tests {
     fn word_lane_equals_per_row_appends() {
         let classes = [
             int8_col(1).class,
-            StorageClass::ByvalWord { width: 4, signed: true },
-            StorageClass::ByvalWord { width: 2, signed: false },
-            StorageClass::ByvalWord { width: 1, signed: true },
+            StorageClass::ByvalWord {
+                width: 4,
+                signed: true,
+            },
+            StorageClass::ByvalWord {
+                width: 2,
+                signed: false,
+            },
+            StorageClass::ByvalWord {
+                width: 1,
+                signed: true,
+            },
             StorageClass::F32,
             StorageClass::F64,
             bool_col(1).class,
@@ -1450,11 +1559,20 @@ mod lane_tests {
                         // equal within the width, different above it
                         5 => (i / 23) as u64 | (lcg(&mut st) << 40),
                         // granule-aligned runs and runs of one row mixed
-                        6 => if (i / 16) % 3 == 0 { lcg(&mut st) } else { (i / 16) as u64 },
+                        6 => {
+                            if (i / 16) % 3 == 0 {
+                                lcg(&mut st)
+                            } else {
+                                (i / 16) as u64
+                            }
+                        }
                         _ => lcg(&mut st) % 3,
                     };
                     words.push(w);
-                    nulls.push(matches!(mode, 1..=3) && lcg(&mut st) % 9 == 0 || (mode == 3 && i < 70));
+                    nulls.push(
+                        matches!(mode, 1..=3) && lcg(&mut st).is_multiple_of(9)
+                            || (mode == 3 && i < 70),
+                    );
                 }
                 let mut a = ColBuffer::new(word_col(class));
                 for i in 0..n {
@@ -1481,13 +1599,15 @@ mod lane_tests {
             let n = 700;
             let (mut arena, mut spans, mut nulls) = (Vec::new(), Vec::new(), Vec::new());
             for i in 0..n {
-                let null = lcg(&mut st) % 7 == 0;
+                let null = lcg(&mut st).is_multiple_of(7);
                 let payload: Vec<u8> = if fixed {
                     (0..16).map(|k| (i * 3 + k) as u8).collect()
                 } else if i == 300 {
                     vec![b'x'; OVERSIZE_THRESHOLD as usize + 5]
                 } else {
-                    (0..(lcg(&mut st) % 40) as usize).map(|k| b'a' + (k % 26) as u8).collect()
+                    (0..(lcg(&mut st) % 40) as usize)
+                        .map(|k| b'a' + (k % 26) as u8)
+                        .collect()
                 };
                 let img = if fixed { payload } else { img_4b_u(&payload) };
                 arena.extend_from_slice(b"zz");
@@ -1514,7 +1634,14 @@ mod lane_tests {
             }
             let mut b = ColBuffer::new(schema);
             for (lo, hi) in slices(n, 9) {
-                b.append_image_lane(&arena, &spans[lo..hi], &nulls[lo..hi], &mut ext, &mut scratch).unwrap();
+                b.append_image_lane(
+                    &arena,
+                    &spans[lo..hi],
+                    &nulls[lo..hi],
+                    &mut ext,
+                    &mut scratch,
+                )
+                .unwrap();
             }
             same(&a, &b);
         }

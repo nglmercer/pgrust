@@ -1,4 +1,3 @@
-
 use crate::hash::meta_hash128;
 
 pub const BLOOM_BYTES_MIN: u32 = 64;
@@ -38,7 +37,12 @@ pub fn bloom_false_positive_at(ndv: f64, k: u32, bytes: u32) -> f64 {
 /// because a probe of the tiled block reads bit `h % (bytes * 8)`, which sits in some copy at offset `h % (len * 8)`
 /// (the length divides `bytes`), the bit the insert set; a value the block lacks hits a set bit as often as it did.
 pub fn bloom_tile(block: &[u8], bytes: usize) -> Vec<u8> {
-    assert!(!block.is_empty() && block.len().is_power_of_two() && bytes.is_power_of_two() && bytes.is_multiple_of(block.len()));
+    assert!(
+        !block.is_empty()
+            && block.len().is_power_of_two()
+            && bytes.is_power_of_two()
+            && bytes.is_multiple_of(block.len())
+    );
     block.repeat(bytes / block.len())
 }
 
@@ -136,13 +140,22 @@ mod tests {
         assert_eq!(bloom_bytes_for(u32::MAX, 64), 1 << 31);
         for (ndv, k) in [(100u32, 4u32), (1000, 5), (5000, 6), (8192, 7)] {
             let fp = bloom_false_positive(ndv as f64, k);
-            assert!(fp <= 0.5f64.powi(k as i32) * 1.05, "ndv {ndv} k {k}: fp {fp}");
+            assert!(
+                fp <= 0.5f64.powi(k as i32) * 1.05,
+                "ndv {ndv} k {k}: fp {fp}"
+            );
         }
         assert_eq!(bloom_false_positive(0.0, 5), 0.0);
         for (ndv, k) in [(100u32, 4u32), (8192, 6)] {
             let own = bloom_bytes_for(ndv, k);
-            assert_eq!(bloom_false_positive_at(ndv as f64, k, own), bloom_false_positive(ndv as f64, k));
-            assert!(bloom_false_positive_at(ndv as f64, k, own / 2) > bloom_false_positive(ndv as f64, k));
+            assert_eq!(
+                bloom_false_positive_at(ndv as f64, k, own),
+                bloom_false_positive(ndv as f64, k)
+            );
+            assert!(
+                bloom_false_positive_at(ndv as f64, k, own / 2)
+                    > bloom_false_positive(ndv as f64, k)
+            );
         }
         assert_eq!(bloom_false_positive_at(10.0, 4, 0), 1.0);
         assert_eq!(bloom_false_positive_at(0.0, 4, 64), 0.0);
@@ -167,7 +180,10 @@ mod tests {
                     assert!(bloom_may_contain(&t, k, &i.to_le_bytes()));
                 }
                 for i in 1_000_000u64..1_000_500 {
-                    assert_eq!(bloom_may_contain(&t, k, &i.to_le_bytes()), bloom_may_contain(&f, k, &i.to_le_bytes()));
+                    assert_eq!(
+                        bloom_may_contain(&t, k, &i.to_le_bytes()),
+                        bloom_may_contain(&f, k, &i.to_le_bytes())
+                    );
                 }
             }
         }
@@ -175,7 +191,10 @@ mod tests {
         let misses = (1_000_000u64..1_002_000)
             .filter(|i| !bloom_may_contain(&f, k, &i.to_le_bytes()))
             .count();
-        assert!(misses > 1900, "512 B over 300 keys: only {misses}/2000 misses");
+        assert!(
+            misses > 1900,
+            "512 B over 300 keys: only {misses}/2000 misses"
+        );
     }
 
     #[test]
@@ -183,13 +202,19 @@ mod tests {
         for bytes in [64usize, 1024, 8192, 16384] {
             for k in [1u32, 4, 7, 16] {
                 let mut block = vec![0u8; bytes];
-                let vals: Vec<Vec<u8>> = (0..bytes as u64 / 2).map(|i| format!("v{i}").into_bytes()).collect();
+                let vals: Vec<Vec<u8>> = (0..bytes as u64 / 2)
+                    .map(|i| format!("v{i}").into_bytes())
+                    .collect();
                 for v in &vals {
                     bloom_insert(&mut block, k, v);
                 }
                 for i in 0..4000u64 {
                     let v = format!("v{i}").into_bytes();
-                    assert_eq!(bloom_may_contain_packed(&block, k, bloom_pack(&v)), bloom_may_contain(&block, k, &v), "{bytes} B k {k} v{i}");
+                    assert_eq!(
+                        bloom_may_contain_packed(&block, k, bloom_pack(&v)),
+                        bloom_may_contain(&block, k, &v),
+                        "{bytes} B k {k} v{i}"
+                    );
                 }
             }
         }

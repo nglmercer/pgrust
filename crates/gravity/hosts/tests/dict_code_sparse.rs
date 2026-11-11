@@ -35,12 +35,12 @@ const GRANULE: u64 = 8192;
 fn value(i: u64) -> Option<Vec<u8>> {
     let word = |n: u64| format!("w{:05}", (i * 7919) % n).into_bytes();
     Some(match i / GRANULE {
-        _ if i / GRANULE == 5 && i % 101 == 0 => return None,
-        0 if i % 13 == 0 => word(5),
-        1 if i % 7 == 0 => word(300),
+        _ if i / GRANULE == 5 && i.is_multiple_of(101) => return None,
+        0 if i.is_multiple_of(13) => word(5),
+        1 if i.is_multiple_of(7) => word(300),
         3 => word(64),
-        4 if i % 2 == 0 => word(3000),
-        5 if i % 3 == 0 => word(40),
+        4 if i.is_multiple_of(2) => word(3000),
+        5 if i.is_multiple_of(3) => word(40),
         _ => Vec::new(),
     })
 }

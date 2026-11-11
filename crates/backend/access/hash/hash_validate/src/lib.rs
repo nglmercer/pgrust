@@ -33,8 +33,9 @@ pub fn hashvalidate(opclassoid: Oid) -> PgResult<bool> {
     let Some(opclassname_data) = syscache_seams::pg_opclass_opcname::call(opclassoid)? else {
         return Err(index_amvalidate::opclass_lookup_failed(opclassoid));
     };
-    let opclassname =
-        core::str::from_utf8(opclassname_data.name_str()).unwrap_or("").to_string();
+    let opclassname = core::str::from_utf8(opclassname_data.name_str())
+        .unwrap_or("")
+        .to_string();
 
     let opfamilyname = lsyscache::get_opfamily_name(mcx, opfamilyoid, false)?
         .expect("opfamily name")
@@ -103,7 +104,10 @@ pub fn hashvalidate(opclassoid: Oid) -> PgResult<bool> {
         }
 
         if ok
-            && matches!(procform.amprocnum as u16, HASHSTANDARD_PROC | HASHEXTENDED_PROC)
+            && matches!(
+                procform.amprocnum as u16,
+                HASHSTANDARD_PROC | HASHEXTENDED_PROC
+            )
             && !hashabletypes.contains(&procform.amproclefttype)
         {
             hashabletypes.push(procform.amproclefttype);
@@ -163,8 +167,7 @@ pub fn hashvalidate(opclassoid: Oid) -> PgResult<bool> {
     }
 
     // Check for inconsistent groups of operators/functions.
-    let grouplist =
-        identify_opfamily_groups(mcx, &oprlist, opr_ordered, &proclist, proc_ordered)?;
+    let grouplist = identify_opfamily_groups(mcx, &oprlist, opr_ordered, &proclist, proc_ordered)?;
     let mut opclassgroup = None;
     for thisgroup in grouplist.iter() {
         if thisgroup.lefttype == opcintype && thisgroup.righttype == opcintype {
@@ -221,6 +224,7 @@ pub fn hashadjustmembers(
     };
 
     for op in operators.iter_mut().chain(functions.iter_mut()) {
+        #[allow(clippy::if_same_then_else)]
         if op.is_func && op.number as u16 != HASHSTANDARD_PROC {
             op.ref_is_hard = false;
             op.ref_is_family = true;
@@ -232,8 +236,7 @@ pub fn hashadjustmembers(
         } else {
             if op.lefttype != opcintype {
                 opcintype = op.lefttype;
-                opclassoid =
-                    opclass_for_family_datatype(HASH_AM_OID, opfamilyoid, opcintype)?;
+                opclassoid = opclass_for_family_datatype(HASH_AM_OID, opfamilyoid, opcintype)?;
             }
             if opclassoid != InvalidOid {
                 op.ref_is_hard = true;

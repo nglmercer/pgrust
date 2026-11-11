@@ -111,7 +111,10 @@ fn test_index<'mcx>(mcx: mcx::Mcx<'mcx>) -> RelationData<'mcx> {
         rd_firstRelfilelocatorSubid: Cell::new(0),
         rd_droppedSubid: Cell::new(0),
         rd_lockInfo: LockInfoData {
-            lockRelId: LockRelId { relId: 1000, dbId: 5 },
+            lockRelId: LockRelId {
+                relId: 1000,
+                dbId: 5,
+            },
         },
         rd_rel,
         rd_att,
@@ -188,7 +191,11 @@ fn pending_interrupt_at_loop_head_breaks_before_any_buffer_and_returns_retry() {
 
     // C:2028 serviced the first interrupt; C:2044 saw the second one pending
     // and broke out; C:2358 serviced it after the (empty) buffer release.
-    assert_eq!(CFI_CALLS.load(Relaxed), 2, "CHECK_FOR_INTERRUPTS before the loop and after it");
+    assert_eq!(
+        CFI_CALLS.load(Relaxed),
+        2,
+        "CHECK_FOR_INTERRUPTS before the loop and after it"
+    );
     assert_eq!(
         READ_BUFFER_CALLS.load(Relaxed),
         0,
@@ -197,7 +204,10 @@ fn pending_interrupt_at_loop_head_breaks_before_any_buffer_and_returns_retry() {
     match r {
         Ok(false) => {}
         Ok(true) => panic!("insertion reported done; C returns false so the caller retries"),
-        Err(e) => panic!("C returns false for a cleared interrupt; got error: {}", e.message()),
+        Err(e) => panic!(
+            "C returns false for a cleared interrupt; got error: {}",
+            e.message()
+        ),
     }
     assert!(
         !init_small::globals::InterruptPending(),

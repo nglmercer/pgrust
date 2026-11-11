@@ -73,7 +73,14 @@ impl Drop for Lease<'_> {
 /// The pool's census: `(open now, budget, opens, reopens, closes, opens past the budget)`.
 pub fn census() -> (usize, usize, u64, u64, u64, u64) {
     let open = pgsync::lock(&POOL).open.len();
-    (open, budget(), OPENS.load(Ordering::Relaxed), REOPENS.load(Ordering::Relaxed), CLOSES.load(Ordering::Relaxed), OVER_BUDGET.load(Ordering::Relaxed))
+    (
+        open,
+        budget(),
+        OPENS.load(Ordering::Relaxed),
+        REOPENS.load(Ordering::Relaxed),
+        CLOSES.load(Ordering::Relaxed),
+        OVER_BUDGET.load(Ordering::Relaxed),
+    )
 }
 
 /// Set the budget (0 = `fd`'s slice for this pool's demand, else [`DEFAULT_BUDGET`]). Lowering it closes idle fds at
@@ -104,7 +111,10 @@ pub fn open(path: &CStr) -> ReadResult<Arc<Slot>> {
     if vfs::fstat(fd, &mut info) != 0 {
         let errno = vfs::get_errno();
         vfs::close(fd);
-        return Err(ReadError::Io { at: "part fstat", errno });
+        return Err(ReadError::Io {
+            at: "part fstat",
+            errno,
+        });
     }
     let slot = Arc::new(Slot {
         path: path.to_owned(),
@@ -161,7 +171,13 @@ fn evict_one(pool: &mut Pool) -> bool {
             continue;
         }
         let s = slot.state.load(Ordering::Acquire);
-        if s & LEASES == 0 && s != CLOSED && slot.state.compare_exchange(s, CLOSED, Ordering::AcqRel, Ordering::Relaxed).is_ok() {
+        if s & LEASES == 0
+            && s != CLOSED
+            && slot
+                .state
+                .compare_exchange(s, CLOSED, Ordering::AcqRel, Ordering::Relaxed)
+                .is_ok()
+        {
             let i = pool.hand;
             close_at(pool, i, s);
             return true;
@@ -204,6 +220,7 @@ impl Slot {
         (self.dev, self.ino)
     }
 
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> u64 {
         self.len
     }
@@ -220,7 +237,10 @@ pub fn lease(slot: &Arc<Slot>) -> ReadResult<Lease<'_>> {
     let mut s = slot.state.load(Ordering::Acquire);
     // bounded("other: a compare-and-swap retry, which repeats only when another thread's lease or close of this slot won the race")
     while let Some(fd) = fd_of(s) {
-        match slot.state.compare_exchange_weak(s, s + 1, Ordering::AcqRel, Ordering::Acquire) {
+        match slot
+            .state
+            .compare_exchange_weak(s, s + 1, Ordering::AcqRel, Ordering::Acquire)
+        {
             Ok(_) => {
                 if !slot.used.load(Ordering::Relaxed) {
                     slot.used.store(true, Ordering::Relaxed);
@@ -247,20 +267,32 @@ fn reopen(slot: &Arc<Slot>) -> ReadResult<Lease<'_>> {
     if vfs::fstat(fd, &mut info) != 0 {
         let errno = vfs::get_errno();
         vfs::close(fd);
-        return Err(ReadError::Io { at: "part reopen fstat", errno });
+        return Err(ReadError::Io {
+            at: "part reopen fstat",
+            errno,
+        });
     }
     // mtime too: a part is never written after its publish, and an inode number reused by a new file at this path
     // (the part dropped, another written) carries the new file's mtime
-    if (info.dev, info.ino, info.size.max(0) as u64, (info.mtime_sec, info.mtime_nsec)) != (slot.dev, slot.ino, slot.len, slot.mtime) {
+    if (
+        info.dev,
+        info.ino,
+        info.size.max(0) as u64,
+        (info.mtime_sec, info.mtime_nsec),
+    ) != (slot.dev, slot.ino, slot.len, slot.mtime)
+    {
         vfs::close(fd);
-        return Err(ReadError::OpenMismatch { field: "part file identity at reopen (dev, ino, len, mtime)" });
+        return Err(ReadError::OpenMismatch {
+            field: "part file identity at reopen (dev, ino, len, mtime)",
+        });
     }
     if crate::io::fadv_random_armed() {
         let _ = vfs::fadvise_random(fd);
     }
     slot.pos.store(pool.open.len(), Ordering::Relaxed);
     slot.used.store(true, Ordering::Relaxed);
-    slot.state.store((((fd as u64) + 1) << 32) | 1, Ordering::Release);
+    slot.state
+        .store((((fd as u64) + 1) << 32) | 1, Ordering::Release);
     pool.open.push(Arc::clone(slot));
     REOPENS.fetch_add(1, Ordering::Relaxed);
     Ok(Lease { slot, fd })

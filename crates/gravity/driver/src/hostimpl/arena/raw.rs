@@ -24,6 +24,7 @@ gravity_abi::host! {
 /// memory. Without a file road (a rig), past G at its size counted as grown (D225), never a refusal while the pool has room;
 /// `None` is the pool's out of memory.
 /// # Safety — `ctx` is bound.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn object_region(ctx: *mut Ctx, bytes: usize) -> Option<crate::RegionBuf> {
     let n = inner_of(ctx);
     // SAFETY: as `Inner::stmt` (null on a worker slot).
@@ -47,6 +48,7 @@ pub unsafe fn object_region(ctx: *mut Ctx, bytes: usize) -> Option<crate::Region
 /// noted refusal is cleared, as a served draw's is (D2845: a later scratch refusal is not named after it). `Ok(None)`: the
 /// session has no file road, the caller's out of memory stands.
 /// # Safety — `ctx` is bound, or null (no statement to clear: a rig).
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn object_map(ctx: *mut Ctx, bytes: usize) -> crate::Result<Option<crate::mem::spill::TempMap>> {
     let Some(mut m) = crate::mem::spill::map_temp(bytes)? else { return Ok(None) };
     crate::mem::spill::note_mapped_past(m.len());
@@ -69,6 +71,7 @@ pub unsafe fn object_map(ctx: *mut Ctx, bytes: usize) -> crate::Result<Option<cr
 /// refused (PostgreSQL's table has no spill road), counted past G on the statement (a worker slot's has none), back when the
 /// hold drops.
 /// # Safety — `ctx` is bound.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn object_overdraw(ctx: *mut Ctx, bytes: u64) -> crate::mem::grant::Held {
     let n = inner_of(ctx);
     // SAFETY: as `Inner::stmt` (null on a worker slot).
@@ -168,6 +171,7 @@ unsafe fn grow_mapped(ctx: *mut Ctx, want: usize) -> i64 {
 /// D225's reserve past both), held by this owner until the statement's end (`spill_epoch` moves, then its pages are
 /// MADV_FREE'd and it parks in the depot, D2687); null when the grant pool refuses.
 /// # Safety — `ctx` is bound.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn spill_region(ctx: *mut Ctx, bytes: usize) -> *mut u8 {
     guarded((*(*ctx).program.ptr()).env.ptr(), || spill_in(ctx, bytes, true, false), |_| core::ptr::null_mut())
 }
@@ -253,6 +257,7 @@ unsafe fn spill_in_as(ctx: *mut Ctx, bytes: usize, zeroed: bool, now: bool, spil
 /// D641: moves each time this owner's spill regions are dropped (the statement's end): a holder of their addresses
 /// forgets them when it changed.
 /// # Safety — `ctx` is bound.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn spill_epoch(ctx: *mut Ctx) -> u64 {
     inner_of(ctx).spill_epoch
 }

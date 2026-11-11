@@ -77,6 +77,7 @@ pub fn DetermineSleepTime() -> i64 {
         if shutdown_stall_armed(shutdown, fatal_error, escalated, pm_state, state_since, stall_bound)
         {
             let seconds = stall_bound - (now_secs() - state_since);
+            #[allow(clippy::manual_clamp)]
             return (seconds * 1000).max(0).min(60 * 1000);
         }
         return 60 * 1000;
@@ -138,14 +139,14 @@ fn now_secs() -> i64 {
 ///   waiting on a child to notice a stop request; it may legitimately take
 ///   minutes on a large buffer pool.
 /// * PM_NO_CHILDREN — the ceremony is over; ExitPostmaster runs from there.
-/// The stall watchdog's state gate: every condition of `shutdown_stall_due`
-/// EXCEPT the elapsed-time test. When this is false the watchdog cannot fire
-/// in the current postmaster state, so `DetermineSleepTime` must not schedule
-/// an early wake for it either — the two must share exactly this gate. (They
-/// diverged once: the wake path checked only `bound`/`state_since`/`escalated`
-/// and fired in steady-state PM_RUN, where `pm_state_since` is stamped at boot
-/// and `shutdown == NoShutdown`; once uptime passed `bound` the wake computed a
-/// 0 ms sleep and the postmaster busy-spun `epoll_pwait(…, 0)` at 100% CPU.)
+///   The stall watchdog's state gate: every condition of `shutdown_stall_due`
+///   EXCEPT the elapsed-time test. When this is false the watchdog cannot fire
+///   in the current postmaster state, so `DetermineSleepTime` must not schedule
+///   an early wake for it either — the two must share exactly this gate. (They
+///   diverged once: the wake path checked only `bound`/`state_since`/`escalated`
+///   and fired in steady-state PM_RUN, where `pm_state_since` is stamped at boot
+///   and `shutdown == NoShutdown`; once uptime passed `bound` the wake computed a
+///   0 ms sleep and the postmaster busy-spun `epoll_pwait(…, 0)` at 100% CPU.)
 pub(crate) fn shutdown_stall_armed(
     shutdown: i32,
     fatal_error: bool,

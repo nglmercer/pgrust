@@ -19,6 +19,7 @@ pub const ELEM_LEN_IDX_DELTA: u8 = 6;
 /// Lane `k` of a site as the site's `ordinal`-th table over code lane `over`: `ptr` the header,
 /// `ncodes` the dictionary's, `aux` = over | elem << 8.
 /// # Safety — `hdr` is a table header.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn publish(hdr: *const Header, ordinal: u32, over: u8, out: &mut Lane) {
     *out = Lane {
         ptr: word(hdr as *const u8),
@@ -60,6 +61,7 @@ unsafe fn header(l: &Lane, elem: u8) -> Option<*const Header> {
 
 impl Bits {
     /// # Safety — a lane the source filled through `publish`.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn from_lane(l: &Lane) -> Option<Bits> {
         header(l, ELEM_BITS).map(|h| Bits::at(h))
     }
@@ -68,6 +70,7 @@ impl Bits {
 impl I64 {
     /// A built table or an index view (`index_len_header`), read alike.
     /// # Safety — a lane the source filled through `publish`.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn from_lane(l: &Lane) -> Option<I64> {
         if !is_table(l) || !matches!(self::elem(l), ELEM_I64 | ELEM_LEN_IDX | ELEM_LEN_IDX_DELTA) {
             return None;
@@ -78,6 +81,7 @@ impl I64 {
 
 impl Hash {
     /// # Safety — a lane the source filled through `publish`.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn from_lane(l: &Lane) -> Option<Hash> {
         header(l, ELEM_HASH).map(|h| Hash::at(h))
     }
@@ -85,6 +89,7 @@ impl Hash {
 
 impl Fp128 {
     /// # Safety — a lane the source filled through `publish`.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn from_lane(l: &Lane) -> Option<Fp128> {
         header(l, ELEM_FP128).map(|h| Fp128::at(h))
     }
@@ -92,6 +97,7 @@ impl Fp128 {
 
 impl Derived {
     /// # Safety — a lane the source filled through `publish`.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn from_lane(l: &Lane) -> Option<Derived> {
         header(l, ELEM_DERIVED).map(|h| Derived::at(h))
     }
@@ -100,6 +106,7 @@ impl Derived {
 impl IdxLen<false> {
     /// The byte-length view alone (the monomorphic loop's source).
     /// # Safety — a lane the source filled through `publish`.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn from_lane(l: &Lane) -> Option<IdxLen<false>> {
         header(l, ELEM_LEN_IDX).filter(|h| (**h).pad[0] == LEN_MODE_BYTES).map(|h| IdxLen::at(h))
     }
@@ -107,6 +114,7 @@ impl IdxLen<false> {
 
 impl IdxLen<true> {
     /// # Safety — a lane the source filled through `publish`.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn from_lane(l: &Lane) -> Option<IdxLen<true>> {
         header(l, ELEM_LEN_IDX_DELTA).map(|h| IdxLen::at(h))
     }

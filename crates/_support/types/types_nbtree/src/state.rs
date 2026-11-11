@@ -148,10 +148,17 @@ impl<'mcx> BTScanPosData<'mcx> {
         if n <= self.items.len() {
             return Ok(());
         }
-        let to = if n <= BT_POS_FEW_ITEMS { BT_POS_FEW_ITEMS } else { MaxTIDsPerBTreePage };
+        let to = if n <= BT_POS_FEW_ITEMS {
+            BT_POS_FEW_ITEMS
+        } else {
+            MaxTIDsPerBTreePage
+        };
         let more = to - self.items.len();
         if self.items.try_reserve_exact(more).is_err() {
-            return Err(self.items.allocator().oom_boxed(more * core::mem::size_of::<BTScanPosItem>()));
+            return Err(self
+                .items
+                .allocator()
+                .oom_boxed(more * core::mem::size_of::<BTScanPosItem>()));
         }
         // SAFETY: capacity >= `to` (reserved above); MaybeUninit items need no initialization.
         unsafe { self.items.set_len(to) };
@@ -223,7 +230,6 @@ pub struct BTArrayKeyInfo<'mcx> {
     pub skip_arg: PgVec<'mcx, u8>,
 }
 
-
 pub struct BTArrayScratch<'mcx> {
     /// _bt_preprocess_array_keys' modified copy of the input keys (C's arrayKeyData).
     pub keys: PgVec<'mcx, ScanKeyData>,
@@ -246,7 +252,10 @@ impl<'mcx> BTArrayScratch<'mcx> {
         }
     }
 
-    pub fn take_elems(spare: &mut PgVec<'mcx, PgVec<'mcx, Datum>>, mcx: Mcx<'mcx>) -> PgVec<'mcx, Datum> {
+    pub fn take_elems(
+        spare: &mut PgVec<'mcx, PgVec<'mcx, Datum>>,
+        mcx: Mcx<'mcx>,
+    ) -> PgVec<'mcx, Datum> {
         match spare.pop() {
             Some(mut v) => {
                 v.clear();

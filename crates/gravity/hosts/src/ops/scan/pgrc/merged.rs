@@ -424,7 +424,7 @@ impl MergedRangeSource {
         }
         // bounded("key-columns: one check per merge key column, at most MAX_KEYS")
         for &k in self.key_lanes.iter() {
-            if (k as u16) >= site.nlanes || gravity_abi::unword(raw::site_lane(site, k as usize).ptr).is_null() {
+            if k >= site.nlanes || gravity_abi::unword(raw::site_lane(site, k as usize).ptr).is_null() {
                 return Err(Error::host("gravity: a merged site's key lane is undecoded"));
             }
         }

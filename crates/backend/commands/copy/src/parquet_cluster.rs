@@ -106,11 +106,11 @@ use backend_progress::progress::{PROGRESS_COPY_BYTES_PROCESSED, PROGRESS_COPY_TU
 
 use pgrc_ingest_par::ParSession;
 use pgrc_write::format::class::ColSchema;
+use pgrc_write::format::class::StorageClass;
 use pgrc_write::ingest::{ColBuffer, NoExternalDetoast, RawDatum};
 use pgrc_write::par::{ColChunk, ParIngestOpts};
 use pgrc_write::structural::{ClusterKeyDecl, NullsOrder, SortDir};
 use pgrc_write::WriteError;
-use pgrc_write::format::class::StorageClass;
 
 use crate::from::CopyFromState;
 use crate::parallel::{parquet_budget_bytes_auto, ptrace, ptrace_enabled, LoadCharge};
@@ -131,7 +131,11 @@ const STASHED: WriteError = WriteError::Contract {
 const RESIDENT_BLOCKS: u64 = 14;
 
 fn est_resident(base: &DecodeShared, file_idx: usize, nkeys: u64) -> u64 {
-    let rows = base.meta.row_groups.get(file_idx).map_or(0, |rg| rg.num_rows.max(0) as u64);
+    let rows = base
+        .meta
+        .row_groups
+        .get(file_idx)
+        .map_or(0, |rg| rg.num_rows.max(0) as u64);
     let natts = base.byval.len() as u64;
     parquet_read::rg_compressed_bytes(&base.meta, file_idx, &base.plan.cols)
         + rows * nkeys * 9
@@ -185,12 +189,27 @@ fn pg_float_cmp(a: f64, b: f64) -> Ord_ {
 fn key_cmp(k: &KeyCol, a: Option<u64>, b: Option<u64>) -> Ord_ {
     let ord = match (a, b) {
         (None, None) => return Ord_::Equal,
-        (None, _) => return if k.nulls == NullsOrder::First { Ord_::Less } else { Ord_::Greater },
-        (_, None) => return if k.nulls == NullsOrder::First { Ord_::Greater } else { Ord_::Less },
+        (None, _) => {
+            return if k.nulls == NullsOrder::First {
+                Ord_::Less
+            } else {
+                Ord_::Greater
+            }
+        }
+        (_, None) => {
+            return if k.nulls == NullsOrder::First {
+                Ord_::Greater
+            } else {
+                Ord_::Less
+            }
+        }
         (Some(x), Some(y)) => match k.class {
             KeyClass::Signed => (x as i64).cmp(&(y as i64)),
             KeyClass::Unsigned => x.cmp(&y),
-            KeyClass::F32 => pg_float_cmp(f32::from_bits(x as u32) as f64, f32::from_bits(y as u32) as f64),
+            KeyClass::F32 => pg_float_cmp(
+                f32::from_bits(x as u32) as f64,
+                f32::from_bits(y as u32) as f64,
+            ),
             KeyClass::F64 => pg_float_cmp(f64::from_bits(x), f64::from_bits(y)),
         },
     };
@@ -333,7 +352,10 @@ impl Group {
     /// Key column `j` (in `KeyCol` order) of the i-th row IN KEY ORDER.
     #[inline]
     fn cell(&self, j: usize, i: usize) -> Option<u64> {
-        lane_cell(&self.keys.get().expect("keys ready before activation")[j], i)
+        lane_cell(
+            &self.keys.get().expect("keys ready before activation")[j],
+            i,
+        )
     }
 
     fn cmp_val(&self, keys: &[KeyCol], i: usize, v: &[Option<u64>]) -> Ord_ {
@@ -397,11 +419,14 @@ impl ChunkSpec {
                 return;
             }
         }
-        self.runs.with_vec(|v| v.push(Run { // alloc: Exec charged self.runs.owner()
-            g: Arc::clone(g),
-            start,
-            n,
-        }));
+        self.runs.with_vec(|v| {
+            v.push(Run {
+                // alloc: Exec charged self.runs.owner()
+                g: Arc::clone(g),
+                start,
+                n,
+            })
+        });
         self.rows += n;
     }
 }
@@ -488,7 +513,10 @@ impl Shared {
     }
 
     fn order(&self) -> &[u64] {
-        self.order.get().map(memledger::ChargedVec::as_slice).unwrap_or(&[])
+        self.order
+            .get()
+            .map(memledger::ChargedVec::as_slice)
+            .unwrap_or(&[])
     }
 }
 
@@ -502,7 +530,8 @@ struct KeyPass {
 
 impl runtime::TaskSetWork for KeyPass {
     fn run_morsel(&self, _worker: usize, range: runtime::MorselRange) {
-        let _acct = memledger::charge::enter_as(memledger::charge::context_of(self.shared.base.acct).0);
+        let _acct =
+            memledger::charge::enter_as(memledger::charge::context_of(self.shared.base.acct).0);
         for seq in range {
             if self.shared.base.cancelled.load(Ordering::SeqCst) {
                 continue;
@@ -510,9 +539,10 @@ impl runtime::TaskSetWork for KeyPass {
             let sh = &self.shared;
             // unwind-ok: worker-containment
             let out = match catch_unwind(AssertUnwindSafe(|| {
-                let mut bindings: memledger::ChargedVec<usize> = memledger::ChargedVec::new(sh.base.owner, memledger::Kind::Region);
+                let mut bindings: memledger::ChargedVec<usize> =
+                    memledger::ChargedVec::new(sh.base.owner, memledger::Kind::Region);
                 bindings.with_vec(|v| v.extend(sh.keys.iter().map(|k| k.binding))); // alloc: Exec charged bindings.owner()
-                // CONVERT W3-2b: the row group's key lanes on the load's owner while the pre-pass scans them
+                                                                                    // CONVERT W3-2b: the row group's key lanes on the load's owner while the pre-pass scans them
                 let mut kc = HeldCharge::new(sh.base.owner);
                 let owned: Vec<Lane> = sh
                     .base
@@ -521,7 +551,8 @@ impl runtime::TaskSetWork for KeyPass {
                     .map(|(words, nulls)| Lane::Words { words, nulls })
                     .collect(); // alloc: Exec charged kc
                 kc.sync(lanes_held(&owned));
-                let mut lanes: memledger::ChargedVec<&Lane> = memledger::ChargedVec::new(sh.base.owner, memledger::Kind::Region);
+                let mut lanes: memledger::ChargedVec<&Lane> =
+                    memledger::ChargedVec::new(sh.base.owner, memledger::Kind::Region);
                 lanes.with_vec(|v| v.extend(owned.iter())); // alloc: Exec charged lanes.owner()
                 let n = match owned.first() {
                     Some(Lane::Words { words, .. }) => words.len(),
@@ -566,7 +597,11 @@ fn push_raw(frag: &mut Fragment, row: &[RawDatum<'_>]) {
                     nulls.push(true); // alloc: Exec charged frag.charge
                 }
             },
-            Lane::Blobs { arena, spans, nulls } => match d {
+            Lane::Blobs {
+                arena,
+                spans,
+                nulls,
+            } => match d {
                 RawDatum::Bytes(b) => {
                     let off = arena.len() as u32;
                     arena.extend_from_slice(b); // alloc: Exec charged frag.charge
@@ -587,9 +622,10 @@ fn push_raw(frag: &mut Fragment, row: &[RawDatum<'_>]) {
 /// order is decoded whole here and sliced into key-order blocks.
 fn decode_keys(sh: &Shared, g: &Group) -> PgResult<()> {
     let base = &sh.base;
-    let mut bindings: memledger::ChargedVec<usize> = memledger::ChargedVec::new(base.owner, memledger::Kind::Region);
+    let mut bindings: memledger::ChargedVec<usize> =
+        memledger::ChargedVec::new(base.owner, memledger::Kind::Region);
     bindings.with_vec(|v| v.extend(sh.keys.iter().map(|k| k.binding))); // alloc: Exec charged bindings.owner()
-    // CONVERT W3-2b: the group's key lanes on the load's owner for the group's life (the charge moves into the group)
+                                                                        // CONVERT W3-2b: the group's key lanes on the load's owner for the group's life (the charge moves into the group)
     let mut kc = HeldCharge::new(base.owner);
     let mut lanes: Vec<Lane> = base
         .decode_words(g.file_idx, &bindings, &mut kc)?
@@ -598,7 +634,8 @@ fn decode_keys(sh: &Shared, g: &Group) -> PgResult<()> {
         .collect(); // alloc: Exec charged kc
     kc.sync(lanes_held(&lanes));
     let perm = {
-        let mut refs: memledger::ChargedVec<&Lane> = memledger::ChargedVec::new(base.owner, memledger::Kind::Region);
+        let mut refs: memledger::ChargedVec<&Lane> =
+            memledger::ChargedVec::new(base.owner, memledger::Kind::Region);
         refs.with_vec(|v| v.extend(lanes.iter())); // alloc: Exec charged refs.owner()
         sort_perm(&sh.keys, &refs, g.rows as usize) // alloc: Exec charged kc
     };
@@ -608,7 +645,8 @@ fn decode_keys(sh: &Shared, g: &Group) -> PgResult<()> {
         let whole = base.decode_whole(g.file_idx)?;
         let natts = base.byval.len();
         let nb = g.nblocks(sh.block);
-        let mut blocks: Vec<Option<Arc<Block>>> = ::mcx::stdvec::try_vec(nb as usize, "parquet_cluster")?;
+        let mut blocks: Vec<Option<Arc<Block>>> =
+            ::mcx::stdvec::try_vec(nb as usize, "parquet_cluster")?;
         let mut row: Vec<RawDatum<'_>> = ::mcx::stdvec::try_vec(natts, "parquet_cluster")?;
         for b in 0..nb {
             let lo = b * sh.block;
@@ -672,7 +710,11 @@ impl DecodeTurn {
                 return false;
             }
             let next = if s == TURN_IDLE { TURN_RUN } else { TURN_RERUN };
-            if self.0.compare_exchange(s, next, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+            if self
+                .0
+                .compare_exchange(s, next, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
                 return s == TURN_IDLE;
             }
         }
@@ -680,7 +722,10 @@ impl DecodeTurn {
 
     /// The owner ended a pass: true = a demand arrived meanwhile (decode again, still owning the turn).
     fn leave(&self) -> bool {
-        match self.0.compare_exchange(TURN_RUN, TURN_IDLE, Ordering::SeqCst, Ordering::SeqCst) {
+        match self
+            .0
+            .compare_exchange(TURN_RUN, TURN_IDLE, Ordering::SeqCst, Ordering::SeqCst)
+        {
             Ok(_) => false,
             Err(_) => {
                 self.0.store(TURN_RUN, Ordering::SeqCst);
@@ -737,15 +782,22 @@ fn decode_pass(sh: &Shared, g: &Group, b: u32) -> PgResult<()> {
             &base.plan.vutf8,
             base.owner,
         )?;
-        base.bytes_read.fetch_add(reader.compressed_bytes, Ordering::Relaxed);
+        base.bytes_read
+            .fetch_add(reader.compressed_bytes, Ordering::Relaxed);
         let batches = base.plan.make_batches(&base.meta);
-        *cur = Some(Cursor { charge: HeldCharge::new(base.owner), reader, batches });
+        *cur = Some(Cursor {
+            charge: HeldCharge::new(base.owner),
+            reader,
+            batches,
+        });
     }
     let c = cur.as_mut().expect("opened");
     const BATCH_ROWS: usize = 1024;
     while g.decoded.load(Ordering::SeqCst) < g.demanded.load(Ordering::SeqCst).max(b + 1) {
         if base.cancelled.load(Ordering::SeqCst) {
-            return Err(Box::new(PgError::error("parquet parallel decode cancelled".to_string()))); // alloc: Cold
+            return Err(Box::new(PgError::error(
+                "parquet parallel decode cancelled".to_string(),
+            ))); // alloc: Cold
         }
         let want = (c.reader.rows_remaining().min(u64::from(sh.block))) as usize;
         let mut frag = Fragment::empty(natts, &base.byval, want, base.owner)?;
@@ -760,7 +812,11 @@ fn decode_pass(sh: &Shared, g: &Group, b: u32) -> PgResult<()> {
         {
             let mut t = lock(&g.blocks);
             if t.is_empty() {
-                ::mcx::stdvec::try_reserve_more(&mut t, g.nblocks(sh.block) as usize, "parquet_cluster")?;
+                ::mcx::stdvec::try_reserve_more(
+                    &mut t,
+                    g.nblocks(sh.block) as usize,
+                    "parquet_cluster",
+                )?;
                 t.extend(core::iter::repeat_with(|| None).take(g.nblocks(sh.block) as usize));
             }
             t[idx as usize] = Some(Block::new(frag, &sh.live));
@@ -776,7 +832,8 @@ struct DecodePass {
 
 impl runtime::TaskSetWork for DecodePass {
     fn run_morsel(&self, _worker: usize, range: runtime::MorselRange) {
-        let _acct = memledger::charge::enter_as(memledger::charge::context_of(self.shared.base.acct).0);
+        let _acct =
+            memledger::charge::enter_as(memledger::charge::context_of(self.shared.base.acct).0);
         for id in range {
             let sh = &self.shared;
             let d = lock(&sh.demands)[id as usize].take();
@@ -786,8 +843,14 @@ impl runtime::TaskSetWork for DecodePass {
             }
             let (fseq, r) = match &d {
                 // unwind-ok: worker-containment
-                Demand::Keys(g) => (g.fseq, catch_unwind(AssertUnwindSafe(|| decode_keys(sh, g)))),
-                Demand::Block(g, b) => (g.fseq, catch_unwind(AssertUnwindSafe(|| decode_block(sh, g, *b)))),
+                Demand::Keys(g) => (
+                    g.fseq,
+                    catch_unwind(AssertUnwindSafe(|| decode_keys(sh, g))),
+                ),
+                Demand::Block(g, b) => (
+                    g.fseq,
+                    catch_unwind(AssertUnwindSafe(|| decode_block(sh, g, *b))),
+                ),
             };
             let fail = match r {
                 Ok(Ok(())) => None,
@@ -810,6 +873,7 @@ impl runtime::TaskSetWork for DecodePass {
 struct BuildPass {
     shared: Arc<Shared>,
     natts: usize,
+    #[allow(dead_code)]
     grain: u32,
 }
 
@@ -827,14 +891,21 @@ impl BuildPass {
             });
         }
         let block = self.shared.block;
-        let mut segs: memledger::ChargedVec<(&Fragment, usize, usize)> = memledger::ChargedVec::new(self.shared.base.owner, memledger::Kind::Region);
+        let mut segs: memledger::ChargedVec<(&Fragment, usize, usize)> =
+            memledger::ChargedVec::new(self.shared.base.owner, memledger::Kind::Region);
         for run in spec.runs.iter() {
             let (mut r, end) = (run.start, run.start + run.n);
             while r < end {
                 let b = r / block;
                 let hi = end.min((b + 1) * block);
                 let blk = &run.blocks[(b - run.b0) as usize];
-                segs.with_vec(|v| v.push((&blk.frag, (r - b * block) as usize, (hi - b * block) as usize))); // alloc: Exec charged segs.owner()
+                segs.with_vec(|v| {
+                    v.push((
+                        &blk.frag,
+                        (r - b * block) as usize,
+                        (hi - b * block) as usize,
+                    ))
+                }); // alloc: Exec charged segs.owner()
                 r = hi;
             }
         }
@@ -866,10 +937,20 @@ impl BuildPass {
             col.reserve_rows(rows, bytes)?;
             for &(frag, lo, hi) in segs.iter() {
                 match &frag.lanes[c] {
-                    Lane::Words { words, nulls } => col.append_word_lane(&words[lo..hi], &nulls[lo..hi])?,
-                    Lane::Blobs { arena, spans, nulls } => {
-                        col.append_image_lane(arena, &spans[lo..hi], &nulls[lo..hi], &mut ext, &mut scratch)?
+                    Lane::Words { words, nulls } => {
+                        col.append_word_lane(&words[lo..hi], &nulls[lo..hi])?
                     }
+                    Lane::Blobs {
+                        arena,
+                        spans,
+                        nulls,
+                    } => col.append_image_lane(
+                        arena,
+                        &spans[lo..hi],
+                        &nulls[lo..hi],
+                        &mut ext,
+                        &mut scratch,
+                    )?,
                 }
             }
             if self.shared.utf8[c] {
@@ -892,7 +973,11 @@ fn gather_row<'a>(frag: &'a Fragment, r: usize, natts: usize, row: &mut Vec<RawD
                     RawDatum::Word(words[r])
                 }
             }
-            Lane::Blobs { arena, spans, nulls } => {
+            Lane::Blobs {
+                arena,
+                spans,
+                nulls,
+            } => {
                 if nulls[r] {
                     RawDatum::Null
                 } else {
@@ -906,7 +991,8 @@ fn gather_row<'a>(frag: &'a Fragment, r: usize, natts: usize, row: &mut Vec<RawD
 
 impl runtime::TaskSetWork for BuildPass {
     fn run_morsel(&self, _worker: usize, range: runtime::MorselRange) {
-        let _acct = memledger::charge::enter_as(memledger::charge::context_of(self.shared.base.acct).0);
+        let _acct =
+            memledger::charge::enter_as(memledger::charge::context_of(self.shared.base.acct).0);
         for id in range {
             if self.shared.base.cancelled.load(Ordering::SeqCst) {
                 continue;
@@ -1038,7 +1124,9 @@ fn resolve_keys(rel: &Relation<'_>, base: &DecodeShared) -> PgResult<Option<Vec<
         };
         let class = match schema.class {
             StorageClass::ByvalWord { signed: true, .. } => KeyClass::Signed,
-            StorageClass::ByvalWord { signed: false, .. } | StorageClass::Bool => KeyClass::Unsigned,
+            StorageClass::ByvalWord { signed: false, .. } | StorageClass::Bool => {
+                KeyClass::Unsigned
+            }
             StorageClass::F32 => KeyClass::F32,
             StorageClass::F64 => KeyClass::F64,
             _ => {
@@ -1076,7 +1164,9 @@ fn cluster_budget(workers: usize) -> u64 {
         Some(h) => base.max(h / 2),
         None => base,
     };
-    crate::parallel::load_room_now().map_or(budget, |room| budget.min(mempolicy::load::load_window(room)))
+    crate::parallel::load_room_now().map_or(budget, |room| {
+        budget.min(mempolicy::load::load_window(room))
+    })
 }
 
 /// The merge entry, called by the file-order driver after its own
@@ -1102,8 +1192,15 @@ pub(crate) fn copy_clustered<'mcx>(
     let n_rgs = base.rg_order.len() as u64;
     let t0 = std::time::Instant::now();
     // CONVERT c2: the per-row-group residency estimates (8 B each) on the load's owner for the merge's life
-    let mut est: memledger::ChargedVec<u64> = memledger::ChargedVec::new(base.owner, memledger::Kind::Region);
-    est.with_vec(|v| v.extend(base.rg_order.iter().map(|&i| est_resident(base, i, keys.len() as u64)))); // alloc: Exec charged est.owner()
+    let mut est: memledger::ChargedVec<u64> =
+        memledger::ChargedVec::new(base.owner, memledger::Kind::Region);
+    est.with_vec(|v| {
+        v.extend(
+            base.rg_order
+                .iter()
+                .map(|&i| est_resident(base, i, keys.len() as u64)),
+        )
+    }); // alloc: Exec charged est.owner()
     let mut utf8 = ::mcx::stdvec::try_filled(base.byval.len(), false, "parquet_cluster")?;
     for b in base.plan.bindings.iter() {
         utf8[b.attidx] = base.plan.vutf8[b.batch];
@@ -1124,7 +1221,10 @@ pub(crate) fn copy_clustered<'mcx>(
             built: BTreeMap::new(),
             wakers: memledger::ChargedVec::new(base.owner, memledger::Kind::Region),
         }),
-        demands: Mutex::new(memledger::ChargedVec::new(base.owner, memledger::Kind::Region)),
+        demands: Mutex::new(memledger::ChargedVec::new(
+            base.owner,
+            memledger::Kind::Region,
+        )),
         live: Arc::new(AtomicU64::new(0)),
         window: AtomicU64::new(0),
     });
@@ -1158,7 +1258,8 @@ pub(crate) fn copy_clustered<'mcx>(
             }
             let mut g = lock(&shared.boards);
             let all = core::mem::take(&mut g.bounds);
-            let mut out = ::mcx::stdvec::try_vec(n_rgs as usize, "parquet_cluster").map_err(KeyErr::Oom)?;
+            let mut out =
+                ::mcx::stdvec::try_vec(n_rgs as usize, "parquet_cluster").map_err(KeyErr::Oom)?;
             for (seq, o) in all {
                 match o {
                     Out::Done(b) => out.push(b),
@@ -1171,7 +1272,9 @@ pub(crate) fn copy_clustered<'mcx>(
         match r {
             Ok(b) => b,
             Err(KeyErr::Failed(f, detail)) => {
-                ptrace(&format!("pgrc-cluster key pass failed at rg seq {f}: serial replay 0..={f}")); // alloc: Cold
+                ptrace(&format!(
+                    "pgrc-cluster key pass failed at rg seq {f}: serial replay 0..={f}"
+                )); // alloc: Cold
                 return match replay_upto(mcx, cstate, rel, base, f) {
                     Err(e) => Err(e),
                     Ok(()) => Err(Box::new(PgError::error(format!( // alloc: Cold
@@ -1181,7 +1284,9 @@ pub(crate) fn copy_clustered<'mcx>(
             }
             Err(KeyErr::Oom(e)) => return Err(e),
             Err(KeyErr::Interrupted) => {
-                return Err(stash.take().unwrap_or_else(|| pgrc_am::write_error(STASHED)))
+                return Err(stash
+                    .take()
+                    .unwrap_or_else(|| pgrc_am::write_error(STASHED)))
             }
         }
     };
@@ -1190,7 +1295,8 @@ pub(crate) fn copy_clustered<'mcx>(
     // ---- 2. Plan: decode order by lower bound; interval depth vs budget. ----
     let keys = &shared.keys[..];
     // CONVERT c2: the decode order (8 B per row group) on the load's owner; the plan hands it to `Shared::order`
-    let mut order: memledger::ChargedVec<u64> = memledger::ChargedVec::new(base.owner, memledger::Kind::Region);
+    let mut order: memledger::ChargedVec<u64> =
+        memledger::ChargedVec::new(base.owner, memledger::Kind::Region);
     order.with_vec(|v| {
         v.extend(0..n_rgs); // alloc: Exec charged order.owner()
         v.sort_by(|&a, &b| {
@@ -1198,7 +1304,8 @@ pub(crate) fn copy_clustered<'mcx>(
         });
     });
     // Sweep: (key, +1 activations before −1 releases at equal keys).
-    let mut events: memledger::ChargedVec<(&KeyVal, i32, u64)> = memledger::ChargedVec::new(base.owner, memledger::Kind::Region);
+    let mut events: memledger::ChargedVec<(&KeyVal, i32, u64)> =
+        memledger::ChargedVec::new(base.owner, memledger::Kind::Region);
     events.with_vec(|v| -> PgResult<()> {
         *v = ::mcx::stdvec::try_vec(2 * n_rgs as usize, "parquet_cluster")?;
         Ok(())
@@ -1207,7 +1314,13 @@ pub(crate) fn copy_clustered<'mcx>(
         events.with_vec(|v| v.push((&bounds[s as usize].0, 1, s))); // alloc: Exec charged events.owner()
         events.with_vec(|v| v.push((&bounds[s as usize].1, -1, s))); // alloc: Exec charged events.owner()
     }
-    events.with_vec(|v| v.sort_by(|a, b| composite_cmp(keys, a.0, b.0).then(b.1.cmp(&a.1)).then(a.2.cmp(&b.2)))); // alloc: Exec charged events.owner()
+    events.with_vec(|v| {
+        v.sort_by(|a, b| {
+            composite_cmp(keys, a.0, b.0)
+                .then(b.1.cmp(&a.1))
+                .then(a.2.cmp(&b.2))
+        })
+    }); // alloc: Exec charged events.owner()
     let (mut depth, mut max_depth, mut depth_bytes, mut max_bytes) = (0i64, 0i64, 0u64, 0u64);
     for (_, d, s) in events.iter() {
         depth += i64::from(*d);
@@ -1263,32 +1376,51 @@ pub(crate) fn copy_clustered<'mcx>(
     let bstream = Arc::clone(&build.stream);
     let mut fail: Option<(u64, String)> = None;
     let mut counters = Counters::default();
-    let fed: PgResult<u64> = pgrc_am::ingest::with_parallel_copy_writer(rel, |writer, providers| {
-        let r = pgrc_ingest_par::parallel_ingest(writer, rt, providers, ParIngestOpts::auto(), |sess| {
-            let _guard = Drain {
+    let fed: PgResult<u64> =
+        pgrc_am::ingest::with_parallel_copy_writer(rel, |writer, providers| {
+            let r = pgrc_ingest_par::parallel_ingest(
+                writer,
                 rt,
-                shared: &shared,
-                passes: vec![&mut decode, &mut build],
-            };
-            let fed = merge_feed(
-                cstate, &shared, &dstream, &bstream, rt, sess, &bounds, &mut stash, &mut fail, &mut counters,
-            );
-            let (peak, waits, ms) = sess.memory_report();
-            ptrace(&format!( // alloc: Cold
+                providers,
+                ParIngestOpts::auto(),
+                |sess| {
+                    let _guard = Drain {
+                        rt,
+                        shared: &shared,
+                        passes: vec![&mut decode, &mut build],
+                    };
+                    let fed = merge_feed(
+                        cstate,
+                        &shared,
+                        &dstream,
+                        &bstream,
+                        rt,
+                        sess,
+                        &bounds,
+                        &mut stash,
+                        &mut fail,
+                        &mut counters,
+                    );
+                    let (peak, waits, ms) = sess.memory_report();
+                    ptrace(&format!( // alloc: Cold
                 "pgrc-cluster memory peak_held={peak} gate_waits={waits} gate_ms={ms} load_peak={}",
                 memledger::LOAD_IN_FLIGHT.peak()
             ));
-            fed
+                    fed
+                },
+            );
+            r.map_err(|we| stash.take().unwrap_or_else(|| pgrc_am::write_error(we)))
         });
-        r.map_err(|we| stash.take().unwrap_or_else(|| pgrc_am::write_error(we)))
-    });
     late_fail(&shared.boards, &mut fail);
     // A decode failure: byte-exact error parity through the serial replay.
     if let Some((f, detail)) = fail {
-        ptrace(&format!("pgrc-cluster decode failed at rg seq {f}: serial replay 0..={f}")); // alloc: Cold
+        ptrace(&format!(
+            "pgrc-cluster decode failed at rg seq {f}: serial replay 0..={f}"
+        )); // alloc: Cold
         return match replay_upto(mcx, cstate, rel, base, f) {
             Err(e) => Err(e),
-            Ok(()) => Err(Box::new(PgError::error(format!( // alloc: Cold
+            Ok(()) => Err(Box::new(PgError::error(format!(
+                // alloc: Cold
                 "parquet cluster decode failed but the serial replay found no error: {detail}"
             )))),
         };
@@ -1454,7 +1586,8 @@ fn merge_feed<'mcx>(
     let mut schema = pgrc_write::format::try_vec(sess.schema().len(), "parquet_cluster")?;
     schema.extend_from_slice(sess.schema());
     let _ = shared.schema.set(schema);
-    ptrace(&format!( // alloc: Cold
+    ptrace(&format!(
+        // alloc: Cold
         "pgrc-cluster feed parts_in_flight={} chunks_in_flight={} build_ahead={build_ahead}",
         sess.opts().max_parts_in_flight,
         sess.opts().max_chunks_in_flight
@@ -1463,33 +1596,39 @@ fn merge_feed<'mcx>(
     // Groups by decode seq; taken at activation (the specs keep what they need).
     let mut groups: memledger::ChargedVec<Option<Arc<Group>>> =
         memledger::ChargedVec::new(shared.base.owner, memledger::Kind::Region);
-    groups.with_vec(|v| v.extend(order // alloc: Exec charged groups.owner()
-        .iter()
-        .map(|&fseq| {
-            let file_idx = shared.rg_file_idx(fseq);
-            Some(Arc::new(Group {
-                fseq,
-                file_idx,
-                rows: shared.base.meta.row_groups[file_idx].num_rows.max(0) as u32,
-                keys_charge: OnceLock::new(),
-                keys: OnceLock::new(),
-                resorted: AtomicBool::new(false),
-                blocks: Mutex::new(Vec::new()),
-                cursor: Mutex::new(None),
-                turn: DecodeTurn::new(),
-                decoded: AtomicU32::new(0),
-                demanded: AtomicU32::new(0),
-                target: AtomicU32::new(0),
-                evicted: AtomicU32::new(0),
-            }))
-        })));
+    groups.with_vec(|v| {
+        v.extend(
+            order // alloc: Exec charged groups.owner()
+                .iter()
+                .map(|&fseq| {
+                    let file_idx = shared.rg_file_idx(fseq);
+                    Some(Arc::new(Group {
+                        fseq,
+                        file_idx,
+                        rows: shared.base.meta.row_groups[file_idx].num_rows.max(0) as u32,
+                        keys_charge: OnceLock::new(),
+                        keys: OnceLock::new(),
+                        resorted: AtomicBool::new(false),
+                        blocks: Mutex::new(Vec::new()),
+                        cursor: Mutex::new(None),
+                        turn: DecodeTurn::new(),
+                        decoded: AtomicU32::new(0),
+                        demanded: AtomicU32::new(0),
+                        target: AtomicU32::new(0),
+                        evicted: AtomicU32::new(0),
+                    }))
+                }),
+        )
+    });
     let mut keys_demanded: u64 = 0;
     let mut next_pending: u64 = 0;
-    let mut active: memledger::ChargedVec<Active> = memledger::ChargedVec::new(shared.base.owner, memledger::Kind::Region);
+    let mut active: memledger::ChargedVec<Active> =
+        memledger::ChargedVec::new(shared.base.owner, memledger::Kind::Region);
     // Exhausted groups whose last blocks are still to be demanded: the
     // cursor's in-flight cap means the merge can outrun the demands, and a
     // spec waiting on an undemanded block would wait forever.
-    let mut draining: memledger::ChargedVec<Arc<Group>> = memledger::ChargedVec::new(shared.base.owner, memledger::Kind::Region);
+    let mut draining: memledger::ChargedVec<Arc<Group>> =
+        memledger::ChargedVec::new(shared.base.owner, memledger::Kind::Region);
     let mut cur = ChunkSpec::new(shared.base.owner);
     let mut waiting: VecDeque<(u64, ChunkSpec)> = VecDeque::new();
     let mut emitted_chunks: u64 = 0;
@@ -1502,7 +1641,12 @@ fn merge_feed<'mcx>(
     loop {
         // D3808: the window's blocks still to come count as resident at the
         // engine's memory gate: they arrive whatever the gate decides.
-        sess.set_ahead(shared.window.load(Ordering::Relaxed).saturating_sub(shared.live.load(Ordering::Relaxed)));
+        sess.set_ahead(
+            shared
+                .window
+                .load(Ordering::Relaxed)
+                .saturating_sub(shared.live.load(Ordering::Relaxed)),
+        );
         if ptrace_enabled() && counters.chunks >= traced_at + MEM_TRACE_CHUNKS {
             traced_at = counters.chunks;
             mem_trace(sess, shared);
@@ -1532,10 +1676,12 @@ fn merge_feed<'mcx>(
         for a in active.iter() {
             pump(shared, decode_stream, rt, &a.g);
         }
-        draining.with_vec(|v| v.retain(|g| {
-            pump(shared, decode_stream, rt, g);
-            g.demanded.load(Ordering::SeqCst) < g.nblocks(shared.block)
-        }));
+        draining.with_vec(|v| {
+            v.retain(|g| {
+                pump(shared, decode_stream, rt, g);
+                g.demanded.load(Ordering::SeqCst) < g.nblocks(shared.block)
+            })
+        });
         for i in next_pending..(next_pending + PENDING_AHEAD).min(n_rgs) {
             if let Some(g) = groups[i as usize].as_ref() {
                 if g.keys.get().is_some() {
@@ -1563,7 +1709,9 @@ fn merge_feed<'mcx>(
                 if !due {
                     break;
                 }
-                let ready = groups[next_pending as usize].as_ref().is_some_and(|g| g.keys.get().is_some());
+                let ready = groups[next_pending as usize]
+                    .as_ref()
+                    .is_some_and(|g| g.keys.get().is_some());
                 if !ready {
                     stalled = true;
                     break;
@@ -1584,7 +1732,10 @@ fn merge_feed<'mcx>(
                 if next_pending >= n_rgs {
                     merge_done = true;
                     if cur.rows > 0 {
-                        tail = Some(core::mem::replace(&mut cur, ChunkSpec::new(shared.base.owner)));
+                        tail = Some(core::mem::replace(
+                            &mut cur,
+                            ChunkSpec::new(shared.base.owner),
+                        ));
                     }
                 }
                 break;
@@ -1598,8 +1749,12 @@ fn merge_feed<'mcx>(
                     ru = Some(i);
                 }
             }
-            let mut bound: Option<(KeyVal, u64)> =
-                ru.map(|r| (active[r].g.val(keys, active[r].pos as usize), active[r].g.fseq));
+            let mut bound: Option<(KeyVal, u64)> = ru.map(|r| {
+                (
+                    active[r].g.val(keys, active[r].pos as usize),
+                    active[r].g.fseq,
+                )
+            });
             if next_pending < n_rgs {
                 let fseq = order[next_pending as usize];
                 let v = &bounds[fseq as usize].0;
@@ -1690,7 +1845,8 @@ fn merge_feed<'mcx>(
             match got {
                 None => break,
                 Some(Out::Failed(detail)) => {
-                    *stash = Some(Box::new(PgError::error(format!( // alloc: Cold
+                    *stash = Some(Box::new(PgError::error(format!(
+                        // alloc: Cold
                         "parquet cluster chunk build failed: {detail}"
                     ))));
                     return Err(STASHED);
@@ -1724,9 +1880,11 @@ fn merge_feed<'mcx>(
                     park(shared, stash)?;
                     continue;
                 }
-                let mut runs: memledger::ChargedVec<ResolvedRun> = memledger::ChargedVec::new(shared.base.owner, memledger::Kind::Region);
+                let mut runs: memledger::ChargedVec<ResolvedRun> =
+                    memledger::ChargedVec::new(shared.base.owner, memledger::Kind::Region);
                 runs.with_vec(|v| v.extend(t.runs.iter().map(|r| resolve_run(shared, r)))); // alloc: Exec charged runs.owner()
-                let mut row: Vec<RawDatum<'_>> = pgrc_write::format::try_vec(natts, "parquet_cluster")?;
+                let mut row: Vec<RawDatum<'_>> =
+                    pgrc_write::format::try_vec(natts, "parquet_cluster")?;
                 for run in runs.iter() {
                     for r in run.start..run.start + run.n {
                         let blk = &run.blocks[(r / shared.block - run.b0) as usize];
@@ -1757,7 +1915,6 @@ fn min_active(keys: &[KeyCol], active: &[Active]) -> Option<usize> {
     best
 }
 
-
 #[cfg(test)]
 mod late_fail_tests {
     //! D4919: [`late_fail`] over the leader's boards after the passes drained.
@@ -1783,7 +1940,11 @@ mod late_fail_tests {
         assert_eq!(fail, None, "no failure on the boards: the load stands");
         lock(&b).fails.insert(7, "decode failed".to_string());
         late_fail(&b, &mut fail);
-        assert_eq!(fail, Some((7, "decode failed".to_string())), "a failure posted after the leader's last look fails the load");
+        assert_eq!(
+            fail,
+            Some((7, "decode failed".to_string())),
+            "a failure posted after the leader's last look fails the load"
+        );
     }
 
     #[test]
@@ -1830,7 +1991,9 @@ mod decode_turn_tests {
 
     impl Turn for TryLockDrop {
         fn enter(&self) -> bool {
-            self.0.compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst).is_ok()
+            self.0
+                .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
         }
         fn leave(&self) -> bool {
             self.0.store(0, Ordering::SeqCst);
@@ -1921,8 +2084,15 @@ mod decode_turn_tests {
         for r in 0..300 {
             let turn = DecodeTurn::new();
             let got = round(&turn, 64);
-            assert_eq!(got, 64, "round {r}: a demand was lost ({got} of 64 blocks decoded)");
-            assert_eq!(turn.0.load(Ordering::SeqCst), TURN_IDLE, "round {r}: the turn is idle at the end");
+            assert_eq!(
+                got, 64,
+                "round {r}: a demand was lost ({got} of 64 blocks decoded)"
+            );
+            assert_eq!(
+                turn.0.load(Ordering::SeqCst),
+                TURN_IDLE,
+                "round {r}: the turn is idle at the end"
+            );
         }
     }
 
@@ -1950,7 +2120,10 @@ mod decode_turn_tests {
     fn a_failed_pass_closes_the_turn() {
         let t = DecodeTurn::new();
         assert!(t.enter(), "the first demand takes the turn");
-        assert!(!t.enter(), "a demand during the pass leaves it to the owner");
+        assert!(
+            !t.enter(),
+            "a demand during the pass leaves it to the owner"
+        );
         drop(super::TurnGuard(&t));
         assert!(!t.enter(), "a demand after a failed pass decodes nothing");
         assert!(!t.enter(), "nor does the next one");
@@ -1960,15 +2133,24 @@ mod decode_turn_tests {
     fn a_late_first_demand_is_not_a_lost_demand() {
         let turn = LateEnter(DecodeTurn::new(), AtomicBool::new(false));
         let got = round(&turn, 4);
-        assert_eq!(got, 4, "a late first demand was taken for a lost one ({got} of 4 blocks decoded)");
-        assert_eq!(turn.0 .0.load(Ordering::SeqCst), TURN_IDLE, "the turn is idle at the end");
+        assert_eq!(
+            got, 4,
+            "a late first demand was taken for a lost one ({got} of 4 blocks decoded)"
+        );
+        assert_eq!(
+            turn.0 .0.load(Ordering::SeqCst),
+            TURN_IDLE,
+            "the turn is idle at the end"
+        );
     }
 
     /// Born-red witness for the test above: the naive try_lock protocol does lose demands under the same rounds
     /// (so the test can see the race it guards).
     #[test]
     fn naive_try_lock_loses_a_demand_under_the_same_rounds() {
-        let lost = (0..300).filter(|_| round(&TryLockDrop(AtomicU32::new(0)), 64) < 64).count();
+        let lost = (0..300)
+            .filter(|_| round(&TryLockDrop(AtomicU32::new(0)), 64) < 64)
+            .count();
         eprintln!("NTURN naive try_lock lost a demand in {lost} of 300 rounds");
         assert!(lost > 0, "the harness never hit the hand-over window: it cannot tell a lossy protocol from a sound one");
     }

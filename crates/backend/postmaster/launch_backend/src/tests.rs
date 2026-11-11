@@ -320,11 +320,13 @@ fn i1_backend_crash_resolves_through_firewall_seam() {
 /// backend panic — every session dies at once, with none of C's crash
 /// restart. The firewall only exists if the build unwinds.
 #[test]
+#[allow(clippy::assertions_on_constants, unused_attributes)]
 fn i2_build_is_panic_unwind_not_abort() {
     assert!(
         cfg!(panic = "unwind"),
         "the backend crash firewall requires panic=unwind"
     );
+    #[allow(unused_attributes)]
     assert!(
         !cfg!(panic = "abort"),
         "panic=abort breaks the I-1 backend crash firewall (I-2 P0 hazard #1)"

@@ -74,6 +74,7 @@ impl<'g> Gx<'g, '_> {
     /// arms, a sink or an end whose arms continue, a tail op the probe cannot run as its own) and join/drain_spool.rs
     /// names no reason. join/build_spill.rs pairs no spill with it (the pair would remake the probe's end).
     pub(crate) fn spooled_drain(&self, k: usize) -> Option<(usize, usize)> {
+        #[allow(clippy::question_mark)]
         let Some(m) = breaker_of(&self.pipelines()[k].desc) else { return None };
         if self.end_maker(k) != KindId::JoinDrain {
             return None;
@@ -749,6 +750,7 @@ fn end<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn EndMech + 'g> {
         crate::refuse!(node, Reason::Shape { why: ShapeWhy(USER_KEY) });
     }
     // the first arm may be a FunctionScan PG fetches before it builds (arms.rs `fetched_arm`)
+    #[allow(clippy::nonminimal_bool)]
     if run.is_some_and(|(f, l)| !gx.quiet_drain_arms(f, l) && !(gx.fetched_arm(f) && gx.quiet_drain_arms(f + 1, l))) {
         crate::refuse!(node, Reason::Shape { why: ShapeWhy(LOUD_ARM) });
     }
@@ -887,7 +889,7 @@ fn end<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn EndMech + 'g> {
     // the probe's descriptor consumes its own slots, then those the tail's probes read (their builds precede the probe); a
     // probe that is itself a spooled drain's reader (a drain under a drain) reads its spool last (spool.rs's `DrainReader`
     // made its ops' slot indexes so), so its own slots keep that order
-    let mut consumes: mcx::PgVec<'g, u8> = mcx::to_vec_in(&gx.pipelines()[k].desc.consumes[..], px.mcx());
+    let mut consumes: mcx::PgVec<'g, u8> = mcx::to_vec_in(gx.pipelines()[k].desc.consumes, px.mcx());
     if let Some(Op::Join(JoinDesc::Drain { matches, .. })) = spooled_probe(gx, k).map(|(_, jk)| &gx.pipelines()[k].ops[jk]) {
         consumes.retain(|&s| s != *matches);
         consumes.push_in(*matches);
@@ -1320,7 +1322,7 @@ mod tests {
     fn an_update_of_a_right_semi_drains_first_matches_takes_the_spooled_form() {
         assert_eq!(verdict(W::DrainedSemi(true)), (Some(2), Some((2, 0)), None, None));
         assert_eq!(with(W::DrainedSemi(true), |gx| (gx.drained_build_target(2), gx.semi_hands(2))), (Some(0), true));
-        assert_eq!(with(W::DrainedTarget(true), |gx| gx.semi_hands(2)), false, "a RIGHT ANTI drain");
+        assert!(!with(W::DrainedTarget(true), |gx| gx.semi_hands(2)), "a RIGHT ANTI drain");
         assert_eq!(verdict(W::DrainedSemi(false)), (None, None, None, Some(N5)));
         assert_eq!(with(W::DrainedSemi(false), |gx| (gx.drained_build_target(2), gx.semi_hands(2))), (None, false));
     }
@@ -1404,6 +1406,7 @@ mod tests {
     #[test]
     fn a2a_names_are_drain_spool_own() {
         let me = include_str!("spool_admit.rs");
+        #[allow(clippy::single_element_loop)]
         for (name, text) in [("A2END", A2END)] {
             assert!(me.contains(&format!("pub(crate) const {name}: &str = \"{text}\";")), "{name}");
         }

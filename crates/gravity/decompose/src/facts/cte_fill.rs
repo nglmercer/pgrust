@@ -17,9 +17,9 @@
 //! - at a SeqScan it reaches, a filter over the scan's own columns, after the scan's own quals (`filters`, from
 //!   ops/scan `map_seq_scan`): the hash builds over it shrink, their runtime filters skip the probe's granules and the
 //!   groups above shrink. Any other node stops the walk there (a Limit, a WindowAgg, a set operation, an index scan ...).
-//! The errors a body raises over a row no reader keeps do not arise (`contained`'s ruled residual). Fires
-//! `cte.fill` where a scan takes one. PostgreSQL's EXPLAIN is the plan's; the front key puts a marked CteScan's quals in
-//! the zone class, as a SeqScan's own (exec inputs/front.rs).
+//!   The errors a body raises over a row no reader keeps do not arise (`contained`'s ruled residual). Fires
+//!   `cte.fill` where a scan takes one. PostgreSQL's EXPLAIN is the plan's; the front key puts a marked CteScan's quals in
+//!   the zone class, as a SeqScan's own (exec inputs/front.rs).
 use core::cell::Cell;
 
 use gravity_program::ArenaVec;

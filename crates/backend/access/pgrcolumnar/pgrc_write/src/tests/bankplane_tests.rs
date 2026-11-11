@@ -14,7 +14,12 @@ fn plane_path(gen: u64) -> String {
 fn read_plane(
     vfs: &mut MemVfs,
     gen: u64,
-) -> (fb::BankStatsHeader, Vec<fb::PartIdent>, Vec<fb::ColDirEntry>, Vec<u8>) {
+) -> (
+    fb::BankStatsHeader,
+    Vec<fb::PartIdent>,
+    Vec<fb::ColDirEntry>,
+    Vec<u8>,
+) {
     let bytes = vfs.read_full(&plane_path(gen)).expect("plane bytes");
     let (h, p, c) = fb::decode_meta(&bytes).expect("plane decodes");
     (h, p, c, bytes)
@@ -69,9 +74,18 @@ fn a_publish_over_a_base_with_parts_writes_no_plane() {
     let mut w2 = open_writer(vec![int8_col(1)], stamp(9, 1));
     append_int8_rows(&mut w2, &mut vfs, &mut kit, 500, |i| Some(i as i64 * 3));
     let out2 = finish_and_publish(&mut w2, &mut vfs, &mut kit, &probe);
-    assert_eq!(out2.bankstats_plane, PlaneOutcome::Skipped { reason: "base has parts" });
+    assert_eq!(
+        out2.bankstats_plane,
+        PlaneOutcome::Skipped {
+            reason: "base has parts"
+        }
+    );
     assert!(!vfs.exists_path(&plane_path(2)).expect("exists"));
     let m = read_manifest(&mut vfs, 2);
     assert_eq!(m.parts.len(), 2);
-    assert_eq!(read_plane(&mut vfs, 1).0.part_count, 1, "gen 1's plane untouched");
+    assert_eq!(
+        read_plane(&mut vfs, 1).0.part_count,
+        1,
+        "gen 1's plane untouched"
+    );
 }

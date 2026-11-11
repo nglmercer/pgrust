@@ -189,6 +189,7 @@ fn grammar() -> &'static Grammar {
 
         let mut rhs: Vec<Vec<usize>> = vec![Vec::new(); gt::YYNRULES + 1];
         let mut rules_of: Vec<Vec<usize>> = vec![Vec::new(); nnts];
+        #[allow(clippy::needless_range_loop)]
         for r in 1..=gt::YYNRULES {
             let start = gt::YYPRHS[r] as usize;
             let mut syms = Vec::new();
@@ -216,6 +217,7 @@ fn grammar() -> &'static Grammar {
         let mut witness: Vec<usize> = vec![0; nnts];
         loop {
             let mut changed = false;
+            #[allow(clippy::needless_range_loop)]
             for r in 1..=gt::YYNRULES {
                 let lhs = gt::YYR1[r] as usize;
                 let mut cost: u32 = 0;
@@ -748,10 +750,10 @@ pub fn sanitize_alter_system_guc_names(sql: &str) -> String {
 ///     ADMIN / USER option lists ride the same keyword triggers;
 ///   - GRANT ... TO / REVOKE ... FROM role lists, GRANTED BY, and
 ///     REASSIGN/DROP OWNED BY lists (with REASSIGN's TO target);
-/// with comma-continuation inside every list. The role-keyword
-/// pseudo-names (CURRENT_USER, CURRENT_ROLE, SESSION_USER, PUBLIC, ALL,
-/// NONE) and `pg_*` built-in roles pass through untouched in REFERENCE
-/// positions; quoted material is opaque.
+///     with comma-continuation inside every list. The role-keyword
+///     pseudo-names (CURRENT_USER, CURRENT_ROLE, SESSION_USER, PUBLIC, ALL,
+///     NONE) and `pg_*` built-in roles pass through untouched in REFERENCE
+///     positions; quoted material is opaque.
 ///
 /// Round-12 (run 9348c12d...-59-13, seed 2649331128096838021): a
 /// pseudo-name in the PRIMARY role-DDL slot (`alter role session_user

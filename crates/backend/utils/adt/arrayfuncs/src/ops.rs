@@ -601,6 +601,7 @@ pub(crate) fn replace_core<'m>(
     }
 
     if !changed {
+        #[allow(clippy::drop_non_drop)]
         drop(iter);
         return Ok(array);
     }

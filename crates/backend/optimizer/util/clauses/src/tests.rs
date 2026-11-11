@@ -122,7 +122,8 @@ fn install_fixtures() {
             })
         });
         syscache_seams::lookup_pg_operator_shape::set(|opno| {
-            let op = |negate: u32| syscache_seams::PgOperatorShape { oprnamespace: 11,
+            let op = |negate: u32| syscache_seams::PgOperatorShape {
+                oprnamespace: 11,
                 oprleft: 25,
                 oprright: 25,
                 oprresult: 16,
@@ -139,12 +140,14 @@ fn install_fixtures() {
                 OP_FAKE_NE => Some(op(OP_FAKE_EQ)),
                 // A commutator pair that is not self-commuting, so a
                 // commutation is observable in opno as well as arg order.
-                OP_FAKE_LT => {
-                    Some(syscache_seams::PgOperatorShape { oprcom: OP_FAKE_GT, ..op(0) })
-                }
-                OP_FAKE_GT => {
-                    Some(syscache_seams::PgOperatorShape { oprcom: OP_FAKE_LT, ..op(0) })
-                }
+                OP_FAKE_LT => Some(syscache_seams::PgOperatorShape {
+                    oprcom: OP_FAKE_GT,
+                    ..op(0)
+                }),
+                OP_FAKE_GT => Some(syscache_seams::PgOperatorShape {
+                    oprcom: OP_FAKE_LT,
+                    ..op(0)
+                }),
                 _ => None,
             })
         });
@@ -205,9 +208,13 @@ fn install_fixtures() {
         aclchk_seams::object_aclcheck::set(|_, _, _, _| Ok(0));
         clauses_seams::inline_sql_function::set(|mcx, funcid, _, _, _, args| {
             Ok(match funcid {
-                F_FAKE_SQL_INLINE => {
-                    Some(op_expr(mcx, 551, F_INT4PL, 23, &[args.nth(0), int4_const(mcx, Some(1))]))
-                }
+                F_FAKE_SQL_INLINE => Some(op_expr(
+                    mcx,
+                    551,
+                    F_INT4PL,
+                    23,
+                    &[args.nth(0), int4_const(mcx, Some(1))],
+                )),
                 F_FAKE_SQL_REC => Some(func_expr(mcx, F_FAKE_SQL_REC, &[args.nth(0)])),
                 _ => None,
             })
@@ -362,7 +369,8 @@ fn eval_const_boolean_equality() {
     let ctx = cx();
     let mcx = ctx.mcx();
     let var = Node::mk_var(mcx, 1, 1, 16, -1, 0, 0).unwrap();
-    let true_const = Node::mk_const(mcx, 16, -1, 0, 1, Datum::from_bool(true), false, true).unwrap();
+    let true_const =
+        Node::mk_const(mcx, 16, -1, 0, 1, Datum::from_bool(true), false, true).unwrap();
     let eq = op_expr(mcx, 91, F_BOOLEQ, 16, &[var, true_const]);
     let folded = eval_const_expressions(mcx, eq).unwrap();
     let v = folded.as_var().expect("x = true reduces to x");
@@ -423,10 +431,15 @@ fn unported_vocab_walks_loud() {
     }
     let err = expression_tree_walker(il, &mut Nop).unwrap_err();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
-    assert!(err.message().starts_with("unrecognized node type: "), "{}", err.message());
+    assert!(
+        err.message().starts_with("unrecognized node type: "),
+        "{}",
+        err.message()
+    );
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn parallel_hazard_over_query() {
     let ctx = cx();
     let mcx = ctx.mcx();
@@ -469,7 +482,11 @@ fn pseudo_constant_and_leaked_vars() {
     let var = Node::mk_var(mcx, 1, 1, 23, -1, 0, 0).unwrap();
     let greatest = minmax(mcx, false, &[var, int4_const(mcx, Some(0))]);
     assert!(!contain_leaked_vars(greatest).unwrap());
-    let consts_only = minmax(mcx, true, &[int4_const(mcx, Some(1)), int4_const(mcx, Some(2))]);
+    let consts_only = minmax(
+        mcx,
+        true,
+        &[int4_const(mcx, Some(1)), int4_const(mcx, Some(2))],
+    );
     assert!(!contain_leaked_vars(consts_only).unwrap());
 
     // SubscriptingRef: a fetch is leakproof, a store (a rule-rewritten
@@ -516,7 +533,11 @@ fn contain_context_dependent_scopes_casetestexpr() {
     let mcx = ctx.mcx();
     let case_test = Node::mk(
         mcx,
-        types_nodes::primnodes::CaseTestExpr { typeId: 23, typeMod: -1, collation: 0 },
+        types_nodes::primnodes::CaseTestExpr {
+            typeId: 23,
+            typeMod: -1,
+            collation: 0,
+        },
     )
     .unwrap();
     assert!(contain_context_dependent_node(case_test).unwrap());
@@ -642,12 +663,20 @@ fn eval_const_bool_and_or_not() {
     let mcx = ctx.mcx();
 
     // true AND false -> false (forceFalse).
-    let e = bool_expr(mcx, AND_EXPR, &[bool_c(mcx, Some(true)), bool_c(mcx, Some(false))]);
+    let e = bool_expr(
+        mcx,
+        AND_EXPR,
+        &[bool_c(mcx, Some(true)), bool_c(mcx, Some(false))],
+    );
     let c = *eval_const_expressions(mcx, e).unwrap().as_const().unwrap();
     assert!(!c.constvalue.as_bool() && !c.constisnull && c.consttype == 16);
 
     // true OR false -> true (forceTrue).
-    let e = bool_expr(mcx, OR_EXPR, &[bool_c(mcx, Some(true)), bool_c(mcx, Some(false))]);
+    let e = bool_expr(
+        mcx,
+        OR_EXPR,
+        &[bool_c(mcx, Some(true)), bool_c(mcx, Some(false))],
+    );
     let c = *eval_const_expressions(mcx, e).unwrap().as_const().unwrap();
     assert!(c.constvalue.as_bool() && !c.constisnull);
 
@@ -678,7 +707,11 @@ fn eval_const_bool_and_or_not() {
 fn case_when<'mcx>(mcx: Mcx<'mcx>, cond: Node<'mcx>, result: Node<'mcx>) -> Node<'mcx> {
     Node::mk(
         mcx,
-        types_nodes::primnodes::CaseWhen { expr: Some(cond), result: Some(result), location: -1 },
+        types_nodes::primnodes::CaseWhen {
+            expr: Some(cond),
+            result: Some(result),
+            location: -1,
+        },
     )
     .unwrap()
 }
@@ -712,7 +745,11 @@ fn eval_const_case_expr() {
     let e = case_expr(
         mcx,
         None,
-        &[case_when(mcx, bool_c(mcx, Some(true)), int4_const(mcx, Some(1)))],
+        &[case_when(
+            mcx,
+            bool_c(mcx, Some(true)),
+            int4_const(mcx, Some(1)),
+        )],
         int4_const(mcx, Some(2)),
     );
     let c = *eval_const_expressions(mcx, e).unwrap().as_const().unwrap();
@@ -722,7 +759,11 @@ fn eval_const_case_expr() {
     let e = case_expr(
         mcx,
         None,
-        &[case_when(mcx, bool_c(mcx, Some(false)), int4_const(mcx, Some(1)))],
+        &[case_when(
+            mcx,
+            bool_c(mcx, Some(false)),
+            int4_const(mcx, Some(1)),
+        )],
         int4_const(mcx, Some(2)),
     );
     let c = *eval_const_expressions(mcx, e).unwrap().as_const().unwrap();
@@ -756,7 +797,15 @@ fn eval_const_case_expr() {
     assert_eq!(ce.args.len(), 1);
     let w = ce.args.nth(0).as_case_when().unwrap();
     assert!(w.expr.unwrap().as_var().is_some());
-    assert_eq!(ce.defresult.unwrap().as_const().unwrap().constvalue.as_i32(), 3);
+    assert_eq!(
+        ce.defresult
+            .unwrap()
+            .as_const()
+            .unwrap()
+            .constvalue
+            .as_i32(),
+        3
+    );
 }
 
 #[test]
@@ -769,7 +818,11 @@ fn eval_const_case_arg_form() {
     let case_test = || {
         Node::mk(
             mcx,
-            types_nodes::primnodes::CaseTestExpr { typeId: 16, typeMod: -1, collation: 0 },
+            types_nodes::primnodes::CaseTestExpr {
+                typeId: 16,
+                typeMod: -1,
+                collation: 0,
+            },
         )
         .unwrap()
     };
@@ -806,7 +859,13 @@ fn eval_const_case_arg_form() {
     let ce = out.as_case_expr().expect("still a CaseExpr");
     assert!(ce.arg.unwrap().as_var().is_some());
     assert_eq!(
-        ce.args.nth(0).as_case_when().unwrap().expr.unwrap().node_tag(),
+        ce.args
+            .nth(0)
+            .as_case_when()
+            .unwrap()
+            .expr
+            .unwrap()
+            .node_tag(),
         NodeTag::T_CaseTestExpr
     );
 }
@@ -844,7 +903,12 @@ fn eval_const_coalesce() {
     let var = Node::mk_var(mcx, 1, 1, 23, -1, 0, 0).unwrap();
     let e = coalesce(
         mcx,
-        &[var, int4_const(mcx, None), int4_const(mcx, Some(7)), int4_const(mcx, Some(8))],
+        &[
+            var,
+            int4_const(mcx, None),
+            int4_const(mcx, Some(7)),
+            int4_const(mcx, Some(8)),
+        ],
     );
     let out = eval_const_expressions(mcx, e).unwrap();
     let co = out.as_coalesce_expr().expect("still a CoalesceExpr");
@@ -861,7 +925,11 @@ fn minmax<'mcx>(mcx: Mcx<'mcx>, least: bool, args: &[Node<'mcx>]) -> Node<'mcx> 
             minmaxtype: 23,
             minmaxcollid: 0,
             inputcollid: 0,
-            op: if least { MinMaxOp::IS_LEAST } else { MinMaxOp::IS_GREATEST },
+            op: if least {
+                MinMaxOp::IS_LEAST
+            } else {
+                MinMaxOp::IS_GREATEST
+            },
             args: NodeList::from_slice(mcx, args).unwrap(),
             location: -1,
         },
@@ -914,7 +982,11 @@ fn eval_const_minmax_nonconst_keeps_node() {
 fn eval_const_minmax_all_const_defers_to_evaluate_expr_seam() {
     let ctx = cx();
     let mcx = ctx.mcx();
-    let e = minmax(mcx, true, &[int4_const(mcx, Some(1)), int4_const(mcx, Some(2))]);
+    let e = minmax(
+        mcx,
+        true,
+        &[int4_const(mcx, Some(1)), int4_const(mcx, Some(2))],
+    );
     let _ = eval_const_expressions(mcx, e);
 }
 
@@ -967,7 +1039,10 @@ fn eval_const_minmax_folds_with_agreed_typmod() {
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _ = eval_const_expressions(mcx, agree);
     }));
-    assert!(EVAL_EXPR_SEEN.lock().unwrap().contains(&(NUMERICOID, 655366)));
+    assert!(EVAL_EXPR_SEEN
+        .lock()
+        .unwrap()
+        .contains(&(NUMERICOID, 655366)));
     // disagreeing typmods -> C exprTypmod says -1
     let disagree = minmax(mcx, false, &[num_const(655366), num_const(786440)]);
     let disagree = {
@@ -1008,8 +1083,17 @@ fn coerce_via_io<'mcx>(mcx: Mcx<'mcx>, arg: Node<'mcx>, resulttype: u32) -> Node
 
 fn text_const(mcx: Mcx<'_>) -> Node<'_> {
     // Value is never dereferenced: the evaluate_expr fixture ignores args.
-    Node::mk_const(mcx, TEXTOID, -1, 0, -1, Datum::from_usize(CSTR_X.as_ptr() as usize), false, false)
-        .unwrap()
+    Node::mk_const(
+        mcx,
+        TEXTOID,
+        -1,
+        0,
+        -1,
+        Datum::from_usize(CSTR_X.as_ptr() as usize),
+        false,
+        false,
+    )
+    .unwrap()
 }
 
 // C clauses.c T_CoerceViaIO arm: after the (immutable) output fn folds, C sets
@@ -1024,10 +1108,18 @@ fn eval_const_coerce_via_io_stable_input_fn_keeps_cast_over_cstring_const() {
     let mcx = ctx.mcx();
     let folded =
         eval_const_expressions(mcx, coerce_via_io(mcx, text_const(mcx), T_FAKE_STABLE)).unwrap();
-    let cv = folded.as_coerce_via_io().expect("stable input fn: cast node survives");
+    let cv = folded
+        .as_coerce_via_io()
+        .expect("stable input fn: cast node survives");
     assert_eq!(cv.resulttype, T_FAKE_STABLE);
-    let c = cv.arg.as_const().expect("arg rewritten to the folded output-fn Const");
-    assert_eq!(c.consttype, CSTRINGOID, "C leaves linitial(args): a cstring Const, not text");
+    let c = cv
+        .arg
+        .as_const()
+        .expect("arg rewritten to the folded output-fn Const");
+    assert_eq!(
+        c.consttype, CSTRINGOID,
+        "C leaves linitial(args): a cstring Const, not text"
+    );
     assert_eq!(c.constlen, -2);
     assert!(!c.constbyval);
 }
@@ -1040,7 +1132,9 @@ fn eval_const_coerce_via_io_immutable_input_fn_folds_fully() {
     let mcx = ctx.mcx();
     let folded =
         eval_const_expressions(mcx, coerce_via_io(mcx, text_const(mcx), T_FAKE_IMM)).unwrap();
-    let c = folded.as_const().expect("immutable input fn: folds to Const");
+    let c = folded
+        .as_const()
+        .expect("immutable input fn: folds to Const");
     assert_eq!(c.consttype, T_FAKE_IMM);
     assert!(!c.constisnull);
     // the input-fn evaluation was handed the cast's result type
@@ -1055,7 +1149,9 @@ fn eval_const_coerce_via_io_nonconst_arg_passthrough() {
     let mcx = ctx.mcx();
     let var = Node::mk_var(mcx, 1, 1, TEXTOID, -1, 0, 0).unwrap();
     let folded = eval_const_expressions(mcx, coerce_via_io(mcx, var, T_FAKE_STABLE)).unwrap();
-    let cv = folded.as_coerce_via_io().expect("non-const arg: cast node survives");
+    let cv = folded
+        .as_coerce_via_io()
+        .expect("non-const arg: cast node survives");
     assert_eq!(cv.resulttype, T_FAKE_STABLE);
     let v = cv.arg.as_var().expect("arg passes through untouched");
     assert_eq!(v.vartype, TEXTOID);
@@ -1098,7 +1194,10 @@ fn relabel_over_const_folds_to_retyped_const() {
     .unwrap();
     let out = eval_const_expressions(mcx, relabel).unwrap();
     let c = out.as_const().unwrap();
-    assert_eq!((c.consttype, c.constvalue.as_i32(), c.constisnull), (26, 5, false));
+    assert_eq!(
+        (c.consttype, c.constvalue.as_i32(), c.constisnull),
+        (26, 5, false)
+    );
 }
 
 #[test]
@@ -1187,7 +1286,9 @@ fn inline_replaces_sql_function_call() {
     let var = Node::mk_var(mcx, 1, 1, 23, -1, 0, 0).unwrap();
     let call = func_expr(mcx, F_FAKE_SQL_INLINE, &[var]);
     let out = eval_const_expressions(mcx, call).unwrap();
-    let o = out.as_op_expr().expect("inlined to the seam-provided OpExpr");
+    let o = out
+        .as_op_expr()
+        .expect("inlined to the seam-provided OpExpr");
     assert_eq!(o.opfuncid, F_INT4PL);
     assert!(o.args.nth(0).as_var().is_some());
     assert_eq!(o.args.nth(1).as_const().unwrap().constvalue.as_i32(), 1);
@@ -1283,7 +1384,9 @@ fn eval_const_nullif_null_arg_yields_first_arg() {
     // NULLIF(NULL, x): reduces to the first (null) argument.
     let e = nullif(mcx, &[int4_const(mcx, None), var]);
     let folded = eval_const_expressions(mcx, e).unwrap();
-    let c = folded.as_const().expect("NULLIF(NULL, x) reduces to the null const");
+    let c = folded
+        .as_const()
+        .expect("NULLIF(NULL, x) reduces to the null const");
     assert!(c.constisnull);
     assert_eq!(c.consttype, 23);
 }
@@ -1342,7 +1445,11 @@ const ATT1_KEY: i32 = 1 - FIRST_LOW_INVALID_HEAP_ATTR;
 
 fn int4_array_img(elems: &[i32]) -> ArrImg {
     let mut img = [0u8; 32];
-    let len = if elems.is_empty() { 16 } else { 24 + 4 * elems.len() };
+    let len = if elems.is_empty() {
+        16
+    } else {
+        24 + 4 * elems.len()
+    };
     img[0..4].copy_from_slice(&((len as u32) << 2).to_ne_bytes());
     img[4..8].copy_from_slice(&(if elems.is_empty() { 0i32 } else { 1 }).to_ne_bytes());
     img[12..16].copy_from_slice(&23i32.to_ne_bytes());
@@ -1357,8 +1464,17 @@ fn int4_array_img(elems: &[i32]) -> ArrImg {
 }
 
 fn int4_array_const<'mcx>(mcx: Mcx<'mcx>, img: &ArrImg) -> Node<'mcx> {
-    Node::mk_const(mcx, 1007, -1, 0, -1, Datum::from_usize(img.0.as_ptr() as usize), false, false)
-        .unwrap()
+    Node::mk_const(
+        mcx,
+        1007,
+        -1,
+        0,
+        -1,
+        Datum::from_usize(img.0.as_ptr() as usize),
+        false,
+        false,
+    )
+    .unwrap()
 }
 
 #[test]
@@ -1368,11 +1484,29 @@ fn contain_nonstrict_functions_saop_requires_nonempty_array() {
     let var = Node::mk_var(mcx, 1, 1, 23, -1, 0, 0).unwrap();
     let empty_img = int4_array_img(&[]);
     let one_img = int4_array_img(&[1]);
-    let empty = saop(mcx, OP_FAKE_EQ, F_INT4EQ, true, &[var, int4_array_const(mcx, &empty_img)]);
+    let empty = saop(
+        mcx,
+        OP_FAKE_EQ,
+        F_INT4EQ,
+        true,
+        &[var, int4_array_const(mcx, &empty_img)],
+    );
     assert!(contain_nonstrict_functions(empty).unwrap());
-    let one = saop(mcx, OP_FAKE_EQ, F_INT4EQ, true, &[var, int4_array_const(mcx, &one_img)]);
+    let one = saop(
+        mcx,
+        OP_FAKE_EQ,
+        F_INT4EQ,
+        true,
+        &[var, int4_array_const(mcx, &one_img)],
+    );
     assert!(!contain_nonstrict_functions(one).unwrap());
-    let lax = saop(mcx, OP_FAKE_EQ, F_FAKE_NONSTRICT, true, &[var, int4_array_const(mcx, &one_img)]);
+    let lax = saop(
+        mcx,
+        OP_FAKE_EQ,
+        F_FAKE_NONSTRICT,
+        true,
+        &[var, int4_array_const(mcx, &one_img)],
+    );
     assert!(contain_nonstrict_functions(lax).unwrap());
 }
 
@@ -1394,8 +1528,14 @@ fn find_nonnullable_saop_below_top_level_requires_nonempty_array() {
     )
     .unwrap();
     let maybe_empty = saop(mcx, OP_FAKE_EQ, F_INT4EQ, true, &[var, param]);
-    assert!(find_nonnullable_rels(mcx, Some(maybe_empty)).unwrap().is_member(3));
-    assert!(mbms_is_member(3, ATT1_KEY, &find_nonnullable_vars(mcx, Some(maybe_empty)).unwrap()));
+    assert!(find_nonnullable_rels(mcx, Some(maybe_empty))
+        .unwrap()
+        .is_member(3));
+    assert!(mbms_is_member(
+        3,
+        ATT1_KEY,
+        &find_nonnullable_vars(mcx, Some(maybe_empty)).unwrap()
+    ));
     let is_false = Node::mk(
         mcx,
         types_nodes::BooleanTest {
@@ -1405,14 +1545,36 @@ fn find_nonnullable_saop_below_top_level_requires_nonempty_array() {
         },
     )
     .unwrap();
-    assert!(find_nonnullable_rels(mcx, Some(is_false)).unwrap().is_empty());
-    assert!(!mbms_is_member(3, ATT1_KEY, &find_nonnullable_vars(mcx, Some(is_false)).unwrap()));
+    assert!(find_nonnullable_rels(mcx, Some(is_false))
+        .unwrap()
+        .is_empty());
+    assert!(!mbms_is_member(
+        3,
+        ATT1_KEY,
+        &find_nonnullable_vars(mcx, Some(is_false)).unwrap()
+    ));
     let not = bool_expr(mcx, types_nodes::BoolExprType::NOT_EXPR, &[maybe_empty]);
     assert!(find_nonnullable_rels(mcx, Some(not)).unwrap().is_empty());
-    assert!(!mbms_is_member(3, ATT1_KEY, &find_nonnullable_vars(mcx, Some(not)).unwrap()));
+    assert!(!mbms_is_member(
+        3,
+        ATT1_KEY,
+        &find_nonnullable_vars(mcx, Some(not)).unwrap()
+    ));
     let one_img = int4_array_img(&[1]);
-    let one = saop(mcx, OP_FAKE_EQ, F_INT4EQ, true, &[var, int4_array_const(mcx, &one_img)]);
+    let one = saop(
+        mcx,
+        OP_FAKE_EQ,
+        F_INT4EQ,
+        true,
+        &[var, int4_array_const(mcx, &one_img)],
+    );
     let not_one = bool_expr(mcx, types_nodes::BoolExprType::NOT_EXPR, &[one]);
-    assert!(find_nonnullable_rels(mcx, Some(not_one)).unwrap().is_member(3));
-    assert!(mbms_is_member(3, ATT1_KEY, &find_nonnullable_vars(mcx, Some(not_one)).unwrap()));
+    assert!(find_nonnullable_rels(mcx, Some(not_one))
+        .unwrap()
+        .is_member(3));
+    assert!(mbms_is_member(
+        3,
+        ATT1_KEY,
+        &find_nonnullable_vars(mcx, Some(not_one)).unwrap()
+    ));
 }

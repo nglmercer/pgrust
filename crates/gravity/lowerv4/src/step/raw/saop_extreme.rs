@@ -58,7 +58,7 @@ pub(crate) unsafe fn build(d: &Desc, a: u64) -> types_error::PgResult<gravity_dr
         let img = image_view(Datum::from_u64(a), -1, region)?;
         let mut buf = gravity_driver::in_list_set_region(IMAGE_AT + img.len as usize).map_err(|e| super::saop_set::region_err("the list's extreme", e))?;
         let base = buf.as_mut_ptr();
-        if base as usize % 8 != 0 {
+        if !(base as usize).is_multiple_of(8) {
             return Err(err("the list's extreme region is not 8-aligned"));
         }
         core::ptr::copy_nonoverlapping(img.ptr, base.add(IMAGE_AT), img.len as usize);

@@ -44,7 +44,8 @@ impl ValidateIndexState {
 
     // validate_index_callback (index.c).
     pub fn collect(&mut self, itemptr: &ItemPointerData) -> PgResult<()> {
-        self.tuplesort.putdatum(Datum::from_i64(itemptr_encode(itemptr)), false)?;
+        self.tuplesort
+            .putdatum(Datum::from_i64(itemptr_encode(itemptr)), false)?;
         self.itups += 1.0;
         Ok(())
     }
@@ -60,7 +61,11 @@ pub fn table_index_validate_scan<'mcx>(
 ) -> PgResult<()> {
     // This scan reads heap blocks; a pgrcolumnar table has none, so a concurrent build over one would validate nothing.
     if tableam_vocab::TableAm::of(heap_relation) != Some(tableam_vocab::TableAm::Heap) {
-        let am = if tableam_vocab::is_pgrcolumnar_am_oid(heap_relation.rd_rel.relam) { "pgrcolumnar" } else { "this table access method" };
+        let am = if tableam_vocab::is_pgrcolumnar_am_oid(heap_relation.rd_rel.relam) {
+            "pgrcolumnar"
+        } else {
+            "this table access method"
+        };
         return Err(Box::new(
             types_error::PgError::error(format!("{am} does not support CREATE INDEX CONCURRENTLY"))
                 .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -129,7 +134,10 @@ pub fn table_index_validate_scan<'mcx>(
         }
 
         if scan.rs_cblock != root_blkno {
-            let pin = scan.rs_cbuf.as_ref().expect("pinned page for returned tuple");
+            let pin = scan
+                .rs_cbuf
+                .as_ref()
+                .expect("pinned page for returned tuple");
             let guard = pin.lock_share()?;
             pruneheap::heap_get_root_tuples(pin.page(), &mut root_offsets)?;
             drop(guard);
@@ -176,8 +184,7 @@ pub fn table_index_validate_scan<'mcx>(
         }
 
         if (tuplesort_empty
-            || ItemPointerCompare(indexcursor.as_ref().expect("non-empty cursor"), &root_tuple)
-                > 0)
+            || ItemPointerCompare(indexcursor.as_ref().expect("non-empty cursor"), &root_tuple) > 0)
             && !in_index[root_offnum as usize - 1]
         {
             per_tuple.reset();

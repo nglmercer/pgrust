@@ -107,10 +107,10 @@ fn sorts_by(px: &Px<'_, '_>, q: usize, mins: &[&Agg<'_>]) -> bool {
 /// the image, the layout partitioned by the image's words alone.
 pub(crate) fn parted_layout(px: &Px<'_, '_>, g: &GroupDecl<'_>, l: RecordLayout) -> RecordLayout {
     let Some(e) = filed(px, g) else { return l };
-    let mut keys = mcx::to_vec_in(&l.key_kinds()[..], px.mcx());
+    let mut keys = mcx::to_vec_in(l.key_kinds(), px.mcx());
     keys.push_in(KeyKind::I64);
     let implicit = l.flags & LAYOUT_IMPLICIT_COUNT != 0;
-    let mut slots = mcx::to_vec_in(&l.slot_kinds()[..], px.mcx());
+    let mut slots = mcx::to_vec_in(l.slot_kinds(), px.mcx());
     slots.truncate(slots.len() - implicit as usize);
     e.2.iter().filter(|m| m.0 != REP_NONE).for_each(|&(s, _)| slots[s as usize] = SlotKind::MinCode);
     let sentinel = (!implicit).then(|| l.sentinel_slot());
@@ -154,7 +154,7 @@ pub(crate) fn finish(r: &GroupRec<'_, '_>, b: &mut FunctionBuilder<'_>, env: &mu
     let some = b.icmp(IntCond::Ne, w, none);
     let (ok, t) = (b.int_bin(IntBinOp::And, set, some), b.bconst(true));
     let null = b.int_bin(IntBinOp::Xor, ok, t);
-    let cell = Cell::of_record(src.rep, src.typid, NumTypmod::NONE, r.home, a.d.slot as u16, Nullable::Maybe);
+    let cell = Cell::of_record(src.rep, src.typid, NumTypmod::NONE, r.home, a.d.slot, Nullable::Maybe);
     let mut cx = env.lx(b, r.node);
     let v = crate::rep::datum(&mut cx, CellRef { cell: &cell, val: w, null: Some(null) }, &r.tfs[0]);
     env.memo = cx.memo;
@@ -242,6 +242,13 @@ impl FoldClass for CodeSlot {
     }
 }
 
+/// A parted record's image is the row's key image, then the window's part ordinal: the u32 at this byte offset of the
+/// context (the driving site header's `PART_ID`), which the image's build loads after its flags words (rec.rs `image_of`).
+pub(crate) fn part_at(env: &Env, node: i32) -> (Value, i32) {
+    let Some(s) = env.site else { crate::refuse!(node, Reason::Bug { payload: "a parted record without a driving site" }) };
+    (env.ctx, (gravity_abi::ctx::site_off(s) + gravity_abi::site::site::PART_ID) as i32)
+}
+
 #[cfg(test)]
 #[allow(unsafe_code)]
 mod tests {
@@ -259,7 +266,7 @@ mod tests {
         let (mut moved, mut wide) = (0, false);
         for (k, c) in rows.filter_map(|(k, m)| m.downcast_ref::<ClassImpl>().map(|c| (k, c.0))) {
             assert!(!deferred(c), "{k:?}: a registered class is not the deferred minimum");
-            if core::mem::size_of_val(c) != 0 || at % core::mem::align_of_val(c) != 0 {
+            if core::mem::size_of_val(c) != 0 || !at.is_multiple_of(core::mem::align_of_val(c)) {
                 continue;
             }
             // SAFETY: a zero-sized value is valid at any non-null address aligned for it (no byte is read)
@@ -269,11 +276,4 @@ mod tests {
         }
         assert!(moved > 0 && wide, "class.num_wide's WIDE is zero-sized and was placed at CODE_SLOT ({moved} placed)");
     }
-}
-
-/// A parted record's image is the row's key image, then the window's part ordinal: the u32 at this byte offset of the
-/// context (the driving site header's `PART_ID`), which the image's build loads after its flags words (rec.rs `image_of`).
-pub(crate) fn part_at(env: &Env, node: i32) -> (Value, i32) {
-    let Some(s) = env.site else { crate::refuse!(node, Reason::Bug { payload: "a parted record without a driving site" }) };
-    (env.ctx, (gravity_abi::ctx::site_off(s) + gravity_abi::site::site::PART_ID) as i32)
 }

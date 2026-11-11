@@ -15,7 +15,7 @@ use ::types_scan::scankey::{ScanKeyData, SK_ISNULL, SK_SEARCHNOTNULL, SK_SEARCHN
 use ::types_scan::sdir::ScanDirection;
 use ::types_spgist::state::{
     spgInnerConsistentIn, spgInnerConsistentOut, spgLeafConsistentIn, spgLeafConsistentOut,
-    spg_search_item_cmp, SpGistScanOpaqueData, SpGistSearchItem, SpGistScanQueue,
+    spg_search_item_cmp, SpGistScanOpaqueData, SpGistScanQueue, SpGistSearchItem,
 };
 use ::types_spgist::*;
 use ::types_tuple::itemptr::{ItemPointerData, ItemPointerGetBlockNumber, ItemPointerIsValid};
@@ -226,7 +226,11 @@ fn spg_add_start_item(so: &mut SpGistScanOpaqueData<'_>, isnull: bool) -> PgResu
         traversalValue: 0,
         level: 0,
         heapPtr: ItemPointerData::new(
-            if isnull { SPGIST_NULL_BLKNO } else { SPGIST_ROOT_BLKNO },
+            if isnull {
+                SPGIST_NULL_BLKNO
+            } else {
+                SPGIST_ROOT_BLKNO
+            },
             FirstOffsetNumber,
         ),
         isNull: isnull,
@@ -394,8 +398,10 @@ fn store_result(
                 debug_assert_eq!(so.distances.len(), so.nPtrs);
                 let row = match non_null_distances {
                     Some(d) if !isnull && so.numberOfNonNullOrderBys > 0 => {
-                        let mut out =
-                            ::mcx::std_vec_with_capacity("access", so.numberOfOrderBys.max(0) as usize)?;
+                        let mut out = ::mcx::std_vec_with_capacity(
+                            "access",
+                            so.numberOfOrderBys.max(0) as usize,
+                        )?;
                         for i in 0..so.numberOfOrderBys as usize {
                             let offset = so.nonNullOrderByOffsets[i];
                             if offset >= 0 {
@@ -404,7 +410,10 @@ fn store_result(
                                     isnull: false,
                                 });
                             } else {
-                                out.push(IndexOrderByDistance { value: 0.0, isnull: true });
+                                out.push(IndexOrderByDistance {
+                                    value: 0.0,
+                                    isnull: true,
+                                });
                             }
                         }
                         Some(out)
@@ -496,7 +505,9 @@ fn spg_leaf_test(
         );
         let r = so.leafConsistentFn.invoke(&mut so.frame2)?;
         if so.frame2.isnull {
-            return Err(::types_spgist::state::returned_null(so.leafConsistentFn.fn_oid));
+            return Err(::types_spgist::state::returned_null(
+                so.leafConsistentFn.fn_oid,
+            ));
         }
         let distances = if r.as_bool()
             && so.numberOfNonNullOrderBys > 0
@@ -504,10 +515,7 @@ fn spg_leaf_test(
         {
             // SAFETY: opclass contract — norderbys distances in the armed mcx.
             let slice = unsafe {
-                core::slice::from_raw_parts(
-                    leaf_out.distances,
-                    so.numberOfNonNullOrderBys as usize,
-                )
+                core::slice::from_raw_parts(leaf_out.distances, so.numberOfNonNullOrderBys as usize)
             };
             ::mcx::std_vec_from_slice("spgist", slice)?
         } else {
@@ -633,20 +641,24 @@ fn spg_inner_test(
         );
         so.innerConsistentFn.invoke(&mut so.frame2)?;
         if so.frame2.isnull {
-            return Err(::types_spgist::state::returned_null(so.innerConsistentFn.fn_oid));
+            return Err(::types_spgist::state::returned_null(
+                so.innerConsistentFn.fn_oid,
+            ));
         }
 
         let out_n = inner_out.nNodes.max(0) as usize;
         if !inner_out.nodeNumbers.is_null() {
             // SAFETY: opclass contract — out_n entries in the armed mcx.
-            node_numbers
-                .extend_from_slice(unsafe { core::slice::from_raw_parts(inner_out.nodeNumbers, out_n) });
+            node_numbers.extend_from_slice(unsafe {
+                core::slice::from_raw_parts(inner_out.nodeNumbers, out_n)
+            });
         }
         if !inner_out.levelAdds.is_null() {
             have_level_adds = true;
             // SAFETY: as above.
-            level_adds
-                .extend_from_slice(unsafe { core::slice::from_raw_parts(inner_out.levelAdds, out_n) });
+            level_adds.extend_from_slice(unsafe {
+                core::slice::from_raw_parts(inner_out.levelAdds, out_n)
+            });
         }
         if !inner_out.reconstructedValues.is_null() {
             have_recon = true;
@@ -665,7 +677,9 @@ fn spg_inner_test(
                     Vec::new()
                 } else {
                     // SAFETY: as above.
-                    ::mcx::std_vec_from_slice("spgist", unsafe { core::slice::from_raw_parts(row, nn) })?
+                    ::mcx::std_vec_from_slice("spgist", unsafe {
+                        core::slice::from_raw_parts(row, nn)
+                    })?
                 });
             }
         }
@@ -726,12 +740,19 @@ fn spg_inner_test(
         } else if have_distances && !distance_rows[i].is_empty() {
             distance_rows[i].clone()
         } else {
-            ::mcx::std_vec_from_slice("spgist", &so.infDistances[..so.numberOfNonNullOrderBys as usize])?
+            ::mcx::std_vec_from_slice(
+                "spgist",
+                &so.infDistances[..so.numberOfNonNullOrderBys as usize],
+            )?
         };
         so.scanQueue.add(SpGistSearchItem {
             value,
             leafTuple: None,
-            traversalValue: if have_traversal { traversal_values[i] } else { 0 },
+            traversalValue: if have_traversal {
+                traversal_values[i]
+            } else {
+                0
+            },
             level: item.level + if have_level_adds { level_adds[i] } else { 0 },
             heapPtr: tid,
             isNull: isnull,
@@ -768,9 +789,7 @@ fn spg_test_leaf_tuple(
                 debug_assert!(offset == item.heapPtr.ip_posid);
                 let dt = SpGistDeadTupleHeader::decode(leaf_tuple);
                 item.heapPtr = dt.pointer;
-                debug_assert!(
-                    ItemPointerGetBlockNumber(&item.heapPtr) != SPGIST_METAPAGE_BLKNO
-                );
+                debug_assert!(ItemPointerGetBlockNumber(&item.heapPtr) != SPGIST_METAPAGE_BLKNO);
                 return Ok(SpGistRedirectOffsetNumber);
             }
             if st == SPGIST_DEAD {
@@ -828,7 +847,11 @@ fn spg_walk(
                     leaf_copy.as_deref(),
                     item.recheck,
                     item.recheckDistances,
-                    if item.isNull { None } else { Some(&item.distances) },
+                    if item.isNull {
+                        None
+                    } else {
+                        Some(&item.distances)
+                    },
                 )?;
                 reported_some = true;
                 so.tempCxt.reset();
@@ -1095,7 +1118,10 @@ mod scan_tests {
             .map(|o| i32::from_ne_bytes(o[4..8].try_into().unwrap()));
         assert_eq!(siglen, Some(2024));
         assert!(dst.fn_extra.is_none());
-        assert_eq!((dst.fn_oid, dst.fn_nargs, dst.fn_strict, dst.fn_retset), (1, 2, true, false));
+        assert_eq!(
+            (dst.fn_oid, dst.fn_nargs, dst.fn_strict, dst.fn_retset),
+            (1, 2, true, false)
+        );
     }
 
     // spgscan.c:798/910 elog(ERROR): a placeholder (or otherwise unexpected)

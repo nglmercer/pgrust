@@ -17,7 +17,18 @@ use pg_clock::MonoStamp;
 /// of the retired generations with `CATALOG` or a reclaim's publish lock held; the reclaims whose plan made without the
 /// publish lock (the hint) stood under it; the hints the check under the lock discarded (the reclaim planned again
 /// under the lock).
-pub const FIELDS: [&str; 10] = ["n", "inc", "lock_us", "lock_max_us", "catalog_us", "catalog_max_us", "inc_locked_unlinks", "locked_retire", "hinted", "replans"];
+pub const FIELDS: [&str; 10] = [
+    "n",
+    "inc",
+    "lock_us",
+    "lock_max_us",
+    "catalog_us",
+    "catalog_max_us",
+    "inc_locked_unlinks",
+    "locked_retire",
+    "hinted",
+    "replans",
+];
 pub const N: usize = 0;
 pub const INC: usize = 1;
 pub const LOCK_US: usize = 2;
@@ -55,7 +66,9 @@ pub fn get() -> [u64; 10] {
 /// The publish-lock holds of the last reclaims that planned something (us), oldest first.
 pub fn recent() -> Vec<u64> {
     let next = NEXT.load(Relaxed);
-    (next.saturating_sub(RECENT)..next).map(|i| HOLDS[i % RECENT].load(Relaxed)).collect()
+    (next.saturating_sub(RECENT)..next)
+        .map(|i| HOLDS[i % RECENT].load(Relaxed))
+        .collect()
 }
 
 /// `reclaim=<n>,<inc>,... reclaim_holds=<us>,<us>,...` ([`FIELDS`], [`recent`]).
@@ -92,7 +105,11 @@ pub struct Hold<'a> {
 impl<'a> Hold<'a> {
     pub fn take(lock: &'a pgsync::Mutex<()>) -> Hold<'a> {
         let guard = pgsync::lock(lock);
-        Hold { guard: Some(guard), granted: MonoStamp::now(), planned: false }
+        Hold {
+            guard: Some(guard),
+            granted: MonoStamp::now(),
+            planned: false,
+        }
     }
 
     /// The reclaim planned something to do; `inc`: on the incremental path.
@@ -122,7 +139,9 @@ impl<'a> Hold<'a> {
 
     /// The lock goes (once).
     pub fn release(&mut self) {
-        let Some(guard) = self.guard.take() else { return };
+        let Some(guard) = self.guard.take() else {
+            return;
+        };
         let ns = self.granted.elapsed_ns();
         drop(guard);
         if self.planned {

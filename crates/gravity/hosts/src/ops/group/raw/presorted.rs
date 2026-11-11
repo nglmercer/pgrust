@@ -148,7 +148,10 @@ pub(crate) unsafe fn hand_on(s: *const u8, out: *mut u8) {
 pub(crate) unsafe fn rehome(into: *mut u8, from: *const u8) -> PgResult<()> {
     match (into.add(STATE_INIT).read(), from.add(STATE_INIT).read()) {
         (_, 0) => Ok(()),
-        (0, _) => Ok(core::ptr::copy_nonoverlapping(from, into, AGG_STATE_BYTES as usize)),
+        (0, _) => {
+            core::ptr::copy_nonoverlapping(from, into, AGG_STATE_BYTES as usize);
+            Ok(())
+        },
         _ => Err(shape("two partial states of a presorted DISTINCT aggregate (D1596: its arena is serial)")),
     }
 }

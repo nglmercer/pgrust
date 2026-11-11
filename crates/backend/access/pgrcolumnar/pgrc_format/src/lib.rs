@@ -228,7 +228,9 @@ pub type FormatResult<T> = Result<T, FormatError>;
 pub fn try_vec<T>(n: usize, _at: &'static str) -> FormatResult<Vec<T>> {
     let mut v = Vec::new();
     v.try_reserve_exact(n)
-        .map_err(|_| FormatError::OutOfMemory { bytes: n.saturating_mul(core::mem::size_of::<T>()) })?;
+        .map_err(|_| FormatError::OutOfMemory {
+            bytes: n.saturating_mul(core::mem::size_of::<T>()),
+        })?;
     Ok(v)
 }
 
@@ -236,7 +238,9 @@ pub fn try_vec<T>(n: usize, _at: &'static str) -> FormatResult<Vec<T>> {
 pub fn try_filled<T: Clone>(n: usize, val: T, _at: &'static str) -> FormatResult<Vec<T>> {
     let mut v = Vec::new();
     v.try_reserve_exact(n)
-        .map_err(|_| FormatError::OutOfMemory { bytes: n.saturating_mul(core::mem::size_of::<T>()) })?;
+        .map_err(|_| FormatError::OutOfMemory {
+            bytes: n.saturating_mul(core::mem::size_of::<T>()),
+        })?;
     v.resize(n, val);
     Ok(v)
 }
@@ -249,11 +253,17 @@ pub fn try_to_vec<T: Clone>(s: &[T], at: &'static str) -> FormatResult<Vec<T>> {
 }
 
 /// `v.resize(n, val)` whose failure is `FormatError::OutOfMemory`.
-pub fn try_resize<T: Clone>(v: &mut Vec<T>, n: usize, val: T, _at: &'static str) -> FormatResult<()> {
+pub fn try_resize<T: Clone>(
+    v: &mut Vec<T>,
+    n: usize,
+    val: T,
+    _at: &'static str,
+) -> FormatResult<()> {
     if n > v.len() {
         let extra = n - v.len();
-        v.try_reserve(extra)
-            .map_err(|_| FormatError::OutOfMemory { bytes: extra.saturating_mul(core::mem::size_of::<T>()) })?;
+        v.try_reserve(extra).map_err(|_| FormatError::OutOfMemory {
+            bytes: extra.saturating_mul(core::mem::size_of::<T>()),
+        })?;
     }
     v.resize(n, val);
     Ok(())
@@ -261,8 +271,9 @@ pub fn try_resize<T: Clone>(v: &mut Vec<T>, n: usize, val: T, _at: &'static str)
 
 /// `v.reserve(extra)` whose failure is `FormatError::OutOfMemory`.
 pub fn try_reserve_more<T>(v: &mut Vec<T>, extra: usize, _at: &'static str) -> FormatResult<()> {
-    v.try_reserve(extra)
-        .map_err(|_| FormatError::OutOfMemory { bytes: extra.saturating_mul(core::mem::size_of::<T>()) })
+    v.try_reserve(extra).map_err(|_| FormatError::OutOfMemory {
+        bytes: extra.saturating_mul(core::mem::size_of::<T>()),
+    })
 }
 
 /// Result-neutral accelerators (bloom blocks, sort-order shortcuts, the writer's stored-lane prices) that were skipped
@@ -279,10 +290,18 @@ pub enum Accel {
     DistStats,
 }
 
-const ACCEL_NAMES: [&str; 6] =
-    ["bloom block", "sketch sort order", "stored-lane price", "bank plane records", "answers", "distinct-count stats"];
-static ACCEL_COUNT: [core::sync::atomic::AtomicU64; 6] = [const { core::sync::atomic::AtomicU64::new(0) }; 6];
-static ACCEL_BYTES: [core::sync::atomic::AtomicU64; 6] = [const { core::sync::atomic::AtomicU64::new(0) }; 6];
+const ACCEL_NAMES: [&str; 6] = [
+    "bloom block",
+    "sketch sort order",
+    "stored-lane price",
+    "bank plane records",
+    "answers",
+    "distinct-count stats",
+];
+static ACCEL_COUNT: [core::sync::atomic::AtomicU64; 6] =
+    [const { core::sync::atomic::AtomicU64::new(0) }; 6];
+static ACCEL_BYTES: [core::sync::atomic::AtomicU64; 6] =
+    [const { core::sync::atomic::AtomicU64::new(0) }; 6];
 static ACCEL_TOTAL: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
 
 /// Count one skipped accelerator of `bytes` bytes.

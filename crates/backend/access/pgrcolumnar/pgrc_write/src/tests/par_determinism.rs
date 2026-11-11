@@ -25,10 +25,7 @@ use std::sync::Arc;
 const FXID: u64 = 42;
 const CHUNK_ROWS: u32 = 128;
 
-fn engine_over(
-    shared: &SharedMemVfs,
-    policy: PartCutPolicy,
-) -> Arc<ParEngine> {
+fn engine_over(shared: &SharedMemVfs, policy: PartCutPolicy) -> Arc<ParEngine> {
     let schema = vec![int8_col(1), text_col(2)];
     let spec = PartSpec {
         spc: SPC,
@@ -131,10 +128,18 @@ fn col_chunk_feed_byte_identical_to_row_feed_and_serial() {
             let sealed = engine.collect().expect("collect");
             let bytes: Vec<Vec<u8>> = sealed
                 .iter()
-                .map(|(p, _)| shared.with(|v| v.read_full(&format!("{DIR}/{}", p.tmp_name)).expect("tmp")))
+                .map(|(p, _)| {
+                    shared.with(|v| v.read_full(&format!("{DIR}/{}", p.tmp_name)).expect("tmp"))
+                })
                 .collect();
-            assert_eq!(bytes, rows_feed, "col feed diverged from the row feed, schedule {order:?}");
-            assert_eq!(bytes, serial, "col feed diverged from serial, schedule {order:?}");
+            assert_eq!(
+                bytes, rows_feed,
+                "col feed diverged from the row feed, schedule {order:?}"
+            );
+            assert_eq!(
+                bytes, serial,
+                "col feed diverged from serial, schedule {order:?}"
+            );
         }
     }
 }
@@ -148,7 +153,9 @@ fn lcg_orders(n: usize, count: usize) -> Vec<Vec<usize>> {
     for _ in 0..count {
         let mut v: Vec<usize> = (0..n).collect();
         for i in (1..n).rev() {
-            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             let j = (state >> 33) as usize % (i + 1);
             v.swap(i, j);
         }
@@ -293,7 +300,10 @@ fn cut_predicate_gates_on_granule_and_bounds_overshoot() {
     };
     assert!(!p.should_cut(0, 0), "never cuts an empty buffer");
     assert!(!p.should_cut(100, 5_000), "over budget mid-granule: no cut");
-    assert!(!p.should_cut(128, 999), "at a boundary, under budget: no cut");
+    assert!(
+        !p.should_cut(128, 999),
+        "at a boundary, under budget: no cut"
+    );
     assert!(p.should_cut(128, 5_000), "at a boundary, over budget: cut");
     // The budget trips somewhere inside (0, 128]; the cut lands at 128, so
     // a part exceeds max_bytes by at most one granule's worth of rows.
@@ -352,7 +362,9 @@ fn serial_tuned_tmp_bytes(n: u64, policy: PartCutPolicy) -> Vec<Vec<u8>> {
             shred: &mut kit.shred,
             shred_opts: &kit.opts,
         };
-        tuned_row(i, |row| w.append_row(row, &mut kit.ext, &mut env).expect("append"));
+        tuned_row(i, |row| {
+            w.append_row(row, &mut kit.ext, &mut env).expect("append")
+        });
     }
     {
         let sources: [&dyn crate::elect::CandidateSource; 1] = [&kit.cands];
@@ -410,7 +422,10 @@ fn parallel_tuned_tmp_bytes(n: u64, policy: PartCutPolicy, order: &[usize]) -> V
     for i in 0..n {
         tuned_row(i, |row| cur.push_row(row).expect("capture"));
         if cur.rows() >= TUNED_CHUNK_ROWS {
-            chunks.push(std::mem::replace(&mut cur, crate::par::RowChunk::new(1, TUNED_CHUNK_ROWS)));
+            chunks.push(std::mem::replace(
+                &mut cur,
+                crate::par::RowChunk::new(1, TUNED_CHUNK_ROWS),
+            ));
         }
     }
     if cur.rows() > 0 {
@@ -488,8 +503,7 @@ fn tuned_append(
         let RawDatum::Bytes(img) = &row[0] else {
             panic!("tuned corpus is varlena");
         };
-        let (payload, _) =
-            crate::ingest::normalize_varlena(img, ext, scratch).expect("normalize");
+        let (payload, _) = crate::ingest::normalize_varlena(img, ext, scratch).expect("normalize");
         col.append_varlena_payload(payload).expect("append");
     });
 }
@@ -543,6 +557,7 @@ fn cut_metric_equals_serial_at_every_granule_boundary() {
     // seam on this corpus).
     let mut spliced = crate::ingest::ColBuffer::new(text_col(1));
     let mut chunk_sum = 0u64;
+    #[allow(clippy::needless_range_loop)]
     for b in 0..N_CHUNKS {
         let mut chunk = crate::ingest::ColBuffer::new(text_col(1));
         for i in 0..TUNED_CHUNK_ROWS as u64 {
@@ -594,12 +609,7 @@ fn cut_metric_equals_serial_at_every_granule_boundary() {
     }
 }
 
-fn append_mixed(
-    w: &mut crate::writer::TableWriter,
-    vfs: &mut MemVfs,
-    kit: &mut Kit,
-    n: u64,
-) {
+fn append_mixed(w: &mut crate::writer::TableWriter, vfs: &mut MemVfs, kit: &mut Kit, n: u64) {
     for i in 0..n {
         let sources: [&dyn crate::elect::CandidateSource; 1] = [&kit.cands];
         let mut env = SealEnv {
@@ -609,7 +619,9 @@ fn append_mixed(
             shred: &mut kit.shred,
             shred_opts: &kit.opts,
         };
-        with_mixed_row(i, |row| w.append_row(row, &mut kit.ext, &mut env).expect("append"));
+        with_mixed_row(i, |row| {
+            w.append_row(row, &mut kit.ext, &mut env).expect("append")
+        });
     }
     let sources: [&dyn crate::elect::CandidateSource; 1] = [&kit.cands];
     let mut env = SealEnv {
@@ -663,9 +675,7 @@ fn claim_plane_dop_n_with_worker_skew_byte_identical_to_serial() {
                                 // Worker-speed skew: the slow claimant
                                 // paces between claims, shifting which
                                 // morsels each worker wins across runs.
-                                std::thread::sleep(std::time::Duration::from_micros(
-                                    400,
-                                ));
+                                std::thread::sleep(std::time::Duration::from_micros(400));
                             }
                         }
                     });
@@ -685,9 +695,9 @@ fn claim_plane_dop_n_with_worker_skew_byte_identical_to_serial() {
                     pgrc_format::dirlayout::temp_file_name(FXID, i as u32),
                     "ordered commit under dynamic claiming"
                 );
-                bytes.push(shared.with(|v| {
-                    v.read_full(&format!("{DIR}/{}", p.tmp_name)).expect("tmp")
-                }));
+                bytes.push(
+                    shared.with(|v| v.read_full(&format!("{DIR}/{}", p.tmp_name)).expect("tmp")),
+                );
             }
             assert_eq!(bytes, serial, "skewed DOP-4 run diverged from serial");
             if let Some(prev) = runs.last() {
@@ -725,8 +735,7 @@ fn error_parity_single_defect_matches_serial() {
     let serial_err = {
         let mut vfs = mem_with_dir();
         let mut kit = Kit::new();
-        let mut w =
-            open_writer_policy(vec![int8_col(1), text_col(2)], stamp(FXID, 1), policy);
+        let mut w = open_writer_policy(vec![int8_col(1), text_col(2)], stamp(FXID, 1), policy);
         let mut err: Option<crate::WriteError> = None;
         for i in 0..n_rows {
             let sources: [&dyn crate::elect::CandidateSource; 1] = [&kit.cands];
@@ -767,7 +776,10 @@ fn error_parity_single_defect_matches_serial() {
             with_mixed_row(i, |row| cur.push_row(row).expect("capture"));
         }
         if cur.rows() >= CHUNK_ROWS {
-            chunks.push(std::mem::replace(&mut cur, crate::par::RowChunk::new(2, CHUNK_ROWS)));
+            chunks.push(std::mem::replace(
+                &mut cur,
+                crate::par::RowChunk::new(2, CHUNK_ROWS),
+            ));
         }
     }
     if cur.rows() > 0 {
@@ -788,7 +800,9 @@ fn error_parity_single_defect_matches_serial() {
         }
         engine.close_input(total);
     });
-    let par_err = engine.collect().expect_err("the poisoned session must error");
+    let par_err = engine
+        .collect()
+        .expect_err("the poisoned session must error");
     assert_eq!(
         par_err, serial_err,
         "parallel session must surface serial's exact typed error"
@@ -926,9 +940,15 @@ fn parts_in_flight_formula_pins_the_machine_classes() {
     let mb = 256u64 << 20;
     assert_eq!(parts_in_flight_for(16, 12 << 30, mb), 16);
     assert_eq!(parts_in_flight_for(16, 6 << 30, mb), 12);
-    assert_eq!(parts_in_flight_for(16, 4 << 30, mb), LEGACY_MAX_PARTS_IN_FLIGHT);
+    assert_eq!(
+        parts_in_flight_for(16, 4 << 30, mb),
+        LEGACY_MAX_PARTS_IN_FLIGHT
+    );
     assert_eq!(parts_in_flight_for(192, 300 << 30, mb), 192);
-    assert_eq!(parts_in_flight_for(192, 4 << 30, mb), LEGACY_MAX_PARTS_IN_FLIGHT);
+    assert_eq!(
+        parts_in_flight_for(192, 4 << 30, mb),
+        LEGACY_MAX_PARTS_IN_FLIGHT
+    );
     assert_eq!(parts_in_flight_for(64, 20 << 30, mb), 40);
     assert_eq!(parts_in_flight_for(2, 0, mb), LEGACY_MAX_PARTS_IN_FLIGHT);
     assert_eq!(parts_in_flight_for(1000, u64::MAX, 0), 1000);

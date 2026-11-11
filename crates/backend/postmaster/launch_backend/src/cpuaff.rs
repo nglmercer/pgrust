@@ -166,6 +166,7 @@ pub(crate) fn install_from_env(workers: usize, standbys: usize, gang: usize) {
 
 /// Bind the calling rtworker thread per the policy (spawn closure, after
 /// the spawn-door bind, before the worker body). No-op when OFF.
+#[allow(dead_code)]
 pub(crate) fn apply_rtworker(ordinal: usize) {
     apply_rtworker_in(0, ordinal);
 }
@@ -234,6 +235,7 @@ fn slot_to_cpu(slot: &AtomicI32) -> Option<u32> {
 
 /// Core-list parsing/rendering live in runtime `cpuset` (one policy, one
 /// parser); kept as thin names for this module's tests and witness.
+#[allow(dead_code)]
 fn parse_cpu_list(s: &str) -> Option<Vec<usize>> {
     runtime::cpuset::parse_cpu_list(s)
 }

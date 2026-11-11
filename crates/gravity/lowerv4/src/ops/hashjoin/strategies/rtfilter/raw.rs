@@ -62,10 +62,10 @@ mod tests {
         let d = buf.as_mut_ptr() as *mut u8;
         // SAFETY: `buf` holds the header and the `n` 24-byte records.
         unsafe {
-            (wr::<u8>(d, 15, KIND), wr::<u8>(d, PHASE, 2), wr::<u8>(d, FLAGS, flags), wr::<u8>(d, WORDS, 2), wr::<u32>(d, REC, 24), crate::ops::hashjoin::layout::set_pay(d, 0));
-            (wr::<u64>(d, N, n as u64), wr::<i64>(d, LO, 0), wr::<i64>(d, HI, n as i64));
+            wr::<u8>(d, 15, KIND); wr::<u8>(d, PHASE, 2); wr::<u8>(d, FLAGS, flags); wr::<u8>(d, WORDS, 2); wr::<u32>(d, REC, 24); crate::ops::hashjoin::layout::set_pay(d, 0);
+            wr::<u64>(d, N, n as u64); wr::<i64>(d, LO, 0); wr::<i64>(d, HI, n as i64);
             for i in 0..n {
-                (wr::<u64>(d.add(HDR + 24 * i), 0, i as u64), wr::<u64>(d.add(HDR + 24 * i), 8, 1000 + i as u64));
+                wr::<u64>(d.add(HDR + 24 * i), 0, i as u64); wr::<u64>(d.add(HDR + 24 * i), 8, 1000 + i as u64);
             }
         }
         buf

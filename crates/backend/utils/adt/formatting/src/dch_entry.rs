@@ -759,6 +759,7 @@ mod tests {
     use super::*;
     use ::mcx::MemoryContext;
 
+    #[allow(clippy::field_reassign_with_default)]
     fn ts_1997() -> i64 {
         let mut tm = pg_tm::default();
         tm.tm_year = 1997;

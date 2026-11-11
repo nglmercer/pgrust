@@ -30,7 +30,7 @@ const LC_COLLATE: i32 = 3;
 
 use crate::{
     check_db_file_conflict, database_is_invalid_form, get_db_info, have_createdb_privilege, loc,
-    GLOBALTABLESPACE_OID, TableSpaceRelationId, XLOG_DBASE_CREATE_FILE_COPY,
+    TableSpaceRelationId, GLOBALTABLESPACE_OID, XLOG_DBASE_CREATE_FILE_COPY,
 };
 
 // `encoding < 0` means "inherit from the template"; the
@@ -82,18 +82,16 @@ fn defGetInt32(def: &DefElem<'_>) -> PgResult<i32> {
         Some(i) => Ok(i.ival),
         None => Err(ereport(ERROR)
             .errcode(ERRCODE_SYNTAX_ERROR)
-            .errmsg(format!("{} requires an integer value", def.defname.unwrap_or("")))
+            .errmsg(format!(
+                "{} requires an integer value",
+                def.defname.unwrap_or("")
+            ))
             .into_error()
             .into()),
     }
 }
 
-
-pub fn check_encoding_locale_matches(
-    encoding: i32,
-    collate: &str,
-    ctype: &str,
-) -> PgResult<()> {
+pub fn check_encoding_locale_matches(encoding: i32, collate: &str, ctype: &str) -> PgResult<()> {
     let ctype_encoding = pg_locale::pg_get_encoding_from_locale(Some(ctype), true)?;
     let collate_encoding = pg_locale::pg_get_encoding_from_locale(Some(collate), true)?;
 
@@ -194,7 +192,11 @@ fn enumerate_file_copy_dirs(
             Ok(md) if md.is_dir() && !fd::directory_is_empty(srcpath.as_str())? => {}
             _ => continue,
         }
-        let dsttablespace = if srctablespace == src_tsid { dst_tsid } else { srctablespace };
+        let dsttablespace = if srctablespace == src_tsid {
+            dst_tsid
+        } else {
+            srctablespace
+        };
         let dstpath = relpath::GetDatabasePath(mcx, dst_dboid, dsttablespace)?;
         dirs.push(FileCopyDir {
             srcpath: srcpath.as_str().to_owned(),
@@ -243,11 +245,20 @@ fn CreateDatabaseUsingFileCopy(
             _ => continue,
         }
 
-        let dsttablespace = if srctablespace == src_tsid { dst_tsid } else { srctablespace };
+        let dsttablespace = if srctablespace == src_tsid {
+            dst_tsid
+        } else {
+            srctablespace
+        };
         let dstpath = relpath::GetDatabasePath(mcx, dst_dboid, dsttablespace)?;
 
         fd::copydir(srcpath.as_str(), dstpath.as_str(), false)?;
-        pgrc_am::dircopy::copy_table_dirs(srcpath.as_str(), dstpath.as_str(), dsttablespace, dst_dboid)?;
+        pgrc_am::dircopy::copy_table_dirs(
+            srcpath.as_str(),
+            dstpath.as_str(),
+            dsttablespace,
+            dst_dboid,
+        )?;
 
         log_file_copy_record(dst_dboid, dsttablespace, src_dboid, srctablespace)?;
     }
@@ -306,10 +317,7 @@ pub fn createdb<'mcx>(
 /// CHECKPOINT_WAIT | CHECKPOINT_FLUSH_ALL)` before the first call and
 /// `RequestCheckpoint(CHECKPOINT_IMMEDIATE | CHECKPOINT_FORCE |
 /// CHECKPOINT_WAIT)` after the last, before committing the transaction.
-pub fn createdb_skip_checkpoints<'mcx>(
-    mcx: Mcx<'mcx>,
-    stmt: &CreatedbStmt<'mcx>,
-) -> PgResult<Oid> {
+pub fn createdb_skip_checkpoints<'mcx>(mcx: Mcx<'mcx>, stmt: &CreatedbStmt<'mcx>) -> PgResult<Oid> {
     Ok(createdb_guts(mcx, None, stmt, CreatedbCopyMode::InlineSkipCheckpoints)?.0)
 }
 
@@ -545,11 +553,14 @@ fn createdb_guts<'mcx>(
     }
 
     if !adt_acl::member_can_set_role(miscinit::GetUserId(), datdba)? {
-        let rolename = miscinit::GetUserNameFromId(mcx, datdba, false)?
-            .expect("noerr=false yields a name");
+        let rolename =
+            miscinit::GetUserNameFromId(mcx, datdba, false)?.expect("noerr=false yields a name");
         return Err(ereport(ERROR)
             .errcode(ERRCODE_INSUFFICIENT_PRIVILEGE)
-            .errmsg(format!("must be able to SET ROLE \"{}\"", rolename.as_str()))
+            .errmsg(format!(
+                "must be able to SET ROLE \"{}\"",
+                rolename.as_str()
+            ))
             .into_error()
             .into());
     }
@@ -567,7 +578,9 @@ fn createdb_guts<'mcx>(
     if database_is_invalid_form(src.datconnlimit) {
         return Err(ereport(ERROR)
             .errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE)
-            .errmsg(format!("cannot use invalid database \"{dbtemplate}\" as template"))
+            .errmsg(format!(
+                "cannot use invalid database \"{dbtemplate}\" as template"
+            ))
             .errhint("Use DROP DATABASE to drop invalid databases.".to_string())
             .into_error()
             .into());
@@ -578,7 +591,9 @@ fn createdb_guts<'mcx>(
     {
         return Err(ereport(ERROR)
             .errcode(ERRCODE_INSUFFICIENT_PRIVILEGE)
-            .errmsg(format!("permission denied to copy database \"{dbtemplate}\""))
+            .errmsg(format!(
+                "permission denied to copy database \"{dbtemplate}\""
+            ))
             .into_error()
             .into());
     }
@@ -601,9 +616,7 @@ fn createdb_guts<'mcx>(
     if copy_mode == CreatedbCopyMode::Deferred && dbstrategy != CreateDBStrategy::FileCopy {
         return Err(ereport(ERROR)
             .errcode(types_error::ERRCODE_INTERNAL_ERROR)
-            .errmsg(
-                "createdb_deferred_file_copy requires STRATEGY file_copy".to_string(),
-            )
+            .errmsg("createdb_deferred_file_copy requires STRATEGY file_copy".to_string())
             .into_error()
             .into());
     }
@@ -737,8 +750,7 @@ fn createdb_guts<'mcx>(
         }
         if !init_small::globals::IsBinaryUpgrade() && !dblocale_from_template {
             let locale = dblocale_s.as_deref().expect("checked non-NULL above");
-            let elevel =
-                types_error::ErrorLevel(guc_tables::vars::icu_validation_level.read());
+            let elevel = types_error::ErrorLevel(guc_tables::vars::icu_validation_level.read());
             if let Some(langtag) = pg_locale::icu_language_tag(locale, elevel)? {
                 if langtag != locale {
                     ereport(NOTICE)
@@ -813,7 +825,9 @@ fn createdb_guts<'mcx>(
                 .into());
         }
         if dblocprovider == COLLPROVIDER_ICU {
-            let val1 = dblocale_s.as_deref().expect("ICU database carries a locale");
+            let val1 = dblocale_s
+                .as_deref()
+                .expect("ICU database carries a locale");
             let val2 = src_locale.expect("ICU template carries a locale");
             if val1 != val2 {
                 return Err(ereport(ERROR)
@@ -851,7 +865,10 @@ fn createdb_guts<'mcx>(
         if dblocprovider == COLLPROVIDER_LIBC {
             dbcollate_s.to_owned()
         } else {
-            dblocale_s.as_deref().expect("non-libc provider carries a locale").to_owned()
+            dblocale_s
+                .as_deref()
+                .expect("non-libc provider carries a locale")
+                .to_owned()
         }
     };
     if let Some(src_collversion) = src.datcollversion.as_ref() {
@@ -1064,14 +1081,16 @@ fn createdb_guts<'mcx>(
             dst_deftablespace,
         )
         .map(|()| None),
-        (CreateDBStrategy::FileCopy, CreatedbCopyMode::Deferred) => enumerate_file_copy_dirs(
-            mcx,
-            src_dboid,
-            dboid,
-            src_deftablespace,
-            dst_deftablespace,
-        )
-        .map(|dirs| Some(DeferredFileCopy { db_oid: dboid, src_dboid, dirs })),
+        (CreateDBStrategy::FileCopy, CreatedbCopyMode::Deferred) => {
+            enumerate_file_copy_dirs(mcx, src_dboid, dboid, src_deftablespace, dst_deftablespace)
+                .map(|dirs| {
+                    Some(DeferredFileCopy {
+                        db_oid: dboid,
+                        src_dboid,
+                        dirs,
+                    })
+                })
+        }
         (CreateDBStrategy::FileCopy, mode) => CreateDatabaseUsingFileCopy(
             mcx,
             src_dboid,
@@ -1108,12 +1127,24 @@ mod tests {
         assert_eq!(collprovider_name(COLLPROVIDER_LIBC), "libc");
         assert_eq!(collprovider_name(b'x'), "???");
 
-        assert_eq!(pg_locale::builtin_validate_locale(PG_UTF8, "C.UTF8").unwrap(), "C.UTF-8");
-        assert_eq!(pg_locale::builtin_validate_locale(PG_UTF8, "C.UTF-8").unwrap(), "C.UTF-8");
+        assert_eq!(
+            pg_locale::builtin_validate_locale(PG_UTF8, "C.UTF8").unwrap(),
+            "C.UTF-8"
+        );
+        assert_eq!(
+            pg_locale::builtin_validate_locale(PG_UTF8, "C.UTF-8").unwrap(),
+            "C.UTF-8"
+        );
         // "C" works under any encoding (builtin_locale_encoding = -1).
-        assert_eq!(pg_locale::builtin_validate_locale(PG_SQL_ASCII, "C").unwrap(), "C");
+        assert_eq!(
+            pg_locale::builtin_validate_locale(PG_SQL_ASCII, "C").unwrap(),
+            "C"
+        );
         let e = pg_locale::builtin_validate_locale(PG_UTF8, "en_US").unwrap_err();
-        assert_eq!(e.message(), "invalid locale name \"en_US\" for builtin provider");
+        assert_eq!(
+            e.message(),
+            "invalid locale name \"en_US\" for builtin provider"
+        );
         // C.UTF-8 is pinned to UTF8.
         let e = pg_locale::builtin_validate_locale(PG_SQL_ASCII, "C.UTF-8").unwrap_err();
         assert_eq!(
@@ -1139,10 +1170,7 @@ mod tests {
             (wchar::PG_EUC_JP, "EUC_JP"),
         ] {
             let e = server_encoding_gate(enc, 17).expect("must be rejected");
-            assert_eq!(
-                e.sqlstate(),
-                types_error::ERRCODE_FEATURE_NOT_SUPPORTED
-            );
+            assert_eq!(e.sqlstate(), types_error::ERRCODE_FEATURE_NOT_SUPPORTED);
             assert_eq!(
                 e.message(),
                 format!(

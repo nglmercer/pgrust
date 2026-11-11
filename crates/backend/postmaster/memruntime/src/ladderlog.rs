@@ -78,6 +78,7 @@ fn budget(b: u64) -> String {
 /// the ladder's own passes this sample; `logged` advanced for each line written.
 pub fn lines(logged: &mut Logged, before: &Moves, after: &Moves, at: &At, out: &mut dyn FnMut(String)) {
     let r2a = mempolicy::ladder::Rung::EvictElastic.name();
+    #[allow(clippy::needless_range_loop)]
     for c in 0..SIZED_N {
         let own = (after.takes[c].0.saturating_sub(before.takes[c].0), after.takes[c].1.saturating_sub(before.takes[c].1));
         logged.pass[c] = (logged.pass[c].0 + own.0, logged.pass[c].1 + own.1);

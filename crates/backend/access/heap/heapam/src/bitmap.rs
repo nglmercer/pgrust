@@ -10,8 +10,8 @@
 //! look-ahead. A walk over cached pages (every OLTP statement) then pays no
 //! stream setup, look-ahead or IO batching per page.
 
-use tidbitmap::{TIDBitmap, TbmIterator, TbmPageResult, TBM_MAX_TUPLES_PER_PAGE};
 use ::types_core::{BlockNumber, ForkNumber, InvalidBlockNumber, InvalidBuffer};
+use tidbitmap::{TIDBitmap, TbmIterator, TbmPageResult, TBM_MAX_TUPLES_PER_PAGE};
 
 use crate::{
     batch_credit_page, batch_credit_upto, heap_hot_search_buffer, store_ctup_into_slot,
@@ -36,7 +36,16 @@ pub fn heap_scan_bitmap_next_tuple<'mcx>(
     exact_pages: &mut u64,
 ) -> PgResult<bool> {
     while scan.rs_cindex >= scan.rs_ntuples {
-        if !bitmap_next_block(mcx, scan, tbm, iterator, recheck, lossy_pages, exact_pages, false)? {
+        if !bitmap_next_block(
+            mcx,
+            scan,
+            tbm,
+            iterator,
+            recheck,
+            lossy_pages,
+            exact_pages,
+            false,
+        )? {
             return Ok(false);
         }
     }
@@ -60,7 +69,16 @@ pub fn heap_scan_bitmap_next_pagebatch<'mcx>(
     exact_pages: &mut u64,
 ) -> PgResult<u32> {
     loop {
-        if !bitmap_next_block(mcx, scan, tbm, iterator, recheck, lossy_pages, exact_pages, true)? {
+        if !bitmap_next_block(
+            mcx,
+            scan,
+            tbm,
+            iterator,
+            recheck,
+            lossy_pages,
+            exact_pages,
+            true,
+        )? {
             return Ok(0);
         }
         if scan.rs_ntuples > 0 {
@@ -174,11 +192,21 @@ fn bitmap_next_block(
                 scan.rs_bitmap_streaming = true;
                 break;
             }
-            let noffsets = if !tbmres.lossy { tbmres.extract_page_tuples(&mut offsets) } else { 0 };
+            let noffsets = if !tbmres.lossy {
+                tbmres.extract_page_tuples(&mut offsets)
+            } else {
+                0
+            };
             *recheck = tbmres.recheck;
             return bitmap_stage_page(
-                scan, buf, tbmres.blockno, tbmres.lossy, &offsets[..noffsets], serializable,
-                lossy_pages, exact_pages,
+                scan,
+                buf,
+                tbmres.blockno,
+                tbmres.lossy,
+                &offsets[..noffsets],
+                serializable,
+                lossy_pages,
+                exact_pages,
             );
         }
     }
@@ -227,10 +255,20 @@ fn bitmap_next_block(
             (buf, res)
         }
     };
-    let noffsets = if !tbmres.lossy { tbmres.extract_page_tuples(&mut offsets) } else { 0 };
+    let noffsets = if !tbmres.lossy {
+        tbmres.extract_page_tuples(&mut offsets)
+    } else {
+        0
+    };
     *recheck = tbmres.recheck;
     bitmap_stage_page(
-        scan, buf, tbmres.blockno, tbmres.lossy, &offsets[..noffsets], serializable, lossy_pages,
+        scan,
+        buf,
+        tbmres.blockno,
+        tbmres.lossy,
+        &offsets[..noffsets],
+        serializable,
+        lossy_pages,
         exact_pages,
     )
 }

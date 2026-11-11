@@ -126,6 +126,7 @@ impl Iter {
     }
 
     /// `Opened::words` read back (a resumed row).
+    #[allow(clippy::wrong_self_convention)]
     pub(crate) fn from_words(&self, w: &[Value]) -> Opened {
         let IterKind::Series { step, .. } = self.kind;
         Opened { n: w[0], start: w[1], step: step.then(|| w[2]) }

@@ -22,6 +22,7 @@ impl FsmPage {
     /// SAFETY: `page` is a live BLCKSZ buffer page pinned for this value's
     /// lifetime; writes follow C's lock discipline.
     #[inline]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn from_raw(page: NonNull<u8>) -> FsmPage {
         FsmPage(page)
     }

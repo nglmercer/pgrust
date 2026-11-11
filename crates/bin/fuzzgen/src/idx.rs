@@ -83,9 +83,9 @@
 //!     compared. PG18 ships only the restore/clear variants — there is no
 //!     pg_set_*_stats (verified in pg_proc on both engines).
 
-//! Q6 gist-paths extension (sql-reachable-queue chunk `gist-paths`), every
-//! family hand-verified byte-identical on both engines first (2026-08-11,
-//! scratchpad/q6-hv3-gist.sql):
+//!     Q6 gist-paths extension (sql-reachable-queue chunk `gist-paths`), every
+//!     family hand-verified byte-identical on both engines first (2026-08-11,
+//!     scratchpad/q6-hv3-gist.sql):
 //!   - `idx:gist` — a dedicated rich-GiST table (`fz_gst_*`): every range
 //!     flavor with a real subdiff penalty fn (int8/num/ts/tstz/date),
 //!     int4multirange (multirange_ops), tsquery (tsquery_gist), inet

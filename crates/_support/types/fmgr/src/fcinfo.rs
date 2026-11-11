@@ -24,8 +24,7 @@ pub type FmNodePtr = Option<NonNull<FmNode>>;
 
 // C's PGFunction; `flinfo` travels as a parameter (`None` = C's NULL flinfo);
 // errors return as `Err`, not an ereport longjmp.
-pub type PGFunction =
-    fn(Option<&mut FmgrInfo>, &mut FunctionCallInfoBaseData) -> PgResult<Datum>;
+pub type PGFunction = fn(Option<&mut FmgrInfo>, &mut FunctionCallInfoBaseData) -> PgResult<Datum>;
 
 // Rust may duplicate or merge function addresses; identity is resolver data.
 #[repr(u8)]
@@ -517,7 +516,13 @@ fn unresolved_function(
 }
 
 impl FmgrInfo {
-    pub fn new(fn_addr: PGFunction, fn_oid: Oid, fn_nargs: i16, fn_strict: bool, fn_retset: bool) -> Self {
+    pub fn new(
+        fn_addr: PGFunction,
+        fn_oid: Oid,
+        fn_nargs: i16,
+        fn_strict: bool,
+        fn_retset: bool,
+    ) -> Self {
         Self {
             fn_addr,
             fn_oid,
@@ -544,7 +549,13 @@ impl FmgrInfo {
     }
 
     pub fn unresolved() -> Self {
-        let mut f = Self::new(unresolved_function, ::types_core::primitive::InvalidOid, 0, false, false);
+        let mut f = Self::new(
+            unresolved_function,
+            ::types_core::primitive::InvalidOid,
+            0,
+            false,
+            false,
+        );
         f.fn_kind = FnKind::Unresolved;
         f
     }
@@ -788,7 +799,11 @@ pub fn function_call1_coll_in_nullok(
     unsafe { fcinfo.set_result_mcx(mcx) };
     fcinfo.set_arg(0, arg1);
     let result = flinfo.invoke(&mut fcinfo)?;
-    Ok(if fcinfo.isnull { Datum::from_usize(0) } else { result })
+    Ok(if fcinfo.isnull {
+        Datum::from_usize(0)
+    } else {
+        result
+    })
 }
 
 #[inline]
@@ -805,7 +820,11 @@ pub fn function_call2_coll_in_nullok(
     fcinfo.set_arg(0, arg1);
     fcinfo.set_arg(1, arg2);
     let result = flinfo.invoke(&mut fcinfo)?;
-    Ok(if fcinfo.isnull { Datum::from_usize(0) } else { result })
+    Ok(if fcinfo.isnull {
+        Datum::from_usize(0)
+    } else {
+        result
+    })
 }
 
 // `func` referees the registration: `thin` is handed out only for a carrier
@@ -836,7 +855,11 @@ pub struct OutInto {
 /// A text output function's result under PostgreSQL's contract: a fresh `cap`-byte cstring in the frame's result context,
 /// rendered in place (`render` writes at most `cap - 1` bytes and returns the count; the NUL goes after them).
 #[inline(always)]
-pub fn out_cstring(fcinfo: &FunctionCallInfoBaseData, cap: usize, render: impl FnOnce(&mut [u8]) -> usize) -> PgResult<Datum> {
+pub fn out_cstring(
+    fcinfo: &FunctionCallInfoBaseData,
+    cap: usize,
+    render: impl FnOnce(&mut [u8]) -> usize,
+) -> PgResult<Datum> {
     let p = fcinfo.result_mcx().alloc_bytes(cap)?.as_ptr();
     // SAFETY: a fresh `cap`-byte allocation, exclusively ours until returned.
     let buf = unsafe { core::slice::from_raw_parts_mut(p, cap) };
@@ -847,7 +870,11 @@ pub fn out_cstring(fcinfo: &FunctionCallInfoBaseData, cap: usize, render: impl F
 
 /// `out_cstring` for a renderer that can raise.
 #[inline(always)]
-pub fn out_cstring_try(fcinfo: &FunctionCallInfoBaseData, cap: usize, render: impl FnOnce(&mut [u8]) -> PgResult<usize>) -> PgResult<Datum> {
+pub fn out_cstring_try(
+    fcinfo: &FunctionCallInfoBaseData,
+    cap: usize,
+    render: impl FnOnce(&mut [u8]) -> PgResult<usize>,
+) -> PgResult<Datum> {
     let p = fcinfo.result_mcx().alloc_bytes(cap)?.as_ptr();
     // SAFETY: as out_cstring.
     let buf = unsafe { core::slice::from_raw_parts_mut(p, cap) };
@@ -861,7 +888,8 @@ pub const OUT_CHARS_INT: &[u8] = b"-0123456789";
 pub const OUT_CHARS_FLOAT: &[u8] = b"+-.0123456789INaefinty";
 pub const OUT_CHARS_NUMERIC: &[u8] = b"-.0123456789INaefinty";
 pub const OUT_CHARS_BOOL: &[u8] = b"ft";
-pub const OUT_CHARS_DATETIME: &[u8] = b" +-./0123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+pub const OUT_CHARS_DATETIME: &[u8] =
+    b" +-./0123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
 #[derive(Clone, Copy, Debug)]
 pub struct Pg_finfo_record {

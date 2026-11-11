@@ -40,8 +40,7 @@
 //!   `&IncrementalBackupInfo`. This avoids a self-referential
 //!   session-object/arena pairing (the C1 decode-arena lifetime trap).
 
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use std::collections::HashMap;
 
@@ -52,8 +51,7 @@ use mcx::{oom_named, Mcx, MemoryContext, PgVec, MAX_ALLOC_SIZE};
 use parse_manifest::{JsonManifestParseContext, JsonManifestParseIncrementalState};
 use timeline_seams::TimeLineHistoryEntry;
 use types_core::{
-    BlockNumber, ForkNumber, InvalidBlockNumber, Oid, RelFileNumber, TimeLineID, XLogRecPtr,
-    BLCKSZ,
+    BlockNumber, ForkNumber, InvalidBlockNumber, Oid, RelFileNumber, TimeLineID, XLogRecPtr, BLCKSZ,
 };
 use types_error::{
     ErrorLocation, PgResult, DEBUG1, ERRCODE_INTERNAL_ERROR,
@@ -112,7 +110,7 @@ pub struct BackupWalRange {
 
 /// C: struct IncrementalBackupInfo (backup_file_entry hash + WAL-range list
 /// + manifest accumulation buffer). Plain owned data — see the module
-/// comment for why there is no memory context and no static here.
+///   comment for why there is no memory context and no static here.
 pub struct IncrementalBackupInfo {
     /// C: ib->buf — temporary buffer storing the not-yet-parsed tail of the
     /// manifest while it is being uploaded (drained through `inc_state` at
@@ -306,7 +304,10 @@ impl IncrementalBackupInfo {
         backup_state: &mut BackupState,
     ) -> PgResult<BlockRefTable<'mcx>> {
         // C: Assert(ib->buf.data == NULL) — manifest must be finalized.
-        assert!(self.finalized, "PrepareForIncrementalBackup before FinalizeIncrementalManifest");
+        assert!(
+            self.finalized,
+            "PrepareForIncrementalBackup before FinalizeIncrementalManifest"
+        );
 
         // basebackup_incremental.c:288: the empty-manifest check precedes
         // readTimeLineHistory.
@@ -320,7 +321,8 @@ impl IncrementalBackupInfo {
 
         // Match the manifest's WAL ranges against this server's timeline
         // history (C's readTimeLineHistory of the backup-start TLI).
-        let expected_tles = timeline_seams::read_timeline_history::call(mcx, backup_state.starttli)?;
+        let expected_tles =
+            timeline_seams::read_timeline_history::call(mcx, backup_state.starttli)?;
 
         let (earliest_wal_range_tli, earliest_wal_range_start_lsn) =
             self.validate_wal_ranges(&expected_tles, backup_state)?;
@@ -630,7 +632,10 @@ fn merge_required_summaries<'mcx>(
                 return ereport(ERROR)
                     .with_saved_errno(fd::get_errno())
                     .errcode_for_file_access()
-                    .errmsg(format!("could not read file \"{}\": {PCT_M}", fd::FilePathName(file)))
+                    .errmsg(format!(
+                        "could not read file \"{}\": {PCT_M}",
+                        fd::FilePathName(file)
+                    ))
                     .finish(loc("ReadWalSummary"))
                     .map(|()| 0);
             }
@@ -766,7 +771,10 @@ impl IncrementalBackupInfo {
         truncation_block_length: &mut u32,
     ) -> PgResult<FileBackupMethod> {
         // Should only be called after PrepareForIncrementalBackup.
-        assert!(self.finalized, "GetFileBackupMethod before FinalizeIncrementalManifest");
+        assert!(
+            self.finalized,
+            "GetFileBackupMethod before FinalizeIncrementalManifest"
+        );
 
         // dboid could be InvalidOid if shared rel, but spcoid and
         // relfilenumber should have legal values.
@@ -805,8 +813,15 @@ impl IncrementalBackupInfo {
 
         // Look up the special block reference table entry for the database
         // as a whole.
-        let mut rlocator = RelFileLocator { spcOid: spcoid, dbOid: dboid, relNumber: 0 };
-        if brtab.get_entry(rlocator, ForkNumber::MAIN_FORKNUM).is_some() {
+        let mut rlocator = RelFileLocator {
+            spcOid: spcoid,
+            dbOid: dboid,
+            relNumber: 0,
+        };
+        if brtab
+            .get_entry(rlocator, ForkNumber::MAIN_FORKNUM)
+            .is_some()
+        {
             // According to the WAL summary, this database OID/tablespace OID
             // pairing has been created since the previous backup. So,
             // everything in it must be backed up fully.
@@ -860,8 +875,11 @@ impl IncrementalBackupInfo {
 
         // This will write *absolute* block numbers into the output array,
         // but we'll transpose them below.
-        let nblocks =
-            brtentry.get_blocks(start_blkno, stop_blkno, &mut relative_block_numbers[..RELSEG_SIZE as usize]);
+        let nblocks = brtentry.get_blocks(
+            start_blkno,
+            stop_blkno,
+            &mut relative_block_numbers[..RELSEG_SIZE as usize],
+        );
         debug_assert!(nblocks <= RELSEG_SIZE as usize);
 
         // If we're going to have to send nearly all of the blocks, then just
@@ -992,7 +1010,11 @@ impl JsonManifestParseContext for IbManifestContext {
         start_lsn: XLogRecPtr,
         end_lsn: XLogRecPtr,
     ) -> PgResult<()> {
-        self.manifest_wal_ranges.push(BackupWalRange { tli, start_lsn, end_lsn });
+        self.manifest_wal_ranges.push(BackupWalRange {
+            tli,
+            start_lsn,
+            end_lsn,
+        });
         Ok(())
     }
 

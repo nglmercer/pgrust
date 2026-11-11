@@ -1,9 +1,9 @@
 //! ginxlog.h record images: byte layouts match the C structs exactly
 //! (ginxlogCreatePostingTree 4, ginxlogInsert 2, ginxlogSplit 26 (locator 12
 //! + rrlink/leftChild/rightChild 12 + flags 2), ginxlogDeletePage 12,
-//! ginxlogUpdateMeta 80, ginxlogInsertListPage 8, ginxlogDeleteListPages 64,
-//! ginxlogInsertEntry header 4, ginxlogRecompressDataLeaf 2,
-//! ginxlogInsertDataInternal 12).
+//!   ginxlogUpdateMeta 80, ginxlogInsertListPage 8, ginxlogDeleteListPages 64,
+//!   ginxlogInsertEntry header 4, ginxlogRecompressDataLeaf 2,
+//!   ginxlogInsertDataInternal 12).
 
 use ::gin_vocab::{GinMetaPageData, PostingItem};
 use ::types_core::{BlockNumber, OffsetNumber, TransactionId};
@@ -37,7 +37,10 @@ pub(crate) fn ginxlog_recompress_header(nactions: u16) -> [u8; 2] {
     nactions.to_ne_bytes()
 }
 
-pub(crate) fn ginxlog_insert_data_internal(offset: OffsetNumber, newitem: &PostingItem) -> [u8; 12] {
+pub(crate) fn ginxlog_insert_data_internal(
+    offset: OffsetNumber,
+    newitem: &PostingItem,
+) -> [u8; 12] {
     let mut b = [0u8; 12];
     b[0..2].copy_from_slice(&offset.to_ne_bytes());
     // SAFETY: PostingItem is a 10-byte POD.

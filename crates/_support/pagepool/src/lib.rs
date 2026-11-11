@@ -1,7 +1,10 @@
 //! pgrust's warm page pool: one reservation (pool chunks of 2 MiB superpages, lazy spans, the frame zone, meta tables);
 //! memory stays warm across frees and only the purger gives it back. Take and give use no lock, no pgsync, no heap.
 
-#![cfg_attr(any(target_family = "wasm", loom), allow(dead_code, unused_imports, unused_variables))]
+#![cfg_attr(
+    any(target_family = "wasm", loom),
+    allow(dead_code, unused_imports, unused_variables)
+)]
 
 mod affinity;
 mod api;
@@ -10,13 +13,13 @@ mod claimer;
 #[cfg(target_family = "wasm")]
 mod fallback;
 pub mod frames;
+#[cfg(feature = "global")]
+mod global;
 #[cfg(all(not(target_family = "wasm"), not(miri)))]
 mod os;
 #[cfg(miri)]
 #[path = "os_miri.rs"]
 mod os;
-#[cfg(feature = "global")]
-mod global;
 mod present;
 mod purger;
 mod reserve;
@@ -40,16 +43,31 @@ use crate::sync::{AtomicBool, AtomicU16, AtomicU8, AtomicUsize, Ordering::*};
 pub use affinity::{helper_pins, set_helper_cpus, HELPER_MAX_CPUS};
 pub use api::*;
 pub use claimer::{claim_room, prefill, set_claim_room};
-pub use present::{build_present, cache_present, free_present, meta_present, present, present_age_ms, present_due_now, present_fresh, present_split, present_split_build, present_sweep, present_sweep_by, present_sweep_ns, present_sweeps, present_zero, refresh_present, in_ram_seam, residency_seam};
-pub use purger::{guard_counts, host_counts, set_host_pressed, HostCounts, landing, lazy_pass_now, note_end_give, lazy_pass_timed_now, peak_counts, purge_now, r1_counts, GuardCounts, PeakCounts, CLIMB_MIN, CLIMB_MS, LEVER_AGE, LEVER_DEAD1, LEVER_SKIP, LEVER_WARM1, SKIP_MIN, WALK_MS, GUARD_BINS, GUARD_BIN_ROWS, GUARD_BIN_US, releasable, return_warm, return_warm_now, serve_ask_now, set_pressure, Pressure, R1Counts, R1_BINS, R1_BIN_MS, R1_BIN_ROWS, R1_STEPS, R1_STEP_ROWS};
+#[cfg(feature = "global")]
+pub use global::*;
+pub use present::{
+    build_present, cache_present, free_present, in_ram_seam, meta_present, present, present_age_ms,
+    present_due_now, present_fresh, present_split, present_split_build, present_sweep,
+    present_sweep_by, present_sweep_ns, present_sweeps, present_zero, refresh_present,
+    residency_seam,
+};
+pub use purger::{
+    guard_counts, host_counts, landing, lazy_pass_now, lazy_pass_timed_now, note_end_give,
+    peak_counts, purge_now, r1_counts, releasable, return_warm, return_warm_now, serve_ask_now,
+    set_host_pressed, set_pressure, GuardCounts, HostCounts, PeakCounts, Pressure, R1Counts,
+    CLIMB_MIN, CLIMB_MS, GUARD_BINS, GUARD_BIN_ROWS, GUARD_BIN_US, LEVER_AGE, LEVER_DEAD1,
+    LEVER_SKIP, LEVER_WARM1, R1_BINS, R1_BIN_MS, R1_BIN_ROWS, R1_STEPS, R1_STEP_ROWS, SKIP_MIN,
+    WALK_MS,
+};
 pub use run::{run_of, Kind, RunInfo};
 pub use shelf::{flush_shelf, low_warm};
 pub use span::{commit_to, give_span, grow_span, guard_past, shrink_span, span, span_at, Span};
 pub use state::{occupancy, Occupancy};
 pub use stats::{moved_in, os_big, set_line, stats, Stats};
-pub use warmres::{reserve_ask, reserve_bound, reserve_kept, reserve_on, reserve_probe, reserve_stats, set_reserve_budget, Reserve, POP_BINS, SIZES as RESERVE_SIZES};
-#[cfg(feature = "global")]
-pub use global::*;
+pub use warmres::{
+    reserve_ask, reserve_bound, reserve_kept, reserve_on, reserve_probe, reserve_stats,
+    set_reserve_budget, Reserve, POP_BINS, SIZES as RESERVE_SIZES,
+};
 
 /// A lifetime class. A superpage holds runs of one class only.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -66,7 +84,14 @@ pub enum Class {
 pub(crate) const CLASSES: usize = 6;
 
 impl Class {
-    pub(crate) const ALL: [Class; CLASSES] = [Class::Task, Class::Session, Class::Cache, Class::Process, Class::General, Class::Frame];
+    pub(crate) const ALL: [Class; CLASSES] = [
+        Class::Task,
+        Class::Session,
+        Class::Cache,
+        Class::Process,
+        Class::General,
+        Class::Frame,
+    ];
 
     #[inline]
     pub(crate) fn from_u8(v: u8) -> Class {
@@ -130,7 +155,12 @@ pub struct Hint {
 
 impl Hint {
     pub const fn new(class: Class, tag: Tag) -> Hint {
-        Hint { class, zero: Zero::No, tag, expect_kib: 0 }
+        Hint {
+            class,
+            zero: Zero::No,
+            tag,
+            expect_kib: 0,
+        }
     }
 
     pub const fn zero(self, z: Zero) -> Hint {
@@ -138,7 +168,10 @@ impl Hint {
     }
 
     pub const fn expect_kib(self, k: u32) -> Hint {
-        Hint { expect_kib: k, ..self }
+        Hint {
+            expect_kib: k,
+            ..self
+        }
     }
 }
 
@@ -176,7 +209,13 @@ pub struct Config {
 }
 
 /// The frame zone's address space (frames' design: 16 TiB; 1 GiB under cfg(pagepool_tsan): no TSan app range holds 16 TiB).
-const FRAME_VA: usize = if cfg!(pagepool_tsan) { 1 << 30 } else if usize::BITS >= 64 { (16u64 << 40) as usize } else { 0 };
+const FRAME_VA: usize = if cfg!(pagepool_tsan) {
+    1 << 30
+} else if usize::BITS >= 64 {
+    (16u64 << 40) as usize
+} else {
+    0
+};
 
 impl Config {
     #[cfg(loom)]
@@ -189,9 +228,13 @@ impl Config {
     pub fn from_policy() -> Config {
         use mempolicy::consts::{get, K};
         let phys = os::phys_bytes().max(1 << 30);
-        let chunk = (get(K::PoolChunk) as usize).max(superpage::SUPER).next_multiple_of(superpage::SUPER);
+        let chunk = (get(K::PoolChunk) as usize)
+            .max(superpage::SUPER)
+            .next_multiple_of(superpage::SUPER);
         Config {
-            va: phys.saturating_mul(get(K::PoolVaMul) as usize).next_multiple_of(chunk),
+            va: phys
+                .saturating_mul(get(K::PoolVaMul) as usize)
+                .next_multiple_of(chunk),
             chunk,
             lazy_va: phys.saturating_mul(get(K::PoolLazyVaMul) as usize),
             frame_va: FRAME_VA,
@@ -234,8 +277,14 @@ impl Switches {
     }
 }
 
-const SWITCH_NAMES: [&core::ffi::CStr; 6] =
-    [c"PGRUST_POOL_MCX", c"PGRUST_POOL_GRAVITY", c"PGRUST_POOL_CACHE", c"PGRUST_POOL_BUFFERS", c"PGRUST_POOL_KEEPERS", c"PGRUST_POOL_DEBUG"];
+const SWITCH_NAMES: [&core::ffi::CStr; 6] = [
+    c"PGRUST_POOL_MCX",
+    c"PGRUST_POOL_GRAVITY",
+    c"PGRUST_POOL_CACHE",
+    c"PGRUST_POOL_BUFFERS",
+    c"PGRUST_POOL_KEEPERS",
+    c"PGRUST_POOL_DEBUG",
+];
 const SWITCHES_READ: u16 = 1 << 15;
 /// The switches on unless `=0` (SWITCH_NAMES' first two, mcx and gravity) in the pool-global build; elsewhere every switch is
 /// `=1` to turn on.
@@ -248,7 +297,11 @@ pub fn switches() -> Switches {
     if v & SWITCHES_READ == 0 {
         v = SWITCHES_READ;
         for (i, name) in SWITCH_NAMES.iter().enumerate() {
-            let on = if TENANTS_DEFAULT_ON && i < 2 { os::env_on_by_default(name) } else { os::env_is_one(name) };
+            let on = if TENANTS_DEFAULT_ON && i < 2 {
+                os::env_on_by_default(name)
+            } else {
+                os::env_is_one(name)
+            };
             if !hatch_on() && on {
                 v |= 1 << i;
             }
@@ -356,7 +409,8 @@ pub fn stop() {
     purger::stop();
 }
 
-static DOOR: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static DOOR: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 /// The memory ledger's pool door: every change of the pool's claimed bytes. Under `global` (PoolAlloc claims from the
 /// process's first allocation, before the binary installs the door) also, at install, the claims made before it.
@@ -408,7 +462,10 @@ pub fn allocator_decides() -> u32 {
 /// aarch64 (Graviton) and x86_64, mimalloc everywhere else (macOS on Apple silicon). One build: a default at run time,
 /// decided with `PGRUST_ALLOCATOR` at the first allocation. Only a binary that says `by_arch_default!()` (the server)
 /// takes it; any other keeps the pool.
-pub const HEARTH_BY_ARCH: bool = cfg!(all(target_os = "linux", any(target_arch = "aarch64", target_arch = "x86_64")));
+pub const HEARTH_BY_ARCH: bool = cfg!(all(
+    target_os = "linux",
+    any(target_arch = "aarch64", target_arch = "x86_64")
+));
 
 /// `by_arch_default!`'s marks: the binary takes the per-architecture default; its constructor ran after the choice.
 static BY_ARCH: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
@@ -480,7 +537,11 @@ pub fn by_arch_default_now() {
 
 /// `PGRUST_ALLOCATOR`'s value when it names no allocator ("mimalloc", "hearth" or the old "pagepool"; ASCII case ignored).
 pub fn allocator_env_unknown() -> Option<&'static str> {
-    os::env_str(c"PGRUST_ALLOCATOR").filter(|v| !["mimalloc", "hearth", "pagepool"].iter().any(|n| v.eq_ignore_ascii_case(n)))
+    os::env_str(c"PGRUST_ALLOCATOR").filter(|v| {
+        !["mimalloc", "hearth", "pagepool"]
+            .iter()
+            .any(|n| v.eq_ignore_ascii_case(n))
+    })
 }
 
 #[inline]
@@ -563,7 +624,11 @@ pub(crate) const THP_COLD: u8 = 3;
 #[inline]
 pub(crate) fn thp_partial() -> u8 {
     let m = THP_PARTIAL.load(Relaxed);
-    if m == 0 || os::thp() == os::Thp::Never { 0 } else { m }
+    if m == 0 || os::thp() == os::Thp::Never {
+        0
+    } else {
+        m
+    }
 }
 
 /// Test seam: the `pool_thp_partial` mode from here on (0 = as before, 1 = keep, 2 = split first, 3 = split cold only).
@@ -594,7 +659,9 @@ pub struct SpanReuse {
 }
 
 pub fn span_reuse() -> SpanReuse {
-    use span::{TRIMMED, TRIMS, TRIM_NS, TRIM_RESIDENT, ZERO_BYTES, ZERO_MAX_NS, ZERO_NS, ZERO_TAKES};
+    use span::{
+        TRIMMED, TRIMS, TRIM_NS, TRIM_RESIDENT, ZERO_BYTES, ZERO_MAX_NS, ZERO_NS, ZERO_TAKES,
+    };
     SpanReuse {
         trim_on: span::trim_on(),
         zero_takes: ZERO_TAKES.load(Relaxed),
@@ -626,7 +693,9 @@ pub struct SpanMoves {
 }
 
 pub fn span_moves() -> SpanMoves {
-    use span::{GROW_REMAP_REFUSED, MOVED_BYTES, MOVES, MOVE_MAX_NS, MOVE_NS, MOVE_REFUSED, MOVE_ZEROED};
+    use span::{
+        GROW_REMAP_REFUSED, MOVED_BYTES, MOVES, MOVE_MAX_NS, MOVE_NS, MOVE_REFUSED, MOVE_ZEROED,
+    };
     SpanMoves {
         on: span::move_on(),
         moves: MOVES.load(Relaxed),
@@ -642,7 +711,10 @@ pub fn span_moves() -> SpanMoves {
 /// D4885: warm lazy spans whose address space a new span took, the lazy zone otherwise full (count, bytes of address
 /// space).
 pub fn warm_va_drops() -> (u64, u64) {
-    (span::WARM_VA_DROPS.load(Relaxed), span::WARM_VA_DROPPED.load(Relaxed))
+    (
+        span::WARM_VA_DROPS.load(Relaxed),
+        span::WARM_VA_DROPPED.load(Relaxed),
+    )
 }
 
 /// D4760 (pppress): `PGRUST_POOL_FINE_CLASSES` (four size classes per doubling for 1-128 KiB blocks).
@@ -653,7 +725,13 @@ pub fn fine_classes_on() -> bool {
 /// D4760 (`pool_thp_partial`): (mode, partial give-backs kept and their bytes, split asks and their ns).
 pub fn thp_partial_counts() -> (u8, u64, u64, u64, u64) {
     use stats::{THP_KEPT, THP_KEPT_BYTES, THP_SPLITS, THP_SPLIT_NS};
-    (thp_partial(), THP_KEPT.load(Relaxed), THP_KEPT_BYTES.load(Relaxed), THP_SPLITS.load(Relaxed), THP_SPLIT_NS.load(Relaxed))
+    (
+        thp_partial(),
+        THP_KEPT.load(Relaxed),
+        THP_KEPT_BYTES.load(Relaxed),
+        THP_SPLITS.load(Relaxed),
+        THP_SPLIT_NS.load(Relaxed),
+    )
 }
 
 /// `pagegive::give_back` over dead whole pages of a live block from either allocator: named the pool's when the pool owns
@@ -671,12 +749,18 @@ pub unsafe fn give_back_any(lo: usize, len: usize, huge: bool) -> core::ffi::c_i
             // pppress card 8: an owner giving back part of its own superpage is using it: kept as 1, unless the ladder
             // presses (then split as 2)
             // SAFETY: the caller's contract.
-            THP_COLD if !purger::ladder_pressed() => return unsafe { give_back_whole(lo, len, huge) },
+            THP_COLD if !purger::ladder_pressed() => {
+                return unsafe { give_back_whole(lo, len, huge) }
+            }
             THP_COLD => os::split_partial(lo, len),
             _ => {}
         }
     }
-    let m = if pool { pagegive::Mapping::Pool { huge } } else { pagegive::Mapping::Allocator { huge } };
+    let m = if pool {
+        pagegive::Mapping::Pool { huge }
+    } else {
+        pagegive::Mapping::Allocator { huge }
+    };
     // SAFETY: the caller's contract.
     unsafe { pagegive::give_back(lo, len, m) }
 }
@@ -690,7 +774,10 @@ pub unsafe fn give_back_any(lo: usize, len: usize, huge: bool) -> core::ffi::c_i
 #[cfg(target_os = "linux")]
 unsafe fn give_back_whole(lo: usize, len: usize, huge: bool) -> core::ffi::c_int {
     let end = lo + len;
-    let (a, b) = (lo.next_multiple_of(superpage::SUPER), end / superpage::SUPER * superpage::SUPER);
+    let (a, b) = (
+        lo.next_multiple_of(superpage::SUPER),
+        end / superpage::SUPER * superpage::SUPER,
+    );
     stats::THP_KEPT.fetch_add(1, Relaxed);
     if b <= a {
         stats::THP_KEPT_BYTES.fetch_add(len as u64, Relaxed);
@@ -730,7 +817,13 @@ pub fn idle_tail_counts() -> (bool, u64, u64, u64, u64) {
     #[cfg(all(feature = "global", not(target_family = "wasm")))]
     {
         let (runs, bytes, defers) = small::tail_counts();
-        (small::tail_on(), runs, bytes, defers, purger::split_counts().1)
+        (
+            small::tail_on(),
+            runs,
+            bytes,
+            defers,
+            purger::split_counts().1,
+        )
     }
     #[cfg(not(all(feature = "global", not(target_family = "wasm"))))]
     (false, 0, 0, 0, 0)
@@ -980,9 +1073,11 @@ pub mod hooks {
 #[doc(hidden)]
 pub mod loom_api {
     pub use crate::central::{Atom64, Nodes, Stack, NONE};
-    pub use crate::state::{give_free, take_free, FreeRuns};
     #[cfg(feature = "global")]
-    pub use crate::small::{ab_pop, ab_take_all, remote_push, remote_push_chain, remote_take, Links, Spin};
+    pub use crate::small::{
+        ab_pop, ab_take_all, remote_push, remote_push_chain, remote_take, Links, Spin,
+    };
+    pub use crate::state::{give_free, take_free, FreeRuns};
 }
 
 mod sync;

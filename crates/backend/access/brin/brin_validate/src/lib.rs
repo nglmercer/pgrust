@@ -38,8 +38,9 @@ pub fn brinvalidate(opclassoid: Oid) -> PgResult<bool> {
     let Some(opclassname_data) = syscache_seams::pg_opclass_opcname::call(opclassoid)? else {
         return Err(index_amvalidate::opclass_lookup_failed(opclassoid));
     };
-    let opclassname =
-        core::str::from_utf8(opclassname_data.name_str()).unwrap_or("").to_string();
+    let opclassname = core::str::from_utf8(opclassname_data.name_str())
+        .unwrap_or("")
+        .to_string();
 
     let opfamilyname = lsyscache::get_opfamily_name(mcx, opfamilyoid, false)?
         .expect("opfamily name")
@@ -157,8 +158,7 @@ pub fn brinvalidate(opclassoid: Oid) -> PgResult<bool> {
         }
     }
 
-    let grouplist =
-        identify_opfamily_groups(mcx, &oprlist, opr_ordered, &proclist, proc_ordered)?;
+    let grouplist = identify_opfamily_groups(mcx, &oprlist, opr_ordered, &proclist, proc_ordered)?;
     let mut opclassgroup = None;
     for thisgroup in grouplist.iter() {
         if thisgroup.lefttype == opcintype && thisgroup.righttype == opcintype {
@@ -193,7 +193,9 @@ pub fn brinvalidate(opclassoid: Oid) -> PgResult<bool> {
     }
 
     if opclassgroup.is_none()
-        || opclassgroup.map(|g| g.operatorset != allops).unwrap_or(false)
+        || opclassgroup
+            .map(|g| g.operatorset != allops)
+            .unwrap_or(false)
     {
         info(format!(
             "operator class \"{}\" of access method {} is missing operator(s)",

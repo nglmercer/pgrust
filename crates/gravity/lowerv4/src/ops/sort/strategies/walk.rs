@@ -30,10 +30,10 @@
 //!   nullable NULLS FIRST (either direction; PL-06, `TopKDesc::nulls_first`): the runner gives every granule holding a
 //!   NULL (its stats record's non-null count under its rows) the lowest walk key, so it walks first and no bound skips
 //!   it; a NULL row n - 1 bounds at that key (exec merge.rs `run_bound`): only those granules are read.
-//! Width: road `width.walk` (runs/walk_width.rs) sizes the walk's claims from the residency of its next granules; a row
-//! walk with no filter under the top takes it too, unless a nullable key's NULLs lead (its census counts value rows: exec
-//! walk.rs).
-//! Owner M3-WALK. Budget 180 lines.
+//!   Width: road `width.walk` (runs/walk_width.rs) sizes the walk's claims from the residency of its next granules; a row
+//!   walk with no filter under the top takes it too, unless a nullable key's NULLs lead (its census counts value rows: exec
+//!   walk.rs).
+//!   Owner M3-WALK. Budget 180 lines.
 use gravity_abi::breaker::{Breaker, BreakerKind, ORDER_KEY, ORDER_NONE};
 use gravity_decompose::ops::shared::agg::{AggDecl, GroupDecl};
 use gravity_decompose::graph::Bound;

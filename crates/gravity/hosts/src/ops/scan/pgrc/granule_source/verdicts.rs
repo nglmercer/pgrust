@@ -603,7 +603,7 @@ impl GranuleRangeSource {
         for (w, o) in words[..n].iter_mut().enumerate() {
             *o = if self.has_dv { self.cond_words[w] & !self.dv[w] } else { self.cond_words[w] };
         }
-        if rows % 64 != 0 {
+        if !rows.is_multiple_of(64) {
             words[n - 1] &= (1u64 << (rows % 64)) - 1;
         }
         self.sel16_ok = false;

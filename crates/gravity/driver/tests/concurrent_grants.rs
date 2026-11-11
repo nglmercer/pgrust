@@ -28,9 +28,12 @@ fn shapes() -> Vec<(&'static str, Arc<Program>, bool)> {
 
 #[derive(Debug, Default, Clone, Copy)]
 struct Pass {
+    #[allow(dead_code)]
     reserved: u64,
     trims: u64,
+    #[allow(dead_code)]
     waits: u64,
+    #[allow(dead_code)]
     peak: u64,
     refusals: u64,
     /// Admitted with nothing reserved: never since S7 (a full pool makes the statement wait, then refuses it by name).

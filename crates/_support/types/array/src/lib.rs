@@ -89,7 +89,7 @@ mod tests {
     #[test]
     fn vector_dim1_fits_bounds() {
         let elemsz = core::mem::size_of::<Oid>(); // 4
-        // Empty vector (dim1 == 0) fits when the image is at least the header.
+                                                  // Empty vector (dim1 == 0) fits when the image is at least the header.
         assert!(vector_dim1_fits(VECTOR_HDRSZ, 0, elemsz));
         // A 3-element oidvector image is exactly header + 3*4.
         assert!(vector_dim1_fits(VECTOR_HDRSZ + 3 * elemsz, 3, elemsz));
@@ -106,13 +106,19 @@ mod tests {
 
     #[test]
     fn vector_headers_prefix_matches_arraytype() {
-        assert_eq!(offset_of!(ArrayType, vl_len_), offset_of!(int2vector, vl_len_));
+        assert_eq!(
+            offset_of!(ArrayType, vl_len_),
+            offset_of!(int2vector, vl_len_)
+        );
         assert_eq!(offset_of!(ArrayType, ndim), offset_of!(int2vector, ndim));
         assert_eq!(
             offset_of!(ArrayType, dataoffset),
             offset_of!(int2vector, dataoffset)
         );
-        assert_eq!(offset_of!(ArrayType, elemtype), offset_of!(int2vector, elemtype));
+        assert_eq!(
+            offset_of!(ArrayType, elemtype),
+            offset_of!(int2vector, elemtype)
+        );
         assert_eq!(offset_of!(int2vector, dim1), 16);
         assert_eq!(offset_of!(int2vector, lbound1), 20);
         assert_eq!(offset_of!(oidvector, dim1), 16);

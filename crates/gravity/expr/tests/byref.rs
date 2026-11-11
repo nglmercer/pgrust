@@ -54,6 +54,7 @@ fn build_for(typlens: &[i16]) -> (gravity_ir::Program, gravity_ir::Func) {
         byref::store(&mut b, o, vp, np, k as i32, *c, sizes[k]);
     }
     b.ret(&[zero]);
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     let ir = pb.finish();
     gravity_ir::verify::verify(&ir).unwrap();

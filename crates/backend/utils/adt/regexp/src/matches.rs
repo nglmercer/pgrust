@@ -35,7 +35,7 @@ impl RegexpMatchesCtx<'_, '_> {
 
 // C: setup_regexp_matches — all the matching in one swoop; match_locs holds
 // nmatches*npatterns*2 char indexes plus a trailing end-of-string position.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::misrefactored_assign_op, clippy::too_many_arguments)]
 pub fn setup_regexp_matches<'a, 'mcx>(
     mcx: Mcx<'mcx>,
     orig_str: &'a [u8],
@@ -171,6 +171,7 @@ pub fn setup_regexp_matches<'a, 'mcx>(
 // The RE2 arm of setup_regexp_matches: identical control flow driven by byte
 // offsets; match_locs holds byte offsets and the trailing sentinel is the
 // byte length.
+#[allow(clippy::misrefactored_assign_op)]
 fn setup_regexp_matches_re2<'a, 'mcx>(
     mcx: Mcx<'mcx>,
     orig_str: &'a [u8],

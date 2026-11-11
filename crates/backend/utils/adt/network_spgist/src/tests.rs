@@ -77,6 +77,7 @@ struct KeyImage {
     _len: usize,
 }
 
+#[allow(clippy::vec_box)]
 fn scankey(strategy: u16, q: &InetValue, store: &mut Vec<Box<KeyImage>>) -> ScanKeyData {
     let (img, len) = q.image();
     store.push(Box::new(KeyImage { img, _len: len }));

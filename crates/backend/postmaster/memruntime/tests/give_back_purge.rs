@@ -10,8 +10,8 @@
 //! - mcx::release_retained_at_exit (a session's exit / park / retire, the init-file load, the postmaster after the join;
 //!   A1e);
 //! - a page free past the purge delay (mimalloc's expired purge on the freeing thread, A1(a)).
-//! The broker's C2: past the watchdog's cancel line the release purges on its caller as today; under it, the service does.
-//! Its own test binary: the knob, the service and the owner slots are process-wide.
+//!   The broker's C2: past the watchdog's cancel line the release purges on its caller as today; under it, the service does.
+//!   Its own test binary: the knob, the service and the owner slots are process-wide.
 #![cfg(target_os = "linux")]
 
 #[global_allocator]

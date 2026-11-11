@@ -1,7 +1,5 @@
 #![no_std]
-#![allow(non_camel_case_types)]
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
 
 use core::cell::Cell;
 
@@ -125,7 +123,11 @@ impl XidVisMemo {
 
     #[inline]
     pub fn new() -> Self {
-        XidVisMemo { xids: [0; Self::N], flags: [0; Self::N], next: 0 }
+        XidVisMemo {
+            xids: [0; Self::N],
+            flags: [0; Self::N],
+            next: 0,
+        }
     }
 
     #[inline]
@@ -160,8 +162,7 @@ impl XidVisMemo {
 
 #[inline]
 pub fn IsMVCCSnapshot(snapshot: &SnapshotData<'_>) -> bool {
-    snapshot.snapshot_type == SNAPSHOT_MVCC
-        || snapshot.snapshot_type == SNAPSHOT_HISTORIC_MVCC
+    snapshot.snapshot_type == SNAPSHOT_MVCC || snapshot.snapshot_type == SNAPSHOT_HISTORIC_MVCC
 }
 
 #[cfg(test)]
@@ -217,7 +218,10 @@ mod tests {
             (SNAPSHOT_DIRTY, false),
             (SNAPSHOT_NON_VACUUMABLE, false),
         ] {
-            assert_eq!(IsMVCCSnapshot(&SnapshotData::sentinel(cx.mcx(), ty)), expect);
+            assert_eq!(
+                IsMVCCSnapshot(&SnapshotData::sentinel(cx.mcx(), ty)),
+                expect
+            );
         }
     }
 }

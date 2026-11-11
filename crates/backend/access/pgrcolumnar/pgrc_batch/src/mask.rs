@@ -1,4 +1,3 @@
-
 use crate::selection::Selection;
 use crate::validity::{words_for, Validity};
 
@@ -17,11 +16,17 @@ pub struct Mask {
 
 impl Mask {
     pub fn const_true(n: u32) -> Mask {
-        Mask { n, rep: MaskRep::ConstTrue }
+        Mask {
+            n,
+            rep: MaskRep::ConstTrue,
+        }
     }
 
     pub fn const_false(n: u32) -> Mask {
-        Mask { n, rep: MaskRep::ConstFalse }
+        Mask {
+            n,
+            rep: MaskRep::ConstFalse,
+        }
     }
 
     pub fn from_words(n: u32, mut words: Vec<u64>) -> Mask {
@@ -40,7 +45,10 @@ impl Mask {
         } else if popcount == 0 {
             Mask::const_false(n)
         } else {
-            Mask { n, rep: MaskRep::Words { words, popcount } }
+            Mask {
+                n,
+                rep: MaskRep::Words { words, popcount },
+            }
         }
     }
 
@@ -184,7 +192,10 @@ mod tests {
         assert_eq!(m.popcount(), 70);
 
         let none = Mask::from_words(70, vec![0, !0u64 << 6]); // only tail bits
-        assert!(none.is_const_false(), "tail-only bits normalize to const-false");
+        assert!(
+            none.is_const_false(),
+            "tail-only bits normalize to const-false"
+        );
 
         let mixed = Mask::from_words(70, vec![0b1010, 0]);
         assert!(!mixed.is_const_true() && !mixed.is_const_false());

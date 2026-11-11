@@ -31,6 +31,7 @@ fn ir() -> (gravity_ir::Program, Func) {
     b.store(ctx, 40, bad);
     let zero = b.iconst(Type::I64, 0);
     b.ret(&[zero]);
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     (pb.finish(), f)
 }

@@ -118,9 +118,7 @@ impl RowGroup {
     fn exceptions(&self) -> usize {
         match self {
             RowGroup::Alp { vectors } => vectors.iter().map(|v| v.exc_positions.len()).sum(),
-            RowGroup::AlpRd { vectors, .. } => {
-                vectors.iter().map(|v| v.exc_positions.len()).sum()
-            }
+            RowGroup::AlpRd { vectors, .. } => vectors.iter().map(|v| v.exc_positions.len()).sum(),
             RowGroup::Raw { .. } => 0,
         }
     }
@@ -189,7 +187,10 @@ pub fn analyze(values: &[f64]) -> Analysis {
 
 pub fn encode(values: &[f64]) -> Encoded {
     Encoded {
-        rowgroups: values.chunks(constants::ROWGROUP_SIZE).map(encode_rowgroup).collect(),
+        rowgroups: values
+            .chunks(constants::ROWGROUP_SIZE)
+            .map(encode_rowgroup)
+            .collect(),
         total_len: values.len(),
     }
 }

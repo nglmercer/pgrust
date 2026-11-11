@@ -467,6 +467,7 @@ pub fn load_neighbor_tids(
         return Ok(false);
     }
     let start = (e.level as i32 - lc) * m;
+    #[allow(clippy::needless_range_loop)]
     for i in 0..lm as usize {
         indextids[i]
             .copy_from_slice(ntup.indextid_bytes(start as usize + i));
@@ -928,6 +929,7 @@ pub fn update_connection(
     )?;
 
     let Some(pruned) = pruned else { return Ok(()) };
+    #[allow(clippy::needless_range_loop)]
     for i in 0..neighbors.len() {
         if neighbors[i].element == pruned.element {
             neighbors[i] = new_hc;

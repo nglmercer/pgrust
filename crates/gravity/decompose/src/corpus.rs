@@ -5,6 +5,7 @@ use types_nodes::jointype::JoinType;
 use types_nodes::list::{IntList, NodeList, OidList, OptNodeList};
 use types_nodes::nodes_enums::{CmdType, LimitOption, LockClauseStrength, LockWaitPolicy};
 use types_nodes::plannodes::{Result as ResultPlan, *};
+#[allow(unused_imports)]
 use types_nodes::{Node, NodeTag};
 
 use gravity_program::limits;
@@ -180,12 +181,12 @@ impl Facts for FixtureFacts {
 
     /// On unless the test named the road off (`roads_off`).
     fn default_on_road_on(&self, road: &str) -> bool {
-        !self.roads_off.iter().any(|r| *r == road)
+        !self.roads_off.contains(&road)
     }
 
     /// Off unless the test named the road on (`roads_on`).
     fn road_on(&self, name: &str) -> bool {
-        self.roads_on.iter().any(|r| *r == name)
+        self.roads_on.contains(&name)
     }
 }
 
@@ -612,7 +613,7 @@ fn join_type(v: u32) -> JoinType {
 
 /// An Agg's `gravity_finals`: (resno min max sum count) per final, flat (outfuncs `out_agg`).
 fn finals(flat: &[i32]) -> R<Vec<GravityFinal>> {
-    if flat.len() % 5 != 0 {
+    if !flat.len().is_multiple_of(5) {
         return Err(format!("fixture: gravity_finals of {} numbers", flat.len())); // alloc: Cold
     }
     flat.chunks(5).map(|c| Ok(GravityFinal { resno: i16::try_from(c[0]).map_err(|_| format!("fixture: gravity_finals resno {}", c[0]))?, min: c[1], max: c[2], sum: c[3], count: c[4] })).collect() // alloc: Cold

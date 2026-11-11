@@ -98,6 +98,7 @@ impl Producers {
 
     /// The producers of the next emit (multi-emit: an emit is every pipeline ending in the sink), from the
     /// execution's next pipeline up to that emit; the adapter pulls the emit, then calls this again before the next one.
+    #[allow(clippy::redundant_guards)]
     pub fn run(&self, entry: &mut gravity_driver::Entry, exec: &mut Exec, binding: &mut Binding<'_>, registry: &mut HostRegistry) -> PgResult<()> {
         exec.set_slot_salt(self.salt);
         let pool: &(dyn Pool + Sync) = installed_pool().unwrap_or(&NoPool);
@@ -126,11 +127,13 @@ impl Producers {
                     match self.plan.rerun_owner(p) {
                         // setop_rec-0043: a CTE's plan the set re-arms, its store opened for the owner and the CTE's readers
                         Some(owner) => match self.plan.pull_readers(p) {
+                            #[allow(clippy::redundant_guards)]
                             r if r.is_empty() => entry.skip_rerun(exec, owner).map_err(glue::pg_error)?,
                             r => entry.skip_rearmed(exec, owner, r).map_err(glue::pg_error)?,
                         },
                         // M8 (RT-2f): a pulled CTE's plan: its store edge kept, opened zeroed for its readers
                         None => match self.plan.pull_readers(p) {
+                            #[allow(clippy::redundant_guards)]
                             r if r.is_empty() => entry.skip_deferred(exec),
                             r => entry.skip_pulled(exec, r).map_err(glue::pg_error)?,
                         },
@@ -527,12 +530,14 @@ fn run_producer_now(entry: &mut gravity_driver::Entry, exec: &mut Exec, binding:
 /// there), the finish, the owner fold and the merge's finish, `end_claims`; a producer without a driving site runs its
 /// calls. No section, no deferred error: a recheck's error is the statement's, but a `recheck_hold` build's, which op 14
 /// holds for its probe's first row (D2033 step 2).
+#[allow(clippy::redundant_guards)]
 pub(crate) fn rerun_producer(entry: &mut gravity_driver::Entry, exec: &mut Exec, binding: &mut Binding<'_>, plan: &dyn Plan) -> gravity_driver::Result<()> {
     // writesubplan (lowerv4 marks.rs, a MERGE action's rerun set): a rerun set's member is stepped past as `Producers::run`
     // steps it (its slot kept, opened zeroed for the owner, which reruns it at each call over this node), never run whole
     if let Some(owner) = plan.rerun_owner(exec.next_pipeline()).filter(|_| plan.deferred(exec.next_pipeline())) {
         // setop_rec-0043: a CTE's plan the set re-arms, its store opened for the owner and the CTE's readers
         return match plan.pull_readers(exec.next_pipeline()) {
+            #[allow(clippy::redundant_guards)]
             r if r.is_empty() => entry.skip_rerun(exec, owner),
             r => entry.skip_rearmed(exec, owner, r),
         };

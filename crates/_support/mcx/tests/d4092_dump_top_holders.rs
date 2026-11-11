@@ -43,11 +43,22 @@ const MIB: usize = 1 << 20;
 /// them back.
 fn mapped(n: usize) -> memledger::Charge {
     let (owner, release) = memledger::charge::context();
-    memledger::Charge::open(owner, release, memledger::Kind::Mapped, memledger::charge::Door::Mapped, n as u64)
+    memledger::Charge::open(
+        owner,
+        release,
+        memledger::Kind::Mapped,
+        memledger::charge::Door::Mapped,
+        n as u64,
+    )
 }
 
 /// A running statement in backend `procno` (pid 7000 + procno) with `resident` bytes on its ledger account.
-fn statement(procno: u32, resident: usize, ready: mpsc::Sender<()>, done: Arc<Barrier>) -> std::thread::JoinHandle<()> {
+fn statement(
+    procno: u32,
+    resident: usize,
+    ready: mpsc::Sender<()>,
+    done: Arc<Barrier>,
+) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         let pid = 7000 + procno as i32;
         governor::register(procno as i32, pid);
@@ -72,7 +83,10 @@ fn a_crossing_dumps_the_top_holders_by_rank_not_every_backend() {
     let sizes = [(61, 50), (62, 400), (63, 100), (64, 300), (65, 200)];
     let (tx, ready) = mpsc::channel();
     let done = Arc::new(Barrier::new(sizes.len() + 1));
-    let threads: Vec<_> = sizes.iter().map(|&(p, m)| statement(p, m * MIB, tx.clone(), done.clone())).collect();
+    let threads: Vec<_> = sizes
+        .iter()
+        .map(|&(p, m)| statement(p, m * MIB, tx.clone(), done.clone()))
+        .collect();
     drop(tx);
     for _ in 0..sizes.len() {
         ready.recv().unwrap();
@@ -85,7 +99,13 @@ fn a_crossing_dumps_the_top_holders_by_rank_not_every_backend() {
     done.wait();
     threads.into_iter().for_each(|t| t.join().unwrap());
     let n = n.expect("nothing else holds the registry or the pins table");
-    let got: Vec<(usize, i32, usize)> = out[..n].iter().map(|h| (h.slot, h.pid, h.bytes / MIB)).collect();
+    let got: Vec<(usize, i32, usize)> = out[..n]
+        .iter()
+        .map(|h| (h.slot, h.pid, h.bytes / MIB))
+        .collect();
     assert_eq!(got, [(62, 7062, 400), (64, 7064, 300), (65, 7065, 200)], "the would-be victim and the next two by the watchdog's rank, not every one of the {} backends", sizes.len());
-    assert_eq!(allocs, 0, "the pick allocates nothing (the watchdog's thread)");
+    assert_eq!(
+        allocs, 0,
+        "the pick allocates nothing (the watchdog's thread)"
+    );
 }

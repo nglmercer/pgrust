@@ -35,10 +35,10 @@
 //!   the same ranges, on this thread. Past the watchdog's cancel line (`mcx::ladder::past_cancel_line`, live) the release
 //!   runs it on its caller as today (C2);
 //! - one arena per batch, `release::BATCH_PAUSE_US` between two that purged.
-//! Purge jobs carry no REAPING post and no landing credit: their bytes stay on allocator_retained (9d's A3); nothing here
-//! writes the ledger (M2). The ladder's pressure purge stays owner-agnostic (C1), its bytes over owned arenas counted
-//! apart (purged_by_pressure, M3). Mimalloc's own OS arenas (PGRUST_ALLOC_ARENAS=0, or past pgrust's arenas) cannot be
-//! owned and keep their purge on the calling thread.
+//!   Purge jobs carry no REAPING post and no landing credit: their bytes stay on allocator_retained (9d's A3); nothing here
+//!   writes the ledger (M2). The ladder's pressure purge stays owner-agnostic (C1), its bytes over owned arenas counted
+//!   apart (purged_by_pressure, M3). Mimalloc's own OS arenas (PGRUST_ALLOC_ARENAS=0, or past pgrust's arenas) cannot be
+//!   owned and keep their purge on the calling thread.
 //!
 //! H3 step (4) (`give_back_spill`, default 1 under this knob; GIVEBACK-SERVICE-DESIGN step (4), the broker's S1-S4 and
 //! memory accounting's review): the queue's second lane is gravity_driver's (`mem::giveback`, registered through

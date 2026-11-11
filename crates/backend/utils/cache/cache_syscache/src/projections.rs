@@ -299,6 +299,7 @@ fn lookup_pg_index_ls_shape(
         indisvalid: getattr(&t, INDEXRELID, ANUM_PG_INDEX_INDISVALID).as_bool(),
         indisclustered: getattr(&t, INDEXRELID, ANUM_PG_INDEX_INDISCLUSTERED).as_bool(),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))
@@ -315,6 +316,7 @@ fn pg_index_indclass_element(index_oid: Oid, index: i32) -> PgResult<Option<Oid>
     // not-null plain-storage oidvector column of the held tuple; header, dim1,
     // and `index` are bounded against the tuple image before the element read.
     let elem = checked_vector_element::<Oid>(&t, d, index, "pg_index.indclass");
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     elem.map(Some)
@@ -332,6 +334,7 @@ fn pg_index_indoption_element(index_oid: Oid, index: i32) -> PgResult<Option<i16
     // not-null plain-storage int2vector column of the held tuple; header, dim1,
     // and `index` are bounded against the tuple image before the element read.
     let elem = checked_vector_element::<i16>(&t, d, index, "pg_index.indoption");
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     elem.map(Some)
@@ -344,6 +347,7 @@ fn pg_am_amtype_lookup(amoid: Oid) -> PgResult<Option<i8>> {
     };
     let t = tuple.tuple();
     let amtype = getattr(&t, AMOID, ANUM_PG_AM_AMTYPE).as_i8();
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(amtype))
@@ -356,6 +360,7 @@ fn pg_am_amhandler_lookup(amoid: Oid) -> PgResult<Option<Oid>> {
     };
     let t = tuple.tuple();
     let amhandler = getattr(&t, AMOID, ANUM_PG_AM_AMHANDLER).as_oid();
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(amhandler))
@@ -383,6 +388,7 @@ fn pg_am_amname_lookup(amoid: Oid) -> PgResult<Option<String>> {
             .map_err(|_| corrupt_attr_error("pg_am.amname is not valid UTF-8"))?
             .to_owned()
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(name))
@@ -449,6 +455,7 @@ fn lookup_pg_type_shape_uncached(typid: Oid) -> PgResult<Option<PgTypeShape>> {
         typstorage: getattr(&t, TYPEOID, ANUM_PG_TYPE_TYPSTORAGE).as_i8(),
         typcollation: getattr(&t, TYPEOID, ANUM_PG_TYPE_TYPCOLLATION).as_oid(),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))
@@ -468,6 +475,7 @@ fn lookup_pg_sequence_form(relid: Oid) -> PgResult<Option<syscache_seams::PgSequ
         seqcache: getattr(&t, SEQRELID, ANUM_PG_SEQUENCE_SEQCACHE).as_i64(),
         seqcycle: getattr(&t, SEQRELID, ANUM_PG_SEQUENCE_SEQCYCLE).as_bool(),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(form))
@@ -479,6 +487,7 @@ fn pg_type_isdefined(typid: Oid) -> PgResult<Option<bool>> {
     };
     let t = tuple.tuple();
     let isdefined = getattr(&t, TYPEOID, ANUM_PG_TYPE_TYPISDEFINED).as_bool();
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(isdefined))
@@ -490,6 +499,7 @@ fn pg_type_typtype(typid: Oid) -> PgResult<Option<i8>> {
     };
     let t = tuple.tuple();
     let typtype = getattr(&t, TYPEOID, ANUM_PG_TYPE_TYPTYPE).as_i8();
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(typtype))
@@ -502,6 +512,7 @@ fn pg_type_category(typid: Oid) -> PgResult<Option<(i8, bool)>> {
     let t = tuple.tuple();
     let category = getattr(&t, TYPEOID, ANUM_PG_TYPE_TYPCATEGORY).as_i8();
     let preferred = getattr(&t, TYPEOID, ANUM_PG_TYPE_TYPISPREFERRED).as_bool();
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some((category, preferred)))
@@ -518,6 +529,7 @@ fn pg_type_element_shape(
         typelem: getattr(&t, TYPEOID, ANUM_PG_TYPE_TYPELEM).as_oid(),
         typsubscript: getattr(&t, TYPEOID, ANUM_PG_TYPE_TYPSUBSCRIPT).as_oid(),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))
@@ -542,6 +554,7 @@ fn lookup_pg_opclass_shape(
         opcintype: getattr(&t, CLAOID, ANUM_PG_OPCLASS_OPCINTYPE).as_oid(),
         opckeytype: getattr(&t, CLAOID, ANUM_PG_OPCLASS_OPCKEYTYPE).as_oid(),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))
@@ -657,6 +670,7 @@ fn pg_opclass_name_namespace_method(
     let name = unsafe { *(d.as_usize() as *const types_tuple::NameData) };
     let nsp = getattr(&t, CLAOID, ANUM_PG_OPCLASS_OPCNAMESPACE).as_oid();
     let method = getattr(&t, CLAOID, ANUM_PG_OPCLASS_OPCMETHOD).as_oid();
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some((name, nsp, method)))
@@ -684,6 +698,7 @@ fn lookup_authid_by_rolname(rolname: &str) -> PgResult<Option<(Oid, bool)>> {
     let t = tuple.tuple();
     let oid = getattr(&t, AUTHNAME, ANUM_PG_AUTHID_OID).as_oid();
     let rolsuper = getattr(&t, AUTHNAME, ANUM_PG_AUTHID_ROLSUPER).as_bool();
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some((oid, rolsuper)))
@@ -730,6 +745,7 @@ fn lookup_authid_rolpassword<'mcx>(
         rolvaliduntil: getattr_nullable(&t, AUTHNAME, ANUM_PG_AUTHID_ROLVALIDUNTIL)
             .map(|d| d.as_i64()),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))
@@ -870,6 +886,7 @@ fn lookup_pg_type_typcache_shape(typid: Oid) -> PgResult<Option<PgTypeTypcacheSh
         typarray: getattr(&t, TYPEOID, ANUM_PG_TYPE_TYPARRAY).as_oid(),
         typcollation: getattr(&t, TYPEOID, ANUM_PG_TYPE_TYPCOLLATION).as_oid(),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))
@@ -889,6 +906,7 @@ fn pg_type_domain_shape(typid: Oid) -> PgResult<Option<syscache_seams::PgTypeDom
         typnotnull: getattr(&t, TYPEOID, ANUM_PG_TYPE_TYPNOTNULL).as_bool(),
         typbasetype: getattr(&t, TYPEOID, ANUM_PG_TYPE_TYPBASETYPE).as_oid(),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))
@@ -901,6 +919,7 @@ fn pg_type_name_namespace(typid: Oid) -> PgResult<Option<(NameData, Oid)>> {
     let t = tuple.tuple();
     let name = getattr_name(&t, TYPEOID, ANUM_PG_TYPE_TYPNAME);
     let nsp = getattr(&t, TYPEOID, ANUM_PG_TYPE_TYPNAMESPACE).as_oid();
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some((name, nsp)))
@@ -919,6 +938,7 @@ fn lookup_pg_constraint_shape(
         contype: getattr(&t, CONSTROID, ANUM_PG_CONSTRAINT_CONTYPE).as_i8(),
         conindid: getattr(&t, CONSTROID, ANUM_PG_CONSTRAINT_CONINDID).as_oid(),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))
@@ -938,6 +958,7 @@ fn lookup_pg_constraint_desc_shape(
         conrelid: getattr(&t, CONSTROID, ANUM_PG_CONSTRAINT_CONRELID).as_oid(),
         contypid: getattr(&t, CONSTROID, ANUM_PG_CONSTRAINT_CONTYPID).as_oid(),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))
@@ -985,6 +1006,7 @@ fn lookup_pg_attribute_shape(
         attgenerated: getattr(&t, ATTNUM, ANUM_PG_ATTRIBUTE_ATTGENERATED).as_i8(),
         attisdropped: getattr(&t, ATTNUM, ANUM_PG_ATTRIBUTE_ATTISDROPPED2).as_bool(),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))
@@ -1010,6 +1032,7 @@ fn lookup_pg_attribute_attnum_by_name(
     } else {
         getattr(&t, ATTNAME, ANUM_PG_ATTRIBUTE_ATTNUM).as_i16()
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(attnum)
@@ -1109,6 +1132,7 @@ fn lookup_pg_operator_shape(opno: Oid) -> PgResult<Option<syscache_seams::PgOper
         oprcanmerge: getattr(&t, OPEROID, ANUM_PG_OPERATOR_OPRCANMERGE).as_bool(),
         oprcanhash: getattr(&t, OPEROID, ANUM_PG_OPERATOR_OPRCANHASH).as_bool(),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))
@@ -1194,6 +1218,7 @@ fn lookup_pg_class_ls_shape(relid: Oid) -> PgResult<Option<syscache_seams::PgCla
         relispartition: getattr(&t, RELOID, ANUM_PG_CLASS_RELISPARTITION).as_bool(),
         relhassubclass: getattr(&t, RELOID, ANUM_PG_CLASS_RELHASSUBCLASS).as_bool(),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))
@@ -1205,6 +1230,7 @@ fn pg_class_reloftype(relid: Oid) -> PgResult<Option<Oid>> {
     };
     let t = tuple.tuple();
     let reloftype = getattr(&t, RELOID, ANUM_PG_CLASS_RELOFTYPE).as_oid();
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(reloftype))
@@ -1216,6 +1242,7 @@ fn pg_class_relrewrite(relid: Oid) -> PgResult<Option<Oid>> {
     };
     let t = tuple.tuple();
     let relrewrite = getattr(&t, RELOID, ANUM_PG_CLASS_RELREWRITE).as_oid();
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(relrewrite))
@@ -1242,6 +1269,7 @@ fn lookup_pg_amop_by_operator(
         amoplefttype: getattr(&t, AMOPOPID, ANUM_PG_AMOP_AMOPLEFTTYPE).as_oid(),
         amoprighttype: getattr(&t, AMOPOPID, ANUM_PG_AMOP_AMOPRIGHTTYPE).as_oid(),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))
@@ -1302,6 +1330,7 @@ fn lookup_pg_opfamily_shape(
         opfmethod: getattr(&t, OPFAMILYOID, ANUM_PG_OPFAMILY_OPFMETHOD).as_oid(),
         opfname,
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))
@@ -1367,6 +1396,7 @@ fn pg_type_base_shape_uncached(typid: Oid) -> PgResult<Option<syscache_seams::Pg
         typelem: getattr(&t, TYPEOID, ANUM_PG_TYPE_TYPELEM).as_oid(),
         typsubscript: getattr(&t, TYPEOID, ANUM_PG_TYPE_TYPSUBSCRIPT).as_oid(),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))
@@ -1449,6 +1479,7 @@ fn pg_type_io_shape(typid: Oid) -> PgResult<Option<syscache_seams::PgTypeIoShape
         typdelim: getattr(&t, TYPEOID, ANUM_PG_TYPE_TYPDELIM).as_i8(),
         typisdefined: getattr(&t, TYPEOID, ANUM_PG_TYPE_TYPISDEFINED).as_bool(),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     io_shape_memo::insert(typid, shape);
@@ -1476,6 +1507,7 @@ fn pg_type_default_strings<'mcx>(
         typdefaultbin: text_attr(ANUM_PG_TYPE_TYPDEFAULTBIN)?,
         typdefault: text_attr(ANUM_PG_TYPE_TYPDEFAULT)?,
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))
@@ -1487,6 +1519,7 @@ fn pg_type_typarray(typid: Oid) -> PgResult<Option<Oid>> {
     };
     let t = tuple.tuple();
     let arr = getattr(&t, TYPEOID, ANUM_PG_TYPE_TYPARRAY).as_oid();
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(arr))
@@ -1498,6 +1531,7 @@ fn pg_type_typrelid(typid: Oid) -> PgResult<Option<Oid>> {
     };
     let t = tuple.tuple();
     let relid = getattr(&t, TYPEOID, ANUM_PG_TYPE_TYPRELID).as_oid();
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(relid))
@@ -1546,6 +1580,7 @@ fn lookup_pg_proc_shape_uncached(funcid: Oid) -> PgResult<Option<syscache_seams:
         prosecdef: getattr(&t, PROCOID, ANUM_PG_PROC_PROSECDEF).as_bool(),
         proconfig_isnull: getattr_nullable(&t, PROCOID, ANUM_PG_PROC_PROCONFIG).is_none(),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))
@@ -1569,6 +1604,7 @@ fn lookup_pg_language_fmgr(
         laninline: getattr(&t, LANGOID, ANUM_PG_LANGUAGE_LANINLINE).as_oid(),
         lanvalidator: getattr(&t, LANGOID, ANUM_PG_LANGUAGE_LANVALIDATOR).as_oid(),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))
@@ -1603,6 +1639,7 @@ fn lookup_pg_proc_fmgr(funcid: Oid) -> PgResult<Option<syscache_seams::PgProcFmg
         xmin: t.t_data().xmin_raw(),
         tid: t.t_self,
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))
@@ -1661,6 +1698,7 @@ fn lookup_pg_proc_secdef(funcid: Oid) -> PgResult<Option<syscache_seams::PgProcS
         prosecdef: getattr(&t, PROCOID, ANUM_PG_PROC_PROSECDEF).as_bool(),
         proconfig,
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))
@@ -1678,6 +1716,7 @@ fn lookup_pg_proc_prosrc<'mcx>(mcx: Mcx<'mcx>, funcid: Oid) -> PgResult<Option<P
         }
         None => None,
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(out)
@@ -1696,6 +1735,7 @@ fn lookup_pg_proc_probin<'mcx>(mcx: Mcx<'mcx>, funcid: Oid) -> PgResult<Option<P
         }
         None => None,
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(out)
@@ -1806,6 +1846,7 @@ fn pg_operator_oprnamensp(opno: Oid) -> PgResult<Option<(NameData, Oid)>> {
         getattr_name(&t, OPEROID, ANUM_PG_OPERATOR_OPRNAME),
         getattr(&t, OPEROID, ANUM_PG_OPERATOR_OPRNAMESPACE).as_oid(),
     );
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(row))
@@ -1832,6 +1873,7 @@ fn lookup_pg_ts_config_row(cfgid: Oid) -> PgResult<Option<syscache_seams::PgTsOb
         name: getattr_name(&t, TSCONFIGOID, ANUM_PG_TS_CONFIG_CFGNAME),
         namespace_oid: getattr(&t, TSCONFIGOID, ANUM_PG_TS_CONFIG_CFGNAMESPACE).as_oid(),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(row))
@@ -1882,6 +1924,7 @@ fn lookup_pg_ts_dict_row(dictid: Oid) -> PgResult<Option<syscache_seams::PgTsObj
         name: getattr_name(&t, TSDICTOID, ANUM_PG_TS_DICT_DICTNAME),
         namespace_oid: getattr(&t, TSDICTOID, ANUM_PG_TS_DICT_DICTNAMESPACE).as_oid(),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(row))
@@ -1951,6 +1994,7 @@ fn lookup_pg_cast_shape_uncached(sourcetypeid: Oid, targettypeid: Oid) -> PgResu
         castcontext: getattr(&t, CASTSOURCETARGET, ANUM_PG_CAST_CASTCONTEXT).as_i8(),
         castmethod: getattr(&t, CASTSOURCETARGET, ANUM_PG_CAST_CASTMETHOD).as_i8(),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))
@@ -1966,6 +2010,7 @@ fn pg_proc_cost_shape(funcid: Oid) -> PgResult<Option<syscache_seams::PgProcCost
         prorows: getattr(&t, PROCOID, ANUM_PG_PROC_PROROWS).as_f32(),
         prosupport: getattr(&t, PROCOID, ANUM_PG_PROC_PROSUPPORT).as_oid(),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))
@@ -1998,6 +2043,7 @@ fn lookup_pg_collation_shape(
         collisdeterministic: getattr(&t, COLLOID, ANUM_PG_COLLATION_COLLISDETERMINISTIC)
             .as_bool(),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))
@@ -2241,6 +2287,7 @@ fn statext_form<'mcx>(
         kinds.push(kinds_img[4 + 20 + i]);
     }
 
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(syscache_seams::StatExtForm {
@@ -2294,6 +2341,7 @@ fn statext_data_blob<'mcx>(
     };
     let t = tuple.tuple();
     let img = varlena_image(mcx, &t, STATEXTDATASTXOID, anum)?;
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(img))
@@ -2306,6 +2354,7 @@ fn statext_exprs_src<'mcx>(mcx: Mcx<'mcx>, statoid: Oid) -> PgResult<Option<PgSt
     };
     let t = tuple.tuple();
     let out = text_attr(mcx, &t, STATEXTOID, ANUM_PG_STATISTIC_EXT_STXEXPRS)?;
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(out)
@@ -2379,6 +2428,7 @@ fn statext_expressions_load<'mcx>(
     };
     let t = tuple.tuple();
     let img = varlena_image(mcx, &t, STATEXTDATASTXOID, ANUM_PG_STATISTIC_EXT_DATA_STXDEXPR)?;
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     let Some(img) = img else {
@@ -2540,6 +2590,7 @@ fn pg_statistic_stawidth(
     };
     let t = tuple.tuple();
     let stawidth = getattr(&t, STATRELATTINH, ANUM_PG_STATISTIC_STAWIDTH).as_i32();
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(stawidth))
@@ -2599,6 +2650,7 @@ fn lookup_pg_statistic_bundle<'mcx>(
         stadistinct: getattr(&t, STATRELATTINH, ANUM_PG_STATISTIC_STADISTINCT).as_f32(),
         slots,
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(bundle))
@@ -2734,6 +2786,7 @@ fn lookup_pg_aggregate_shape(
         aggtransspace: getattr(&t, AGGFNOID, ANUM_PG_AGGREGATE_AGGTRANSSPACE).as_i32(),
         aggmtranstype: getattr(&t, AGGFNOID, ANUM_PG_AGGREGATE_AGGMTRANSTYPE).as_oid(),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))
@@ -2770,6 +2823,7 @@ fn pg_aggregate_initval_attr<'mcx>(
         }
         None => None,
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(out))
@@ -2791,6 +2845,7 @@ fn pg_proc_proargdefaults<'mcx>(
         }
         None => None,
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(out))
@@ -2818,6 +2873,7 @@ fn lookup_pg_range_shape(
             .as_oid(),
         rngsubdiff: getattr(&t, crate::cacheinfo::RANGETYPE, ANUM_PG_RANGE_RNGSUBDIFF).as_oid(),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))
@@ -2839,6 +2895,7 @@ fn lookup_pg_proc_signature<'mcx>(
     let args = checked_oidvector_slice(&t, argv)?;
     let mut proargtypes = mcx::vec_with_capacity_in(mcx, args.len())?;
     proargtypes.extend_from_slice(args);
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some((rettype, proargtypes)))
@@ -2936,6 +2993,7 @@ fn pg_proc_result_arrays<'mcx>(
         }
     };
 
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(syscache_seams::PgProcResultArraysShape {
@@ -2965,6 +3023,7 @@ fn lookup_pg_statistic_shape(
         stawidth: getattr(&t, STATRELATTINH, ANUM_PG_STATISTIC_STAWIDTH).as_i32(),
         stadistinct: getattr(&t, STATRELATTINH, ANUM_PG_STATISTIC_STADISTINCT).as_f32(),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))
@@ -3008,6 +3067,7 @@ fn pg_attribute_attoptions<'mcx>(
             Some(Datum::from_usize(mcx::slice_in(mcx, bytes)?.leak().as_ptr() as usize))
         }
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(out))
@@ -3048,6 +3108,7 @@ fn pg_tablespace_spcoptions<'mcx>(
             Some(mcx::slice_in(mcx, bytes)?)
         }
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(out))
@@ -3059,6 +3120,7 @@ fn pg_type_typnamespace(typid: Oid) -> PgResult<Option<Oid>> {
     };
     let t = tuple.tuple();
     let nsp = getattr(&t, TYPEOID, ANUM_PG_TYPE_TYPNAMESPACE).as_oid();
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(nsp))
@@ -3285,6 +3347,7 @@ fn lookup_pg_ts_parser_shape(
         prsheadline: getattr(&t, cid, ANUM_PG_TS_PARSER_PRSHEADLINE).as_oid(),
         prslextype: getattr(&t, cid, ANUM_PG_TS_PARSER_PRSLEXTYPE).as_oid(),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))
@@ -3333,6 +3396,7 @@ fn lookup_pg_ts_dict_shape<'mcx>(
             Some(out)
         }
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(syscache_seams::PgTsDictShape { dictname, dictnamespace, dicttemplate, dictinitoption }))
@@ -3354,6 +3418,7 @@ fn lookup_pg_ts_template_shape(
         tmplinit: getattr(&t, cid, ANUM_PG_TS_TEMPLATE_TMPLINIT).as_oid(),
         tmpllexize: getattr(&t, cid, ANUM_PG_TS_TEMPLATE_TMPLLEXIZE).as_oid(),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))
@@ -3380,6 +3445,7 @@ fn lookup_pg_ts_config_shape(
         cfgnamespace: getattr(&t, cid, ANUM_PG_TS_CONFIG_CFGNAMESPACE).as_oid(),
         cfgname,
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(shape))

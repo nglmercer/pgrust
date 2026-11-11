@@ -441,6 +441,7 @@ fn errarg_rel() -> logicalproto::LogicalRepRelation {
 // early return (rows a186-candidate-fp-logical-applyparallelworker-
 // 01931f170b8e9e5e4bf8-1 and -worker-p1-ab5cef64f7346570236f-1).
 #[test]
+#[allow(clippy::unusual_byte_groupings)]
 fn apply_error_callback_six_errcontext_forms_match_c() {
     use super::{apply_error_context_line, ApplyErrorCallbackArg};
     let mut a = ApplyErrorCallbackArg::INITIAL;

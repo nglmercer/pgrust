@@ -13,9 +13,9 @@
 //! - `eq`: the two words against a stored image (never reached on an exact image; kept for callers holding a copy).
 //! - join.payload_fp (ops/hashjoin/strategies/payload_fp.rs): a record's plain text value a hash probe (or drain) handed on
 //!   with the Fp128 words its build stored (`Lx::fps`) images as those words, the image above taken once a build row.
-//! Keys under a nondeterministic collation never reach this arm by the bytes (coderep.rs / join keys / WITH TIES refuse
-//! them by key.coll's name until that road's image lands). The seed is read per image (`m6_fp_seed`, no immediate: the
-//! code cache is keyed by content); hoisting it to the function's open is a perf row (M6 fold-in 7 timings first).
+//!   Keys under a nondeterministic collation never reach this arm by the bytes (coderep.rs / join keys / WITH TIES refuse
+//!   them by key.coll's name until that road's image lands). The seed is read per image (`m6_fp_seed`, no immediate: the
+//!   code cache is keyed by content); hoisting it to the function's open is a perf row (M6 fold-in 7 timings first).
 use gravity_abi::ctx::hdr;
 use gravity_decompose::catalog::typefacts::{KeyColl, TypeFacts};
 use gravity_expr::siphash;

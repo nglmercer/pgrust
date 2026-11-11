@@ -1234,9 +1234,8 @@ fn crit_section_run_promotes_escaping_hand_built_error() {
         .is::<::types_error::PanicExitThread>());
     assert_eq!(config::crit_section_count(), 0);
 
-    let err = (|| -> PgResult<()> {
-        Err(Box::new(PgError::new(ERROR, "xlog flush request 0/1234 is not satisfied")))
-    })()
+    #[allow(clippy::unnecessary_literal_unwrap)]
+    let err = Err::<(), _>(Box::new(PgError::new(ERROR, "xlog flush request 0/1234 is not satisfied")))
     .unwrap_err();
     assert_eq!(err.level, ERROR);
 }
@@ -1427,7 +1426,7 @@ fn borrowed_frames_past_the_slots_among_boxed_frames_keep_order() {
     for (i, cb) in cbs.iter_mut().enumerate() {
         // SAFETY: every borrowed frame is popped below, before `cbs` goes out of scope.
         ids.push(unsafe { push_context_frame_borrowed(cb, true) });
-        ids.push(push_context_frame(Box::new(move |e| e.add_context_line(&format!("b{i}"))), true));
+        ids.push(push_context_frame(Box::new(move |e| e.add_context_line(format!("b{i}"))), true));
         if i == 49 {
             mid_mark = context_stack_mark();
         }

@@ -28,6 +28,7 @@ pub struct Inst {
 }
 #[derive(Clone)]
 pub struct Program {
+    #[allow(dead_code)]
     pub name: String,
     pub entry: u32,
     pub highest: u32,
@@ -35,6 +36,7 @@ pub struct Program {
     pub values: Vec<Value>,
     pub blocks: Vec<Block>,
     pub insts: Vec<Inst>,
+    #[allow(dead_code)]
     pub epoch_override: Option<u16>,
     pub successor_live: Cell<usize>,
     pub successor_drops: Cell<usize>,

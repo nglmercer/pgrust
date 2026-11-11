@@ -3,9 +3,7 @@
 //! Loud lanes: parallel build. Autosummarize enqueues autovacuum work items
 //! (AutoVacuumRequestWork). Support procs outside the in-core families run
 //! through fmgr with C's pointer arguments.
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(clippy::too_many_arguments)]
+#![allow(clippy::too_many_arguments, non_snake_case, non_upper_case_globals)]
 
 use ::bufmgr_seams::{
     buffer_get_page, lock_buffer, read_buffer, release_buffer, BUFFER_LOCK_SHARE,
@@ -18,7 +16,7 @@ use ::types_core::{BlockNumber, Buffer, ForkNumber, InvalidBuffer};
 use ::types_error::PgResult;
 use ::types_rel::{AccessShareLock, Relation};
 use ::types_relscan::{relation_get_index_scan, IndexScanDescData, IndexScanOpaque};
-use ::types_scan::scankey::{ScanKeyData, SK_ISNULL, SK_SEARCHNULL, SK_SEARCHNOTNULL};
+use ::types_scan::scankey::{ScanKeyData, SK_ISNULL, SK_SEARCHNOTNULL, SK_SEARCHNULL};
 use ::types_storage::bufpage::PageRef;
 use ::types_tuple::itemptr::{ItemPointerData, ItemPointerGetBlockNumber};
 use ::types_tuple::{CompactAttribute, FormData_pg_attribute, TupleDescData};
@@ -46,7 +44,11 @@ fn check_for_interrupts() -> PgResult<()> {
 
 #[cold]
 #[inline(never)]
-fn missing_support_function(procnum: u16, attnum: usize, index: &str) -> Box<::types_error::PgError> {
+fn missing_support_function(
+    procnum: u16,
+    attnum: usize,
+    index: &str,
+) -> Box<::types_error::PgError> {
     Box::new(::types_error::PgError::error(format!(
         "missing support function {procnum} for attribute {attnum} of index \"{index}\""
     )))
@@ -97,7 +99,10 @@ fn with_fmgr<R>(
     p: &BrinFmgrProc,
     f: impl FnOnce(&mut fmgr::FmgrInfo) -> PgResult<R>,
 ) -> PgResult<R> {
-    let mut slot = p.finfo.try_borrow_mut().map_err(|_| recursive_support_call(p.oid))?;
+    let mut slot = p
+        .finfo
+        .try_borrow_mut()
+        .map_err(|_| recursive_support_call(p.oid))?;
     if slot.is_none() {
         let mut finfo = fmgr_core::fmgr_info(p.oid)?;
         if let Some(o) = p.options.as_deref() {
@@ -277,7 +282,11 @@ pub fn brin_build_desc<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>) -> PgResult<B
             BRIN_PROCNUM_OPCINFO as i16,
         )?;
         if opcinfo_proc == ::types_core::InvalidOid {
-            return Err(missing_support_function(BRIN_PROCNUM_OPCINFO, keyno + 1, rel.name()));
+            return Err(missing_support_function(
+                BRIN_PROCNUM_OPCINFO,
+                keyno + 1,
+                rel.name(),
+            ));
         }
         // brin.c:1608 index_getprocinfo + FunctionCall1: a LANGUAGE internal
         // alias of an in-core opcInfo proc dispatches to that proc's body.
@@ -288,16 +297,17 @@ pub fn brin_build_desc<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>) -> PgResult<B
         } else {
             opcinfo_proc
         };
-        let options: Option<Box<[u8]>> =
-            attoptions.as_ref().and_then(|a| a.get(keyno)).and_then(|o| o.as_ref()).cloned();
+        let options: Option<Box<[u8]>> = attoptions
+            .as_ref()
+            .and_then(|a| a.get(keyno))
+            .and_then(|o| o.as_ref())
+            .cloned();
         // brin.c:1611: the opcInfo proc receives the index attribute's type
         // (opckeytype when the opclass declares STORAGE), not rd_opcintype.
         let atttypid = tupdesc.attr(keyno).atttypid;
         let mut col = match opcinfo_proc {
             F_BRIN_MINMAX_OPCINFO => brin_minmax::brin_minmax_opcinfo(atttypid),
-            F_BRIN_MINMAX_MULTI_OPCINFO => {
-                brin_minmax_multi::brin_minmax_multi_opcinfo(atttypid)
-            }
+            F_BRIN_MINMAX_MULTI_OPCINFO => brin_minmax_multi::brin_minmax_multi_opcinfo(atttypid),
             F_BRIN_INCLUSION_OPCINFO => brin_inclusion::brin_inclusion_opcinfo(atttypid),
             F_BRIN_BLOOM_OPCINFO => brin_bloom::brin_bloom_opcinfo(atttypid),
             other => {
@@ -318,7 +328,9 @@ pub fn brin_build_desc<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>) -> PgResult<B
             }
         };
         if let Some(inc) = col.inclusion.as_mut() {
-            inc.options = options.as_ref().map(|o| Box::new(fmgr::OpclassOptions(o.clone())));
+            inc.options = options
+                .as_ref()
+                .map(|o| Box::new(fmgr::OpclassOptions(o.clone())));
         }
         col.oi_opclass_options = options;
         debug_assert!((col.oi_nstored as usize) <= BRIN_MAX_NSTORED);
@@ -328,6 +340,7 @@ pub fn brin_build_desc<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>) -> PgResult<B
 
     let mut attrs: PgVec<'mcx, FormData_pg_attribute> = vec_with_capacity_in(mcx, totalstored)?;
     let mut compact: PgVec<'mcx, CompactAttribute> = vec_with_capacity_in(mcx, totalstored)?;
+    #[allow(clippy::needless_range_loop)]
     for keyno in 0..natts {
         for i in 0..info[keyno].oi_nstored as usize {
             let mut att = *tupdesc.attr(keyno);
@@ -387,6 +400,7 @@ pub fn brin_build_desc<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>) -> PgResult<B
 
     let amsupport = rel.rd_support.len() / natts.max(1);
     let mut procs: Vec<BrinColProcs> = ::mcx::std_vec_with_capacity("access", natts)?;
+    #[allow(clippy::needless_range_loop)]
     for keyno in 0..natts {
         let options = info[keyno].oi_opclass_options.as_deref();
         let proc_oid = |procnum: u16| {
@@ -453,8 +467,7 @@ pub fn brinGetStats(index: &Relation<'_>) -> PgResult<BrinStatsData> {
     let metabuffer = read_buffer::call(index, BRIN_METAPAGE_BLKNO)?;
     lock_buffer::call(metabuffer, BUFFER_LOCK_SHARE)?;
     // SAFETY: pinned + share locked.
-    let metadata =
-        brin_meta_read(unsafe { &PageRef::from_raw(buffer_get_page::call(metabuffer)) });
+    let metadata = brin_meta_read(unsafe { &PageRef::from_raw(buffer_get_page::call(metabuffer)) });
     lock_buffer::call(metabuffer, BUFFER_LOCK_UNLOCK)?;
     release_buffer::call(metabuffer)?;
     Ok(BrinStatsData {
@@ -469,17 +482,18 @@ fn initialize_brin_insertstate<'mcx>(
 ) -> PgResult<BrinInsertState<'mcx>> {
     let bis_desc = brin_build_desc(mcx, idxRel)?;
     let (bis_rmAccess, bis_pages_per_range) = brinRevmapInitialize(idxRel)?;
-    Ok(BrinInsertState { bis_rmAccess, bis_desc, bis_pages_per_range })
+    Ok(BrinInsertState {
+        bis_rmAccess,
+        bis_desc,
+        bis_pages_per_range,
+    })
 }
 
 // brininsert's autosummarize request (brin.c): register the previous page
 // range with autovacuum's work-item queue. The queue is best-effort: an
 // unrecorded request (work-item array full) only LOGs, and the range stays
 // summarizable through VACUUM and brin_summarize_new_values().
-fn request_range_summarization(
-    idxRel: &Relation<'_>,
-    lastPageRange: BlockNumber,
-) -> PgResult<()> {
+fn request_range_summarization(idxRel: &Relation<'_>, lastPageRange: BlockNumber) -> PgResult<()> {
     let recorded = autovacuum_seams::auto_vacuum_request_work::call(
         autovacuum_seams::AVW_BRIN_SUMMARIZE_RANGE,
         idxRel.rd_id,
@@ -622,8 +636,14 @@ pub fn brinbeginscan<'mcx>(
 ) -> PgResult<IndexScanDescData<'mcx>> {
     let (bo_rmAccess, bo_pagesPerRange) = brinRevmapInitialize(r)?;
     let bo_bdesc = brin_build_desc(mcx, r)?;
-    let opaque =
-        ::mcx::alloc_in(mcx, BrinOpaque { bo_pagesPerRange, bo_rmAccess, bo_bdesc })?;
+    let opaque = ::mcx::alloc_in(
+        mcx,
+        BrinOpaque {
+            bo_pagesPerRange,
+            bo_rmAccess,
+            bo_bdesc,
+        },
+    )?;
     relation_get_index_scan(
         mcx,
         r,
@@ -687,9 +707,7 @@ pub fn bringetbitmap(
                 BrinProc::Missing => {
                     return Err(missing_proc(bdesc, BRIN_PROCNUM_CONSISTENT, keyattno))
                 }
-                BrinProc::Fmgr(p) => {
-                    with_fmgr(p, |_| Ok(()))?
-                }
+                BrinProc::Fmgr(p) => with_fmgr(p, |_| Ok(()))?,
                 _ => {}
             }
         }
@@ -897,7 +915,11 @@ pub fn add_values_to_range(
     let empty_range_at_entry = dtup.bt_empty_range;
     let mut modified = empty_range_at_entry;
 
-    let BrinMemTuple { bt_context, bt_columns, .. } = dtup;
+    let BrinMemTuple {
+        bt_context,
+        bt_columns,
+        ..
+    } = dtup;
     let mcx = bt_context.mcx();
 
     // Per-row loop: slices hoisted to natts so the index checks leave the loop.
@@ -929,14 +951,9 @@ pub fn add_values_to_range(
                 nulls[keyno],
                 colls[keyno],
             )?,
-            BrinProc::MinMaxMulti => minmax_multi_add_value(
-                mcx,
-                bdesc,
-                bval,
-                values[keyno],
-                nulls[keyno],
-                colls[keyno],
-            )?,
+            BrinProc::MinMaxMulti => {
+                minmax_multi_add_value(mcx, bdesc, bval, values[keyno], nulls[keyno], colls[keyno])?
+            }
             BrinProc::Bloom => brin_bloom::brin_bloom_add_value(
                 mcx,
                 bdesc,
@@ -945,18 +962,13 @@ pub fn add_values_to_range(
                 nulls[keyno],
                 colls[keyno],
             )?,
-            BrinProc::Inclusion => inclusion_add_value(
-                mcx,
-                bdesc,
-                bval,
-                values[keyno],
-                nulls[keyno],
-                colls[keyno],
-            )?,
-            BrinProc::Fmgr(p) => fmgr_add_value(p, bdesc, keyno, mcx, bval, values[keyno], nulls[keyno])?,
-            BrinProc::Missing => {
-                return Err(missing_proc(bdesc, BRIN_PROCNUM_ADDVALUE, keyno + 1))
+            BrinProc::Inclusion => {
+                inclusion_add_value(mcx, bdesc, bval, values[keyno], nulls[keyno], colls[keyno])?
             }
+            BrinProc::Fmgr(p) => {
+                fmgr_add_value(p, bdesc, keyno, mcx, bval, values[keyno], nulls[keyno])?
+            }
+            BrinProc::Missing => return Err(missing_proc(bdesc, BRIN_PROCNUM_ADDVALUE, keyno + 1)),
         };
         modified |= result;
 
@@ -1002,10 +1014,16 @@ pub fn union_tuples(bdesc: &BrinDesc<'_>, a: &mut BrinMemTuple, b: &[u8]) -> PgR
         return Ok(());
     }
 
-    let BrinMemTuple { bt_context, bt_columns, bt_empty_range, .. } = a;
+    let BrinMemTuple {
+        bt_context,
+        bt_columns,
+        bt_empty_range,
+        ..
+    } = a;
     let mcx = bt_context.mcx();
 
     if *bt_empty_range {
+        #[allow(clippy::needless_range_loop)]
         for keyno in 0..bdesc.natts() {
             let col_a = &mut bt_columns[keyno];
             let col_b = &db.bt_columns[keyno];
@@ -1023,6 +1041,7 @@ pub fn union_tuples(bdesc: &BrinDesc<'_>, a: &mut BrinMemTuple, b: &[u8]) -> PgR
         return Ok(());
     }
 
+    #[allow(clippy::needless_range_loop)]
     for keyno in 0..bdesc.natts() {
         let col_a = &mut bt_columns[keyno];
         let col_b = &db.bt_columns[keyno];
@@ -1077,9 +1096,7 @@ pub fn union_tuples(bdesc: &BrinDesc<'_>, a: &mut BrinMemTuple, b: &[u8]) -> PgR
                 col_b,
             )?,
             BrinProc::Fmgr(p) => fmgr_union(p, bdesc, keyno, mcx, col_a, col_b)?,
-            BrinProc::Missing => {
-                return Err(missing_proc(bdesc, BRIN_PROCNUM_UNION, keyno + 1))
-            }
+            BrinProc::Missing => return Err(missing_proc(bdesc, BRIN_PROCNUM_UNION, keyno + 1)),
         }
     }
     Ok(())
@@ -1195,7 +1212,8 @@ mod support_proc_dispatch_tests {
         let cxt = MemoryContext::new_bump("brin dispatch test");
         let bdesc = desc(cxt.mcx(), BrinProc::Missing);
         let mut dtup = brin_tuple::brin_new_memtuple_fallible(&bdesc).unwrap();
-        let err = add_values_to_range(&bdesc, &mut dtup, &[Datum::from_i32(7)], &[false]).unwrap_err();
+        let err =
+            add_values_to_range(&bdesc, &mut dtup, &[Datum::from_i32(7)], &[false]).unwrap_err();
         assert_eq!(
             err.message(),
             "missing support function 2 for attribute 1 of index \"ext_idx\""
@@ -1210,13 +1228,22 @@ mod support_proc_dispatch_tests {
             F_BRIN_BLOOM_ADD_VALUE,
             F_BRIN_INCLUSION_ADD_VALUE,
         ];
-        assert!(matches!(resolve_proc(0, add, None).unwrap(), BrinProc::Missing));
-        assert!(matches!(resolve_proc(F_BRIN_MINMAX_ADD_VALUE, add, None).unwrap(), BrinProc::MinMax));
+        assert!(matches!(
+            resolve_proc(0, add, None).unwrap(),
+            BrinProc::Missing
+        ));
+        assert!(matches!(
+            resolve_proc(F_BRIN_MINMAX_ADD_VALUE, add, None).unwrap(),
+            BrinProc::MinMax
+        ));
         assert!(matches!(
             resolve_proc(F_BRIN_MINMAX_MULTI_ADD_VALUE, add, None).unwrap(),
             BrinProc::MinMaxMulti
         ));
-        assert!(matches!(resolve_proc(F_BRIN_BLOOM_ADD_VALUE, add, None).unwrap(), BrinProc::Bloom));
+        assert!(matches!(
+            resolve_proc(F_BRIN_BLOOM_ADD_VALUE, add, None).unwrap(),
+            BrinProc::Bloom
+        ));
         assert!(matches!(
             resolve_proc(F_BRIN_INCLUSION_ADD_VALUE, add, None).unwrap(),
             BrinProc::Inclusion
@@ -1247,8 +1274,13 @@ mod autosummarize_request_tests {
     static INSTALL: Once = Once::new();
     static QUEUE_HAS_ROOM: AtomicBool = AtomicBool::new(true);
     static REQUESTS: Mutex<Vec<(i32, Oid, BlockNumber)>> = Mutex::new(Vec::new());
-    static LOGS: Mutex<Vec<(::types_error::ErrorLevel, String, Option<::types_error::SqlState>)>> =
-        Mutex::new(Vec::new());
+    static LOGS: Mutex<
+        Vec<(
+            ::types_error::ErrorLevel,
+            String,
+            Option<::types_error::SqlState>,
+        )>,
+    > = Mutex::new(Vec::new());
     static SERIALIZE: Mutex<()> = Mutex::new(());
 
     fn install_recorders() -> MutexGuard<'static, ()> {
@@ -1262,9 +1294,11 @@ mod autosummarize_request_tests {
                 Ok(())
             });
             elog_seams::ereport::set(|err| {
-                LOGS.lock()
-                    .unwrap()
-                    .push((err.level(), err.message().to_string(), Some(err.sqlstate())));
+                LOGS.lock().unwrap().push((
+                    err.level(),
+                    err.message().to_string(),
+                    Some(err.sqlstate()),
+                ));
                 Ok(())
             });
         });
@@ -1313,7 +1347,10 @@ mod autosummarize_request_tests {
             rd_firstRelfilelocatorSubid: core::cell::Cell::new(0),
             rd_droppedSubid: core::cell::Cell::new(0),
             rd_lockInfo: LockInfoData {
-                lockRelId: LockRelId { relId: oid, dbId: 5 },
+                lockRelId: LockRelId {
+                    relId: oid,
+                    dbId: 5,
+                },
             },
             rd_rel,
             rd_att: Rc::new(TupleDescData {
@@ -1365,7 +1402,10 @@ mod autosummarize_request_tests {
             REQUESTS.lock().unwrap().as_slice(),
             &[(autovacuum_seams::AVW_BRIN_SUMMARIZE_RANGE, 50042, 41)]
         );
-        assert!(LOGS.lock().unwrap().is_empty(), "recorded request must not LOG");
+        assert!(
+            LOGS.lock().unwrap().is_empty(),
+            "recorded request must not LOG"
+        );
     }
 
     // Unrecorded request (work-item array full): C's LOG arm, byte-matching
@@ -1391,6 +1431,9 @@ mod autosummarize_request_tests {
             logs[0].1,
             "request for BRIN range summarization for index \"summary_idx\" page 7 was not recorded"
         );
-        assert_eq!(logs[0].2, Some(::types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED));
+        assert_eq!(
+            logs[0].2,
+            Some(::types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED)
+        );
     }
 }

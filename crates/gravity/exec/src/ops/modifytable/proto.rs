@@ -14,7 +14,7 @@
 //!   last-leaf cache are `hosts/src/write_route.rs`'s, the transition tuplestores the AFTER-trigger query's
 //!   (`after_query.rs`, given back at AfterTriggerEndQuery). Their prepare checks the declaration against the program's write plan: a mismatch is
 //!   a bug's wall, never a served statement's (the lowerer refuses first).
-//! Created by M4 (owner M4-HOSTS).
+//!   Created by M4 (owner M4-HOSTS).
 use gravity_program::protos::{literals_mark, Proto, ProtoKind, LITERALS_CODED};
 use gravity_program::{Cmd, WritePlan};
 use types_error::PgResult;

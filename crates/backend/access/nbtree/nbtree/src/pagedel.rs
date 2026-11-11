@@ -970,7 +970,7 @@ fn corrupt(msg: String) -> Box<PgError> {
 /// _bt_lock_subtree_parent: `Some((subtreeparent, poffset))` when deletion is
 /// safe; updates topparent/topparentrightsib when internal pages join the
 /// subtree.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::only_used_in_recursion, clippy::too_many_arguments)]
 fn bt_lock_subtree_parent(
     scx: Mcx<'_>,
     rel: &Relation<'_>,

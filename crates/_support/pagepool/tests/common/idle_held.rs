@@ -20,17 +20,23 @@ fn fill(p: usize, v: u8) {
 
 fn holds(p: usize, v: u8) -> bool {
     // SAFETY: as `fill`.
-    unsafe { core::slice::from_raw_parts(p as *const u8, SIZE) }.iter().all(|&b| b == v)
+    unsafe { core::slice::from_raw_parts(p as *const u8, SIZE) }
+        .iter()
+        .all(|&b| b == v)
 }
 
 fn thp_host() -> bool {
-    std::fs::read_to_string("/sys/kernel/mm/transparent_hugepage/enabled").is_ok_and(|s| !s.contains("[never]"))
+    std::fs::read_to_string("/sys/kernel/mm/transparent_hugepage/enabled")
+        .is_ok_and(|s| !s.contains("[never]"))
 }
 
 /// pswpin + pswpout so far (a page on swap is not resident, so a residency read is not exact once either moved).
 fn swapped() -> u64 {
     let v = std::fs::read_to_string("/proc/vmstat").unwrap_or_default();
-    v.lines().filter(|l| l.starts_with("pswpin ") || l.starts_with("pswpout ")).filter_map(|l| l.split_whitespace().nth(1)?.parse::<u64>().ok()).sum()
+    v.lines()
+        .filter(|l| l.starts_with("pswpin ") || l.starts_with("pswpout "))
+        .filter_map(|l| l.split_whitespace().nth(1)?.parse::<u64>().ok())
+        .sum()
 }
 
 /// The pool's threads (pg:poolclaim, pg:poolpurge) take their own small runs when they first run, which on a loaded host
@@ -39,14 +45,24 @@ fn swapped() -> u64 {
 fn settle_pool_threads() {
     let small = || pagepool::stats().in_use[Tag::SMALL.0 as usize];
     let parked = || {
-        let tasks = std::fs::read_dir("/proc/self/task").into_iter().flatten().flatten();
+        let tasks = std::fs::read_dir("/proc/self/task")
+            .into_iter()
+            .flatten()
+            .flatten();
         tasks
             .filter(|t| {
                 let p = t.path();
                 let comm = std::fs::read_to_string(p.join("comm")).unwrap_or_default();
                 let stat = std::fs::read_to_string(p.join("stat")).unwrap_or_default();
-                let ran = std::fs::read_to_string(p.join("schedstat")).ok().and_then(|s| s.split_whitespace().next()?.parse::<u64>().ok()).is_none_or(|ns| ns > 0);
-                matches!(comm.trim(), "pg:poolclaim" | "pg:poolpurge") && ran && stat.rsplit_once(')').is_some_and(|(_, r)| r.trim_start().starts_with('S'))
+                let ran = std::fs::read_to_string(p.join("schedstat"))
+                    .ok()
+                    .and_then(|s| s.split_whitespace().next()?.parse::<u64>().ok())
+                    .is_none_or(|ns| ns > 0);
+                matches!(comm.trim(), "pg:poolclaim" | "pg:poolpurge")
+                    && ran
+                    && stat
+                        .rsplit_once(')')
+                        .is_some_and(|(_, r)| r.trim_start().starts_with('S'))
             })
             .count()
             == 2
@@ -55,7 +71,11 @@ fn settle_pool_threads() {
     for _ in 0..500 {
         std::thread::sleep(std::time::Duration::from_millis(10));
         let now = small();
-        still = if now == last && parked() { still + 1 } else { 0 };
+        still = if now == last && parked() {
+            still + 1
+        } else {
+            0
+        };
         last = now;
         if still >= 5 {
             return;
@@ -85,7 +105,9 @@ fn idle_period(slice_ms: u64) -> u32 {
 /// The case at an idle cut budget of `budget` ns (`hooks::idle_tail_budget`; 0: one run a call).
 pub fn run(budget: u64) {
     if !thp_host() {
-        eprintln!("SKIP: no THP on this host (no tail is PMD-mapped, nothing is left to the purger)");
+        eprintln!(
+            "SKIP: no THP on this host (no tail is PMD-mapped, nothing is left to the purger)"
+        );
         return;
     }
     std::thread::spawn(move || {

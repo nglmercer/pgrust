@@ -174,6 +174,7 @@ pub struct Em<'e, 'b, 'mcx> {
 }
 
 impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
+    #[allow(private_interfaces)]
     pub fn new(p: &'e Program<'mcx>, b: &'e mut FunctionBuilder<'b>, row: &'e RowRefs<'e>, plan: &'e Plan<'e>, pc: PerCodePlan<'e>, root: NodeId) -> Self {
         let t = b.bconst(true);
         let f = b.bconst(false);

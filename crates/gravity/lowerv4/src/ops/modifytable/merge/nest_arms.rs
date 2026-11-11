@@ -199,24 +199,23 @@ pub(crate) fn first(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>) -> Option<(usi
     for o in body.iter().chain(p.ops[1..wi].iter()).chain(ps[ik].ops.iter().skip(1)) {
         match o {
             Op::Project(l) => {
-                if l.iter().any(|e| loud(e)) {
+                if l.iter().any(&loud) {
                     return None;
                 }
             }
-            Op::Filter(x) | Op::Gate(x) => {
-                if loud(*x) {
+            Op::Filter(x) | Op::Gate(x)
+                if loud(*x) => {
                     return None;
                 }
-            }
             _ => {}
         }
     }
-    if qual.iter().any(|e| loud(e)) {
+    if qual.iter().any(&loud) {
         return None;
     }
     for &f in feeds.iter() {
         let row = crate::ops::modifytable::rowop_epq::below(&ps[f], ps[f].ops.len().saturating_sub(1), gx.mcx)?;
-        if row.into_iter().any(|e| loud(e)) {
+        if row.into_iter().any(&loud) {
             return None;
         }
     }

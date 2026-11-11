@@ -232,6 +232,7 @@ pub fn fc_g_cube_picksplit(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> Pg
     let mut size_r = size_of_image(&datum_r);
 
     let maxoff = n - 1;
+    #[allow(clippy::needless_range_loop)]
     for i in 1..=maxoff {
         if i == seed_1 {
             spl_left.push(i as u16);

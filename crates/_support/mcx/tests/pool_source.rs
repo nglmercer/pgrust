@@ -52,10 +52,16 @@ unsafe fn give(p: *mut u8, bytes: usize, align: usize, life: Option<Lifetime>) {
 
 unsafe fn resize(p: *mut u8, old: usize, new: usize, align: usize) -> *mut u8 {
     // SAFETY: as `give`.
-    unsafe { pagepool::resize(NonNull::new_unchecked(p), old, new, align) }.map_or(null_mut(), |b| b.as_ptr().cast())
+    unsafe { pagepool::resize(NonNull::new_unchecked(p), old, new, align) }
+        .map_or(null_mut(), |b| b.as_ptr().cast())
 }
 
-static SOURCE: BlockSource = BlockSource { take, give, resize, usable: pagepool::usable };
+static SOURCE: BlockSource = BlockSource {
+    take,
+    give,
+    resize,
+    usable: pagepool::usable,
+};
 
 fn chunk(n: usize) -> Layout {
     Layout::from_size_align(n, 8).unwrap()
@@ -107,7 +113,10 @@ fn fill(ctx: &MemoryContext, out: &mut Vec<(NonNull<u8>, Layout)>) {
     for _ in 0..40 {
         out.push((ctx.mcx().allocate(chunk(KIB)).unwrap().cast(), chunk(KIB)));
     }
-    out.push((ctx.mcx().allocate(chunk(64 * KIB)).unwrap().cast(), chunk(64 * KIB)));
+    out.push((
+        ctx.mcx().allocate(chunk(64 * KIB)).unwrap().cast(),
+        chunk(64 * KIB),
+    ));
 }
 
 fn free(ctx: &MemoryContext, out: &mut Vec<(NonNull<u8>, Layout)>) {
@@ -126,15 +135,25 @@ fn create_reset_delete_cycles_give_every_block_back_to_the_pool() {
         for _ in 0..20_000 {
             let mut ctx = MemoryContext::new("pool-cycle");
             fill(&ctx, &mut held);
-            assert!(pagepool::owns(held[0].0.as_ptr()) && pagepool::owns(held[40].0.as_ptr()), "the pool's blocks");
+            assert!(
+                pagepool::owns(held[0].0.as_ptr()) && pagepool::owns(held[40].0.as_ptr()),
+                "the pool's blocks"
+            );
             free(&ctx, &mut held);
             ctx.reset();
             fill(&ctx, &mut held);
             free(&ctx, &mut held);
             drop(ctx);
         }
-        assert_eq!((mcx_in_use(), acct_bytes(a)), (use0, acct0), "every block went back, every byte off the account");
-        assert!(HINTED.load(std::sync::atomic::Ordering::Relaxed) > 0, "one class per context: the gives named it");
+        assert_eq!(
+            (mcx_in_use(), acct_bytes(a)),
+            (use0, acct0),
+            "every block went back, every byte off the account"
+        );
+        assert!(
+            HINTED.load(std::sync::atomic::Ordering::Relaxed) > 0,
+            "one class per context: the gives named it"
+        );
     });
 }
 
@@ -150,13 +169,27 @@ fn the_owners_bytes_are_the_footprint() {
         fill(&ctx, &mut held);
         held.push((ctx.mcx().allocate(chunk(MIB)).unwrap().cast(), chunk(MIB)));
         let footprint = ctx.mem_allocated() as i64;
-        assert_eq!(owner_ctx(s).0 - n0, footprint, "the owner holds the footprint");
+        assert_eq!(
+            owner_ctx(s).0 - n0,
+            footprint,
+            "the owner holds the footprint"
+        );
         assert_eq!(acct_bytes(a) - acct0, footprint, "and so does its account");
-        assert_eq!(account_row(a).pagepool_bytes, footprint, "all of it the pool's");
-        assert!(mcx_in_use() - use0 >= footprint as usize, "the pool's in-use count holds at least it");
+        assert_eq!(
+            account_row(a).pagepool_bytes,
+            footprint,
+            "all of it the pool's"
+        );
+        assert!(
+            mcx_in_use() - use0 >= footprint as usize,
+            "the pool's in-use count holds at least it"
+        );
         free(&ctx, &mut held);
         drop(ctx);
-        assert_eq!((owner_ctx(s).0, acct_bytes(a), mcx_in_use()), (n0, acct0, use0));
+        assert_eq!(
+            (owner_ctx(s).0, acct_bytes(a), mcx_in_use()),
+            (n0, acct0, use0)
+        );
     });
 }
 
@@ -180,14 +213,20 @@ fn a_send_root_dropped_on_another_thread_returns_its_owners_account() {
         // SAFETY: as above
         unsafe { r.mcx().deallocate(big, chunk(256 * KIB)) };
         let footprint = r.allocated() as i64;
-        assert_eq!((owner_ctx(s).0 - n0, acct_bytes(a) - acct0), (footprint, footprint));
+        assert_eq!(
+            (owner_ctx(s).0 - n0, acct_bytes(a) - acct0),
+            (footprint, footprint)
+        );
         std::thread::spawn(move || {
             drop(r);
             pagepool::flush_shelf();
         })
         .join()
         .unwrap();
-        assert_eq!((owner_ctx(s).0, acct_bytes(a), mcx_in_use()), (n0, acct0, use0));
+        assert_eq!(
+            (owner_ctx(s).0, acct_bytes(a), mcx_in_use()),
+            (n0, acct0, use0)
+        );
     });
 }
 
@@ -202,17 +241,26 @@ fn a_64_mib_block_is_a_lazy_span_that_grows() {
         let (l64, l128) = (chunk(64 * MIB), chunk(128 * MIB));
         let p = ctx.mcx().allocate(l64).unwrap().cast::<u8>();
         assert!(pagepool::owns(p.as_ptr()), "the pool's");
-        assert!(pagepool::stats().lazy_committed >= lazy0 + 64 * MIB, "a lazy span: {:?}", pagepool::stats());
+        assert!(
+            pagepool::stats().lazy_committed >= lazy0 + 64 * MIB,
+            "a lazy span: {:?}",
+            pagepool::stats()
+        );
         // SAFETY: inside the 64 MiB block
         unsafe {
             p.as_ptr().write(7);
             p.as_ptr().add(64 * MIB - 1).write(9);
         }
         // SAFETY: `p` is this context's block for `l64`; l128 is larger
-        let q = unsafe { ctx.mcx().grow(p, l64, l128) }.unwrap().cast::<u8>();
+        let q = unsafe { ctx.mcx().grow(p, l64, l128) }
+            .unwrap()
+            .cast::<u8>();
         assert!(pagepool::owns(q.as_ptr()));
         // SAFETY: the grown block holds the old bytes
-        assert_eq!(unsafe { (q.as_ptr().read(), q.as_ptr().add(64 * MIB - 1).read()) }, (7, 9));
+        assert_eq!(
+            unsafe { (q.as_ptr().read(), q.as_ptr().add(64 * MIB - 1).read()) },
+            (7, 9)
+        );
         assert_eq!(owner_ctx(s).0 - n0, ctx.mem_allocated() as i64);
         // SAFETY: `q` is this context's block for `l128`
         unsafe { ctx.mcx().deallocate(q, l128) };

@@ -9,15 +9,18 @@ mod execcurrent;
 mod perms;
 mod typefromtl;
 
-pub use execami::{plan_implicit_scroll_ok, plan_supports_backward_scan};
-pub use perms::exec_check_one_rel_perms;
-pub use typefromtl::{exec_clean_type_from_tl, exec_type_from_tl, expr_collation, expr_typmod};
 pub use ::execmain_seams::{
     tap_executor_end, tap_executor_finish, tap_executor_finish_leave, tap_executor_hooks_active,
     tap_executor_run, tap_executor_run_leave, tap_executor_start, HookQd,
 };
+pub use execami::{plan_implicit_scroll_ok, plan_supports_backward_scan};
+pub use perms::exec_check_one_rel_perms;
+pub use typefromtl::{exec_clean_type_from_tl, exec_type_from_tl, expr_collation, expr_typmod};
 
-pub fn with_hook_qd<R>(h: ::types_portal::QueryDescHandle, f: impl FnOnce(&mut ::execmain_seams::HookQd<'_>) -> R) -> R {
+pub fn with_hook_qd<R>(
+    h: ::types_portal::QueryDescHandle,
+    f: impl FnOnce(&mut ::execmain_seams::HookQd<'_>) -> R,
+) -> R {
     let mut f = Some(f);
     let mut ret: Option<R> = None;
     ::execmain_seams::with_hook_qd::call(h, &mut |v| {

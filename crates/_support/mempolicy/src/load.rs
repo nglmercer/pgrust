@@ -17,7 +17,13 @@ pub fn load_room_of(cfg: Cfg, limit: u64, bar: u64, resident: u64, dirty: u64) -
     let counted = resident.saturating_sub(dirty.min(write_budget_of(cfg, limit)));
     let room = b.b.saturating_sub(b.r_low).saturating_sub(counted);
     if crate::trace::on() {
-        crate::trace::note("load.room", &format!("limit {limit} bar {bar} B {} r_low {} resident {resident} dirty {dirty}: {room}", b.b, b.r_low)); // alloc: Cold
+        crate::trace::note(
+            "load.room",
+            &format!(
+                "limit {limit} bar {bar} B {} r_low {} resident {resident} dirty {dirty}: {room}",
+                b.b, b.r_low
+            ),
+        ); // alloc: Cold
     }
     room
 }
@@ -75,10 +81,19 @@ mod tests {
         let cap = load_room_of(Cfg::DEFAULT, limit, 0, 0, 0);
         assert_eq!(cap, limit - 1024 * MIB - limit / 16 - 1024 * MIB);
         assert!(cap + write_budget_of(Cfg::DEFAULT, limit) < limit / 100 * 90);
-        assert_eq!(load_room_of(Cfg::DEFAULT, limit, 0, 4000 * MIB, 0), cap - 4000 * MIB);
+        assert_eq!(
+            load_room_of(Cfg::DEFAULT, limit, 0, 4000 * MIB, 0),
+            cap - 4000 * MIB
+        );
         assert_eq!(load_room_of(Cfg::DEFAULT, limit, 0, limit, 0), 0);
-        let target = Cfg { target: 8192 * MIB, ..Cfg::DEFAULT };
-        assert_eq!(load_room_of(target, limit, 0, 0, 0), 8192 * MIB - 1024 * MIB);
+        let target = Cfg {
+            target: 8192 * MIB,
+            ..Cfg::DEFAULT
+        };
+        assert_eq!(
+            load_room_of(target, limit, 0, 0, 0),
+            8192 * MIB - 1024 * MIB
+        );
         assert_eq!(load_room_of(Cfg::DEFAULT, 0, 0, 0, 0), u64::MAX);
     }
 
@@ -87,26 +102,71 @@ mod tests {
         let limit = 15741 * MIB;
         let cap = load_room_of(Cfg::DEFAULT, limit, 0, 0, 0);
         let w = write_budget_of(Cfg::DEFAULT, limit);
-        assert_eq!(load_room_of(Cfg::DEFAULT, limit, 0, 4000 * MIB, 500 * MIB), cap - 3500 * MIB);
-        assert_eq!(load_room_of(Cfg::DEFAULT, limit, 0, 4000 * MIB, 3000 * MIB), cap - (4000 * MIB - w));
+        assert_eq!(
+            load_room_of(Cfg::DEFAULT, limit, 0, 4000 * MIB, 500 * MIB),
+            cap - 3500 * MIB
+        );
+        assert_eq!(
+            load_room_of(Cfg::DEFAULT, limit, 0, 4000 * MIB, 3000 * MIB),
+            cap - (4000 * MIB - w)
+        );
     }
 
     #[test]
     fn the_write_budget_is_the_page_cache_floor() {
         assert_eq!(write_budget_of(Cfg::DEFAULT, 12288 * MIB), 768 * MIB);
         assert_eq!(write_budget_of(Cfg::DEFAULT, 32768 * MIB), 2048 * MIB);
-        assert_eq!(write_budget_of(Cfg { page_cache_floor: 300 * MIB, ..Cfg::DEFAULT }, 12288 * MIB), 300 * MIB);
+        assert_eq!(
+            write_budget_of(
+                Cfg {
+                    page_cache_floor: 300 * MIB,
+                    ..Cfg::DEFAULT
+                },
+                12288 * MIB
+            ),
+            300 * MIB
+        );
     }
 
     #[test]
     fn the_bound_is_live_at_advise_and_on_and_off_only_at_off() {
         let limit = 15741 * MIB;
         assert_eq!(Cfg::DEFAULT.mode, Mode::Advise, "the default broker mode");
-        let advise = load_room_of(Cfg { mode: Mode::Advise, ..Cfg::DEFAULT }, limit, 0, 4000 * MIB, 0);
-        let on = load_room_of(Cfg { mode: Mode::On, ..Cfg::DEFAULT }, limit, 0, 4000 * MIB, 0);
+        let advise = load_room_of(
+            Cfg {
+                mode: Mode::Advise,
+                ..Cfg::DEFAULT
+            },
+            limit,
+            0,
+            4000 * MIB,
+            0,
+        );
+        let on = load_room_of(
+            Cfg {
+                mode: Mode::On,
+                ..Cfg::DEFAULT
+            },
+            limit,
+            0,
+            4000 * MIB,
+            0,
+        );
         assert!(advise < limit, "advise bounds the load");
         assert_eq!(advise, on);
-        assert_eq!(load_room_of(Cfg { mode: Mode::Off, ..Cfg::DEFAULT }, limit, 0, limit, 0), u64::MAX);
+        assert_eq!(
+            load_room_of(
+                Cfg {
+                    mode: Mode::Off,
+                    ..Cfg::DEFAULT
+                },
+                limit,
+                0,
+                limit,
+                0
+            ),
+            u64::MAX
+        );
     }
 
     #[test]

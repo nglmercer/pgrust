@@ -191,7 +191,7 @@ pub(crate) fn run<'r, 'g, 'e, 'p, T>(b: &mut FunctionBuilder<'_>, env: &'r mut E
     // SubPlan is an argument the same way (json-0033, gravity_expr nodes/mod.rs `island`): read before the island runs,
     // so the same refusal, unless it holds (D3374, `SubHolds`: lent, no effect, no raise but its second row, which the
     // island raises only where it reads the SubPlan): then running it on a row PG skips is not visible.
-    let konst = |b: &gravity_expr::nodes::json::Behavior| b.expr.map_or(true, |e| matches!(p.nodes[e.0 as usize], ExprNode::Const(_)));
+    let konst = |b: &gravity_expr::nodes::json::Behavior| b.expr.is_none_or(|e| matches!(p.nodes[e.0 as usize], ExprNode::Const(_)));
     let cond_holding = |i: &gravity_expr::nodes::Island, held: &dyn Fn(&ExprNode) -> bool| {
         let range = &p.nodes[i.first.0 as usize..=i.root.0 as usize];
         let cond = |n: &ExprNode| match n {

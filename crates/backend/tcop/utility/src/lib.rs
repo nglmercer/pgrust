@@ -41,6 +41,7 @@ pub(crate) fn loc(func: &'static str) -> ErrorLocation {
 
 #[cold]
 #[inline(never)]
+#[allow(dead_code)]
 pub(crate) fn payload_gap(func: &str, node: &str) -> ! {
     panic!("{func} (utility.c): {node} payload not in types_nodes (grammar lane)")
 }

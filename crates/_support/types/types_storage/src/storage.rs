@@ -503,7 +503,9 @@ impl RelFileLocator {
 
     pub fn from_bytes(data: &[u8]) -> Option<Self> {
         let word = |off: usize| -> Option<uint32> {
-            Some(uint32::from_ne_bytes(data.get(off..off + 4)?.try_into().ok()?))
+            Some(uint32::from_ne_bytes(
+                data.get(off..off + 4)?.try_into().ok()?,
+            ))
         };
         Some(Self {
             spcOid: word(0)?,
@@ -653,9 +655,9 @@ impl PGProcVxid {
 // [WLL] LWLock wait-list bit, [CV] condvar spinlock; atomics cover C's
 // pg_atomic_* and every field C reads unlocked/volatile.
 pub struct PGPROC {
-    pub links: SyncCell<proclist_node>,               // [PSL] freelist / [PART] wait queue
+    pub links: SyncCell<proclist_node>, // [PSL] freelist / [PART] wait queue
     pub procgloballist: SyncCell<Option<FreeListId>>, // fixed at InitProcGlobal
-    pub waitStatus: AtomicU32,                        // ProcWaitStatus
+    pub waitStatus: AtomicU32,          // ProcWaitStatus
     pub procLatch: Latch,
     pub xid: pg_atomic_uint32,
     pub xmin: pg_atomic_uint32,
@@ -669,21 +671,21 @@ pub struct PGPROC {
     pub recoveryConflictPending: AtomicBool,
     pub lwWaiting: AtomicU8,
     pub lwWaitMode: AtomicU8,
-    pub lwWaitLink: SyncCell<proclist_node>, // [WLL]
-    pub cvWaitLink: SyncCell<proclist_node>, // [CV]
-    pub waitLock: SyncCell<*mut LOCK>,       // [PART]; null = not waiting
+    pub lwWaitLink: SyncCell<proclist_node>,   // [WLL]
+    pub cvWaitLink: SyncCell<proclist_node>,   // [CV]
+    pub waitLock: SyncCell<*mut LOCK>,         // [PART]; null = not waiting
     pub waitProcLock: SyncCell<*mut PROCLOCK>, // [PART]
-    pub waitLockMode: SyncCell<LOCKMODE>,    // [PART]
-    pub heldLocks: SyncCell<LOCKMASK>,       // [PART]
+    pub waitLockMode: SyncCell<LOCKMODE>,      // [PART]
+    pub heldLocks: SyncCell<LOCKMASK>,         // [PART]
     pub waitStart: pg_atomic_uint64,
     pub delayChkptFlags: AtomicI32,
     pub statusFlags: AtomicU8, // [PAL]; PROC_HDR.statusFlags mirror is authoritative
     pub waitLSN: AtomicU64,
-    pub syncRepState: SyncCell<i32>,          // [SRL]
+    pub syncRepState: SyncCell<i32>,           // [SRL]
     pub syncRepLinks: SyncCell<proclist_node>, // [SRL]
     pub myProcLocks: [SyncCell<dlist_head>; NUM_LOCK_PARTITIONS as usize], // [PART i]
     pub subxidStatus: SyncCell<XidCacheStatus>, // [PAL]
-    pub subxids: SyncCell<XidCache>,          // [PAL]
+    pub subxids: SyncCell<XidCache>,           // [PAL]
     pub procArrayGroupMember: AtomicBool,
     pub procArrayGroupNext: pg_atomic_uint32,
     pub procArrayGroupMemberXid: AtomicU32,
@@ -704,9 +706,9 @@ pub struct PGPROC {
     // "never lower than the true count"). Keyed by PROC rather than thread
     // so a proc identity leased across pool workers keeps its counts.
     pub fpUseCounts: SyncCell<*const SyncCell<i32>>,
-    pub fpVXIDLock: AtomicBool,        // [FPL]
-    pub fpLocalTransactionId: AtomicU32, // [FPL]
-    pub lockGroupLeader: AtomicI32,    // ProcNumber [LEAD]
+    pub fpVXIDLock: AtomicBool,                    // [FPL]
+    pub fpLocalTransactionId: AtomicU32,           // [FPL]
+    pub lockGroupLeader: AtomicI32,                // ProcNumber [LEAD]
     pub lockGroupMembers: SyncCell<proclist_head>, // [LEAD], linked via lockGroupLink
     pub lockGroupLink: SyncCell<proclist_node>,    // [LEAD]
 }
@@ -746,8 +748,8 @@ pub struct PROC_HDR {
     // false sharing: group-commit leaders CAS these from every backend.
     pub procArrayGroupFirst: CacheAligned<pg_atomic_uint32>,
     pub clogGroupFirst: CacheAligned<pg_atomic_uint32>,
-    pub walwriterProc: AtomicI32,    // ProcNumber
-    pub checkpointerProc: AtomicI32, // ProcNumber
+    pub walwriterProc: AtomicI32,       // ProcNumber
+    pub checkpointerProc: AtomicI32,    // ProcNumber
     pub spins_per_delay: SyncCell<i32>, // [PSL]
     pub startupBufferPinWaitBufId: AtomicI32,
 }
@@ -818,11 +820,13 @@ impl PGPROC {
     }
 
     /// SAFETY contract: fpInfoLock held; groups == fpLockGroupsPerBackend.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn fp_lock_bits(&self, groups: usize) -> &[SyncCell<uint64>] {
         unsafe { core::slice::from_raw_parts(self.fpLockBits.get(), groups) }
     }
 
     /// SAFETY contract: see [`PGPROC::fp_lock_bits`].
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn fp_rel_id(&self, groups: usize) -> &[SyncCell<Oid>] {
         unsafe {
             core::slice::from_raw_parts(
@@ -835,6 +839,7 @@ impl PGPROC {
     /// SAFETY contract: caller is the proc's owning thread (unlocked reads,
     /// C-exact), or holds fpInfoLock (remote diagnostics); writes require
     /// owning thread + fpInfoLock exclusive. groups == fpLockGroupsPerBackend.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn fp_use_counts(&self, groups: usize) -> &[SyncCell<i32>] {
         unsafe { core::slice::from_raw_parts(self.fpUseCounts.get(), groups) }
     }
@@ -885,7 +890,10 @@ mod tests {
         // upstream acf49bfede2a (18.4): Fix ABI break by moving PROCSIG_SLOTSYNC_MESSAGE in ProcSignalReason
         assert_eq!(NUM_PROCSIGNALS, 15);
         assert_eq!(ProcSignalReason::PROCSIG_SLOTSYNC_MESSAGE as u32, 14);
-        assert_eq!(ProcSignalReason::PROCSIG_RECOVERY_CONFLICT_DATABASE as u32, 7);
+        assert_eq!(
+            ProcSignalReason::PROCSIG_RECOVERY_CONFLICT_DATABASE as u32,
+            7
+        );
         assert_eq!(PROCSIG_RECOVERY_CONFLICT_FIRST as u32, 7);
         assert_eq!(PROCSIG_RECOVERY_CONFLICT_LAST as u32, 13);
         assert_eq!(PROC_VACUUM_STATE_MASK, 0x0E);

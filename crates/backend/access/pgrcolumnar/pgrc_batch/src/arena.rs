@@ -89,7 +89,10 @@ impl Chunk {
         }
         let b = pagepool::take(cap, ARENA_ALIGN, POOL_HINT)?;
         post(b.len() as i64);
-        Some(Chunk { base: b.cast::<u8>(), cap })
+        Some(Chunk {
+            base: b.cast::<u8>(),
+            cap,
+        })
     }
 }
 
@@ -114,7 +117,12 @@ impl Default for ClaimArena {
 
 impl ClaimArena {
     pub fn new() -> ClaimArena {
-        ClaimArena { chunks: Vec::new(), cur: 0, offset: 0, epoch: 1 }
+        ClaimArena {
+            chunks: Vec::new(),
+            cur: 0,
+            offset: 0,
+            epoch: 1,
+        }
     }
 
     /// Allocate `len` bytes; the returned pointer is ≥8-aligned (alignment
@@ -122,7 +130,9 @@ impl ClaimArena {
     /// stability + claim scope). `len == 0` is legal (returns a live
     /// aligned cursor).
     pub fn alloc(&mut self, len: usize) -> NonNull<u8> {
-        let advance = len.checked_add(ARENA_ALIGN - 1).expect("arena alloc overflow")
+        let advance = len
+            .checked_add(ARENA_ALIGN - 1)
+            .expect("arena alloc overflow")
             & !(ARENA_ALIGN - 1);
         loop {
             if let Some(chunk) = self.chunks.get(self.cur) {

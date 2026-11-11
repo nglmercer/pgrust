@@ -6,7 +6,7 @@
 //!   EvalPlanQual rechecks the substituted TID against the list or the range (TidRecheck / TidRangeRecheck).
 //! - `TsmFilter`: TABLESAMPLE over the heap range source (`heap_source.rs` `SampleFilter`): PostgreSQL's TSM picks the
 //!   blocks and the offsets, a picked offset kept when visible; the percent and REPEATABLE are the site's key words.
-//! Created by M2 (owner M2-HOSTS).
+//!   Created by M2 (owner M2-HOSTS).
 use std::rc::{Rc, Weak};
 
 use gravity_abi::ctx::lane;

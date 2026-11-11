@@ -465,6 +465,7 @@ fn collect_corrupt_items(
         bufmgr::UnlockReleaseBuffer(buf)?;
     }
     stream.end()?;
+    #[allow(clippy::drop_non_drop)]
     drop(next_block);
 
     filter_vmbuf.release();

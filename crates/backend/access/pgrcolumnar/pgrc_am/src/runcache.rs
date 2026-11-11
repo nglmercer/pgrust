@@ -43,10 +43,17 @@ struct Slot {
     referenced: AtomicBool,
 }
 
-const CHARGE_OWNER: memledger::Owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache));
+const CHARGE_OWNER: memledger::Owner =
+    memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache));
 
 fn charge_for(bytes: u64) -> memledger::Charge {
-    memledger::Charge::open(CHARGE_OWNER, memledger::Release::Evict, memledger::Kind::Region, memledger::charge::Door::Heap, bytes)
+    memledger::Charge::open(
+        CHARGE_OWNER,
+        memledger::Release::Evict,
+        memledger::Kind::Region,
+        memledger::charge::Door::Heap,
+        bytes,
+    )
 }
 
 /// One run's reverse in this process: its file, the open reverse and the pages read (see the module note).
@@ -83,7 +90,10 @@ impl RunCell {
 
     /// The cell of `run`'s reverse in table directory `dir`. Nothing is read until a lookup.
     pub fn open(dir: &str, run: &SortRun) -> Arc<RunCell> {
-        let path = format!("{dir}/{}", pgrc_format::dirlayout::runrev_file_name(run.run_id));
+        let path = format!(
+            "{dir}/{}",
+            pgrc_format::dirlayout::runrev_file_name(run.run_id)
+        );
         // a directory path holds no NUL (the catalog's own paths); one that did reads as a missing file
         RunCell::new(run, Source::File(CString::new(path).unwrap_or_default()))
     }
@@ -113,7 +123,13 @@ impl RunCell {
     /// D4537 T18c (tests): the bytes the cell has charged to the part cache, its reverse's and its pages'.
     #[doc(hidden)]
     pub fn charged(&self) -> (u64, u64) {
-        (pgsync::lock(&self.rev_charge).committed(), pgsync::lock(&self.pages).values().map(|s| s._charge.committed()).sum())
+        (
+            pgsync::lock(&self.rev_charge).committed(),
+            pgsync::lock(&self.pages)
+                .values()
+                .map(|s| s._charge.committed())
+                .sum(),
+        )
     }
 
     /// The pages the cell holds now.
@@ -146,7 +162,11 @@ impl RunCell {
         if let Some(io) = pgsync::lock(&self.io_error).take() {
             return crate::read_error(io);
         }
-        crate::corrupt(&format!("sorted run {} reverse ({}): {e}", self.run_id, pgrc_format::dirlayout::runrev_file_name(self.run_id)))
+        crate::corrupt(&format!(
+            "sorted run {} reverse ({}): {e}",
+            self.run_id,
+            pgrc_format::dirlayout::runrev_file_name(self.run_id)
+        ))
     }
 
     fn io(&self, path: &CString) -> FormatResult<Arc<dyn PartIo>> {
@@ -154,7 +174,8 @@ impl RunCell {
         if let Some(io) = slot.as_ref() {
             return Ok(Arc::clone(io));
         }
-        let io: Arc<dyn PartIo> = Arc::new(pgrc_read::VfsPartIo::open(path).map_err(|e| self.io_failed(e))?);
+        let io: Arc<dyn PartIo> =
+            Arc::new(pgrc_read::VfsPartIo::open(path).map_err(|e| self.io_failed(e))?);
         *slot = Some(Arc::clone(&io));
         Ok(io)
     }
@@ -172,11 +193,16 @@ impl RunCell {
 
     /// Page `no` from the source, its crc checked.
     fn fetch(&self, no: u64) -> FormatResult<Page> {
-        let at = no.checked_mul(PAGE as u64).ok_or(FormatError::Corrupt { at: AT })?;
+        let at = no
+            .checked_mul(PAGE as u64)
+            .ok_or(FormatError::Corrupt { at: AT })?;
         let mut buf = vec![0u8; PAGE].into_boxed_slice();
         match &self.src {
             Source::Image(b) => {
-                let s = usize::try_from(at).ok().and_then(|a| b.get(a..a + PAGE)).ok_or(FormatError::Truncated { at: AT })?;
+                let s = usize::try_from(at)
+                    .ok()
+                    .and_then(|a| b.get(a..a + PAGE))
+                    .ok_or(FormatError::Truncated { at: AT })?;
                 buf.copy_from_slice(s);
             }
             Source::File(path) => {
@@ -184,7 +210,8 @@ impl RunCell {
                 if at + PAGE as u64 > io.len() {
                     return Err(FormatError::Truncated { at: AT });
                 }
-                io.pread_exact(at, &mut buf, AT).map_err(|e| self.io_failed(e))?;
+                io.pread_exact(at, &mut buf, AT)
+                    .map_err(|e| self.io_failed(e))?;
             }
         }
         self.reads.fetch_add(1, Ordering::Relaxed);
@@ -210,10 +237,23 @@ impl Pages for RunCell {
                     kept = Some(Arc::clone(&s.page));
                     return false;
                 }
-                pages.insert(no, Slot { page: Arc::clone(&page), referenced: AtomicBool::new(true), _charge: charge_for(bytes) });
+                pages.insert(
+                    no,
+                    Slot {
+                        page: Arc::clone(&page),
+                        referenced: AtomicBool::new(true),
+                        _charge: charge_for(bytes),
+                    },
+                );
                 true
             },
-            || Box::new(PageSlot { cell: self.me.clone(), no, bytes }),
+            || {
+                Box::new(PageSlot {
+                    cell: self.me.clone(),
+                    no,
+                    bytes,
+                })
+            },
         );
         Ok(kept.unwrap_or(page))
     }
@@ -222,7 +262,10 @@ impl Pages for RunCell {
 impl Drop for RunCell {
     /// The pages still held leave the cache's total with the cell.
     fn drop(&mut self) {
-        let bytes: u64 = pgsync::lock(&self.pages).values().map(|s| s.page.mem_bytes() as u64).sum();
+        let bytes: u64 = pgsync::lock(&self.pages)
+            .values()
+            .map(|s| s.page.mem_bytes() as u64)
+            .sum();
         crate::mapcache::release_other(bytes);
     }
 }
@@ -236,9 +279,13 @@ struct PageSlot {
 
 impl Victim for PageSlot {
     fn visit(&self) -> Sweep {
-        let Some(cell) = self.cell.upgrade() else { return Sweep::Dead };
+        let Some(cell) = self.cell.upgrade() else {
+            return Sweep::Dead;
+        };
         let mut pages = pgsync::lock(&cell.pages);
-        let Some(s) = pages.get(&self.no) else { return Sweep::Dead };
+        let Some(s) = pages.get(&self.no) else {
+            return Sweep::Dead;
+        };
         if s.referenced.swap(false, Ordering::Relaxed) {
             return Sweep::Referenced;
         }
@@ -250,6 +297,8 @@ impl Victim for PageSlot {
     }
 
     fn dead(&self) -> bool {
-        self.cell.upgrade().is_none_or(|c| !pgsync::lock(&c.pages).contains_key(&self.no))
+        self.cell
+            .upgrade()
+            .is_none_or(|c| !pgsync::lock(&c.pages).contains_key(&self.no))
     }
 }

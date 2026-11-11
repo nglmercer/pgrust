@@ -786,7 +786,11 @@ fn observe_all_then_seal_all_equals_interleaved() {
             let vals: Vec<Option<i64>> = (0..500)
                 .map(|i| {
                     let v = g * 1000 + i;
-                    if i % 11 == 0 { None } else { Some(v) }
+                    if i % 11 == 0 {
+                        None
+                    } else {
+                        Some(v)
+                    }
                 })
                 .collect();
             int_col(&vals)
@@ -888,10 +892,17 @@ fn distribution_feed_matches_accumulator_and_leaves_folds_alone() {
     assert_eq!(ra, rf, "the feed must not perturb granule folds");
     assert_eq!(acc.seal_band(0), fed.seal_band(0));
     assert_eq!(acc.seal_part(), fed.seal_part());
-    assert_eq!(acc.aux_sections(), fed.aux_sections(), "aux bytes perturbed");
+    assert_eq!(
+        acc.aux_sections(),
+        fed.aux_sections(),
+        "aux bytes perturbed"
+    );
     let (da, df) = (acc.distribution(), fed.distribution());
     assert!(da.is_some());
-    assert_eq!(da, df, "feed-served distribution diverged from the accumulator");
+    assert_eq!(
+        da, df,
+        "feed-served distribution diverged from the accumulator"
+    );
 }
 
 /// The collation gate rides the feed automatically: an ndv-unsound profile
@@ -905,7 +916,10 @@ fn distribution_feed_refused_where_ndv_unsound() {
         TypeSemantics::TextCollated,
     )
     .unwrap();
-    assert!(!profile.ndv, "precondition: nondeterministic collation disarms ndv");
+    assert!(
+        !profile.ndv,
+        "precondition: nondeterministic collation disarms ndv"
+    );
     let col = TestColumn::new(
         StorageClass::VarlenaVerbatim,
         &[Some(TestValue::Bytes(b"x".to_vec()))],
@@ -916,7 +930,10 @@ fn distribution_feed_refused_where_ndv_unsound() {
     b.seal_granule(0);
     b.seal_band(0);
     b.seal_part();
-    assert!(b.distribution().is_none(), "unsound profile served a sketch");
+    assert!(
+        b.distribution().is_none(),
+        "unsound profile served a sketch"
+    );
 }
 
 /// Driver protocol: the feed replaces accumulation, so it must precede all
@@ -1017,7 +1034,10 @@ fn assert_shells_equal(profile: MetaProfile, granules: &[TestColumn], what: &str
         (true, Some(37), "batched ragged spans"),
     ] {
         let got = drive_shell(profile, granules, batch, span, None);
-        assert_eq!(got, reference, "{what}: {arm} diverged from per-value granule");
+        assert_eq!(
+            got, reference,
+            "{what}: {arm} diverged from per-value granule"
+        );
     }
 }
 
@@ -1035,16 +1055,16 @@ fn word_granules(
         out.push(TestColumn::new(class, &vals));
     }
     // An ALL-NULL granule (validity-only fold) at the tail.
-    out.push(TestColumn::new(
-        class,
-        &vec![None; 100][..],
-    ));
+    out.push(TestColumn::new(class, &vec![None; 100][..]));
     out
 }
 
 #[test]
 fn batched_equals_pervalue_signed_int() {
-    let class = StorageClass::ByvalWord { width: 8, signed: true };
+    let class = StorageClass::ByvalWord {
+        width: 8,
+        signed: true,
+    };
     let profile = MetaProfile::derive(class, CollationClass::C, TypeSemantics::SignedInt).unwrap();
     // Duplicate-heavy + full-range magnitudes + a sorted prefix (asc/ties
     // transitions) + NULL bursts.
@@ -1064,18 +1084,29 @@ fn batched_equals_pervalue_signed_int() {
 
 #[test]
 fn batched_equals_pervalue_unsigned_bool() {
-    let class = StorageClass::ByvalWord { width: 8, signed: false };
+    let class = StorageClass::ByvalWord {
+        width: 8,
+        signed: false,
+    };
     let profile =
         MetaProfile::derive(class, CollationClass::C, TypeSemantics::UnsignedInt).unwrap();
     let granules = word_granules(class, 0xD57A_0002, |rng, _| {
-        if rng.chance(1, 9) { None } else { Some(rng.next()) }
+        if rng.chance(1, 9) {
+            None
+        } else {
+            Some(rng.next())
+        }
     });
     assert_shells_equal(profile, &granules, "unsigned flip");
 
     let profile =
         MetaProfile::derive(StorageClass::Bool, CollationClass::C, TypeSemantics::Bool).unwrap();
     let granules = word_granules(StorageClass::Bool, 0xD57A_0003, |rng, _| {
-        if rng.chance(1, 5) { None } else { Some(rng.below(2)) }
+        if rng.chance(1, 5) {
+            None
+        } else {
+            Some(rng.below(2))
+        }
     });
     assert_shells_equal(profile, &granules, "bool");
 }
@@ -1086,7 +1117,10 @@ fn batched_equals_pervalue_unsigned_bool() {
 /// > ASCII-only granule keeps its zone. Batched == per-value throughout.
 #[test]
 fn char_high_bytes_poison_their_granule_only() {
-    let class = StorageClass::ByvalWord { width: 1, signed: false };
+    let class = StorageClass::ByvalWord {
+        width: 1,
+        signed: false,
+    };
     let profile =
         MetaProfile::derive(class, CollationClass::C, TypeSemantics::UnsignedInt).unwrap();
     let byte = |b: u8| b as i8 as i64 as u64;
@@ -1100,11 +1134,24 @@ fn char_high_bytes_poison_their_granule_only() {
         }
     });
     assert_shells_equal(profile, &granules, "char");
-    let ascii = TestColumn::new(class, &[Some(TestValue::Word(byte(b'a'))), None, Some(TestValue::Word(byte(b'z')))]);
+    let ascii = TestColumn::new(
+        class,
+        &[
+            Some(TestValue::Word(byte(b'a'))),
+            None,
+            Some(TestValue::Word(byte(b'z'))),
+        ],
+    );
     let (_, rec) = drive_one_granule(profile, &ascii);
     assert_eq!(rec.key_kind, KeyKind::Exact.as_u8());
     assert_eq!((rec.min_key, rec.max_key), (b'a' as i64, b'z' as i64));
-    let high = TestColumn::new(class, &[Some(TestValue::Word(byte(b'a'))), Some(TestValue::Word(byte(0xff)))]);
+    let high = TestColumn::new(
+        class,
+        &[
+            Some(TestValue::Word(byte(b'a'))),
+            Some(TestValue::Word(byte(0xff))),
+        ],
+    );
     let (_, rec) = drive_one_granule(profile, &high);
     assert_eq!(rec.key_kind, KeyKind::Absent.as_u8());
     assert_eq!(rec.nonnull, 2);
@@ -1170,7 +1217,11 @@ fn batched_equals_pervalue_fixed_and_exotic_keys() {
         .map(|_| {
             let vals: Vec<Option<TestValue>> = (0..3000)
                 .map(|_| {
-                    if rng.chance(1, 8) { None } else { Some(TestValue::Bytes(mk16(&mut rng))) }
+                    if rng.chance(1, 8) {
+                        None
+                    } else {
+                        Some(TestValue::Bytes(mk16(&mut rng)))
+                    }
                 })
                 .collect();
             TestColumn::new(class, &vals)
@@ -1186,7 +1237,11 @@ fn batched_equals_pervalue_fixed_and_exotic_keys() {
         .map(|_| {
             let vals: Vec<Option<TestValue>> = (0..1000)
                 .map(|_| {
-                    if rng.chance(1, 8) { None } else { Some(TestValue::Bytes(mk16(&mut rng))) }
+                    if rng.chance(1, 8) {
+                        None
+                    } else {
+                        Some(TestValue::Bytes(mk16(&mut rng)))
+                    }
                 })
                 .collect();
             TestColumn::new(class, &vals)
@@ -1224,7 +1279,14 @@ fn batched_equals_pervalue_text_families() {
     let profile =
         MetaProfile::derive(class, CollationClass::C, TypeSemantics::TextCollated).unwrap();
     let mut rng = Rng::new(0xD57A_0007);
-    let cyrillic = ["товар", "пример", "яблоко", "grüße", "naïve", "emoji-😀-tail"];
+    let cyrillic = [
+        "товар",
+        "пример",
+        "яблоко",
+        "grüße",
+        "naïve",
+        "emoji-😀-tail",
+    ];
     let long = [0xC2u8, 0xA9].repeat(200); // 400 B valid UTF-8, > MCV max
     let granules: Vec<TestColumn> = (0..3)
         .map(|g| {
@@ -1290,7 +1352,10 @@ fn batched_equals_pervalue_text_families() {
 /// long values that leave the distinct set, and granule boundaries.
 #[test]
 fn batched_equals_pervalue_run_heavy_corpora() {
-    let class = StorageClass::ByvalWord { width: 4, signed: true };
+    let class = StorageClass::ByvalWord {
+        width: 4,
+        signed: true,
+    };
     let profile = MetaProfile::derive(class, CollationClass::C, TypeSemantics::SignedInt).unwrap();
     let granules = word_granules(class, 0xD57A_00F1, |rng, i| {
         if rng.chance(1, 9) {
@@ -1327,7 +1392,9 @@ fn batched_equals_pervalue_run_heavy_corpora() {
                     } else if i % 101 < 3 {
                         Some(TestValue::Bytes(long.clone()))
                     } else {
-                        Some(TestValue::Bytes(format!("run-{}", (g * 4000 + i) / 23).into_bytes()))
+                        Some(TestValue::Bytes(
+                            format!("run-{}", (g * 4000 + i) / 23).into_bytes(),
+                        ))
                     }
                 })
                 .collect();
@@ -1358,46 +1425,93 @@ fn writer_fast_shell_output_golden() {
         got.push((name, fnv(&format!("{out:?}"))));
     };
 
-    let class = StorageClass::ByvalWord { width: 8, signed: true };
+    let class = StorageClass::ByvalWord {
+        width: 8,
+        signed: true,
+    };
     let profile = MetaProfile::derive(class, CollationClass::C, TypeSemantics::SignedInt).unwrap();
-    pin("int8 dups", profile, &word_granules(class, 0x601D_0001, |rng, i| {
-        if rng.chance(1, 6) {
-            None
-        } else if i < 2000 {
-            Some(i as u64)
-        } else if rng.chance(1, 3) {
-            Some((rng.next() as i64 % 50) as u64)
-        } else {
-            Some(rng.next())
-        }
-    }));
-    let class = StorageClass::ByvalWord { width: 4, signed: true };
+    pin(
+        "int8 dups",
+        profile,
+        &word_granules(class, 0x601D_0001, |rng, i| {
+            if rng.chance(1, 6) {
+                None
+            } else if i < 2000 {
+                Some(i as u64)
+            } else if rng.chance(1, 3) {
+                Some((rng.next() as i64 % 50) as u64)
+            } else {
+                Some(rng.next())
+            }
+        }),
+    );
+    let class = StorageClass::ByvalWord {
+        width: 4,
+        signed: true,
+    };
     let profile = MetaProfile::derive(class, CollationClass::C, TypeSemantics::SignedInt).unwrap();
-    pin("int4 runs", profile, &word_granules(class, 0x601D_0002, |rng, i| {
-        if rng.chance(1, 9) { None } else { Some(u64::from(i / 37).wrapping_mul(0x1_0001)) }
-    }));
-    let class = StorageClass::ByvalWord { width: 2, signed: true };
+    pin(
+        "int4 runs",
+        profile,
+        &word_granules(class, 0x601D_0002, |rng, i| {
+            if rng.chance(1, 9) {
+                None
+            } else {
+                Some(u64::from(i / 37).wrapping_mul(0x1_0001))
+            }
+        }),
+    );
+    let class = StorageClass::ByvalWord {
+        width: 2,
+        signed: true,
+    };
     let profile = MetaProfile::derive(class, CollationClass::C, TypeSemantics::SignedInt).unwrap();
-    pin("int2 small", profile, &word_granules(class, 0x601D_0003, |rng, _| {
-        if rng.chance(1, 7) { None } else { Some(rng.below(300)) }
-    }));
+    pin(
+        "int2 small",
+        profile,
+        &word_granules(class, 0x601D_0003, |rng, _| {
+            if rng.chance(1, 7) {
+                None
+            } else {
+                Some(rng.below(300))
+            }
+        }),
+    );
     let profile =
         MetaProfile::derive(StorageClass::Bool, CollationClass::C, TypeSemantics::Bool).unwrap();
-    pin("bool runs", profile, &word_granules(StorageClass::Bool, 0x601D_0004, |rng, i| {
-        if rng.chance(1, 11) { None } else { Some(u64::from((i / 500) % 2) * 7) }
-    }));
+    pin(
+        "bool runs",
+        profile,
+        &word_granules(StorageClass::Bool, 0x601D_0004, |rng, i| {
+            if rng.chance(1, 11) {
+                None
+            } else {
+                Some(u64::from((i / 500) % 2) * 7)
+            }
+        }),
+    );
     let profile =
         MetaProfile::derive(StorageClass::F64, CollationClass::C, TypeSemantics::Float).unwrap();
-    pin("f64", profile, &word_granules(StorageClass::F64, 0x601D_0005, |rng, _| {
-        if rng.chance(1, 7) {
-            None
-        } else if rng.chance(1, 5) {
-            Some([0.0f64.to_bits(), (-0.0f64).to_bits(), f64::NAN.to_bits(), f64::INFINITY.to_bits()]
-                [rng.below(4) as usize])
-        } else {
-            Some(((rng.next() as i64 % 100_000) as f64 / 100.0).to_bits())
-        }
-    }));
+    pin(
+        "f64",
+        profile,
+        &word_granules(StorageClass::F64, 0x601D_0005, |rng, _| {
+            if rng.chance(1, 7) {
+                None
+            } else if rng.chance(1, 5) {
+                Some(
+                    [
+                        0.0f64.to_bits(),
+                        (-0.0f64).to_bits(),
+                        f64::NAN.to_bits(),
+                        f64::INFINITY.to_bits(),
+                    ][rng.below(4) as usize],
+                )
+            } else {
+                Some(((rng.next() as i64 % 100_000) as f64 / 100.0).to_bits())
+            }
+        }),
+    );
 
     let class = StorageClass::VarlenaVerbatim;
     let long = vec![b'x'; 400];
@@ -1412,9 +1526,13 @@ fn writer_fast_shell_output_golden() {
                     } else if i % 101 < 3 {
                         Some(TestValue::Bytes(long.clone()))
                     } else if rng.chance(1, 2) {
-                        Some(TestValue::Bytes(format!("run-{}", (g * 4000 + i) / 23).into_bytes()))
+                        Some(TestValue::Bytes(
+                            format!("run-{}", (g * 4000 + i) / 23).into_bytes(),
+                        ))
                     } else {
-                        Some(TestValue::Bytes(format!("url/{}/page", rng.below(700)).into_bytes()))
+                        Some(TestValue::Bytes(
+                            format!("url/{}/page", rng.below(700)).into_bytes(),
+                        ))
                     }
                 })
                 .collect();
@@ -1424,14 +1542,22 @@ fn writer_fast_shell_output_golden() {
     let profile =
         MetaProfile::derive(class, CollationClass::C, TypeSemantics::TextCollated).unwrap();
     pin("text C", profile, &text);
-    let profile = MetaProfile::derive(class, CollationClass::OtherDeterministic, TypeSemantics::TextCollated)
-        .unwrap();
+    let profile = MetaProfile::derive(
+        class,
+        CollationClass::OtherDeterministic,
+        TypeSemantics::TextCollated,
+    )
+    .unwrap();
     pin("text non-C", profile, &text);
 
     for (name, v) in got.iter() {
         eprintln!("shell-golden {name:?} {v:#018x}");
     }
-    assert_eq!(got, SHELL_GOLDEN.to_vec(), "builder output drifted from the pinned builder's");
+    assert_eq!(
+        got,
+        SHELL_GOLDEN.to_vec(),
+        "builder output drifted from the pinned builder's"
+    );
 }
 
 // Re-pinned by F4: low-NDV unclustered granules now carry an NDV-sized bloom (int2, bool and text change; int8,
@@ -1515,7 +1641,9 @@ fn batched_equals_pervalue_with_distribution_feed() {
             if rng.chance(1, 5) {
                 None
             } else {
-                Some(TestValue::Bytes(format!("v{:03}", rng.below(80)).into_bytes()))
+                Some(TestValue::Bytes(
+                    format!("v{:03}", rng.below(80)).into_bytes(),
+                ))
             }
         })
         .collect();
@@ -1579,7 +1707,8 @@ fn dict_corpus(
         .collect();
     let feed = counted_feed(&granules);
     let rank_of = |b: &[u8]| -> u64 {
-        feed.binary_search_by(|(e, _)| e.as_slice().cmp(b)).expect("in feed") as u64
+        feed.binary_search_by(|(e, _)| e.as_slice().cmp(b))
+            .expect("in feed") as u64
     };
     let codes: Vec<Vec<u64>> = granules
         .iter()
@@ -1625,7 +1754,13 @@ fn drive_codes(
     let part = b.seal_part();
     let aux = b.aux_sections();
     let dist = b.distribution();
-    ShellOut { grecs, bands, part, aux, dist }
+    ShellOut {
+        grecs,
+        bands,
+        part,
+        aux,
+        dist,
+    }
 }
 
 #[test]
@@ -1633,7 +1768,10 @@ fn dict_codes_fold_equals_value_walk() {
     let (granules, codes, feed) = dict_corpus(0xD1C7_C0DE, &[4000, 4000, 250], 300);
     for (collation, what) in [
         (CollationClass::C, "collation C (keys armed)"),
-        (CollationClass::OtherDeterministic, "deterministic non-C (no keys)"),
+        (
+            CollationClass::OtherDeterministic,
+            "deterministic non-C (no keys)",
+        ),
     ] {
         let profile = MetaProfile::derive(
             StorageClass::VarlenaVerbatim,
@@ -1674,7 +1812,8 @@ fn dict_codes_fold_all_null_and_constant_granules() {
     let granules = vec![mixed, all_null, constant];
     let feed = counted_feed(&granules);
     let rank_of = |b: &[u8]| -> u64 {
-        feed.binary_search_by(|(e, _)| e.as_slice().cmp(b)).expect("in feed") as u64
+        feed.binary_search_by(|(e, _)| e.as_slice().cmp(b))
+            .expect("in feed") as u64
     };
     let codes: Vec<Vec<u64>> = granules
         .iter()
@@ -1687,8 +1826,8 @@ fn dict_codes_fold_all_null_and_constant_granules() {
                 .collect()
         })
         .collect();
-    let profile = MetaProfile::derive(class, CollationClass::C, TypeSemantics::TextCollated)
-        .unwrap();
+    let profile =
+        MetaProfile::derive(class, CollationClass::C, TypeSemantics::TextCollated).unwrap();
     let from_codes = drive_codes(profile, &granules, &codes, feed.clone());
     let pervalue = drive_shell(profile, &granules, false, None, Some(feed));
     assert_eq!(from_codes, pervalue, "codes fold: null/constant granules");
@@ -1718,7 +1857,10 @@ fn dict_codes_face_declines_without_feed_or_batch() {
     .unwrap();
     let mut b = ColumnMeta::with_batch_fold(nd, true);
     b.set_distribution_feed(vec![(b"x".to_vec(), 1)]);
-    assert!(!b.dict_code_observe_supported(), "unsound profile must decline");
+    assert!(
+        !b.dict_code_observe_supported(),
+        "unsound profile must decline"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1786,7 +1928,8 @@ fn seeded_divergence_fails_the_codes_battery() {
     let granules = vec![TestColumn::new(class, &rows)];
     let feed = counted_feed(&granules);
     let rank_of = |b: &[u8]| -> u64 {
-        feed.binary_search_by(|(e, _)| e.as_slice().cmp(b)).expect("in feed") as u64
+        feed.binary_search_by(|(e, _)| e.as_slice().cmp(b))
+            .expect("in feed") as u64
     };
     let codes: Vec<Vec<u64>> = vec![values.iter().map(|b| rank_of(b)).collect()];
     crate::batch::seed::arm(true);
@@ -1803,7 +1946,10 @@ fn seeded_divergence_fails_the_codes_battery() {
 /// and constant (no bloom), and floats whose images differ only in their high bytes.
 #[test]
 fn batched_equals_pervalue_large_word_tables() {
-    let class = StorageClass::ByvalWord { width: 8, signed: true };
+    let class = StorageClass::ByvalWord {
+        width: 8,
+        signed: true,
+    };
     let profile = MetaProfile::derive(class, CollationClass::C, TypeSemantics::SignedInt).unwrap();
     let mut rng = Rng::new(0x10AD_5747);
     let mut granules = Vec::new();
@@ -1828,7 +1974,11 @@ fn batched_equals_pervalue_large_word_tables() {
     let floats: Vec<TestColumn> = (0..3u32)
         .map(|g| {
             let vals: Vec<Option<TestValue>> = (0..8192u32)
-                .map(|i| Some(TestValue::Word((f64::from(i % (300 * (g + 1))) * 2.0).to_bits())))
+                .map(|i| {
+                    Some(TestValue::Word(
+                        (f64::from(i % (300 * (g + 1))) * 2.0).to_bits(),
+                    ))
+                })
                 .collect();
             TestColumn::new(StorageClass::F64, &vals)
         })
@@ -1839,15 +1989,23 @@ fn batched_equals_pervalue_large_word_tables() {
 /// The word lane's tooth: the stamped face skipping its HLL feed must be caught by the battery.
 #[test]
 fn seeded_divergence_fails_the_word_battery() {
-    let class = StorageClass::ByvalWord { width: 4, signed: true };
+    let class = StorageClass::ByvalWord {
+        width: 4,
+        signed: true,
+    };
     let profile = MetaProfile::derive(class, CollationClass::C, TypeSemantics::SignedInt).unwrap();
-    let vals: Vec<Option<TestValue>> = (0..500u64).map(|i| Some(TestValue::Word(i * 7919 % 1000))).collect();
+    let vals: Vec<Option<TestValue>> = (0..500u64)
+        .map(|i| Some(TestValue::Word(i * 7919 % 1000)))
+        .collect();
     let granules = vec![TestColumn::new(class, &vals)];
     crate::batch::seed::arm(true);
     let seeded = drive_shell(profile, &granules, true, Some(64), None);
     crate::batch::seed::arm(false);
     let reference = drive_shell(profile, &granules, false, None, None);
-    assert_ne!(seeded, reference, "the word lane's seeded leak was NOT caught");
+    assert_ne!(
+        seeded, reference,
+        "the word lane's seeded leak was NOT caught"
+    );
     let clean = drive_shell(profile, &granules, true, Some(64), None);
     assert_eq!(clean, reference, "disarmed word lane must re-converge");
 }
@@ -1875,10 +2033,15 @@ fn psma_from_ascending_equals_per_row_observe() {
         let mut rk: Vec<(u16, i64)> = Vec::new();
         for row in 0..8192u16 {
             if round % 7 == 0 || rng.chance(1, u64::from(1 + round % 5)) {
-                rk.push((row, (rng.next() % (1 + u64::from(round) * 997)) as i64 - 300));
+                rk.push((
+                    row,
+                    (rng.next() % (1 + u64::from(round) * 997)) as i64 - 300,
+                ));
             }
         }
-        let (mn, mx) = rk.iter().fold((i64::MAX, i64::MIN), |(a, b), &(_, k)| (a.min(k), b.max(k)));
+        let (mn, mx) = rk
+            .iter()
+            .fold((i64::MAX, i64::MIN), |(a, b), &(_, k)| (a.min(k), b.max(k)));
         if rk.is_empty() || mn == mx {
             continue;
         }
@@ -1889,7 +2052,8 @@ fn psma_from_ascending_equals_per_row_observe() {
         }
         let mut kb = crate::psma::KeyBuf::default();
         let split = rk.len() / 3;
-        let (rows, keys): (Vec<u32>, Vec<i64>) = rk[..split].iter().map(|&(r, k)| (u32::from(r), k)).unzip();
+        let (rows, keys): (Vec<u32>, Vec<i64>) =
+            rk[..split].iter().map(|&(r, k)| (u32::from(r), k)).unzip();
         kb.extend(&rows, &keys);
         for &(r, k) in &rk[split..] {
             kb.push(u32::from(r), k);
@@ -1917,10 +2081,22 @@ fn fused_hash_chars_equal_the_separate_passes() {
                 })
                 .collect();
             let (h1, h2, _, _, n) = crate::batch::hash_and_chars(&b, None);
-            assert_eq!((h1, h2), crate::hash::meta_hash128(&b), "len {len} round {round}");
-            assert_eq!(n, crate::builder::utf8_char_count(&b), "len {len} round {round}");
+            assert_eq!(
+                (h1, h2),
+                crate::hash::meta_hash128(&b),
+                "len {len} round {round}"
+            );
+            assert_eq!(
+                n,
+                crate::builder::utf8_char_count(&b),
+                "len {len} round {round}"
+            );
             let (a1, a2, lo, hi, m) = crate::batch::hash_and_chars(&b, Some(seeds));
-            assert_eq!((a1, a2, lo, hi), crate::hash::meta_hash128_and_digests(&b, seeds), "len {len} round {round}");
+            assert_eq!(
+                (a1, a2, lo, hi),
+                crate::hash::meta_hash128_and_digests(&b, seeds),
+                "len {len} round {round}"
+            );
             assert_eq!(m, n);
         }
     }

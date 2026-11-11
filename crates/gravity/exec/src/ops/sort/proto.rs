@@ -5,6 +5,7 @@
 //! all with its own into the slot's one sealed run (one k-way, k the arms), and once the slot's stream holds a run (an arm
 //! spilled) every held run is put to it, the rest of the run the stream's k-way. The sort protocol is m3_sort.rs; the
 //! walk's `claims_for` m3_walk.rs. Created by M3 (owner M3-HOSTS).
+#[allow(unused_imports)]
 use core::ops::Range;
 use core::sync::atomic::Ordering::AcqRel;
 
@@ -42,6 +43,7 @@ impl Sink for NoRows {
 }
 
 impl ArmSort {
+    #[allow(clippy::new_ret_no_self)]
     pub(crate) fn new(run: crate::ops::sort::merge::Resident, slot: u8, program: &Program, mut prods: memledger::ChargedVec<usize>) -> Box<dyn Live> {
         prods.with_vec(|v| v.extend(run.arms.clone().filter(|&q| program.pipelines.get(q).and_then(|x| x.produces()) == Some(slot)))); // alloc: Exec charged prods.owner()
         Box::new(ArmSort { run, slot, prods, held: pgsync::Mutex::new(Vec::new()) }) // alloc: Exec
@@ -106,6 +108,7 @@ impl ArmSort {
         let (rows, var0) = match crate::ops::sort::merge::Resident::lay(&mut leader, runs.iter().map(|r| r.1 as u64).sum(), rb, vb, var.then_some(runs[0].0), self.run.cap) {
             Ok(at) => at,
             Err(Error::OutOfMemory { .. }) => {
+                #[allow(clippy::drop_non_drop)]
                 drop(leader);
                 rearm(node.leader(slot));
                 return put_held(node, slot, &mut held, var);
@@ -283,6 +286,7 @@ mod tests {
             let r = run as *mut SortRun;
             // SAFETY: as `Node::put_sort_run`: a sealed run in its put form that nothing else reads.
             unsafe {
+                #[allow(clippy::unnecessary_cast)]
                 self.stream.push(core::slice::from_raw_parts((*r).rows_ptr() as *const u8, (*r).dense_bytes()).to_vec()); // alloc: Cold
                 (*r).clear();
             }

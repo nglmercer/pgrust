@@ -209,10 +209,10 @@ pub(crate) fn reads(x: Node<'_>, w: &WriteDesc<'_>, t: &Target<'_>) -> Option<&'
             let img = v.varreturningtype != VarReturningType::VAR_RETURNING_DEFAULT;
             if img && (v.varno != rti || v.varlevelsup != 0) {
                 Some("RETURNING old / new of another relation")
-            } else if img && v.varattno <= 0 && image(&v, w).0 {
+            } else if img && v.varattno <= 0 && image(v, w).0 {
                 // D774: NULL (an image the command never has)
                 None
-            } else if img && v.varattno < 0 && image(&v, w).1 && (sys_served(&v, w, t) || sys_site(w)) {
+            } else if img && v.varattno < 0 && image(v, w).1 && (sys_served(v, w, t) || sys_site(w)) {
                 // D774: the written row's, as a default reference's (the sys site, or the plan-time tableoid)
                 None
             } else if img && v.varattno == -6 && w.cmd == Cmd::Update && may_move(w) {
@@ -221,7 +221,7 @@ pub(crate) fn reads(x: Node<'_>, w: &WriteDesc<'_>, t: &Target<'_>) -> Option<&'
                 None
             } else if img && v.varattno < 0 && v.varreturningtype == VarReturningType::VAR_RETURNING_OLD {
                 // V4R-501: the replaced version's, the old site's last six cells (write_ret_sys `old_sys`)
-                old_sys(&v, w).err()
+                old_sys(v, w).err()
             } else if img && v.varattno < 0 {
                 // MERGE's NEW (its images differ by action)
                 Some("RETURNING old / new: a system column of the replaced version (UPDATE's old ctid, xmin .. cmax), MERGE's or ON CONFLICT's")
@@ -244,7 +244,7 @@ pub(crate) fn reads(x: Node<'_>, w: &WriteDesc<'_>, t: &Target<'_>) -> Option<&'
             } else if v.varattno == 0 {
                 // D774: the written row as the target's rowtype (expr.wholerow over the cells by attno, a dropped one NULL)
                 None
-            } else if v.varattno < 0 && (sys_served(&v, w, t) || sys_site(w)) {
+            } else if v.varattno < 0 && (sys_served(v, w, t) || sys_site(w)) {
                 // D774: tableoid of the one heap target is a constant; the others (a routed row's tableoid too) the host
                 // hands back after the row op (WritePlan.sys, hosts write_sys.rs; a DELETE's deleted version fetched for
                 // them even where the site has no cell, D870)

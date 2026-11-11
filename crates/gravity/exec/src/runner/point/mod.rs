@@ -19,7 +19,7 @@
 //! - keep.rs (S3 option (a)): a point write whose plan S5 served from its memo keeps its hosts, recipe and compiled SET
 //!   values in that memo entry across statements (`skip::Hit`), under pgrust.point_keep (default off).
 //! - pkeep.rs (pgrust.point_portal_keep): an S1x portal's bound probe kept across the portals of one generic plan.
-//! `strict` (tests) turns a decline after hook A built the plan into an error.
+//!   `strict` (tests) turns a decline after hook A built the plan into an error.
 use std::cell::{Cell, RefCell};
 
 use mcx::MemoryContext;

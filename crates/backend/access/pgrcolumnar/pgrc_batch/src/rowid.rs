@@ -63,7 +63,11 @@ impl RowId {
     /// contract (debug-asserted there).
     #[inline]
     pub const fn from_columnar(part: u64, granule: u64, row: u64) -> RowId {
-        RowId(::pgrc_format::rowid::pack_rowid(part as u32, granule as u32, row as u32))
+        RowId(::pgrc_format::rowid::pack_rowid(
+            part as u32,
+            granule as u32,
+            row as u32,
+        ))
     }
 
     /// Columnar part_no (delegates to the frozen `pgrc_format` split).

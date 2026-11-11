@@ -109,6 +109,7 @@ pub(crate) fn fc_g_intbig_compress(
     let img = crate::key_image(entry.key);
     if !is_alltrue(img) {
         let sign = sign_of(img);
+        #[allow(clippy::needless_range_loop)]
         for i in 0..siglen {
             if sign[i] != 0xff {
                 return Ok(fcinfo.arg(0));
@@ -297,6 +298,7 @@ pub(crate) fn fc_g_intbig_picksplit(
                 }
             } else {
                 let ptr = sign_of(jimg);
+                #[allow(clippy::needless_range_loop)]
                 for i in 0..siglen {
                     datum_l.sign[i] |= ptr[i];
                 }
@@ -309,6 +311,7 @@ pub(crate) fn fc_g_intbig_picksplit(
                 }
             } else {
                 let ptr = sign_of(jimg);
+                #[allow(clippy::needless_range_loop)]
                 for i in 0..siglen {
                     datum_r.sign[i] |= ptr[i];
                 }

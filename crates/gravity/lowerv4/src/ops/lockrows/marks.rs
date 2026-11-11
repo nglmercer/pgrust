@@ -9,39 +9,39 @@
 //!   row stops for the runner's EvalPlanQual (`recheck_exit`), once, whichever marks traversed;
 //! - below zero: the host's error (NOWAIT's 55P03 naming the mark's relation, a serialization failure under a transaction
 //!   snapshot, a deadlock), with the rows finished before it.
-//! Each mark's row is its junk ctid, stored as the position of the site that scans it (marks.rs: a producer's scan site,
-//! or the rechecking pipeline's own scan's marked-row site, D776); the host locks there and leaves a traversed newest
-//! version there. So the stopped node's settle holds every locked relation's EPQ test tuple (the newest version, or the
-//! one read) beside the REFERENCE / COPY rows, and the stop names the last traversed mark's site, whose `recheck_pos` is
-//! its newest version: exec epq.rs substitutes them all and reruns the producers, then the plan below the lock (L3).
-//! CNM-38 (lockrows 15): the same form serves a lock whose rows reach it through a breaker (LockRows over a Sort: an
-//! ORDER BY below FOR UPDATE, a view's or a subquery's), one locking mark or several (`over_breaker`): each row's marks
-//! are its junk ctids (preprocess_targetlist carries them through the Sort), stored at the producers' scan sites, and
-//! the recheck reruns those producers over the substituted scans before the drain, as PostgreSQL's EvalPlanQual reruns
-//! the subplan below LockRows (the Sort over the test tuple alone) and LockRows returns that row in its sorted place.
-//! D3269 (a): so does a lock over an INNER merge join (the locked relation reaching it through a Sort, a sorted inner run
-//! or the pipeline's own scan; the other side a REFERENCE relation or a COPY subquery): the recheck reruns both sorted
-//! inputs' producers over the substituted rows, then the merge over one row a side, as PostgreSQL's EvalPlanQual reruns
-//! the Merge Join over its test tuples.
-//! lockrows NEST: a mark (locking or REFERENCE) on a relation an INNER nested loop's inner scans (rerun/epq/marks.rs
-//! `nest_joins`: one heap scan under filters and projections; the nest in this pipeline or in a producer the recheck
-//! reruns) is stored in a RowOf site of the inner's scan site, the host locks there, and a stop after it names the inner's
-//! site: the recheck substitutes the inner with that row (a locked one's newest version) and opens it once, the outer side
-//! substituted too, as PostgreSQL's EvalPlanQual rescans the inner over its test tuple. Over a VALUES outer of its own
-//! (`nest_outer`, lk-0104) the VALUES' COPY row is that one outer row (driver `Entry::recheck` hands it back, mergecmd 9).
-//! lockrows D2604: a family lock over a breaker (`family_breaker`: a cursor's ORDER BY .. FOR UPDATE over a tree) takes this
-//! form too, each child's mark active only on its leaf's rows (`Marks::gate`), so WHERE CURRENT OF answers that leaf alone.
-//! lockrows FAMJOIN: so does one beside a join's REFERENCE marks (an ORDER BY over the family's arms probing a build), the
-//! REFERENCE marks never gated; a family's union kept in its Materialize form is rerun over its feeds (`sites_in`).
-//! lockrows REFFAM: so does one beside other parents' whole REFERENCE families (`lock_family`: FOR SHARE OF one alias of a
-//! self-joined inheritance tree), each family's children gated on that family's own tableoid junk column.
-//! Refused by name: a family beside another relation's COPY or locking mark (FAMILY_JOIN); a locked relation a nested loop's inner
-//! scans in another form (NEST_INNER); a pipeline over neither a heap scan of its own nor a breaker, or a locked relation no heap scan
-//! reads (NOT_OWN: a subquery, a TID or non-heap source); any op above but the projection (LIMIT_ABOVE: the in-IR recheck is
-//! one-site; OP_ABOVE); a pipeline that produces for another (marks.rs EMIT_ONLY) or whose rows do not go to the client
-//! (NOT_SINK); write/lock_rerun.rs: a producer the recheck reruns first that PG may not run and that may raise or call
-//! a function (RERUN_FIRST, D2033), an outer side PG's later rechecks may skip (BUILD_FIRST, D2050), a producer holding
-//! an outer join (NULL_SIDE, D2048). Owner M8-MEMO-CTE.
+//!   Each mark's row is its junk ctid, stored as the position of the site that scans it (marks.rs: a producer's scan site,
+//!   or the rechecking pipeline's own scan's marked-row site, D776); the host locks there and leaves a traversed newest
+//!   version there. So the stopped node's settle holds every locked relation's EPQ test tuple (the newest version, or the
+//!   one read) beside the REFERENCE / COPY rows, and the stop names the last traversed mark's site, whose `recheck_pos` is
+//!   its newest version: exec epq.rs substitutes them all and reruns the producers, then the plan below the lock (L3).
+//!   CNM-38 (lockrows 15): the same form serves a lock whose rows reach it through a breaker (LockRows over a Sort: an
+//!   ORDER BY below FOR UPDATE, a view's or a subquery's), one locking mark or several (`over_breaker`): each row's marks
+//!   are its junk ctids (preprocess_targetlist carries them through the Sort), stored at the producers' scan sites, and
+//!   the recheck reruns those producers over the substituted scans before the drain, as PostgreSQL's EvalPlanQual reruns
+//!   the subplan below LockRows (the Sort over the test tuple alone) and LockRows returns that row in its sorted place.
+//!   D3269 (a): so does a lock over an INNER merge join (the locked relation reaching it through a Sort, a sorted inner run
+//!   or the pipeline's own scan; the other side a REFERENCE relation or a COPY subquery): the recheck reruns both sorted
+//!   inputs' producers over the substituted rows, then the merge over one row a side, as PostgreSQL's EvalPlanQual reruns
+//!   the Merge Join over its test tuples.
+//!   lockrows NEST: a mark (locking or REFERENCE) on a relation an INNER nested loop's inner scans (rerun/epq/marks.rs
+//!   `nest_joins`: one heap scan under filters and projections; the nest in this pipeline or in a producer the recheck
+//!   reruns) is stored in a RowOf site of the inner's scan site, the host locks there, and a stop after it names the inner's
+//!   site: the recheck substitutes the inner with that row (a locked one's newest version) and opens it once, the outer side
+//!   substituted too, as PostgreSQL's EvalPlanQual rescans the inner over its test tuple. Over a VALUES outer of its own
+//!   (`nest_outer`, lk-0104) the VALUES' COPY row is that one outer row (driver `Entry::recheck` hands it back, mergecmd 9).
+//!   lockrows D2604: a family lock over a breaker (`family_breaker`: a cursor's ORDER BY .. FOR UPDATE over a tree) takes this
+//!   form too, each child's mark active only on its leaf's rows (`Marks::gate`), so WHERE CURRENT OF answers that leaf alone.
+//!   lockrows FAMJOIN: so does one beside a join's REFERENCE marks (an ORDER BY over the family's arms probing a build), the
+//!   REFERENCE marks never gated; a family's union kept in its Materialize form is rerun over its feeds (`sites_in`).
+//!   lockrows REFFAM: so does one beside other parents' whole REFERENCE families (`lock_family`: FOR SHARE OF one alias of a
+//!   self-joined inheritance tree), each family's children gated on that family's own tableoid junk column.
+//!   Refused by name: a family beside another relation's COPY or locking mark (FAMILY_JOIN); a locked relation a nested loop's inner
+//!   scans in another form (NEST_INNER); a pipeline over neither a heap scan of its own nor a breaker, or a locked relation no heap scan
+//!   reads (NOT_OWN: a subquery, a TID or non-heap source); any op above but the projection (LIMIT_ABOVE: the in-IR recheck is
+//!   one-site; OP_ABOVE); a pipeline that produces for another (marks.rs EMIT_ONLY) or whose rows do not go to the client
+//!   (NOT_SINK); write/lock_rerun.rs: a producer the recheck reruns first that PG may not run and that may raise or call
+//!   a function (RERUN_FIRST, D2033), an outer side PG's later rechecks may skip (BUILD_FIRST, D2050), a producer holding
+//!   an outer join (NULL_SIDE, D2048). Owner M8-MEMO-CTE.
 use std::cell::Cell;
 use std::rc::Rc;
 

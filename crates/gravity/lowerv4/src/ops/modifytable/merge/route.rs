@@ -69,7 +69,7 @@ pub(crate) const INHERIT_CHECKS: &str = "an INSERT-only MERGE through an inherit
 /// (the arm's own target under (b); the write's own target otherwise), or a refusal by name.
 pub(crate) fn admit(gx: &Gx<'_, '_>, k: usize, (w, m): (&WriteDesc<'_>, &MergeDesc<'_>), node: i32, dummy: bool) -> (u32, u32) {
     let own = (w.rti, w.plan.target_rel);
-    let (Some(r), false) = (w.route.as_ref(), insert_only(m)) else {
+    let (Some(_r), false) = (w.route.as_ref(), insert_only(m)) else {
         // unrouted, or V4R-498's INSERT-only form (member Route; one updating a key stays ROUTED); mergecmd INHERIT-ROOT
         if inherit_root(gx, w, m, node).is_some() {
             return own;

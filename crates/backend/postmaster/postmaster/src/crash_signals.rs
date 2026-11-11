@@ -507,6 +507,7 @@ mod tests {
 
     fn chain(n: usize) -> Vec<Rec> {
         let mut v = vec![Rec { next: 0, ret: 0 }; n];
+        #[allow(clippy::needless_range_loop)]
         for i in 0..n {
             v[i].ret = 0x10_0000 + i * 4;
         }
@@ -522,6 +523,7 @@ mod tests {
         let mut out = [0usize; MAX_FRAMES];
         let n = unsafe { walk_frames(&c[0] as *const Rec as usize, &mut out) };
         assert_eq!(n, 5);
+        #[allow(clippy::needless_range_loop)]
         for i in 0..5 {
             assert_eq!(out[i], 0x10_0000 + i * 4, "frame {i}");
         }

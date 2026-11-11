@@ -14,8 +14,8 @@ use types_error::{PgError, PgResult};
 use types_fmgr::FmgrInfo;
 use types_nbtree::{
     BTScanOpaqueData, BTScanPosData, BTScanPosInvalidate, BTScanPosIsPinned, BTScanPosIsValid,
-    BTScanPosItem, MaxTIDsPerBTreePage, BT_POS_FEW_ITEMS, BTORDER_PROC, BT_READ, P_FIRSTDATAKEY, P_HIKEY, P_IGNORE,
-    P_ISDELETED, P_ISLEAF, P_LEFTMOST, P_NONE, P_RIGHTMOST,
+    BTScanPosItem, MaxTIDsPerBTreePage, BTORDER_PROC, BT_POS_FEW_ITEMS, BT_READ, P_FIRSTDATAKEY,
+    P_HIKEY, P_IGNORE, P_ISDELETED, P_ISLEAF, P_LEFTMOST, P_NONE, P_RIGHTMOST,
 };
 use types_rel::Relation;
 
@@ -458,7 +458,10 @@ fn missing_cross_type_support_function<R: BtReadRel + ?Sized>(
 #[track_caller]
 #[cold]
 #[inline(never)]
-pub(crate) fn missing_support_function<R: BtReadRel + ?Sized>(rel: &R, attno: usize) -> Box<PgError> {
+pub(crate) fn missing_support_function<R: BtReadRel + ?Sized>(
+    rel: &R,
+    attno: usize,
+) -> Box<PgError> {
     // C: index_getprocinfo's elog (indexam.c) — the same-type rd_support
     // path carries no argtype parenthetical (that spelling belongs to the
     // cross-type get_opfamily_proc probes only).
@@ -872,16 +875,14 @@ pub(crate) fn bt_next<R: BtReadRel + ?Sized>(
 
     if ScanDirectionIsForward(dir) {
         ctx.so.currPos.itemIndex += 1;
-        if ctx.so.currPos.itemIndex > ctx.so.currPos.lastItem
-            && !bt_steppage(ctx, dir)? {
-                return Ok(false);
-            }
+        if ctx.so.currPos.itemIndex > ctx.so.currPos.lastItem && !bt_steppage(ctx, dir)? {
+            return Ok(false);
+        }
     } else {
         ctx.so.currPos.itemIndex -= 1;
-        if ctx.so.currPos.itemIndex < ctx.so.currPos.firstItem
-            && !bt_steppage(ctx, dir)? {
-                return Ok(false);
-            }
+        if ctx.so.currPos.itemIndex < ctx.so.currPos.firstItem && !bt_steppage(ctx, dir)? {
+            return Ok(false);
+        }
     }
 
     bt_returnitem(ctx);
@@ -1460,7 +1461,9 @@ fn copy_scanpos(so: &mut BTScanOpaqueData<'_>) -> PgResult<()> {
         so.markTuples = Some(vec_with_capacity_in(mcx, BLCKSZ)?);
     }
     let n = (so.currPos.lastItem + 1).max(0) as usize;
-    let BTScanOpaqueData { currPos, markPos, .. } = so;
+    let BTScanOpaqueData {
+        currPos, markPos, ..
+    } = so;
     let mark = markPos.as_deref_mut().expect("made above");
     mark.buf = currPos.buf;
     mark.currPage = currPos.currPage;
@@ -1488,7 +1491,9 @@ fn copy_scanpos(so: &mut BTScanOpaqueData<'_>) -> PgResult<()> {
 // btrestrpos's markPos -> currPos restore (the mirror of copy_scanpos).
 // The caller saw a valid mark (so `markPos` is made).
 pub(crate) fn restore_scanpos(so: &mut BTScanOpaqueData<'_>) -> PgResult<()> {
-    let BTScanOpaqueData { currPos, markPos, .. } = so;
+    let BTScanOpaqueData {
+        currPos, markPos, ..
+    } = so;
     let mark = markPos.as_deref().expect("a valid mark");
     let n = (mark.lastItem + 1).max(0) as usize;
     currPos.buf = mark.buf;
@@ -1861,9 +1866,18 @@ pub(crate) fn bt_gettuple_continue<R: BtReadRel + ?Sized>(
                 ctx.so.killedItems[n] = ctx.so.currPos.itemIndex;
             } else {
                 if ctx.so.killedItems.len() == ctx.so.killedItems.capacity() {
-                    let more = ctx.so.killedItems.capacity().max(BT_POS_FEW_ITEMS).min(MaxTIDsPerBTreePage - n);
+                    let more = ctx
+                        .so
+                        .killedItems
+                        .capacity()
+                        .max(BT_POS_FEW_ITEMS)
+                        .min(MaxTIDsPerBTreePage - n);
                     if ctx.so.killedItems.try_reserve_exact(more).is_err() {
-                        return Err(ctx.so.killedItems.allocator().oom_boxed(more * core::mem::size_of::<i32>()));
+                        return Err(ctx
+                            .so
+                            .killedItems
+                            .allocator()
+                            .oom_boxed(more * core::mem::size_of::<i32>()));
                     }
                 }
                 ctx.so.killedItems.push(ctx.so.currPos.itemIndex);

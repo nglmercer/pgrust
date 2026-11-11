@@ -4,6 +4,7 @@
 use mcx::MemoryContext;
 use std::fs;
 use std::path::Path;
+#[rustfmt::skip]
 #[path = "../../test-support/oracle.rs"]
 mod oracle;
 use tpde_string_table::StringTable;

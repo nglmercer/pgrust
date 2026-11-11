@@ -114,7 +114,7 @@ gravity_kernels::contract::host! {
 
     /// numeric_float4 of mantissa `m` at `scale`: its float4 word (zero-extended, as the shim's), or `DECLINED`.
     pub(crate) fn num_float4(m: i64, scale: i64) -> i64 {
-        gravity_fn::agg_final::mantissa_float4(m, scale).map_or(DECLINED, |x| x.to_bits() as u32 as i64)
+        gravity_fn::agg_final::mantissa_float4(m, scale).map_or(DECLINED, |x| x.to_bits() as i64)
     }
 }
 
@@ -139,7 +139,7 @@ mod tests {
             let len = (u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap()) >> 2) as usize;
             let num = adt_numeric::Num::from_payload(&bytes[at + 4..at + len]);
             let (f8, f4) = (adt_numeric::numeric_float8(num).unwrap(), adt_numeric::numeric_float4(num).unwrap());
-            for (got, want, what) in [(num_float8(m, s), f8.to_bits() as i64, "float8"), (num_float4(m, s), f4.to_bits() as u32 as i64, "float4")] {
+            for (got, want, what) in [(num_float8(m, s), f8.to_bits() as i64, "float8"), (num_float4(m, s), f4.to_bits() as i64, "float4")] {
                 assert!(got == DECLINED || got == want, "{what} of {m} at {s}: {got:#x} vs {want:#x}");
             }
         }

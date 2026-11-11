@@ -339,6 +339,7 @@ pub fn strtoul_base0(s: &[u8]) -> StrtoulBase0 {
 ///
 /// The whitespace set is C's `scanner_isspace` (scansup.c) = space, \t, \n,
 /// \r, \v, \f — identical to [`isspace_c_locale`].
+#[allow(clippy::result_unit_err)]
 pub fn split_guc_list(raw: &str, separator: u8) -> Result<Vec<String>, ()> {
     split_list_common(raw, separator, false)
 }
@@ -355,6 +356,7 @@ pub fn split_guc_list(raw: &str, separator: u8) -> Result<Vec<String>, ()> {
 /// syntax errors) and the empty-input fast path are the same. C truncates
 /// each name to MAXPGPATH-1 (1023) bytes; we do too (backing up to a char
 /// boundary, since C's mid-UTF-8 cut is unrepresentable in a `String`).
+#[allow(clippy::result_unit_err)]
 pub fn split_directories_string(raw: &str, separator: u8) -> Result<Vec<String>, ()> {
     // MAXPGPATH (pg_config_manual.h) — keep in sync with pg_path::MAXPGPATH.
     const MAXPGPATH: usize = 1024;
@@ -564,6 +566,7 @@ mod tests {
     /// echoed in "recovery target timeline %u does not exist" /
     /// "starting point-in-time recovery to XID %u"), 2026-07-30.
     #[test]
+    #[allow(clippy::octal_escapes)]
     fn strtoul_base0_matches_glibc() {
         let ok = |value, consumed| StrtoulBase0 { value, consumed, range_err: false };
 

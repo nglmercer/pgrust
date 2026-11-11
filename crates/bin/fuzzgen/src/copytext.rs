@@ -85,6 +85,7 @@ pub fn suite_ddl() -> Vec<String> {
     );
     for (i, s) in HOSTILE.iter().enumerate() {
         let lit = s.replace('\'', "''").replace('\\', "\\\\");
+        #[allow(clippy::format_in_format_args)]
         v.push(format!(
             "INSERT INTO fz_cx_main VALUES ({pk}, E'{lit}', {int}, {num}, \
              '2020-01-{day:02}', {b}, '\\x0{i:x}ff', {def});",
@@ -452,6 +453,7 @@ pub fn scalar_cases() -> Vec<String> {
         ("postgres", "regrole"),
     ] {
         let l = lit.replace('"', "\"\"");
+        #[allow(clippy::no_effect_replace)]
         v.push(format!("SELECT '{l}'::{ty}, '{l}'::{ty}::text;", l = l.replace('"', "\""), ty = ty));
     }
     // Qualified renders: objects outside the search path.

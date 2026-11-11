@@ -71,6 +71,12 @@ pub struct HostRegistry {
 /// target), its check options, its MERGE subcommands.
 pub type Beside = (u32, Option<Rc<[CheckSpec]>>, MergeOps);
 
+impl Default for HostRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HostRegistry {
     pub fn new() -> HostRegistry {
         static NEXT: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(1);

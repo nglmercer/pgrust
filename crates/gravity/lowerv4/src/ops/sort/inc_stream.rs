@@ -125,6 +125,7 @@ pub(crate) fn form(px: &Px<'_, '_>, k: usize) -> Option<(usize, Pull)> {
     // every pipeline (inner ones too) reading a slot `k` fills: one, the lock pipeline, reading it as its source
     let from_k = |q: usize, slot: u8| gx.life_of(q, slot).is_some_and(|l| l.0 as usize == k);
     let mut readers = (0..ps.len() + ps.inners().len()).filter(|&q| ps[q].desc.consumes.iter().any(|&s| from_k(q, s)));
+    #[allow(clippy::question_mark)]
     let Some(r) = readers.next() else { return None };
     if readers.next().is_some() {
         return None;
@@ -457,7 +458,7 @@ impl<'g> SourceMech for StreamEmit<'g> {
         b.br(env.l_raise, &[e]);
         b.switch_to(l_ok);
         b.br(l_top, &[]);
-        let p = mcx::to_vec_in(&b.block_params(l_win)[..], self.mcx);
+        let p = mcx::to_vec_in(b.block_params(l_win), self.mcx);
         self.emit.window(b, p[1], p[2], p[0], l_win)
     }
 

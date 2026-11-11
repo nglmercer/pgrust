@@ -336,7 +336,10 @@ fn stride_default() -> bool {
 fn dag_default() -> bool {
     static ON: crate::sync::OnceLock<bool> = crate::sync::OnceLock::new();
     *ON.get_or_init(|| {
-        matches!(std::env::var("PGRUST_RUNTIME_PIPELINE_DAG").as_deref(), Ok("1") | Ok("on"))
+        matches!(
+            std::env::var("PGRUST_RUNTIME_PIPELINE_DAG").as_deref(),
+            Ok("1") | Ok("on")
+        )
     })
 }
 
@@ -367,9 +370,7 @@ pub(crate) const P_MIN_DEFAULT: u32 = crate::rg::INITIAL_PRIORITY / 16;
 /// PGRUST_RUNTIME_POOLDB layering.
 pub(crate) fn pool_qos_enabled() -> bool {
     static ON: crate::sync::OnceLock<bool> = crate::sync::OnceLock::new();
-    *ON.get_or_init(|| {
-        std::env::var("PGRUST_RUNTIME_POOL_QOS").map_or(true, |v| v.trim() != "0")
-    })
+    *ON.get_or_init(|| std::env::var("PGRUST_RUNTIME_POOL_QOS").map_or(true, |v| v.trim() != "0"))
 }
 
 // ---------------------------------------------------------------------------
@@ -464,7 +465,9 @@ mod qos_governor {
 
     fn resolve_bar() -> u64 {
         let bar = match bar_from_env(
-            std::env::var("PGRUST_RUNTIME_QOS_MEM_BAR_KB").ok().as_deref(),
+            std::env::var("PGRUST_RUNTIME_QOS_MEM_BAR_KB")
+                .ok()
+                .as_deref(),
         ) {
             Some(b) => b,
             None => cgroup_mem_max().map_or(0, model_bar),
@@ -502,7 +505,9 @@ mod qos_governor {
         let now_ms = epoch().elapsed().as_millis() as u64;
         let last = LAST_MS.load(Relaxed);
         if now_ms.wrapping_sub(last) >= GOVERNOR_REFRESH_MS
-            && LAST_MS.compare_exchange(last, now_ms, Relaxed, Relaxed).is_ok()
+            && LAST_MS
+                .compare_exchange(last, now_ms, Relaxed, Relaxed)
+                .is_ok()
         {
             let usage = match proc_anon_kb() {
                 Some(kb) => kb * 1024,
@@ -512,7 +517,6 @@ mod qos_governor {
         }
         OVER.load(Relaxed)
     }
-
 }
 
 /// Test face for the bar spelling (the tests module lives outside sched).
@@ -594,7 +598,10 @@ fn decay_quantum_default() -> u64 {
 fn ledger_default() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
-        matches!(std::env::var("PGRUST_RUNTIME_LEDGER_V2").as_deref(), Ok("1") | Ok("on"))
+        matches!(
+            std::env::var("PGRUST_RUNTIME_LEDGER_V2").as_deref(),
+            Ok("1") | Ok("on")
+        )
     })
 }
 
@@ -825,7 +832,10 @@ impl WorkerLocal {
 fn markers_enabled() -> bool {
     static ON: crate::sync::OnceLock<bool> = crate::sync::OnceLock::new();
     *ON.get_or_init(|| {
-        matches!(std::env::var("PGRUST_MORSEL_MARKERS").as_deref(), Ok("1") | Ok("on"))
+        matches!(
+            std::env::var("PGRUST_MORSEL_MARKERS").as_deref(),
+            Ok("1") | Ok("on")
+        )
     })
 }
 
@@ -849,7 +859,10 @@ pub(crate) fn wake_spinner_enabled() -> bool {
     static ON: crate::sync::OnceLock<bool> = crate::sync::OnceLock::new();
     *ON.get_or_init(|| {
         matches!(
-            std::env::var("PGRUST_POOL_WAKE_SPINNER").ok().as_deref().map(str::trim),
+            std::env::var("PGRUST_POOL_WAKE_SPINNER")
+                .ok()
+                .as_deref()
+                .map(str::trim),
             Some("1") | Some("on")
         ) && step_v2()
     })
@@ -864,7 +877,10 @@ pub(crate) fn wake_tree_enabled() -> bool {
     static ON: crate::sync::OnceLock<bool> = crate::sync::OnceLock::new();
     *ON.get_or_init(|| {
         matches!(
-            std::env::var("PGRUST_POOL_WAKE_TREE").ok().as_deref().map(str::trim),
+            std::env::var("PGRUST_POOL_WAKE_TREE")
+                .ok()
+                .as_deref()
+                .map(str::trim),
             Some("1") | Some("on")
         ) && step_v2()
     })
@@ -877,7 +893,10 @@ pub(crate) fn wake_tree_enabled() -> bool {
 pub(crate) fn cprobe_enabled() -> bool {
     static ON: crate::sync::OnceLock<bool> = crate::sync::OnceLock::new();
     *ON.get_or_init(|| {
-        matches!(std::env::var("PGRUST_RUNTIME_CPROBE").as_deref(), Ok("1") | Ok("on"))
+        matches!(
+            std::env::var("PGRUST_RUNTIME_CPROBE").as_deref(),
+            Ok("1") | Ok("on")
+        )
     })
 }
 
@@ -962,7 +981,12 @@ struct WfinStat {
 
 impl WfinStat {
     fn emit(&self, worker: usize) {
-        let avg_us = if self.tasks > 0 { self.task_ns / self.tasks / 1000 } else { 0 };
+        #[allow(clippy::manual_checked_ops)]
+        let avg_us = if self.tasks > 0 {
+            self.task_ns / self.tasks / 1000
+        } else {
+            0
+        };
         eprintln!(
             "MORSEL|WFIN|qid={}|pipe={}|worker={}|t_us={}|tasks={}|task_avg_us={}",
             self.qid,
@@ -1207,7 +1231,10 @@ impl Scheduler {
     /// Bookkeeping for an EXTERNAL participant thread (M1 pinned driver):
     /// pin-board lane `nthreads + ordinal`.
     pub(crate) fn external_local(&self, ordinal: usize) -> WorkerLocal {
-        assert!(ordinal < MAX_EXTERNAL_LANES, "external participant lanes exhausted");
+        assert!(
+            ordinal < MAX_EXTERNAL_LANES,
+            "external participant lanes exhausted"
+        );
         WorkerLocal {
             worker: self.nthreads + ordinal,
             drive: DriveLocal::default(),
@@ -1268,7 +1295,8 @@ impl Scheduler {
     /// M5-5 test hook: probe alternative starvation floors (adversarial
     /// skew tests). Production keeps the ratified default.
     pub(crate) fn set_p_min(&self, p: u32) {
-        self.p_min.store(p.clamp(1, crate::rg::INITIAL_PRIORITY), Ordering::SeqCst);
+        self.p_min
+            .store(p.clamp(1, crate::rg::INITIAL_PRIORITY), Ordering::SeqCst);
     }
 
     pub(crate) fn p_min_value(&self) -> u32 {
@@ -1278,7 +1306,8 @@ impl Scheduler {
     /// Track-4 Q0 test hook: probe alternative utility stride weights
     /// (the set_p_min precedent). Production keeps the env default.
     pub(crate) fn set_p_util(&self, p: u32) {
-        self.p_util.store(p.clamp(1, crate::rg::INITIAL_PRIORITY), Ordering::SeqCst);
+        self.p_util
+            .store(p.clamp(1, crate::rg::INITIAL_PRIORITY), Ordering::SeqCst);
     }
 
     pub(crate) fn p_util_value(&self) -> u32 {
@@ -1415,7 +1444,8 @@ impl Scheduler {
             // from it (publish_taskset_locked). At the default weight
             // (= the p_min floor) the M5-5 decay site skips utility RGs
             // outright via its `priority > p_min` guard.
-            rg.priority.store(self.p_util.load(Ordering::Relaxed), Ordering::Relaxed);
+            rg.priority
+                .store(self.p_util.load(Ordering::Relaxed), Ordering::Relaxed);
         }
         // M2 inc-3 rung 3: hand the caller its RgHandle BEFORE any
         // publication can make the RG pool-visible. A bound submission's
@@ -1429,16 +1459,23 @@ impl Scheduler {
         // the callback here makes set-before-publish structural: there is
         // no state in which the RG is pick-visible with the cell unset.
         if let Some(f) = on_rg {
-            f(&crate::RgHandle { rg: Arc::clone(&rg) });
+            f(&crate::RgHandle {
+                rg: Arc::clone(&rg),
+            });
         }
-        rg.submit_ns.store(self.clock.now_ns().max(1), Ordering::Relaxed);
+        rg.submit_ns
+            .store(self.clock.now_ns().max(1), Ordering::Relaxed);
         RuntimeStats::tick(&self.stats.rgs_submitted);
         if self.trace {
-            self.trace(&format!("rg {} submitted (query {})", rg.rg_id, rg.query_id));
+            self.trace(&format!(
+                "rg {} submitted (query {})",
+                rg.rg_id, rg.query_id
+            ));
         }
         self.emit_dag(&rg);
         if rg.tasksets.is_empty() {
-            rg.done_ns.store(self.clock.now_ns().max(1), Ordering::Relaxed);
+            rg.done_ns
+                .store(self.clock.now_ns().max(1), Ordering::Relaxed);
             rg.completion.complete(RgOutcome::Completed);
             RuntimeStats::tick(&self.stats.rgs_completed);
             self.emit_rgdone(&rg, false);
@@ -1503,8 +1540,7 @@ impl Scheduler {
         // publish_taskset_locked's existing wake_all, which the advertises
         // flag suppresses for sub-JOIN_THRESHOLD admissions.
         if self.ledger_on.load(Ordering::Relaxed) {
-            let req = width
-                .unwrap_or_else(|| WidthRequest::unbounded(self.ledger.budgets().cores));
+            let req = width.unwrap_or_else(|| WidthRequest::unbounded(self.ledger.budgets().cores));
             // Track-4 Q1: the RG class selects the budget tier — Utility
             // enters the capped tier, everything else is Standard (today's
             // algebra exactly; Maintenance entries are few/single-morsel
@@ -1533,8 +1569,7 @@ impl Scheduler {
         // BEFORE the publish makes the slot pickable; persists across the
         // RG's task-set republishes (publish never resets it).
         let watermark = self.global_pass.load(Ordering::Relaxed);
-        let join = if self.decay.load(Ordering::Relaxed) && self.stride.load(Ordering::Relaxed)
-        {
+        let join = if self.decay.load(Ordering::Relaxed) && self.stride.load(Ordering::Relaxed) {
             let mut min_active: Option<u64> = None;
             for (i, mask) in self.active.iter().enumerate() {
                 let mut w = mask.load(Ordering::Relaxed);
@@ -1557,7 +1592,8 @@ impl Scheduler {
         if !self.dag.load(Ordering::Relaxed) {
             let first = {
                 let mut p = lock(&rg.progress);
-                rg.next_ready(&mut p).expect("fresh RG must have a ready task set (index 0)")
+                rg.next_ready(&mut p)
+                    .expect("fresh RG must have a ready task set (index 0)")
             };
             self.publish_taskset_locked(m, rg, first, slot);
             return;
@@ -1571,7 +1607,10 @@ impl Scheduler {
             let mut p = lock(&rg.progress);
             rg.ready_all(&mut p, free)
         };
-        assert!(!ready.is_empty(), "fresh RG must have a ready task set (index 0)");
+        assert!(
+            !ready.is_empty(),
+            "fresh RG must have a ready task set (index 0)"
+        );
         RuntimeStats::add(&self.stats.dag_ready_deferred, deferred as u64);
         self.publish_taskset_locked(m, Arc::clone(&rg), ready[0], slot);
         for &r in &ready[1..] {
@@ -1611,7 +1650,11 @@ impl Scheduler {
         // (the M2 sink plumbing) is armed before the first claim can land.
         rg.tasksets[index].work.bind_generation(rg.generation());
         let whole_claims = rg.tasksets[index].source.whole_boundary_claims();
-        let whole_until = if whole_claims { rg.tasksets[index].source.whole_until() } else { u64::MAX };
+        let whole_until = if whole_claims {
+            rg.tasksets[index].source.whole_until()
+        } else {
+            u64::MAX
+        };
         let endgame = rg.tasksets[index].source.endgame_split();
         let coalesce = whole_claims && rg.tasksets[index].source.coalesce_claims();
         let ts = Arc::new(TaskSetRt {
@@ -1645,20 +1688,28 @@ impl Scheduler {
         // stride derives from the RG's CURRENT priority (constant p_0 at
         // equal shares; M5-5's decay updates flow through here), and the
         // session token feeds the equal-pass affinity tiebreak.
+        self.slots[slot].stride.store(
+            stride_for(ts.rg.priority.load(Ordering::Relaxed)),
+            Ordering::Relaxed,
+        );
         self.slots[slot]
-            .stride
-            .store(stride_for(ts.rg.priority.load(Ordering::Relaxed)), Ordering::Relaxed);
-        self.slots[slot].session.store(ts.rg.session_token, Ordering::Relaxed);
+            .session
+            .store(ts.rg.session_token, Ordering::Relaxed);
         // M5+1 advisory words: same-query identification + dependency depth
         // for the within-query pick refinement (read only under DAG mode).
         self.slots[slot].rg.store(ts.rg.rg_id, Ordering::Relaxed);
-        self.slots[slot].depth.store(ts.rg.depth[index], Ordering::Relaxed);
+        self.slots[slot]
+            .depth
+            .store(ts.rg.depth[index], Ordering::Relaxed);
         if self.dag.load(Ordering::Relaxed) {
             // The QUERY's shared stride account is the slot's pass (§3.6:
             // one account summed over the query's pipelines). Mirrored at
             // publish and at every advance; single-pipeline RGs see the
             // exact per-slot sequence sequential mode would produce.
-            self.slots[slot].pass.store(ts.rg.pass_account.load(Ordering::Relaxed), Ordering::Relaxed);
+            self.slots[slot].pass.store(
+                ts.rg.pass_account.load(Ordering::Relaxed),
+                Ordering::Relaxed,
+            );
         }
         // POOL-QOS demand charge (under the membership lock, like every
         // slot-word transition): flush any stale need left on this slot,
@@ -1670,8 +1721,7 @@ impl Scheduler {
         if pool_qos_enabled() {
             self.qos_flush_slot(slot);
             if let Some(bd) = ts.rg.bound.as_ref() {
-                if ts.rg.priority.load(Ordering::Relaxed) >= qos_interactive_p() && bd.width > 0
-                {
+                if ts.rg.priority.load(Ordering::Relaxed) >= qos_interactive_p() && bd.width > 0 {
                     self.slot_bound_need[slot].store(bd.width, Ordering::SeqCst);
                     self.qos_demand.fetch_add(bd.width as u64, Ordering::SeqCst);
                     RuntimeStats::add(&self.stats.qos_demand_published, bd.width as u64);
@@ -1680,14 +1730,15 @@ impl Scheduler {
         }
         let cap = ts.rg.width_cap.load(Ordering::Relaxed) as usize;
         m.owned[slot] = Some(SlotEntry { seq, ts });
-        self.slots[slot].word.store((seq << 1) | 1, Ordering::SeqCst);
+        self.slots[slot]
+            .word
+            .store((seq << 1) | 1, Ordering::SeqCst);
         // WS-B JOIN_THRESHOLD (knob-gated; OFF ⇒ advert is true and the
         // path below is byte-identical): a sub-threshold admission never
         // sets the active bit and never wakes the pool — the submitter
         // executes alone (caller-as-worker; inert unless a submitter opts
         // in with an est_work_ns under the threshold).
-        let advert =
-            !self.ledger_on.load(Ordering::Relaxed) || self.ledger.advertises(slot);
+        let advert = !self.ledger_on.load(Ordering::Relaxed) || self.ledger.advertises(slot);
         // Pinned RGs are invisible to the pool's pick: only external
         // participants (drive_pinned) may execute them — pool workers have
         // no session binding for the query (M1). M2 inc-2: a pinned RG
@@ -1751,7 +1802,9 @@ impl Scheduler {
     fn sweep_parked_lanes(&self) {
         let mut parked = lock(&self.parked_lanes);
         parked.retain(|(rg, ordinal)| {
-            let live = rg.upgrade().is_some_and(|rg| rg.completion.try_wait().is_none());
+            let live = rg
+                .upgrade()
+                .is_some_and(|rg| rg.completion.try_wait().is_none());
             if !live {
                 self.external_lanes[ordinal / 64]
                     .fetch_and(!(1u64 << (ordinal % 64)), Ordering::SeqCst);
@@ -1887,8 +1940,7 @@ impl Scheduler {
                             && local.session_token != 0
                             && self.slots[slot].session.load(Ordering::Relaxed)
                                 == local.session_token
-                            && self.slots[bs].session.load(Ordering::Relaxed)
-                                != local.session_token
+                            && self.slots[bs].session.load(Ordering::Relaxed) != local.session_token
                         {
                             RuntimeStats::tick(&self.stats.affinity_tiebreaks);
                             best = Some((pass, slot));
@@ -1981,8 +2033,11 @@ impl Scheduler {
         // Protocol step 4 (settle own pin; pay any marker debt) is discharged
         // via RAII so it also runs when the task body unwinds through this
         // frame — see PinSettleGuard (H-74).
-        let mut pin_guard =
-            PinSettleGuard { sched: self, worker: local.worker, armed: true };
+        let mut pin_guard = PinSettleGuard {
+            sched: self,
+            worker: local.worker,
+            armed: true,
+        };
 
         match self.resolve(local, slot) {
             None => (Step::Retry, None),
@@ -2150,7 +2205,9 @@ impl Scheduler {
         if cap != 0
             && ts
                 .active_workers
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| (n < cap).then_some(n + 1))
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
+                    (n < cap).then_some(n + 1)
+                })
                 .is_err()
         {
             if ledger_on {
@@ -2162,12 +2219,20 @@ impl Scheduler {
         // Publish the grant for the declared-blocking-section entry points
         // (§2.8 composition): a task body that donates its execution permit
         // must donate its width grant with it (ledger_donate_current).
-        let _grant = if ledger_on { Some(GrantCtx::set(self, ts.slot)) } else { None };
+        let _grant = if ledger_on {
+            Some(GrantCtx::set(self, ts.slot))
+        } else {
+            None
+        };
         // RAII counterpart to try_join: pay `leave` even if the task body
         // unwinds through run_task (H-74). Disarmed on the normal path, which
         // performs the end-aware leave/wake below.
         let mut leave_guard = if ledger_on {
-            Some(LedgerLeaveGuard { sched: self, slot: ts.slot, armed: true })
+            Some(LedgerLeaveGuard {
+                sched: self,
+                slot: ts.slot,
+                armed: true,
+            })
         } else {
             None
         };
@@ -2233,9 +2298,7 @@ impl Scheduler {
         // read — the membership lock is a publish/finalize-event cost, not a
         // per-step cost (the sched-probe decision-cost budget).
         let slot = match local.pinned_slot {
-            Some((slot, seq))
-                if self.slots[slot].word.load(Ordering::SeqCst) == (seq << 1) | 1 =>
-            {
+            Some((slot, seq)) if self.slots[slot].word.load(Ordering::SeqCst) == (seq << 1) | 1 => {
                 Some(slot)
             }
             _ => {
@@ -2253,8 +2316,7 @@ impl Scheduler {
                         // revalidates through the slot word into Retry.
                         let mut best: Option<(u64, u64, usize, u64)> = None;
                         for (i, e) in m.owned.iter().enumerate() {
-                            let Some(e) = e.as_ref().filter(|e| Arc::ptr_eq(&e.ts.rg, rg))
-                            else {
+                            let Some(e) = e.as_ref().filter(|e| Arc::ptr_eq(&e.ts.rg, rg)) else {
                                 continue;
                             };
                             let depth = e.ts.rg.depth[e.ts.index];
@@ -2296,8 +2358,11 @@ impl Scheduler {
         // via RAII so it also runs when the task body unwinds through this
         // frame — an exit-committed rethrow (FATAL/proc_exit) or panic out of
         // run_task_admitted would otherwise strand this pin forever (H-74).
-        let _pin_guard =
-            PinSettleGuard { sched: self, worker: local.worker, armed: true };
+        let _pin_guard = PinSettleGuard {
+            sched: self,
+            worker: local.worker,
+            armed: true,
+        };
 
         match self.resolve(local, slot) {
             None => Step::Retry,
@@ -2398,6 +2463,7 @@ impl Scheduler {
                 a.tasks_completed += 1;
                 a.morsels += morsels;
                 a.granules += granules;
+                #[allow(clippy::needless_range_loop)]
                 for i in 0..3 {
                     a.sizing[i] += sizing[i];
                 }
@@ -2460,7 +2526,11 @@ impl Scheduler {
                 Ordering::Relaxed,
             );
         }
-        let task_t0 = if local.wfin.is_empty() { 0 } else { self.clock.now_ns() };
+        let task_t0 = if local.wfin.is_empty() {
+            0
+        } else {
+            self.clock.now_ns()
+        };
         // Live width AFTER this worker joins: the claim-duration DOP scaling
         // input (tails192 #4) — identity at ≤32 by construction, so 16-core
         // pods and the mt16 vectors size exactly as before.
@@ -2544,22 +2614,18 @@ impl Scheduler {
                             }
                         }
                     }
-                    let range = match self.claim_morsel(
-                        ts,
-                        &mut sizer,
-                        &mut local.drive,
-                        &mut t_sizing,
-                    ) {
-                        Claim::Range(range) => range,
-                        Claim::Starved => {
-                            end = TaskEnd::Starved;
-                            break;
-                        }
-                        Claim::Exhausted => {
-                            end = TaskEnd::Exhausted;
-                            break;
-                        }
-                    };
+                    let range =
+                        match self.claim_morsel(ts, &mut sizer, &mut local.drive, &mut t_sizing) {
+                            Claim::Range(range) => range,
+                            Claim::Starved => {
+                                end = TaskEnd::Starved;
+                                break;
+                            }
+                            Claim::Exhausted => {
+                                end = TaskEnd::Exhausted;
+                                break;
+                            }
+                        };
                     let granules = range.end - range.start;
                     let t0 = self.clock.now_ns();
                     // Execute under the participant's operation count. A
@@ -2621,8 +2687,7 @@ impl Scheduler {
                             // they re-sync on their next advance). With one
                             // pipeline this is value-identical to the slot
                             // fetch_add below.
-                            let np =
-                                ts.rg.pass_account.fetch_add(adv, Ordering::Relaxed) + adv;
+                            let np = ts.rg.pass_account.fetch_add(adv, Ordering::Relaxed) + adv;
                             self.slots[ts.slot].pass.store(np, Ordering::Relaxed);
                             np
                         } else {
@@ -2755,7 +2820,9 @@ impl Scheduler {
             // claimed: the cursor skips to the first live one and retries.
             let live = ts.source().first_live_at(cur).min(total);
             if live > cur {
-                let _ = ts.cursor.compare_exchange(cur, live, Ordering::SeqCst, Ordering::SeqCst);
+                let _ = ts
+                    .cursor
+                    .compare_exchange(cur, live, Ordering::SeqCst, Ordering::SeqCst);
                 continue;
             }
             let workers = ts.active_workers.load(Ordering::SeqCst).max(1);
@@ -2835,11 +2902,13 @@ impl Scheduler {
                     // at W ≤ 32 and under PGRUST_RUNTIME_TMAX_DOPSCALE=0;
                     // Startup/Shutdown phases untouched (photo finish keeps
                     // its posture).
-                    if workers > crate::sizing::DOPSCALE_W0
-                        && crate::sizing::dopscale_enabled()
-                    {
+                    if workers > crate::sizing::DOPSCALE_W0 && crate::sizing::dopscale_enabled() {
                         let fair_end = cur + ((total - cur) / workers).max(1);
-                        while end < total && end < fair_end && end < ts.whole_until && end - cur < want {
+                        while end < total
+                            && end < fair_end
+                            && end < ts.whole_until
+                            && end - cur < want
+                        {
                             end = ts.source().next_boundary_after(end).min(total);
                         }
                     }
@@ -3025,7 +3094,9 @@ impl Scheduler {
                 // siblings drain through their own generation-refusal
                 // last-outs — the LAST one completes the RG.
                 p.aborted = true;
-                After::Release { complete: p.live == 0 }
+                After::Release {
+                    complete: p.live == 0,
+                }
             } else {
                 // This slot is still ours (freed below or reused), so the
                 // capacity for newly-ready pipelines is free slots + 1.
@@ -3088,8 +3159,13 @@ impl Scheduler {
         // D4552 (a): what the retirement freed lands on the home's account now, while its leader still waits: the
         // completion below wakes it, and a woken leader may end its session (and its account) before this thread leaves
         memledger::fold();
-        rg.done_ns.store(self.clock.now_ns().max(1), Ordering::Relaxed);
-        rg.completion.complete(if aborted { RgOutcome::Aborted } else { RgOutcome::Completed });
+        rg.done_ns
+            .store(self.clock.now_ns().max(1), Ordering::Relaxed);
+        rg.completion.complete(if aborted {
+            RgOutcome::Aborted
+        } else {
+            RgOutcome::Completed
+        });
         drop(home);
         RuntimeStats::tick(&self.stats.rgs_completed);
         if aborted {
@@ -3186,7 +3262,8 @@ impl Scheduler {
             p.aborted = true;
         }
         rg.retire_lifecycle();
-        rg.done_ns.store(self.clock.now_ns().max(1), Ordering::Relaxed);
+        rg.done_ns
+            .store(self.clock.now_ns().max(1), Ordering::Relaxed);
         rg.completion.complete(RgOutcome::Aborted);
         RuntimeStats::tick(&self.stats.rgs_completed);
         RuntimeStats::tick(&self.stats.rgs_aborted);
@@ -3217,7 +3294,10 @@ impl Scheduler {
         }
         RuntimeStats::tick(&self.stats.queued_aborts_reaped);
         if self.trace {
-            self.trace(&format!("rg {} reaped from wait queue (aborted while queued)", rg.rg_id));
+            self.trace(&format!(
+                "rg {} reaped from wait queue (aborted while queued)",
+                rg.rg_id
+            ));
         }
         self.complete_queued_aborted(rg);
     }
@@ -3253,7 +3333,11 @@ impl Scheduler {
             "MORSEL|DAG|qid={}|rg={}|mode={}|pipes={}|edges={}|depths={}",
             rg.query_id,
             rg.rg_id,
-            if self.dag.load(Ordering::Relaxed) { "dag" } else { "seq" },
+            if self.dag.load(Ordering::Relaxed) {
+                "dag"
+            } else {
+                "seq"
+            },
             rg.tasksets.len(),
             edges,
             depths,

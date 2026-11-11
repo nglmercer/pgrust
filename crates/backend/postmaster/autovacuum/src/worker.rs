@@ -735,6 +735,7 @@ pub fn do_autovacuum() -> PgResult<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 const EMPTY_AV_OPTS: AutoVacOpts = AutoVacOpts {
     enabled: true,
     vacuum_threshold: -1,

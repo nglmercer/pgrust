@@ -19,7 +19,9 @@ fn extended(ctx: &MemoryContext) -> Mcx<'static> {
 /// The moved copy hands out a handle at its new address, and the old bytes are still the context's stale copy.
 #[cfg(debug_assertions)]
 #[test]
-#[should_panic(expected = "mcx: a memory context moved after a handle to it was taken: an Mcx still points at its old address (context \"moved after its handle\")")]
+#[should_panic(
+    expected = "mcx: a memory context moved after a handle to it was taken: an Mcx still points at its old address (context \"moved after its handle\")"
+)]
 fn a_handle_left_at_a_moved_contexts_old_address_is_named() {
     let ctx = MemoryContext::new("moved after its handle");
     let stale = extended(&ctx);
@@ -31,7 +33,9 @@ fn a_handle_left_at_a_moved_contexts_old_address_is_named() {
 /// The old address has been reused (the defaults cache's stack slot): the handle's own record no longer names it.
 #[cfg(debug_assertions)]
 #[test]
-#[should_panic(expected = "mcx: a memory context moved after a handle to it was taken: an Mcx still points at its old address (context (its old address now holds other bytes))")]
+#[should_panic(
+    expected = "mcx: a memory context moved after a handle to it was taken: an Mcx still points at its old address (context (its old address now holds other bytes))"
+)]
 fn a_handle_left_at_a_reused_address_is_named() {
     let mut slot = core::mem::MaybeUninit::new(MemoryContext::new("moved, then its slot reused"));
     // SAFETY: `slot` holds an initialized context until it is read out below.
@@ -40,7 +44,13 @@ fn a_handle_left_at_a_reused_address_is_named() {
     let moved = Box::new(unsafe { slot.assume_init_read() });
     let _fresh = moved.mcx().alloc_bytes(64).unwrap();
     // SAFETY: the slot is plain bytes now (its context moved out above).
-    unsafe { core::ptr::write_bytes(slot.as_mut_ptr().cast::<u8>(), 0xA5, core::mem::size_of::<MemoryContext>()) };
+    unsafe {
+        core::ptr::write_bytes(
+            slot.as_mut_ptr().cast::<u8>(),
+            0xA5,
+            core::mem::size_of::<MemoryContext>(),
+        )
+    };
     let _ = stale.alloc_bytes(64);
 }
 
@@ -49,13 +59,20 @@ fn a_handle_left_at_a_reused_address_is_named() {
 /// request is a hit), so without the check the stale handle's allocation would be served from the old bytes' pool.
 #[cfg(debug_assertions)]
 #[test]
-#[should_panic(expected = "mcx: a memory context moved after a handle to it was taken: an Mcx still points at its old address (context \"moved after a pool hit\")")]
+#[should_panic(
+    expected = "mcx: a memory context moved after a handle to it was taken: an Mcx still points at its old address (context \"moved after a pool hit\")"
+)]
 fn a_pool_hit_through_a_handle_left_at_a_moved_contexts_old_address_is_named() {
     let ctx = MemoryContext::new("moved after a pool hit");
-    ctx.mcx().allocate(Layout::from_size_align(64, 8).unwrap()).unwrap();
+    ctx.mcx()
+        .allocate(Layout::from_size_align(64, 8).unwrap())
+        .unwrap();
     let stale = extended(&ctx);
     let moved = Box::new(ctx);
-    let _fresh = moved.mcx().allocate(Layout::from_size_align(64, 8).unwrap()).unwrap();
+    let _fresh = moved
+        .mcx()
+        .allocate(Layout::from_size_align(64, 8).unwrap())
+        .unwrap();
     let _ = stale.allocate(Layout::from_size_align(64, 8).unwrap());
 }
 
@@ -63,9 +80,13 @@ fn a_pool_hit_through_a_handle_left_at_a_moved_contexts_old_address_is_named() {
 #[test]
 fn the_second_small_allocation_of_a_context_is_a_pool_hit() {
     let ctx = MemoryContext::new("pool hit twin");
-    ctx.mcx().allocate(Layout::from_size_align(64, 8).unwrap()).unwrap();
+    ctx.mcx()
+        .allocate(Layout::from_size_align(64, 8).unwrap())
+        .unwrap();
     let footprint = ctx.mem_allocated();
-    ctx.mcx().allocate(Layout::from_size_align(64, 8).unwrap()).unwrap();
+    ctx.mcx()
+        .allocate(Layout::from_size_align(64, 8).unwrap())
+        .unwrap();
     assert_eq!(ctx.mem_allocated(), footprint);
 }
 

@@ -213,6 +213,12 @@ pub struct Lists {
     built: AtomicU64,
 }
 
+impl Default for Lists {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Lists {
     pub const fn new() -> Lists {
         Lists { state: pgsync::Mutex::new(ListState { lists: BTreeMap::new(), floor: BTreeMap::new() }), recent: pgsync::Mutex::new(([((0, 0, 0), 0); RECENT_LISTS], 0)), empty: pgsync::Mutex::new(None), built: AtomicU64::new(0) }
@@ -631,7 +637,7 @@ fn part_cache_load(n: u64, kind: pgrc_read::partcache::Load) {
         // every fifth poll (10 ms): a statement's end or a part every claim of it left unpins bytes; they are elastic
         // now and the trim makes the room
         polls += 1;
-        if polls % 5 == 0 {
+        if polls.is_multiple_of(5) {
             let now = registry.in_use_bytes();
             if now < pinned && registry.load_room(n) == 0 {
                 break false;

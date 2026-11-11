@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #![cfg(feature = "upstream-oracle")]
 
+#[rustfmt::skip]
 #[path = "../../test-support/oracle.rs"]
 mod oracle;
 mod raw_cases;

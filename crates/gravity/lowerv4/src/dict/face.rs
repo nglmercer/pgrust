@@ -139,7 +139,7 @@ impl Undo {
                 v.src = gravity_expr::Source::Scan;
             }
         }
-        (p.nodes.truncate(self.len[0]), p.kids.truncate(self.len[1]), p.sites.truncate(self.len[2]));
+        p.nodes.truncate(self.len[0]); p.kids.truncate(self.len[1]); p.sites.truncate(self.len[2]);
         if let Some(s) = px.site_mut(self.k) {
             self.claims.iter().for_each(|&n| s.shreds[n].claims -= 1);
         }

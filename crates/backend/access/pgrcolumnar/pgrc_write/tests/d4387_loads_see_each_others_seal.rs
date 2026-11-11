@@ -13,8 +13,8 @@ use pgrc_format::relopt::ShredOptions;
 use pgrc_write::elect::{CandidateSource, ReferenceCandidates};
 use pgrc_write::ingest::RawDatum;
 use pgrc_write::par::{
-    NoDetoastProvider, NoShredProvider, ParEngine, ParIngestOpts, ParProviders, RowChunk, SharedMemVfs,
-    SharedMemVfsProvider,
+    NoDetoastProvider, NoShredProvider, ParEngine, ParIngestOpts, ParProviders, RowChunk,
+    SharedMemVfs, SharedMemVfsProvider,
 };
 use pgrc_write::seal::{PartSpec, ReferenceResolver};
 use pgrc_write::testkit::{int8_col, mem_with_dir, stamp, Kit, DB, DIR, RELFILENUMBER, SPC};
@@ -71,7 +71,11 @@ fn writer(max_rows: u64) -> TableWriter {
         RELFILENUMBER,
         stamp(7, 1),
         &SubxactEvidence::default(),
-        PartCutPolicy { max_rows, max_bytes: u64::MAX, cut_granule_rows: 64 },
+        PartCutPolicy {
+            max_rows,
+            max_bytes: u64::MAX,
+            cut_granule_rows: 64,
+        },
     )
     .expect("open writer")
 }
@@ -81,7 +85,13 @@ fn append(w: &mut TableWriter, rows: u64) -> Result<(), WriteError> {
     let mut kit = Kit::new();
     let mut vfs = mem_with_dir();
     let sources: [&dyn CandidateSource; 1] = [&kit.cands];
-    let mut env = SealEnv { vfs: &mut vfs, sources: &sources, resolver: &kit.resolver, shred: &mut kit.shred, shred_opts: &kit.opts };
+    let mut env = SealEnv {
+        vfs: &mut vfs,
+        sources: &sources,
+        resolver: &kit.resolver,
+        shred: &mut kit.shred,
+        shred_opts: &kit.opts,
+    };
     for i in 0..rows {
         w.append_row(&[RawDatum::Word(i)], &mut kit.ext, &mut env)?;
     }
@@ -107,7 +117,13 @@ fn small_serial() -> Result<(), WriteError> {
     let mut vfs = mem_with_dir();
     let mut w = writer(1024);
     let sources: [&dyn CandidateSource; 1] = [&kit.cands];
-    let mut env = SealEnv { vfs: &mut vfs, sources: &sources, resolver: &kit.resolver, shred: &mut kit.shred, shred_opts: &kit.opts };
+    let mut env = SealEnv {
+        vfs: &mut vfs,
+        sources: &sources,
+        resolver: &kit.resolver,
+        shred: &mut kit.shred,
+        shred_opts: &kit.opts,
+    };
     for i in 0..200u64 {
         w.append_row(&[RawDatum::Word(i)], &mut kit.ext, &mut env)?;
     }
@@ -121,7 +137,12 @@ fn session(chunk_rows: u32, max_rows: u64) -> (Arc<ParEngine>, Vec<std::thread::
     v.mkdir_path(PDIR).expect("mkdir");
     let shared = SharedMemVfs::new(v);
     let schema = vec![int8_col(1)];
-    let spec = PartSpec { spc: 1663, db: 5, relfilenumber: 4387, schema_fingerprint: pgrc_format::ident::schema_fingerprint(&schema) };
+    let spec = PartSpec {
+        spc: 1663,
+        db: 5,
+        relfilenumber: 4387,
+        schema_fingerprint: pgrc_format::ident::schema_fingerprint(&schema),
+    };
     let e = Arc::new(
         ParEngine::new(
             ParProviders {
@@ -138,8 +159,16 @@ fn session(chunk_rows: u32, max_rows: u64) -> (Arc<ParEngine>, Vec<std::thread::
             spec,
             PDIR.to_string(),
             4387,
-            PartCutPolicy { max_rows, max_bytes: u64::MAX, cut_granule_rows: chunk_rows },
-            ParIngestOpts { chunk_rows, max_chunks_in_flight: 64, max_parts_in_flight: 64 },
+            PartCutPolicy {
+                max_rows,
+                max_bytes: u64::MAX,
+                cut_granule_rows: chunk_rows,
+            },
+            ParIngestOpts {
+                chunk_rows,
+                max_chunks_in_flight: 64,
+                max_parts_in_flight: 64,
+            },
             0,
         )
         .expect("engine"),
@@ -158,7 +187,8 @@ fn publish(e: &ParEngine, rows: u32, from: u64, to: u64) -> Result<(), WriteErro
     for id in from..to {
         let mut c = RowChunk::new(1, rows);
         for i in 0..rows as u64 {
-            c.push_row(&[RawDatum::Word(id * rows as u64 + i)]).expect("push");
+            c.push_row(&[RawDatum::Word(id * rows as u64 + i)])
+                .expect("push");
         }
         e.publish_chunk(c, id)?;
     }
@@ -166,7 +196,12 @@ fn publish(e: &ParEngine, rows: u32, from: u64, to: u64) -> Result<(), WriteErro
 }
 
 /// End a session after `out` with `published` chunks: its workers joined, its parts collected.
-fn end(e: Arc<ParEngine>, workers: Vec<std::thread::JoinHandle<()>>, out: Result<(), WriteError>, published: u64) -> Result<(), WriteError> {
+fn end(
+    e: Arc<ParEngine>,
+    workers: Vec<std::thread::JoinHandle<()>>,
+    out: Result<(), WriteError>,
+    published: u64,
+) -> Result<(), WriteError> {
     if let Err(err) = &out {
         e.fail(err.clone());
     }
@@ -191,7 +226,13 @@ fn finish(w: &mut TableWriter) -> Result<(), WriteError> {
     let mut kit = Kit::new();
     let mut vfs = mem_with_dir();
     let sources: [&dyn CandidateSource; 1] = [&kit.cands];
-    let mut env = SealEnv { vfs: &mut vfs, sources: &sources, resolver: &kit.resolver, shred: &mut kit.shred, shred_opts: &kit.opts };
+    let mut env = SealEnv {
+        vfs: &mut vfs,
+        sources: &sources,
+        resolver: &kit.resolver,
+        shred: &mut kit.shred,
+        shred_opts: &kit.opts,
+    };
     w.finish(&mut env)
 }
 
@@ -230,7 +271,6 @@ fn d4387_a_serial_load_asks_for_another_loads_seal_reserve() {
     alone.expect("the same load alone fits under the line");
 }
 
-
 #[test]
 fn d4387_a_load_that_ends_leaves_no_reserve_behind() {
     let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
@@ -240,7 +280,11 @@ fn d4387_a_load_that_ends_leaves_no_reserve_behind() {
     small_serial().expect("under the line");
     small_parallel().expect("under the line");
     ladder(mcx::ladder::OFF, 0);
-    assert_eq!(pgrc_write::par::seal_ahead_all(), before, "every load's reserve leaves the process-wide one when it ends");
+    assert_eq!(
+        pgrc_write::par::seal_ahead_all(),
+        before,
+        "every load's reserve leaves the process-wide one when it ends"
+    );
 }
 
 /// Three loads (two serial writers, one parallel session) each hold a ~10 MiB seal reserve of an open part; then the read
@@ -281,11 +325,20 @@ fn d4387_loads_that_each_fit_alone_all_blocked_are_served_one_after_another() {
     at.wait();
     READ.store(LINE - 15 * MIB, Ordering::SeqCst);
     at.wait();
-    let served: Vec<Result<(), WriteError>> =
-        serial.into_iter().chain(std::iter::once(parallel)).map(|t| t.join().expect("load thread")).collect();
+    let served: Vec<Result<(), WriteError>> = serial
+        .into_iter()
+        .chain(std::iter::once(parallel))
+        .map(|t| t.join().expect("load thread"))
+        .collect();
     ladder(mcx::ladder::OFF, 0);
     for (i, r) in served.into_iter().enumerate() {
-        r.unwrap_or_else(|e| panic!("load {i}: each fits alone, so each is served in its turn, got {e:?}"));
+        r.unwrap_or_else(|e| {
+            panic!("load {i}: each fits alone, so each is served in its turn, got {e:?}")
+        });
     }
-    assert_eq!(pgrc_write::par::seal_ahead_all(), before, "every load's reserve leaves the process-wide one when it ends");
+    assert_eq!(
+        pgrc_write::par::seal_ahead_all(),
+        before,
+        "every load's reserve leaves the process-wide one when it ends"
+    );
 }

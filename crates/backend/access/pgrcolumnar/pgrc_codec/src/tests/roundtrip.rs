@@ -98,7 +98,11 @@ fn byte_for_framed_sel_at_matches_full_at_every_store() {
             .collect();
         let signed = signed_for(shape);
         let inputs: Vec<EncodeInput<'_>> = gs.iter().map(|g| g.input(class)).collect();
-        let width = inputs.iter().map(|g| granule_min_width(g, signed)).max().unwrap();
+        let width = inputs
+            .iter()
+            .map(|g| granule_min_width(g, signed))
+            .max()
+            .unwrap();
         let mut enc = ByteForEncoder::new_bytefor(8, width, signed);
         let built = build_stream(&mut enc, &inputs, 0, signed);
         for (g, gd) in gs.iter().enumerate() {
@@ -126,15 +130,30 @@ fn byte_for_framed_sel_at_matches_full_at_every_store() {
                 assert_eq!(sel_at_framed(&f, width, &sel, &mut w32).expect("i32"), n);
                 assert_eq!(sel_at_framed(&f, width, &sel, &mut w16).expect("i16"), n);
                 for r in 0..rows as usize {
-                    let (want64, want32, want16) = if picked[r] { (full[r], full[r] as i32, full[r] as i16) } else { (UNTOUCHED, 0x5A5A_5A5A, 0x5A5A) };
-                    assert_eq!((w64[r], w32[r], w16[r]), (want64, want32, want16), "shape {shape} granule {g} row {r} (selected {})", picked[r]);
+                    let (want64, want32, want16) = if picked[r] {
+                        (full[r], full[r] as i32, full[r] as i16)
+                    } else {
+                        (UNTOUCHED, 0x5A5A_5A5A, 0x5A5A)
+                    };
+                    assert_eq!(
+                        (w64[r], w32[r], w16[r]),
+                        (want64, want32, want16),
+                        "shape {shape} granule {g} row {r} (selected {})",
+                        picked[r]
+                    );
                 }
             }
             let past = [rows as u16 - 1, rows as u16];
             let mut out = vec![0u64; rows as usize + 1];
-            assert!(sel_at_framed(&f, width, &Selection { rows: &past[..] }, &mut out).is_err(), "a row past the granule");
+            assert!(
+                sel_at_framed(&f, width, &Selection { rows: &past[..] }, &mut out).is_err(),
+                "a row past the granule"
+            );
             let mut short = vec![0i32; 100];
-            assert!(sel_at_framed(&f, width, &Selection { rows: &[100] }, &mut short).is_err(), "an out short of the row");
+            assert!(
+                sel_at_framed(&f, width, &Selection { rows: &[100] }, &mut short).is_err(),
+                "an out short of the row"
+            );
         }
     }
 }
@@ -145,13 +164,23 @@ fn byte_for_framed_sel_at_matches_full_at_every_store() {
 fn byte_for_each_frame_is_the_full_decode() {
     use crate::bytefor::{each_frame, Framed};
     let mut seed = 0x5C4E_u64;
-    let class = StorageClass::ByvalWord { width: 8, signed: true };
+    let class = StorageClass::ByvalWord {
+        width: 8,
+        signed: true,
+    };
     for shape in 0..12 {
         let last = [8192u32, 1500, 300, 1024][shape as usize % 4];
-        let gs: Vec<GranuleData> = [8192u32, last].iter().map(|&rows| int_corpus(shape, rows, &mut seed)).collect();
+        let gs: Vec<GranuleData> = [8192u32, last]
+            .iter()
+            .map(|&rows| int_corpus(shape, rows, &mut seed))
+            .collect();
         let signed = signed_for(shape);
         let inputs: Vec<EncodeInput<'_>> = gs.iter().map(|g| g.input(class)).collect();
-        let width = inputs.iter().map(|g| granule_min_width(g, signed)).max().unwrap();
+        let width = inputs
+            .iter()
+            .map(|g| granule_min_width(g, signed))
+            .max()
+            .unwrap();
         let mut enc = ByteForEncoder::new_bytefor(8, width, signed);
         let built = build_stream(&mut enc, &inputs, 0, signed);
         for (g, gd) in gs.iter().enumerate() {
@@ -160,22 +189,44 @@ fn byte_for_each_frame_is_the_full_decode() {
             let f = Framed::of_ctx(&ctx, EncodingId::ByteFor.as_u16()).expect("framed");
             let (w, mut next, mut frames) = (width as usize, 0usize, 0usize);
             let done = each_frame(&f, width, |first, refw, deltas| {
-                assert_eq!(first, next, "shape {shape} granule {g}: frames in row order");
+                assert_eq!(
+                    first, next,
+                    "shape {shape} granule {g}: frames in row order"
+                );
                 let n = deltas.len() / w;
-                assert_eq!(n, (gd.rows as usize - first).min(1024), "shape {shape} granule {g}: a frame's values");
+                assert_eq!(
+                    n,
+                    (gd.rows as usize - first).min(1024),
+                    "shape {shape} granule {g}: a frame's values"
+                );
                 for i in 0..n {
                     let mut d = [0u8; 8];
                     d[..w].copy_from_slice(&deltas[i * w..i * w + w]);
-                    assert_eq!(refw.wrapping_add(u64::from_le_bytes(d)), full[first + i], "shape {shape} granule {g} row {}", first + i);
+                    assert_eq!(
+                        refw.wrapping_add(u64::from_le_bytes(d)),
+                        full[first + i],
+                        "shape {shape} granule {g} row {}",
+                        first + i
+                    );
                 }
                 next += n;
                 frames += 1;
                 true
             })
             .expect("each_frame");
-            assert!(done && next == gd.rows as usize, "shape {shape} granule {g}: every row");
+            assert!(
+                done && next == gd.rows as usize,
+                "shape {shape} granule {g}: every row"
+            );
             let mut seen = 0;
-            assert!(!each_frame(&f, width, |_, _, _| { seen += 1; false }).expect("stopped"), "a false stops the walk");
+            assert!(
+                !each_frame(&f, width, |_, _, _| {
+                    seen += 1;
+                    false
+                })
+                .expect("stopped"),
+                "a false stops the walk"
+            );
             assert_eq!((seen, frames), (1, (gd.rows as usize).div_ceil(1024)));
             assert!(each_frame(&f, 9, |_, _, _| true).is_err(), "a width past 8");
         }
@@ -217,7 +268,10 @@ fn ffor_roundtrips_across_shapes() {
             .collect();
         let signed = signed_for(shape);
         let inputs: Vec<EncodeInput<'_>> = gs.iter().map(|g| g.input(class)).collect();
-        let mut enc = FforEncoder { signed, carry: None };
+        let mut enc = FforEncoder {
+            signed,
+            carry: None,
+        };
         let built = build_stream(&mut enc, &inputs, 0, signed);
         assert_int_roundtrip(&built, &gs.iter().collect::<Vec<_>>(), class);
     }
@@ -242,10 +296,14 @@ fn alp_roundtrips_bit_exact_with_oracle_differential() {
             .collect();
         let inputs: Vec<EncodeInput<'_>> = gs.iter().map(|g| g.input(StorageClass::F64)).collect();
         for encoding in [EncodingId::Alp, EncodingId::AlpRd] {
-            let mut enc = AlpEncoder { encoding, carry: None };
+            let mut enc = AlpEncoder {
+                encoding,
+                carry: None,
+            };
             let built = build_stream(&mut enc, &inputs, 0, false);
             for (g, gd) in gs.iter().enumerate() {
                 let (datums, _arena) = dec_full(&built, g as u32);
+                #[allow(clippy::needless_range_loop)]
                 for r in 0..gd.rows as usize {
                     if !gd.input(StorageClass::F64).valid(r as u32) {
                         continue;
@@ -322,7 +380,11 @@ fn byte_for_sb3_widths_roundtrip_and_exact_size() {
         assert_int_roundtrip(&built, &[&gd], class);
         let frames = rows.div_ceil(1024) as usize;
         let expect = 32 + frames * 8 + rows as usize * w as usize + frames * 4;
-        assert_eq!(built.section().len(), expect, "width {w}: exact section bytes");
+        assert_eq!(
+            built.section().len(),
+            expect,
+            "width {w}: exact section bytes"
+        );
     }
 }
 
@@ -352,6 +414,7 @@ fn bool_bitmap_roundtrips() {
         let built = build_stream(&mut enc, &inputs, 0, false);
         for (g, gd) in gs.iter().enumerate() {
             let (datums, _arena) = dec_full(&built, g as u32);
+            #[allow(clippy::needless_range_loop)]
             for r in 0..gd.rows as usize {
                 if gd.input(StorageClass::Bool).valid(r as u32) {
                     assert_eq!(datums[r], gd.datums[r] % 2, "granule {g} row {r}");
@@ -379,6 +442,7 @@ fn alp_f32_roundtrips_bit_exact_with_oracle_differential() {
         let built = build_stream(&mut enc, &inputs, 0, false);
         for (g, gd) in gs.iter().enumerate() {
             let (datums, _arena) = dec_full(&built, g as u32);
+            #[allow(clippy::needless_range_loop)]
             for r in 0..gd.rows as usize {
                 if !gd.input(StorageClass::F32).valid(r as u32) {
                     continue;
@@ -449,7 +513,7 @@ fn dict_codes_roundtrip_codes_and_materialization() {
             .map(|&rows| {
                 let validity = validity_pattern(shape, rows, &mut seed);
                 // Cluster codes so per-granule ranges stay narrow sometimes.
-                let base = (splitmix(&mut seed) % 2000);
+                let base = splitmix(&mut seed) % 2000;
                 let datums = (0..rows)
                     .map(|_| base + splitmix(&mut seed) % ((shape as u64 % 4) * 250 + 1))
                     .collect();
@@ -487,6 +551,7 @@ fn dict_codes_roundtrip_codes_and_materialization() {
             let mut codes = vec![0u32; gd.rows as usize];
             let n = (vt.decode_codes)(&ctx, &mut codes).expect("decode_codes");
             assert_eq!(n, gd.rows);
+            #[allow(clippy::needless_range_loop)]
             for r in 0..gd.rows as usize {
                 if gd.input(StorageClass::VarlenaVerbatim).valid(r as u32) {
                     assert_eq!(codes[r] as u64, gd.datums[r], "granule {g} row {r} code");
@@ -500,6 +565,7 @@ fn dict_codes_roundtrip_codes_and_materialization() {
                 arena: ByteArena::new(&mut arena_buf),
             };
             (vt.decode_full)(&ctx, &mut out).expect("decode_full");
+            #[allow(clippy::needless_range_loop)]
             for r in 0..gd.rows as usize {
                 if !gd.input(StorageClass::VarlenaVerbatim).valid(r as u32) {
                     continue;
@@ -530,7 +596,7 @@ fn dict_codes_byte_align_same_codes() {
             .iter()
             .map(|&rows| {
                 let validity = validity_pattern(shape, rows, &mut seed);
-                let base = (splitmix(&mut seed) % 2000);
+                let base = splitmix(&mut seed) % 2000;
                 // Range dial: per-shape spread hits widths on both sides of
                 // a byte boundary (0, <8, 8..16, wide).
                 let spread = [1u64, 3, 200, 5000, 70000, 300000][shape as usize];
@@ -576,7 +642,10 @@ fn dict_codes_byte_align_same_codes() {
             }
             arms.push(all);
         }
-        assert_eq!(arms[0], arms[1], "shape {shape}: codes identical across postures");
+        assert_eq!(
+            arms[0], arms[1],
+            "shape {shape}: codes identical across postures"
+        );
     }
 }
 
@@ -665,7 +734,10 @@ fn packed_numeric_mantissa_sel_forms_match_full() {
     let images = numeric_images(rows, scale, &mut seed);
     let g = GranuleData {
         rows,
-        datums: images.iter().map(|i| i.as_bytes().as_ptr() as u64).collect(),
+        datums: images
+            .iter()
+            .map(|i| i.as_bytes().as_ptr() as u64)
+            .collect(),
         validity: None,
     };
     let inputs = [g.input(StorageClass::VarlenaVerbatim)];
@@ -678,11 +750,20 @@ fn packed_numeric_mantissa_sel_forms_match_full() {
     else {
         panic!("a uniform-scale granule elects packed numeric: {election:?}");
     };
-    let built = build_stream(&mut PackedNumericEncoder::new(scale, width), &inputs, 0, true);
+    let built = build_stream(
+        &mut PackedNumericEncoder::new(scale, width),
+        &inputs,
+        0,
+        true,
+    );
     let ctx = built.ctx(0);
-    let framed = crate::bytefor::Framed::of_ctx(&ctx, EncodingId::PackedNumeric.as_u16()).expect("framed");
+    let framed =
+        crate::bytefor::Framed::of_ctx(&ctx, EncodingId::PackedNumeric.as_u16()).expect("framed");
     let mut full = vec![0u64; rows as usize];
-    assert_eq!(mantissa_full(&ctx, width, &mut full).expect("full"), (scale, rows));
+    assert_eq!(
+        mantissa_full(&ctx, width, &mut full).expect("full"),
+        (scale, rows)
+    );
     let mut edges: Vec<u16> = (0..rows / 1024)
         .flat_map(|f| [f * 1024, f * 1024 + 1, f * 1024 + 1023])
         .map(|r| r as u16)
@@ -701,14 +782,28 @@ fn packed_numeric_mantissa_sel_forms_match_full() {
         let sel = Selection { rows: sel_rows };
         let n = sel_rows.len() as u32;
         let mut dense = vec![UNTOUCHED; sel_rows.len()];
-        assert_eq!(mantissa_sel(&ctx, width, &sel, &mut dense).expect("sel"), (scale, n));
+        assert_eq!(
+            mantissa_sel(&ctx, width, &sel, &mut dense).expect("sel"),
+            (scale, n)
+        );
         let mut at = vec![UNTOUCHED; rows as usize];
-        assert_eq!(mantissa_sel_at(&ctx, width, &sel, &mut at).expect("sel_at"), (scale, n));
+        assert_eq!(
+            mantissa_sel_at(&ctx, width, &sel, &mut at).expect("sel_at"),
+            (scale, n)
+        );
         // the framed form (TH14's source lever): the same scale and the same rows, byte for byte
         let mut at_framed = vec![UNTOUCHED; rows as usize];
-        assert_eq!(crate::packednum::mantissa_sel_at_framed(&framed, width, &sel, &mut at_framed).expect("framed sel_at"), (scale, n));
+        assert_eq!(
+            crate::packednum::mantissa_sel_at_framed(&framed, width, &sel, &mut at_framed)
+                .expect("framed sel_at"),
+            (scale, n)
+        );
         assert_eq!(at_framed, at, "mantissa_sel_at_framed == mantissa_sel_at");
-        assert_eq!(crate::packednum::framed_scale(&framed).expect("framed scale"), scale, "framed_scale == the granule's scale");
+        assert_eq!(
+            crate::packednum::framed_scale(&framed).expect("framed scale"),
+            scale,
+            "framed_scale == the granule's scale"
+        );
         for (i, &r) in sel_rows.iter().enumerate() {
             assert_eq!(dense[i], full[r as usize], "mantissa_sel row {r}");
         }
@@ -718,7 +813,11 @@ fn packed_numeric_mantissa_sel_forms_match_full() {
         }
         for r in 0..rows as usize {
             let want = if picked[r] { full[r] } else { UNTOUCHED };
-            assert_eq!(at[r], want, "mantissa_sel_at row {r} (selected {})", picked[r]);
+            assert_eq!(
+                at[r], want,
+                "mantissa_sel_at row {r} (selected {})",
+                picked[r]
+            );
         }
     }
     // a row past the granule, and an `out` short of the last selected row, refuse
@@ -728,8 +827,20 @@ fn packed_numeric_mantissa_sel_forms_match_full() {
     assert!(mantissa_sel(&ctx, width, &Selection { rows: &past[..] }, &mut out).is_err());
     let mut short = vec![0u64; 100];
     assert!(mantissa_sel_at(&ctx, width, &Selection { rows: &[100] }, &mut short).is_err());
-    assert!(crate::packednum::mantissa_sel_at_framed(&framed, width, &Selection { rows: &past[..] }, &mut out).is_err());
-    assert!(crate::packednum::mantissa_sel_at_framed(&framed, width, &Selection { rows: &[100] }, &mut short).is_err());
+    assert!(crate::packednum::mantissa_sel_at_framed(
+        &framed,
+        width,
+        &Selection { rows: &past[..] },
+        &mut out
+    )
+    .is_err());
+    assert!(crate::packednum::mantissa_sel_at_framed(
+        &framed,
+        width,
+        &Selection { rows: &[100] },
+        &mut short
+    )
+    .is_err());
 }
 
 // ---------------------------------------------------------------------------
@@ -1015,10 +1126,17 @@ fn wrap_section_bound_covers_incompressible_and_empty_blocks() {
     use pgrc_format::enc::Wrapper;
     use pgrc_format::part::STREAM_SECTION_HDR_LEN;
     let mut seed = 0xC1_4E6_u64;
-    let class = StorageClass::ByvalWord { width: 8, signed: true };
+    let class = StorageClass::ByvalWord {
+        width: 8,
+        signed: true,
+    };
     let gs: Vec<GranuleData> = (0..3).map(|_| int_corpus(5, 8192, &mut seed)).collect();
     let inputs: Vec<EncodeInput<'_>> = gs.iter().map(|g| g.input(class)).collect();
-    let width = inputs.iter().map(|g| granule_min_width(g, true)).max().unwrap();
+    let width = inputs
+        .iter()
+        .map(|g| granule_min_width(g, true))
+        .max()
+        .unwrap();
     let mut enc = ByteForEncoder::new_bytefor(8, width, true);
     let built = build_stream(&mut enc, &inputs, 0, true);
     let ends = built.build.granule_payload_ends.clone();
@@ -1029,7 +1147,9 @@ fn wrap_section_bound_covers_incompressible_and_empty_blocks() {
     for fill in ["encoded", "noise", "zeros"] {
         let mut section = built.section().to_vec();
         match fill {
-            "noise" => section[payload.clone()].iter_mut().for_each(|b| *b = splitmix(&mut seed) as u8),
+            "noise" => section[payload.clone()]
+                .iter_mut()
+                .for_each(|b| *b = splitmix(&mut seed) as u8),
             "zeros" => section[payload.clone()].fill(0),
             _ => {}
         }
@@ -1038,12 +1158,23 @@ fn wrap_section_bound_covers_incompressible_and_empty_blocks() {
                 let bound = wrap_section_bound(&section, ends, arm);
                 let mut plain = Vec::new();
                 wrap_section(&section, ends, arm, &mut plain).expect("wrap");
-                assert!(plain.len() <= bound, "{fill} {arm:?}: wrapped {} > bound {bound}", plain.len());
+                assert!(
+                    plain.len() <= bound,
+                    "{fill} {arm:?}: wrapped {} > bound {bound}",
+                    plain.len()
+                );
                 let mut out = Vec::with_capacity(bound);
                 let cap = out.capacity();
                 wrap_section(&section, ends, arm, &mut out).expect("wrap");
-                assert_eq!(out.capacity(), cap, "{fill} {arm:?}: the wrap reallocated its reserved buffer");
-                assert_eq!(out, plain, "{fill} {arm:?}: a reserved buffer changed the image");
+                assert_eq!(
+                    out.capacity(),
+                    cap,
+                    "{fill} {arm:?}: the wrap reallocated its reserved buffer"
+                );
+                assert_eq!(
+                    out, plain,
+                    "{fill} {arm:?}: a reserved buffer changed the image"
+                );
             }
         }
     }
@@ -1058,9 +1189,18 @@ fn zstd_compress_block_matches_a_fresh_context() {
     // at the wrapper's level, appended after bytes already in the buffer.
     use crate::wrapper::zstd_compress_block;
     let mut seed = 0x2C_7F_u64;
-    let noise = |n: usize, seed: &mut u64| (0..n).map(|_| splitmix(seed) as u8).collect::<Vec<u8>>();
-    let text = |n: usize| (0..n).map(|i| b"pgrc zstd frames "[i % 17] ^ (i / 4096) as u8).collect::<Vec<u8>>();
-    let ints = |n: usize, seed: &mut u64| (0..n / 8).flat_map(|_| (splitmix(seed) % 1000).to_le_bytes()).collect::<Vec<u8>>();
+    let noise =
+        |n: usize, seed: &mut u64| (0..n).map(|_| splitmix(seed) as u8).collect::<Vec<u8>>();
+    let text = |n: usize| {
+        (0..n)
+            .map(|i| b"pgrc zstd frames "[i % 17] ^ (i / 4096) as u8)
+            .collect::<Vec<u8>>()
+    };
+    let ints = |n: usize, seed: &mut u64| {
+        (0..n / 8)
+            .flat_map(|_| (splitmix(seed) % 1000).to_le_bytes())
+            .collect::<Vec<u8>>()
+    };
     let inputs: Vec<Vec<u8>> = vec![
         Vec::new(),
         vec![7],
@@ -1077,11 +1217,21 @@ fn zstd_compress_block_matches_a_fresh_context() {
     ];
     for round in 0..3 {
         for (k, input) in inputs.iter().enumerate() {
-            let fresh = zstd::bulk::compress(input, crate::wrapper::zstd_level()).expect("fresh compress");
+            let fresh =
+                zstd::bulk::compress(input, crate::wrapper::zstd_level()).expect("fresh compress");
             let mut out = b"prefix".to_vec();
             zstd_compress_block(input, &mut out).expect("pooled compress");
-            assert_eq!(&out[..6], b"prefix", "round {round} input {k}: the bytes before the frame changed");
-            assert_eq!(&out[6..], &fresh[..], "round {round} input {k} ({} B): a kept context wrote another frame", input.len());
+            assert_eq!(
+                &out[..6],
+                b"prefix",
+                "round {round} input {k}: the bytes before the frame changed"
+            );
+            assert_eq!(
+                &out[6..],
+                &fresh[..],
+                "round {round} input {k} ({} B): a kept context wrote another frame",
+                input.len()
+            );
         }
     }
 }

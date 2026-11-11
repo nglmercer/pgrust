@@ -73,9 +73,14 @@ pub fn profile_for(schema: &ColSchema) -> MetaProfile {
 
 /// One real meta builder for one column. CONVERT W3-2a (cvformat A3): the builder's own heap is charged to `owner`
 /// (the part's: its columns' owner, the loading statement), kind `Region`; `None`: uncharged.
-pub fn builder_for(schema: &ColSchema, owner: Option<memledger::Owner>) -> Box<dyn ColumnMetaBuilder> {
-    Box::new(ColumnMeta::with_owner(profile_for(schema), owner.map(|o| (o, memledger::Kind::Region))))
-        as Box<dyn ColumnMetaBuilder>
+pub fn builder_for(
+    schema: &ColSchema,
+    owner: Option<memledger::Owner>,
+) -> Box<dyn ColumnMetaBuilder> {
+    Box::new(ColumnMeta::with_owner(
+        profile_for(schema),
+        owner.map(|o| (o, memledger::Kind::Region)),
+    )) as Box<dyn ColumnMetaBuilder>
 }
 
 /// The seal driver's builder vector, in the EXACT stream order `seal_part`
@@ -106,9 +111,19 @@ pub fn builders_for_streams(
 }
 
 /// [`builders_for_streams`] for a pooled seal, whose streams seal on other threads.
-pub fn send_builders_for_streams(roots: &[ColBuffer], lanes: &[ShredLane], octet: &[u32]) -> Vec<Box<dyn ColumnMetaBuilder + Send>> {
-    let schemas = roots.iter().map(|c| &c.schema).chain(lanes.iter().map(|l| &l.col.schema));
-    schemas.map(send_builder_for).chain(octet.iter().map(|&a| send_octet_builder(a))).collect()
+pub fn send_builders_for_streams(
+    roots: &[ColBuffer],
+    lanes: &[ShredLane],
+    octet: &[u32],
+) -> Vec<Box<dyn ColumnMetaBuilder + Send>> {
+    let schemas = roots
+        .iter()
+        .map(|c| &c.schema)
+        .chain(lanes.iter().map(|l| &l.col.schema));
+    schemas
+        .map(send_builder_for)
+        .chain(octet.iter().map(|&a| send_octet_builder(a)))
+        .collect()
 }
 
 /// [`builder_for`] for a stream sealed on another thread (a pooled seal).
@@ -127,12 +142,18 @@ pub fn octet_builder(attno: u32, owner: Option<memledger::Owner>) -> Box<dyn Col
 
 /// [`octet_builder`] for a stream sealed on another thread (a pooled seal).
 pub fn send_octet_builder(attno: u32) -> Box<dyn ColumnMetaBuilder + Send> {
-    Box::new(ColumnMeta::new(octet_profile(&pgrc_format::shredlane::octet_length_schema(attno))))
+    Box::new(ColumnMeta::new(octet_profile(
+        &pgrc_format::shredlane::octet_length_schema(attno),
+    )))
 }
 
 /// D3038: an octet-length lane's profile (`crate::octet`): its words' min / max, sum and zero count, the length facts a
 /// reader may answer from; no equality bloom or NDV registers, since no reader probes a length for a value and both hash
 /// every row at seal.
 fn octet_profile(schema: &ColSchema) -> MetaProfile {
-    MetaProfile { eq_bloomable: false, ndv: false, ..profile_for(schema) }
+    MetaProfile {
+        eq_bloomable: false,
+        ndv: false,
+        ..profile_for(schema)
+    }
 }

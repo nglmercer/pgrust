@@ -289,6 +289,7 @@ pub fn fc_cosine_distance(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgR
     let (a, b) = binary_2arg(fcinfo)?;
     check_dims(&a, &b)?;
     let mut similarity = cosine_similarity(&a, &b);
+    #[allow(clippy::manual_clamp)]
     if similarity > 1.0 {
         similarity = 1.0;
     } else if similarity < -1.0 {
@@ -304,6 +305,7 @@ pub fn fc_vector_spherical_distance(
     let (a, b) = binary_2arg(fcinfo)?;
     check_dims(&a, &b)?;
     let mut distance = inner_product(&a, &b) as f64;
+    #[allow(clippy::manual_clamp)]
     if distance > 1.0 {
         distance = 1.0;
     } else if distance < -1.0 {

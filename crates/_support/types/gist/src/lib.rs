@@ -1,15 +1,11 @@
 //! GiST vocabulary shared by the gist AM, gist_xlog redo, and relscan
 //! (access/gist.h, access/gist_private.h, access/gistxlog.h).
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(non_camel_case_types)]
+#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
 
 use ::datum::Datum;
 use ::types_core::xact::FullTransactionId;
+use ::types_core::{uint16, BlockNumber, OffsetNumber, Oid, TransactionId, XLogRecPtr, BLCKSZ};
 use ::types_error::{PgError, PgResult, ERRCODE_DATA_CORRUPTED};
-use ::types_core::{
-    uint16, BlockNumber, OffsetNumber, Oid, TransactionId, XLogRecPtr, BLCKSZ,
-};
 use ::types_storage::bufpage::{PageMut, PageRef, SizeOfPageHeaderData};
 
 pub mod pairingheap;
@@ -332,9 +328,7 @@ impl GistxlogPageSplit {
         }
         Ok(Self {
             origrlink: BlockNumber::from_ne_bytes([b[0], b[1], b[2], b[3]]),
-            orignsn: GistNSN::from_ne_bytes([
-                b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15],
-            ]),
+            orignsn: GistNSN::from_ne_bytes([b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]]),
             origleaf: b[16] != 0,
             npage: u16::from_ne_bytes([b[18], b[19]]),
             markfollowright: b[20] != 0,
@@ -397,7 +391,11 @@ impl gistxlogPage {
     #[inline]
     pub fn decode(b: &[u8]) -> PgResult<Self> {
         if b.len() < SizeOfGistxlogPage {
-            return Err(short_record_err("gistxlogPage", SizeOfGistxlogPage, b.len()));
+            return Err(short_record_err(
+                "gistxlogPage",
+                SizeOfGistxlogPage,
+                b.len(),
+            ));
         }
         Ok(Self {
             blkno: BlockNumber::from_ne_bytes([b[0], b[1], b[2], b[3]]),
@@ -448,8 +446,7 @@ impl Default for GISTENTRY {
 // sortsupport proc receives a pointer to this shim (its "SortSupport") and
 // installs a leaf-key comparator; tuplesort applies it with the column's
 // collation on its mcx-threaded lane.
-pub type GistSsupCmp =
-    fn(Datum, Datum, Oid, ::mcx::Mcx<'_>) -> ::types_error::PgResult<i32>;
+pub type GistSsupCmp = fn(Datum, Datum, Oid, ::mcx::Mcx<'_>) -> ::types_error::PgResult<i32>;
 
 pub struct GistSortSupportShim {
     pub ssup_collation: Oid,

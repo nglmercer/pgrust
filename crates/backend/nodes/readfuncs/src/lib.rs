@@ -20,8 +20,8 @@ use mcx::Mcx;
 use types_core::Oid;
 use types_error::{PgError, PgResult, ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_UNDEFINED_OBJECT};
 use types_nodes::bitmapset::Bitmapset;
-use types_nodes::list::{IntList, NodeList, OidList, XidList};
 use types_nodes::jointype::JoinType;
+use types_nodes::list::{IntList, NodeList, OidList, XidList};
 use types_nodes::nodes_enums::{CmdType, LimitOption};
 use types_nodes::parsenodes::{
     CTECycleClause, CTEMaterialize, CTESearchClause, CommonTableExpr, NotifyStmt, Query,
@@ -30,10 +30,9 @@ use types_nodes::parsenodes::{
 };
 use types_nodes::primnodes::{
     Aggref, Alias, ArrayExpr, BoolExpr, BoolExprType, CaseExpr, CaseTestExpr, CaseWhen,
-    CoalesceExpr, CoercionForm, Const, FieldSelect, FieldStore, FromExpr, FuncExpr,
-    JoinExpr, MergeAction,
-    MergeMatchKind, MinMaxExpr, MinMaxOp, NamedArgExpr, NextValueExpr, NullTest, NullTestType,
-    OpExpr, OverridingKind, Param, ParamKind, RangeTblRef, CollateExpr, RelabelType,
+    CoalesceExpr, CoercionForm, CollateExpr, Const, FieldSelect, FieldStore, FromExpr, FuncExpr,
+    JoinExpr, MergeAction, MergeMatchKind, MinMaxExpr, MinMaxOp, NamedArgExpr, NextValueExpr,
+    NullTest, NullTestType, OpExpr, OverridingKind, Param, ParamKind, RangeTblRef, RelabelType,
     ScalarArrayOpExpr, SubLink, SubLinkType, TableFunc, TableFuncType, TargetEntry, Var,
     VarReturningType, WindowFunc, WindowFuncRunCondition, XmlExpr, XmlExprOp, XmlOptionType,
 };
@@ -49,7 +48,12 @@ mod tests;
 // fresh catalog). C's stringToNode returns NULL there; this returns Ok(None).
 // SQL-reachable readers of such columns (pg_get_expr) MUST use this entry.
 pub fn stringToNodeNullable<'mcx>(mcx: Mcx<'mcx>, s: &str) -> PgResult<Option<Node<'mcx>>> {
-    let mut r = Reader { mcx, buf: s.as_bytes(), pos: 0, tok_start: 0 };
+    let mut r = Reader {
+        mcx,
+        buf: s.as_bytes(),
+        pos: 0,
+        tok_start: 0,
+    };
     // C PARITY: stringToNode("") -> nodeRead(NULL, 0) -> pg_strtok returns
     // NULL at once -> nodeRead returns NULL, i.e. C treats an empty (or
     // all-whitespace) node string as the NULL node, exactly like "<>". This
@@ -146,7 +150,11 @@ fn c_strtol(tok: &[u8]) -> (i64, usize) {
         return (0, 0);
     }
     let v = if overflow {
-        if neg { i64::MIN } else { i64::MAX }
+        if neg {
+            i64::MIN
+        } else {
+            i64::MAX
+        }
     } else if neg {
         acc
     } else {
@@ -383,10 +391,7 @@ impl<'a, 'mcx> Reader<'a, 'mcx> {
         }
     }
 
-    fn read_opt_node_list(
-        &mut self,
-        name: &str,
-    ) -> PgResult<types_nodes::list::OptNodeList<'mcx>> {
+    fn read_opt_node_list(&mut self, name: &str) -> PgResult<types_nodes::list::OptNodeList<'mcx>> {
         self.label(name);
         let t = self.token(name);
         if t.is_empty() {
@@ -535,11 +540,15 @@ impl<'a, 'mcx> Reader<'a, 'mcx> {
     // READ_BITMAPSET_FIELD -> _readBitmapset (readfuncs.c).
     fn read_bitmapset(&mut self, name: &str) -> PgResult<Bitmapset<'mcx>> {
         self.label(name);
-        let t = self.next_token().ok_or_else(|| elog("incomplete Bitmapset structure".into()))?;
+        let t = self
+            .next_token()
+            .ok_or_else(|| elog("incomplete Bitmapset structure".into()))?;
         if t != b"(" {
             return Err(elog(format!("unrecognized token: \"{}\"", lossy(t))));
         }
-        let t = self.next_token().ok_or_else(|| elog("incomplete Bitmapset structure".into()))?;
+        let t = self
+            .next_token()
+            .ok_or_else(|| elog("incomplete Bitmapset structure".into()))?;
         if t != b"b" {
             return Err(elog(format!("unrecognized token: \"{}\"", lossy(t))));
         }
@@ -556,7 +565,11 @@ impl<'a, 'mcx> Reader<'a, 'mcx> {
     fn node_read_token(&mut self, t: &'a [u8]) -> PgResult<Option<Node<'mcx>>> {
         // nodeTokenType: "Check if the token is a number" — skip one sign,
         // then a digit, or '.' followed by a digit.
-        let numptr = if !t.is_empty() && (t[0] == b'+' || t[0] == b'-') { &t[1..] } else { t };
+        let numptr = if !t.is_empty() && (t[0] == b'+' || t[0] == b'-') {
+            &t[1..]
+        } else {
+            t
+        };
         if (!numptr.is_empty() && numptr[0].is_ascii_digit())
             || (numptr.len() > 1 && numptr[0] == b'.' && numptr[1].is_ascii_digit())
         {
@@ -731,7 +744,9 @@ impl<'a, 'mcx> Reader<'a, 'mcx> {
     #[inline(never)]
     fn unknown_node_label(&self, label: &[u8]) -> Box<PgError> {
         let is_label = !label.is_empty()
-            && label.iter().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || *c == b'_');
+            && label
+                .iter()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || *c == b'_');
         if is_label {
             return Box::new(
                 PgError::error(format!(
@@ -744,7 +759,10 @@ impl<'a, 'mcx> Reader<'a, 'mcx> {
         }
         let rest = &self.buf[self.tok_start..];
         let shown = &rest[..rest.len().min(32)];
-        elog(format!("badly formatted node string \"{}\"...", lossy(shown)))
+        elog(format!(
+            "badly formatted node string \"{}\"...",
+            lossy(shown)
+        ))
     }
 
     // _readA_Const (readfuncs.c:310-347): "We expect either NULL or :val
@@ -790,7 +808,10 @@ impl<'a, 'mcx> Reader<'a, 'mcx> {
             b"ANY" => (A_Expr_Kind::AEXPR_OP_ANY, self.read_node_list("name")?),
             b"ALL" => (A_Expr_Kind::AEXPR_OP_ALL, self.read_node_list("name")?),
             b"DISTINCT" => (A_Expr_Kind::AEXPR_DISTINCT, self.read_node_list("name")?),
-            b"NOT_DISTINCT" => (A_Expr_Kind::AEXPR_NOT_DISTINCT, self.read_node_list("name")?),
+            b"NOT_DISTINCT" => (
+                A_Expr_Kind::AEXPR_NOT_DISTINCT,
+                self.read_node_list("name")?,
+            ),
             b"NULLIF" => (A_Expr_Kind::AEXPR_NULLIF, self.read_node_list("name")?),
             b"IN" => (A_Expr_Kind::AEXPR_IN, self.read_node_list("name")?),
             b"LIKE" => (A_Expr_Kind::AEXPR_LIKE, self.read_node_list("name")?),
@@ -799,12 +820,16 @@ impl<'a, 'mcx> Reader<'a, 'mcx> {
             b"BETWEEN" => (A_Expr_Kind::AEXPR_BETWEEN, self.read_node_list("name")?),
             b"NOT_BETWEEN" => (A_Expr_Kind::AEXPR_NOT_BETWEEN, self.read_node_list("name")?),
             b"BETWEEN_SYM" => (A_Expr_Kind::AEXPR_BETWEEN_SYM, self.read_node_list("name")?),
-            b"NOT_BETWEEN_SYM" => {
-                (A_Expr_Kind::AEXPR_NOT_BETWEEN_SYM, self.read_node_list("name")?)
-            }
+            b"NOT_BETWEEN_SYM" => (
+                A_Expr_Kind::AEXPR_NOT_BETWEEN_SYM,
+                self.read_node_list("name")?,
+            ),
             b":name" => (A_Expr_Kind::AEXPR_OP, self.node_list_value("name")?),
             other => {
-                return Err(elog(format!("unrecognized A_Expr kind: \"{}\"", lossy(other))));
+                return Err(elog(format!(
+                    "unrecognized A_Expr kind: \"{}\"",
+                    lossy(other)
+                )));
             }
         };
         let lexpr = self.read_node("lexpr")?;
@@ -814,7 +839,15 @@ impl<'a, 'mcx> Reader<'a, 'mcx> {
         let location = self.read_location("location");
         Node::mk(
             self.mcx,
-            A_Expr { kind, name, lexpr, rexpr, rexpr_list_start, rexpr_list_end, location },
+            A_Expr {
+                kind,
+                name,
+                lexpr,
+                rexpr,
+                rexpr_list_start,
+                rexpr_list_end,
+                location,
+            },
         )
     }
 
@@ -851,7 +884,9 @@ impl<'a, 'mcx> Reader<'a, 'mcx> {
     }
 
     fn json_format_ref(&mut self, name: &str) -> PgResult<Option<&'mcx types_nodes::JsonFormat>> {
-        Ok(self.read_node(name)?.map(|n| n.as_json_format().expect("JsonFormat")))
+        Ok(self
+            .read_node(name)?
+            .map(|n| n.as_json_format().expect("JsonFormat")))
     }
 
     fn read_json_returning(&mut self) -> PgResult<Node<'mcx>> {
@@ -868,7 +903,9 @@ impl<'a, 'mcx> Reader<'a, 'mcx> {
         &mut self,
         name: &str,
     ) -> PgResult<Option<&'mcx types_nodes::JsonReturning<'mcx>>> {
-        Ok(self.read_node(name)?.map(|n| n.as_json_returning().expect("JsonReturning")))
+        Ok(self
+            .read_node(name)?
+            .map(|n| n.as_json_returning().expect("JsonReturning")))
     }
 
     fn read_json_value_expr(&mut self) -> PgResult<Node<'mcx>> {
@@ -1043,7 +1080,9 @@ impl<'a, 'mcx> Reader<'a, 'mcx> {
         let opno = self.read_u32("opno");
         let inputcollid = self.read_u32("inputcollid");
         let wfunc_left = self.read_bool("wfunc_left");
-        let arg = self.read_node("arg")?.expect("WindowFuncRunCondition has an arg");
+        let arg = self
+            .read_node("arg")?
+            .expect("WindowFuncRunCondition has an arg");
         Node::mk(
             mcx,
             WindowFuncRunCondition {
@@ -1161,8 +1200,17 @@ impl<'a, 'mcx> Reader<'a, 'mcx> {
         let mcx = self.mcx;
         let retlevelsup = self.read_i32("retlevelsup");
         let retold = self.read_bool("retold");
-        let retexpr = self.read_node("retexpr")?.expect("ReturningExpr has a retexpr");
-        Node::mk(mcx, types_nodes::primnodes::ReturningExpr { retlevelsup, retold, retexpr })
+        let retexpr = self
+            .read_node("retexpr")?
+            .expect("ReturningExpr has a retexpr");
+        Node::mk(
+            mcx,
+            types_nodes::primnodes::ReturningExpr {
+                retlevelsup,
+                retold,
+                retexpr,
+            },
+        )
     }
 
     fn read_row_compare_expr(&mut self) -> PgResult<Node<'mcx>> {
@@ -1184,7 +1232,16 @@ impl<'a, 'mcx> Reader<'a, 'mcx> {
         let resulttype = self.read_u32("resulttype");
         let resulttypmod = self.read_i32("resulttypmod");
         let resultcollid = self.read_u32("resultcollid");
-        Node::mk(mcx, FieldSelect { arg, fieldnum, resulttype, resulttypmod, resultcollid })
+        Node::mk(
+            mcx,
+            FieldSelect {
+                arg,
+                fieldnum,
+                resulttype,
+                resulttypmod,
+                resultcollid,
+            },
+        )
     }
 
     fn read_field_store(&mut self) -> PgResult<Node<'mcx>> {
@@ -1193,7 +1250,15 @@ impl<'a, 'mcx> Reader<'a, 'mcx> {
         let newvals = self.read_node_list("newvals")?;
         let fieldnums = self.read_int_list("fieldnums")?;
         let resulttype = self.read_u32("resulttype");
-        Node::mk(mcx, FieldStore { arg, newvals, fieldnums, resulttype })
+        Node::mk(
+            mcx,
+            FieldStore {
+                arg,
+                newvals,
+                fieldnums,
+                resulttype,
+            },
+        )
     }
 
     fn read_merge_action(&mut self) -> PgResult<Node<'mcx>> {
@@ -1213,7 +1278,14 @@ impl<'a, 'mcx> Reader<'a, 'mcx> {
         let arg = self.read_node("arg")?.expect("CollateExpr has an arg");
         let collOid = self.read_u32("collOid");
         let location = self.read_location("location");
-        Node::mk(mcx, CollateExpr { arg, collOid, location })
+        Node::mk(
+            mcx,
+            CollateExpr {
+                arg,
+                collOid,
+                location,
+            },
+        )
     }
 
     fn read_set_to_default(&mut self) -> PgResult<Node<'mcx>> {
@@ -1646,7 +1718,9 @@ impl<'a, 'mcx> Reader<'a, 'mcx> {
     }
 
     fn read_convert_rowtype_expr(&mut self) -> PgResult<Node<'mcx>> {
-        let arg = self.read_node("arg")?.expect("ConvertRowtypeExpr has an arg");
+        let arg = self
+            .read_node("arg")?
+            .expect("ConvertRowtypeExpr has an arg");
         let c = types_nodes::ConvertRowtypeExpr {
             arg,
             resulttype: self.read_u32("resulttype"),
@@ -1657,7 +1731,9 @@ impl<'a, 'mcx> Reader<'a, 'mcx> {
     }
 
     fn read_place_holder_var(&mut self) -> PgResult<Node<'mcx>> {
-        let phexpr = self.read_node("phexpr")?.expect("PlaceHolderVar has a phexpr");
+        let phexpr = self
+            .read_node("phexpr")?
+            .expect("PlaceHolderVar has a phexpr");
         let phv = types_nodes::primnodes::PlaceHolderVar {
             phexpr,
             phrels: self.read_bitmapset("phrels")?,
@@ -1762,7 +1838,11 @@ impl<'a, 'mcx> Reader<'a, 'mcx> {
             }
         }
         let location = self.read_location("location");
-        let g = types_nodes::parsenodes::GroupingSet { kind, content, location };
+        let g = types_nodes::parsenodes::GroupingSet {
+            kind,
+            content,
+            location,
+        };
         Node::mk(self.mcx, g)
     }
 
@@ -2034,11 +2114,20 @@ impl<'a, 'mcx> Reader<'a, 'mcx> {
         let subLinkId = self.read_i32("subLinkId");
         let testexpr = self.read_node("testexpr")?;
         let operName = self.read_node_list("operName")?;
-        let subselect = self.read_node("subselect")?.expect("SubLink has a subselect");
+        let subselect = self
+            .read_node("subselect")?
+            .expect("SubLink has a subselect");
         let location = self.read_location("location");
         Node::mk(
             self.mcx,
-            SubLink { subLinkType, subLinkId, testexpr, operName, subselect, location },
+            SubLink {
+                subLinkType,
+                subLinkId,
+                testexpr,
+                operName,
+                subselect,
+                location,
+            },
         )
     }
 
@@ -2084,7 +2173,10 @@ impl<'a, 'mcx> Reader<'a, 'mcx> {
 
     fn read_alternative_sub_plan(&mut self) -> PgResult<Node<'mcx>> {
         let subplans = self.read_node_list("subplans")?;
-        Node::mk(self.mcx, types_nodes::primnodes::AlternativeSubPlan { subplans })
+        Node::mk(
+            self.mcx,
+            types_nodes::primnodes::AlternativeSubPlan { subplans },
+        )
     }
 
     fn read_param(&mut self) -> PgResult<Node<'mcx>> {
@@ -2129,7 +2221,11 @@ impl<'a, 'mcx> Reader<'a, 'mcx> {
         match self.next_token() {
             Some(t) if t.first() == Some(&b'[') => {}
             got => {
-                let got = if got.is_some() { self.rest_from_token() } else { "[NULL]".into() };
+                let got = if got.is_some() {
+                    self.rest_from_token()
+                } else {
+                    "[NULL]".into()
+                };
                 return Err(elog(format!(
                     "expected \"[\" to start datum, but got \"{got}\"; length = {length}"
                 )));
@@ -2156,7 +2252,11 @@ impl<'a, 'mcx> Reader<'a, 'mcx> {
         match self.next_token() {
             Some(t) if t.first() == Some(&b']') => {}
             got => {
-                let got = if got.is_some() { self.rest_from_token() } else { "[NULL]".into() };
+                let got = if got.is_some() {
+                    self.rest_from_token()
+                } else {
+                    "[NULL]".into()
+                };
                 return Err(elog(format!(
                     "expected \"]\" to end datum, but got \"{got}\"; length = {length}"
                 )));

@@ -45,7 +45,9 @@ fn err(sqlstate: types_error::SqlState, msg: String) -> Box<PgError> {
 #[cold]
 #[inline(never)]
 pub(crate) fn cache_lookup_failed(what: &str, oid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!("cache lookup failed for {what} {oid}")))
+    Box::new(PgError::error(format!(
+        "cache lookup failed for {what} {oid}"
+    )))
 }
 
 fn typename_type_id(mcx: Mcx<'_>, tn: &TypeName<'_>) -> PgResult<Oid> {
@@ -68,7 +70,11 @@ fn type_acl_check(typeId: Oid) -> PgResult<()> {
 // aclcheck_error_type (aclchk.c): arrays report their element type.
 fn aclcheck_error_type(aclerr: i32, type_oid: Oid) -> PgResult<()> {
     let element_type = lsyscache::get_element_type(type_oid)?;
-    let type_oid = if element_type != InvalidOid { element_type } else { type_oid };
+    let type_oid = if element_type != InvalidOid {
+        element_type
+    } else {
+        type_oid
+    };
     aclchk::aclcheck_error(
         aclerr,
         ObjectType::OBJECT_TYPE,
@@ -114,7 +120,9 @@ pub fn DefineOperator<'mcx>(
     let mut joinName: Option<&NodeList<'mcx>> = None;
 
     for n in parameters.iter() {
-        let defel = n.as_def_elem().expect("CREATE OPERATOR definition: DefElem list");
+        let defel = n
+            .as_def_elem()
+            .expect("CREATE OPERATOR definition: DefElem list");
         match defel.defname.unwrap_or("") {
             "leftarg" => {
                 let tn = commands_define::defGetTypeName(mcx, defel)?;
@@ -143,9 +151,7 @@ pub fn DefineOperator<'mcx>(
                 commutatorName = Some(commands_define::defGetQualifiedName(mcx, defel)?)
             }
             "negator" => negatorName = Some(commands_define::defGetQualifiedName(mcx, defel)?),
-            "restrict" => {
-                restrictionName = Some(commands_define::defGetQualifiedName(mcx, defel)?)
-            }
+            "restrict" => restrictionName = Some(commands_define::defGetQualifiedName(mcx, defel)?),
             "join" => joinName = Some(commands_define::defGetQualifiedName(mcx, defel)?),
             "hashes" => canHash = commands_define::defGetBoolean(defel)?,
             "merges" => canMerge = commands_define::defGetBoolean(defel)?,
@@ -156,7 +162,11 @@ pub fn DefineOperator<'mcx>(
                 ereport(WARNING)
                     .errcode(ERRCODE_SYNTAX_ERROR)
                     .errmsg(format!("operator attribute \"{other}\" not recognized"))
-                    .finish(ErrorLocation::new(file!(), line!() as i32, "DefineOperator"))?;
+                    .finish(ErrorLocation::new(
+                        file!(),
+                        line!() as i32,
+                        "DefineOperator",
+                    ))?;
             }
         }
     }
@@ -302,7 +312,10 @@ fn ValidateJoinEstimator(mcx: Mcx<'_>, joinName: &NodeList<'_>) -> PgResult<Oid>
             let s = commands_define::NameListToString(mcx, joinName)?;
             return Err(err(
                 ERRCODE_AMBIGUOUS_FUNCTION,
-                format!("join estimator function {} has multiple matches", s.as_str()),
+                format!(
+                    "join estimator function {} has multiple matches",
+                    s.as_str()
+                ),
             ));
         }
     } else {
@@ -317,7 +330,11 @@ fn ValidateJoinEstimator(mcx: Mcx<'_>, joinName: &NodeList<'_>) -> PgResult<Oid>
         let s = commands_define::NameListToString(mcx, joinName)?;
         return Err(err(
             ERRCODE_INVALID_OBJECT_DEFINITION,
-            format!("join estimator function {} must return type {}", s.as_str(), "float8"),
+            format!(
+                "join estimator function {} must return type {}",
+                s.as_str(),
+                "float8"
+            ),
         ));
     }
 
@@ -431,7 +448,9 @@ pub fn AlterOperator<'mcx>(
     let mut updateHashes = false;
 
     for n in stmt.options.iter() {
-        let defel = n.as_def_elem().expect("ALTER OPERATOR options: DefElem list");
+        let defel = n
+            .as_def_elem()
+            .expect("ALTER OPERATOR options: DefElem list");
         let param = match defel.arg {
             None => None, // NONE removes the function
             Some(_) => Some(commands_define::defGetQualifiedName(mcx, defel)?),

@@ -140,12 +140,17 @@ pub fn validOperatorName(name: &str) -> bool {
 #[cold]
 #[inline(never)]
 fn operator_lookup_failed(oid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!("cache lookup failed for operator {oid}")))
+    Box::new(PgError::error(format!(
+        "cache lookup failed for operator {oid}"
+    )))
 }
 
 #[cold]
 fn invalid_operator_name(name: &str) -> Box<PgError> {
-    err(ERRCODE_INVALID_NAME, format!("\"{name}\" is not a valid operator name"))
+    err(
+        ERRCODE_INVALID_NAME,
+        format!("\"{name}\" is not a valid operator name"),
+    )
 }
 
 fn OperatorGet(
@@ -194,8 +199,12 @@ fn OperatorShellMake(
     }
 
     let rel = table::table_open(mcx, OPERATOR_RELATION_ID, RowExclusiveLock)?;
-    let operatorObjectId =
-        catalog::GetNewOidWithIndex(mcx, &rel, OPERATOR_OID_INDEX_ID, Anum_pg_operator_oid as i16)?;
+    let operatorObjectId = catalog::GetNewOidWithIndex(
+        mcx,
+        &rel,
+        OPERATOR_OID_INDEX_ID,
+        Anum_pg_operator_oid as i16,
+    )?;
 
     let mut oprname = NameData::default();
     oprname.namestrcpy(operatorName);
@@ -204,7 +213,11 @@ fn OperatorShellMake(
         oprname,
         oprnamespace: operatorNamespace,
         oprowner: miscinit::GetUserId(),
-        oprkind: if OidIsValid(leftTypeId) { b'b' as i8 } else { b'l' as i8 },
+        oprkind: if OidIsValid(leftTypeId) {
+            b'b' as i8
+        } else {
+            b'l' as i8
+        },
         oprcanmerge: false,
         oprcanhash: false,
         oprleft: leftTypeId,
@@ -337,7 +350,11 @@ pub fn OperatorCreate(
         oprname,
         oprnamespace: operatorNamespace,
         oprowner: miscinit::GetUserId(),
-        oprkind: if OidIsValid(leftTypeId) { b'b' as i8 } else { b'l' as i8 },
+        oprkind: if OidIsValid(leftTypeId) {
+            b'b' as i8
+        } else {
+            b'l' as i8
+        },
         oprcanmerge: canMerge,
         oprcanhash: canHash,
         oprleft: leftTypeId,
@@ -460,7 +477,9 @@ pub fn OperatorValidateParams(
             return Err(def_err("only boolean operators can have negators"));
         }
         if hasRestrictionSelectivity {
-            return Err(def_err("only boolean operators can have restriction selectivity"));
+            return Err(def_err(
+                "only boolean operators can have restriction selectivity",
+            ));
         }
         if hasJoinSelectivity {
             return Err(def_err("only boolean operators can have join selectivity"));
@@ -519,13 +538,23 @@ fn get_other_operator(
         )?;
     }
 
-    OperatorShellMake(mcx, otherName, otherNamespace, otherLeftTypeId, otherRightTypeId)
+    OperatorShellMake(
+        mcx,
+        otherName,
+        otherNamespace,
+        otherLeftTypeId,
+        otherRightTypeId,
+    )
 }
 
 fn name_parts<'a, 'mcx>(names: &NodeList<'mcx>, buf: &'a mut [&'mcx str; 4]) -> &'a [&'mcx str] {
     let n = names.len().min(buf.len());
     for (i, slot) in buf.iter_mut().enumerate().take(n) {
-        *slot = names.nth(i).as_string().expect("name list holds String nodes").sval;
+        *slot = names
+            .nth(i)
+            .as_string()
+            .expect("name list holds String nodes")
+            .sval;
     }
     &buf[..n]
 }
@@ -568,7 +597,12 @@ pub fn OperatorUpd(
         } else if !isDelete && form.oprcom != baseId {
             // A link to some third operator is an error, not overwritten.
             if OidIsValid(form.oprcom) {
-                return Err(third_op_error(mcx, "commutator", &form.oprname, form.oprcom)?);
+                return Err(third_op_error(
+                    mcx,
+                    "commutator",
+                    &form.oprname,
+                    form.oprcom,
+                )?);
             }
             form.oprcom = baseId;
             update_commutator = true;
@@ -588,7 +622,12 @@ pub fn OperatorUpd(
             update_negator = true;
         } else if !isDelete && form.oprnegate != baseId {
             if OidIsValid(form.oprnegate) {
-                return Err(third_op_error(mcx, "negator", &form.oprname, form.oprnegate)?);
+                return Err(third_op_error(
+                    mcx,
+                    "negator",
+                    &form.oprname,
+                    form.oprnegate,
+                )?);
             }
             form.oprnegate = baseId;
             update_negator = true;
@@ -659,19 +698,18 @@ pub fn makeOperatorDependencies(
 
     if isUpdate {
         catalog_dependency::deleteDependencyRecordsFor(mcx, myself.classId, myself.objectId, true)?;
-        pg_shdepend::deleteSharedDependencyRecordsFor(
-            mcx,
-            myself.classId,
-            myself.objectId,
-            0,
-        )?;
+        pg_shdepend::deleteSharedDependencyRecordsFor(mcx, myself.classId, myself.objectId, 0)?;
     }
 
     let mut refs: [ObjectAddress; 7] = [myself; 7];
     let mut n = 0;
     let mut add = |class_id: Oid, object_id: Oid| {
         if OidIsValid(object_id) {
-            refs[n] = ObjectAddress { classId: class_id, objectId: object_id, objectSubId: 0 };
+            refs[n] = ObjectAddress {
+                classId: class_id,
+                objectId: object_id,
+                objectSubId: 0,
+            };
             n += 1;
         }
     };
@@ -725,7 +763,17 @@ mod tests {
             assert!(validOperatorName(ok), "{ok}");
         }
         for bad in [
-            "", "!=", "a<", "<a", "=-", "<>-", "/*", "a--", "--", "<-/*", "++",
+            "",
+            "!=",
+            "a<",
+            "<a",
+            "=-",
+            "<>-",
+            "/*",
+            "a--",
+            "--",
+            "<-/*",
+            "++",
             &"~".repeat(64),
         ] {
             assert!(!validOperatorName(bad), "{bad}");

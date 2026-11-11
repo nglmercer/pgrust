@@ -11,6 +11,7 @@ use std::{
 };
 use tpde_assembler::{Architecture, SymBinding, SymRef};
 use tpde_base::ValLocalIdx;
+#[allow(unused_imports)]
 use tpde_compiler::{
     branches,
     calls::{CallBuilderBase, CallMachine, CallTarget},
@@ -29,6 +30,7 @@ use tpde_core::{
     ir_adaptor::IrAdaptor,
     Reg, RegBank,
 };
+#[allow(unused_imports)]
 use tpde_function_writer::{FunctionWriterBase, Label};
 use tpde_function_writer_x64::X64Target;
 use tpde_test_ir::{IRFuncRef, IRInstRef, IRValueRef, Op, TestIR};

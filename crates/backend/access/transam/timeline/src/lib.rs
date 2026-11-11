@@ -1,9 +1,7 @@
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(clippy::result_large_err)]
+#![allow(clippy::result_large_err, non_snake_case, non_upper_case_globals)]
 
-use elog::{ereport, PCT_M};
 use elog::errno::current_errno;
+use elog::{ereport, PCT_M};
 use mcx::{vec_with_capacity_in, Mcx, PgVec};
 use types_core::{TimeLineID, XLogRecPtr};
 use types_error::{ErrorLocation, PgResult, ERROR, FATAL};
@@ -276,7 +274,10 @@ pub fn findNewestTimeLine(
 
 // C: xlogtemp.<pid>. Unique per call here: segment creation on other threads shares the namespace.
 fn xlog_temp_path() -> String {
-    format!("{XLOGDIR}/xlogtemp.{}", init_small::globals::temp_file_tag())
+    format!(
+        "{XLOGDIR}/xlogtemp.{}",
+        init_small::globals::temp_file_tag()
+    )
 }
 
 fn create_temp_history_file(tmppath: &str, func: &'static str) -> PgResult<i32> {

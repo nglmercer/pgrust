@@ -1,5 +1,4 @@
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use datum::Datum;
 use execindexing::IndexInfo;
@@ -37,9 +36,12 @@ pub const HASH_AM_OID: Oid = 405;
 pub const GIN_AM_OID: Oid = 2742;
 pub const GIST_AM_OID: Oid = 783;
 const INT4OID: Oid = 23;
+#[allow(dead_code)]
 const OpclassOidIndexId: Oid = 2687;
 const IndexRelidIndexId: Oid = 2679;
+#[allow(dead_code)]
 const Anum_pg_opclass_opcintype: usize = 7;
+#[allow(dead_code)]
 const Anum_pg_opclass_opckeytype: usize = 9;
 const INT2OID: Oid = 21;
 const OIDOID: Oid = 26;
@@ -60,15 +62,16 @@ pgsync::process_global! {
 
 /// `index_register` (bootstrap.c).
 pub fn bootstrap_index_register(heap: Oid, index: Oid) {
-    BOOTSTRAP_INDEXES.lock().unwrap_or_else(|e| e.into_inner()).push((heap, index));
+    BOOTSTRAP_INDEXES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push((heap, index));
 }
 
 /// `build_indices`' input, in registration order.
 pub fn take_bootstrap_indexes() -> Vec<(Oid, Oid)> {
     core::mem::take(&mut *BOOTSTRAP_INDEXES.lock().unwrap_or_else(|e| e.into_inner()))
 }
-
-
 
 #[track_caller]
 #[cold]
@@ -80,37 +83,49 @@ fn err(msg: String, sqlstate: types_error::SqlState) -> Box<PgError> {
 #[cold]
 #[inline(never)]
 pub(crate) fn index_lookup_failed(indexId: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!("cache lookup failed for index {indexId}")))
+    Box::new(PgError::error(format!(
+        "cache lookup failed for index {indexId}"
+    )))
 }
 
 #[cold]
 #[inline(never)]
 pub(crate) fn relation_lookup_failed(relid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!("cache lookup failed for relation {relid}")))
+    Box::new(PgError::error(format!(
+        "cache lookup failed for relation {relid}"
+    )))
 }
 
 #[cold]
 #[inline(never)]
 pub(crate) fn type_lookup_failed(typid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!("cache lookup failed for type {typid}")))
+    Box::new(PgError::error(format!(
+        "cache lookup failed for type {typid}"
+    )))
 }
 
 #[cold]
 #[inline(never)]
 pub(crate) fn opclass_lookup_failed(opclass: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!("cache lookup failed for opclass {opclass}")))
+    Box::new(PgError::error(format!(
+        "cache lookup failed for opclass {opclass}"
+    )))
 }
 
 #[cold]
 #[inline(never)]
 pub(crate) fn relation_tuple_missing(relid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!("could not find tuple for relation {relid}")))
+    Box::new(PgError::error(format!(
+        "could not find tuple for relation {relid}"
+    )))
 }
 
 #[cold]
 #[inline(never)]
 pub(crate) fn relation_has_no_storage(relname: &str) -> Box<PgError> {
-    Box::new(PgError::error(format!("relation \"{relname}\" does not have storage")))
+    Box::new(PgError::error(format!(
+        "relation \"{relname}\" does not have storage"
+    )))
 }
 
 #[cold]
@@ -149,7 +164,11 @@ macro_rules! next_oid_override {
     };
 }
 
-next_oid_override!(NEXT_INDEX_PG_CLASS_OID, SetNextIndexPgClassOid, take_next_index_pg_class_oid);
+next_oid_override!(
+    NEXT_INDEX_PG_CLASS_OID,
+    SetNextIndexPgClassOid,
+    take_next_index_pg_class_oid
+);
 next_oid_override!(
     NEXT_INDEX_PG_CLASS_RELFILENUMBER,
     SetNextIndexPgClassRelfilenumber,
@@ -160,7 +179,10 @@ next_oid_override!(
 #[cold]
 #[inline(never)]
 fn binary_upgrade_err(msg: &str) -> Box<PgError> {
-    err(msg.to_string(), types_error::ERRCODE_INVALID_PARAMETER_VALUE)
+    err(
+        msg.to_string(),
+        types_error::ERRCODE_INVALID_PARAMETER_VALUE,
+    )
 }
 
 fn oid_scankey(attno: usize, oid: Oid) -> ScanKeyData {
@@ -174,11 +196,7 @@ fn oid_scankey(attno: usize, oid: Oid) -> ScanKeyData {
     key
 }
 
-fn getattr(
-    tup: &types_tuple::HeapTupleData<'_>,
-    attnum: usize,
-    desc: &TupleDescData<'_>,
-) -> Datum {
+fn getattr(tup: &types_tuple::HeapTupleData<'_>, attnum: usize, desc: &TupleDescData<'_>) -> Datum {
     let mut isnull = false;
     // SAFETY: fixed-position catalog column under the relation's descriptor.
     let d = unsafe { types_tuple::heap_getattr(tup, attnum as i32, desc, &mut isnull) };
@@ -287,7 +305,11 @@ fn ConstructTupleDescriptor<'mcx>(
             *to = from;
             to.attnum = (i + 1) as i16;
             to.attislocal = true;
-            to.attcollation = if i < numkeyatts { collationIds[i] } else { InvalidOid };
+            to.attcollation = if i < numkeyatts {
+                collationIds[i]
+            } else {
+                InvalidOid
+            };
             to.attname = NameData::default();
             to.attname.namestrcpy_bytes(colname);
             to.attnotnull = false;
@@ -300,9 +322,15 @@ fn ConstructTupleDescriptor<'mcx>(
             to.attndims = from.attndims;
             to.attrelid = InvalidOid;
         } else {
-            let indexkey = indexpr_item.next().expect("too few entries in indexprs list");
+            let indexkey = indexpr_item
+                .next()
+                .expect("too few entries in indexprs list");
             let keyType = nodes_core::expr_type(indexkey);
-            let attcollation = if i < numkeyatts { collationIds[i] } else { InvalidOid };
+            let attcollation = if i < numkeyatts {
+                collationIds[i]
+            } else {
+                InvalidOid
+            };
             let mut containing_rowtypes = mcx::PgVec::new_in(mcx);
             catalog_heap::CheckAttributeType(
                 mcx,
@@ -318,7 +346,11 @@ fn ConstructTupleDescriptor<'mcx>(
             let to = indexTupDesc.attr_mut(i);
             to.attnum = (i + 1) as i16;
             to.attislocal = true;
-            to.attcollation = if i < numkeyatts { collationIds[i] } else { InvalidOid };
+            to.attcollation = if i < numkeyatts {
+                collationIds[i]
+            } else {
+                InvalidOid
+            };
             to.attname = NameData::default();
             to.attname.namestrcpy_bytes(colname);
             to.atttypid = keyType;
@@ -392,7 +424,7 @@ fn build_vector_datum<'mcx>(
     buf[3] = elemtype;
     buf[4] = n as u32; // dim1
     buf[5] = 0; // lbound1
-    // SAFETY: tail of the zeroed word buffer, in-bounds by construction.
+                // SAFETY: tail of the zeroed word buffer, in-bounds by construction.
     unsafe {
         core::ptr::copy_nonoverlapping(
             data.as_ptr(),
@@ -560,8 +592,11 @@ pub fn relation_get_index_att_options(
             ))
             .into());
         };
-        let (d, isnull) =
-            cache_syscache::SysCacheGetAttr(cache_syscache::ATTNUM, &tuple, Anum_pg_attribute_attoptions)?;
+        let (d, isnull) = cache_syscache::SysCacheGetAttr(
+            cache_syscache::ATTNUM,
+            &tuple,
+            Anum_pg_attribute_attoptions,
+        )?;
         let built = index_opclass_options(
             mcx,
             rel,
@@ -592,7 +627,7 @@ pub struct IndexCreateExtra<'a> {
 }
 
 // Caller is responsible for ensuring the user has USAGE on all types indexInfo.ii_{Expressions,Predicate} depend on.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, unused_braces)]
 pub fn index_create<'mcx>(
     mcx: Mcx<'mcx>,
     heapRelation: &Relation<'mcx>,
@@ -616,12 +651,19 @@ pub fn index_create<'mcx>(
     let skip_build = extra.flags & INDEX_CREATE_SKIP_BUILD != 0;
     let parentIndexRelid = extra.parent_index_relid;
 
-    assert!(!partitioned || skip_build, "partitioned indexes must never be built");
+    assert!(
+        !partitioned || skip_build,
+        "partitioned indexes must never be built"
+    );
     assert!(
         extra.constr_flags == 0 || extra.flags & INDEX_CREATE_ADD_CONSTRAINT != 0,
         "constr_flags without INDEX_CREATE_ADD_CONSTRAINT"
     );
-    let relkind = if partitioned { types_rel::RELKIND_PARTITIONED_INDEX } else { RELKIND_INDEX };
+    let relkind = if partitioned {
+        types_rel::RELKIND_PARTITIONED_INDEX
+    } else {
+        RELKIND_INDEX
+    };
 
     let pg_class = table::table_open(mcx, RELATION_RELATION_ID, RowExclusiveLock)?;
 
@@ -738,9 +780,8 @@ pub fn index_create<'mcx>(
         let oid = take_next_index_pg_class_oid().ok_or_else(|| {
             binary_upgrade_err("pg_class index OID value not set when in binary upgrade mode")
         })?;
-        relFileNumber = take_next_index_pg_class_relfilenumber().unwrap_or({
-            types_core::InvalidRelFileNumber
-        });
+        relFileNumber = take_next_index_pg_class_relfilenumber()
+            .unwrap_or({ types_core::InvalidRelFileNumber });
         if relkind == RELKIND_INDEX && relFileNumber == types_core::InvalidRelFileNumber {
             return Err(binary_upgrade_err(
                 "index relfilenumber value not set when in binary upgrade mode",
@@ -821,7 +862,11 @@ pub fn index_create<'mcx>(
             &pg_attribute,
             &indexTupDesc.attrs[..natts],
             indexRelationId,
-            if attrs_extra.is_empty() { None } else { Some(&attrs_extra[..]) },
+            if attrs_extra.is_empty() {
+                None
+            } else {
+                Some(&attrs_extra[..])
+            },
             Some(&mut indstate),
         )?;
         catalog_indexing::CatalogCloseIndexes(indstate)?;
@@ -891,7 +936,10 @@ pub fn index_create<'mcx>(
                 }
             }
             if !have_simple_col {
-                addrs.push(pg_depend::ObjectAddress::set(RELATION_RELATION_ID, heapRelationId));
+                addrs.push(pg_depend::ObjectAddress::set(
+                    RELATION_RELATION_ID,
+                    heapRelationId,
+                ));
             }
             pg_depend::record_object_address_dependencies(
                 mcx,
@@ -920,6 +968,7 @@ pub fn index_create<'mcx>(
         }
 
         let mut normals: mcx::PgVec<'_, pg_depend::ObjectAddress> = mcx::PgVec::new_in(mcx);
+        #[allow(clippy::needless_range_loop)]
         for i in 0..indexInfo.ii_NumIndexKeyAttrs as usize {
             if collationIds[i] != InvalidOid && collationIds[i] != DEFAULT_COLLATION_OID {
                 normals.push(pg_depend::ObjectAddress::set(
@@ -928,6 +977,7 @@ pub fn index_create<'mcx>(
                 ));
             }
         }
+        #[allow(clippy::needless_range_loop)]
         for i in 0..indexInfo.ii_NumIndexKeyAttrs as usize {
             normals.push(pg_depend::ObjectAddress::set(
                 catalog::OperatorClassRelationId,
@@ -988,6 +1038,7 @@ pub fn index_create<'mcx>(
 
     if let Some(attopts) = extra.opclass_options {
         let irel = indexam::index_open(mcx, indexRelationId, NoLock)?;
+        #[allow(clippy::needless_range_loop)]
         for i in 0..indexInfo.ii_NumIndexKeyAttrs as usize {
             index_opclass_options(mcx, &irel, (i + 1) as AttrNumber, attopts[i], true)?;
         }
@@ -1040,9 +1091,7 @@ pub fn index_constraint_create<'mcx>(
             ERRCODE_FEATURE_NOT_SUPPORTED,
         ));
     }
-    if !indexInfo.ii_Expressions.is_nil()
-        && constraintType != pg_constraint::CONSTRAINT_EXCLUSION
-    {
+    if !indexInfo.ii_Expressions.is_nil() && constraintType != pg_constraint::CONSTRAINT_EXCLUSION {
         panic!("constraints cannot have index expressions");
     }
     if constr_flags & INDEX_CONSTR_CREATE_REMOVE_OLD_DEPS != 0 {
@@ -1095,12 +1144,7 @@ pub fn index_constraint_create<'mcx>(
             pg_depend::DependencyType::PartitionPri,
         )?;
         let tbl = pg_depend::ObjectAddress::set(RELATION_RELATION_ID, heapRelation.rd_id);
-        pg_depend::recordDependencyOn(
-            mcx,
-            &myself,
-            &tbl,
-            pg_depend::DependencyType::PartitionSec,
-        )?;
+        pg_depend::recordDependencyOn(mcx, &myself, &tbl, pg_depend::DependencyType::PartitionSec)?;
     }
 
     if deferrable {
@@ -1186,10 +1230,7 @@ pub fn index_constraint_create<'mcx>(
 
 /// `plan_create_index_workers` (planner.c:7114): the number of parallel
 /// workers a CREATE INDEX on `heap` should request.
-fn plan_create_index_workers(
-    heap: &Relation<'_>,
-    index_info: &IndexInfo<'_>,
-) -> PgResult<i32> {
+fn plan_create_index_workers(heap: &Relation<'_>, index_info: &IndexInfo<'_>) -> PgResult<i32> {
     let max_workers = guc_tables::vars::max_parallel_maintenance_workers.read();
     if !init_small::globals::IsUnderPostmaster() || max_workers == 0 {
         return Ok(0);
@@ -1280,9 +1321,11 @@ pub fn index_build<'mcx>(
             indexInfo.ii_ParallelWorkers
         )
     };
-    elog_seams::ereport::call(
-        PgError::new(types_error::DEBUG1, message).with_location("index.c", 3034, "index_build"),
-    )?;
+    elog_seams::ereport::call(PgError::new(types_error::DEBUG1, message).with_location(
+        "index.c",
+        3034,
+        "index_build",
+    ))?;
 
     let guard = miscinit::SecContextGuard::security_restricted(heapRelation.rd_rel.relowner);
     let save_nestlevel = guc::NewGUCNestLevel();
@@ -1299,7 +1342,14 @@ pub fn index_build<'mcx>(
                 PROGRESS_SCAN_BLOCKS_DONE,
                 PROGRESS_SCAN_BLOCKS_TOTAL,
             ],
-            &[PROGRESS_CREATEIDX_PHASE_BUILD, PROGRESS_CREATEIDX_SUBPHASE_INITIALIZE, 0, 0, 0, 0],
+            &[
+                PROGRESS_CREATEIDX_PHASE_BUILD,
+                PROGRESS_CREATEIDX_SUBPHASE_INITIALIZE,
+                0,
+                0,
+                0,
+                0,
+            ],
         );
     }
 
@@ -1384,7 +1434,8 @@ fn set_indcheckxmin<'mcx>(mcx: Mcx<'mcx>, indexId: Oid) -> PgResult<()> {
     const Anum_pg_index_indcheckxmin: usize = 12;
     let pg_index = table::table_open(mcx, INDEX_RELATION_ID, RowExclusiveLock)?;
     let key = oid_scankey(1, indexId);
-    let mut scan = genam::systable_beginscan(mcx, &pg_index, IndexRelidIndexId, true, None, &[key])?;
+    let mut scan =
+        genam::systable_beginscan(mcx, &pg_index, IndexRelidIndexId, true, None, &[key])?;
     let Some(tup) = genam::systable_getnext(mcx, &mut scan)? else {
         return Err(crate::index_lookup_failed(indexId));
     };
@@ -1429,7 +1480,11 @@ fn index_update_stats<'mcx>(
         RELKIND_RELATION | RELKIND_TOASTVALUE | RELKIND_MATVIEW
     ) {
         if autovacuum_seams::autovacuuming_active::call() {
-            if rel.rd_options.as_ref().and_then(|o| o.std()).is_some_and(|o| !o.autovacuum.enabled)
+            if rel
+                .rd_options
+                .as_ref()
+                .and_then(|o| o.std())
+                .is_some_and(|o| !o.autovacuum.enabled)
             {
                 update_stats = false;
             }
@@ -1443,7 +1498,9 @@ fn index_update_stats<'mcx>(
         // pgrcolumnar's main fork is empty: its pages are ANALYZE's (`analyzable_relpages`), the planner's footer bytes.
         relpages = match tableam::TableAm::of(rel) {
             Some(tableam::TableAm::Pgrcolumnar) => tableam::pgrc_footer_size(rel)?
-                .map_or(0, |(_rows, bytes)| bytes.div_ceil(types_core::BLCKSZ as u64) as u32),
+                .map_or(0, |(_rows, bytes)| {
+                    bytes.div_ceil(types_core::BLCKSZ as u64) as u32
+                }),
             _ => bufmgr::RelationGetNumberOfBlocksInFork(rel, ForkNumber::MAIN_FORKNUM)?,
         };
         if rel.rd_rel.relkind != RELKIND_INDEX {
@@ -1461,8 +1518,14 @@ fn index_update_stats<'mcx>(
     // says whether it will move, and the tuple's is checked below.
     let am = rel.rd_rel.relam;
     let outer = inval::relcache_scope();
-    let storage = rebuild && rel.rd_rel.relhasindex == hasindex && (am == HEAP_TABLE_AM_OID || am == BTREE_AM_OID);
-    let scope = if storage { outer | inval::REL_SCOPE_STORAGE } else { outer };
+    let storage = rebuild
+        && rel.rd_rel.relhasindex == hasindex
+        && (am == HEAP_TABLE_AM_OID || am == BTREE_AM_OID);
+    let scope = if storage {
+        outer | inval::REL_SCOPE_STORAGE
+    } else {
+        outer
+    };
 
     let pg_class = table::table_open(mcx, RELATION_RELATION_ID, RowExclusiveLock)?;
     let key = oid_scankey(Anum_pg_class_oid, relid);
@@ -1483,7 +1546,11 @@ fn index_update_stats<'mcx>(
     isnull.resize(natts, false);
     replace.resize(natts, false);
     let mut dirty = false;
-    let set = |anum: usize, d: Datum, values: &mut mcx::PgVec<'_, Datum>, replace: &mut mcx::PgVec<'_, bool>, dirty: &mut bool| {
+    let set = |anum: usize,
+               d: Datum,
+               values: &mut mcx::PgVec<'_, Datum>,
+               replace: &mut mcx::PgVec<'_, bool>,
+               dirty: &mut bool| {
         values[anum - 1] = d;
         replace[anum - 1] = true;
         *dirty = true;
@@ -1491,27 +1558,59 @@ fn index_update_stats<'mcx>(
 
     let hasindex_moved = getattr(old, Anum_pg_class_relhasindex, desc).as_bool() != hasindex;
     if hasindex_moved {
-        set(Anum_pg_class_relhasindex, Datum::from_bool(hasindex), &mut values, &mut replace, &mut dirty);
+        set(
+            Anum_pg_class_relhasindex,
+            Datum::from_bool(hasindex),
+            &mut values,
+            &mut replace,
+            &mut dirty,
+        );
     }
     if update_stats {
         if getattr(old, Anum_pg_class_relpages, desc).as_i32() != relpages as i32 {
-            set(Anum_pg_class_relpages, Datum::from_i32(relpages as i32), &mut values, &mut replace, &mut dirty);
+            set(
+                Anum_pg_class_relpages,
+                Datum::from_i32(relpages as i32),
+                &mut values,
+                &mut replace,
+                &mut dirty,
+            );
         }
         if getattr(old, Anum_pg_class_reltuples, desc).as_f32() != reltuples as f32 {
-            set(Anum_pg_class_reltuples, Datum::from_f32(reltuples as f32), &mut values, &mut replace, &mut dirty);
+            set(
+                Anum_pg_class_reltuples,
+                Datum::from_f32(reltuples as f32),
+                &mut values,
+                &mut replace,
+                &mut dirty,
+            );
         }
         if getattr(old, Anum_pg_class_relallvisible, desc).as_i32() != relallvisible as i32 {
-            set(Anum_pg_class_relallvisible, Datum::from_i32(relallvisible as i32), &mut values, &mut replace, &mut dirty);
+            set(
+                Anum_pg_class_relallvisible,
+                Datum::from_i32(relallvisible as i32),
+                &mut values,
+                &mut replace,
+                &mut dirty,
+            );
         }
         if getattr(old, Anum_pg_class_relallfrozen, desc).as_i32() != relallfrozen as i32 {
-            set(Anum_pg_class_relallfrozen, Datum::from_i32(relallfrozen as i32), &mut values, &mut replace, &mut dirty);
+            set(
+                Anum_pg_class_relallfrozen,
+                Datum::from_i32(relallfrozen as i32),
+                &mut values,
+                &mut replace,
+                &mut dirty,
+            );
         }
     }
 
     if storage && hasindex_moved {
         // the relcache's relhasindex was not the row's: the change is the whole entry's (an unscoped registration of the
         // row widens the scoped ones, inval `note_rel_scope` / `note_cat_scope`, before the in-place send)
-        inval::with_relcache_scope(outer, || inval::invalidate::CacheInvalidateHeapTuple(&pg_class, old, None))?;
+        inval::with_relcache_scope(outer, || {
+            inval::invalidate::CacheInvalidateHeapTuple(&pg_class, old, None)
+        })?;
     }
     inval::with_relcache_scope(scope, || -> PgResult<()> {
         if dirty {
@@ -1549,9 +1648,7 @@ pub fn CompareIndexInfo<'mcx>(
             if info1.ii_IndexAttrNumbers[i] == 0 || info2.ii_IndexAttrNumbers[i] == 0 {
                 return Ok(false);
             }
-            if attmap[info2.ii_IndexAttrNumbers[i] as usize - 1]
-                != info1.ii_IndexAttrNumbers[i]
-            {
+            if attmap[info2.ii_IndexAttrNumbers[i] as usize - 1] != info1.ii_IndexAttrNumbers[i] {
                 return Ok(false);
             }
         }
@@ -1619,7 +1716,14 @@ fn index_build_dummy<'mcx>(
     isreindex: bool,
 ) -> types_error::PgResult<()> {
     let mut indexInfo = execindexing::BuildDummyIndexInfo(mcx, index_relation)?;
-    index_build(mcx, heap_relation, index_relation, &mut indexInfo, isreindex, false)
+    index_build(
+        mcx,
+        heap_relation,
+        index_relation,
+        &mut indexInfo,
+        isreindex,
+        false,
+    )
 }
 
 pub fn init_seams() {
@@ -1635,7 +1739,10 @@ fn index_expression_input_type(
     rel: &Relation<'_>,
     indexcol_0based: usize,
 ) -> types_error::PgResult<types_core::Oid> {
-    let form = rel.rd_index.as_ref().expect("index relation without rd_index");
+    let form = rel
+        .rd_index
+        .as_ref()
+        .expect("index relation without rd_index");
     let scratch = mcx::MemoryContext::new("index_expression_input_type");
     let exprs = execindexing::RelationGetIndexExpressions(scratch.mcx(), rel)?;
     let mut expr_iter = exprs.iter();
@@ -1649,7 +1756,9 @@ fn index_expression_input_type(
             }
         }
     }
-    Err(Box::new(types_error::PgError::error("wrong number of index expressions")))
+    Err(Box::new(types_error::PgError::error(
+        "wrong number of index expressions",
+    )))
 }
 
 pub use drop::{index_drop, IndexGetRelation};
@@ -1661,11 +1770,10 @@ pub use concurrent::{
 };
 mod concurrent;
 pub use reindex::{
-    reindex_index, reindex_relation, RelationSetNewRelfilenumber, ReindexParams,
-    REINDEXOPT_CONCURRENTLY, REINDEXOPT_MISSING_OK, REINDEXOPT_REPORT_PROGRESS,
-    REINDEXOPT_VERBOSE, REINDEX_REL_CHECK_CONSTRAINTS,
-    REINDEX_REL_FORCE_INDEXES_PERMANENT, REINDEX_REL_FORCE_INDEXES_UNLOGGED,
-    REINDEX_REL_PROCESS_TOAST, REINDEX_REL_SUPPRESS_INDEX_USE,
+    reindex_index, reindex_relation, ReindexParams, RelationSetNewRelfilenumber,
+    REINDEXOPT_CONCURRENTLY, REINDEXOPT_MISSING_OK, REINDEXOPT_REPORT_PROGRESS, REINDEXOPT_VERBOSE,
+    REINDEX_REL_CHECK_CONSTRAINTS, REINDEX_REL_FORCE_INDEXES_PERMANENT,
+    REINDEX_REL_FORCE_INDEXES_UNLOGGED, REINDEX_REL_PROCESS_TOAST, REINDEX_REL_SUPPRESS_INDEX_USE,
 };
 mod reindex;
 
@@ -1676,10 +1784,22 @@ mod tests {
     #[test]
     fn cache_lookup_failures_are_catchable_xx000() {
         for (e, want) in [
-            (index_lookup_failed(16384), "cache lookup failed for index 16384"),
-            (relation_lookup_failed(16385), "cache lookup failed for relation 16385"),
-            (type_lookup_failed(16386), "cache lookup failed for type 16386"),
-            (opclass_lookup_failed(16387), "cache lookup failed for opclass 16387"),
+            (
+                index_lookup_failed(16384),
+                "cache lookup failed for index 16384",
+            ),
+            (
+                relation_lookup_failed(16385),
+                "cache lookup failed for relation 16385",
+            ),
+            (
+                type_lookup_failed(16386),
+                "cache lookup failed for type 16386",
+            ),
+            (
+                opclass_lookup_failed(16387),
+                "cache lookup failed for opclass 16387",
+            ),
         ] {
             assert_eq!(e.message(), want);
             assert_eq!(e.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
@@ -1690,8 +1810,14 @@ mod tests {
     #[test]
     fn elog_error_sites_are_catchable_xx000() {
         for (e, want) in [
-            (relation_tuple_missing(16384), "could not find tuple for relation 16384"),
-            (relation_has_no_storage("v"), "relation \"v\" does not have storage"),
+            (
+                relation_tuple_missing(16384),
+                "could not find tuple for relation 16384",
+            ),
+            (
+                relation_has_no_storage("v"),
+                "relation \"v\" does not have storage",
+            ),
             (incorrect_attribute_map(), "incorrect attribute map"),
         ] {
             assert_eq!(e.message(), want);

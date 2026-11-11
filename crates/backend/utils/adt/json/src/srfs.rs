@@ -128,6 +128,7 @@ pub fn object_keys_rows(mcx: Mcx<'_>, json: &[u8]) -> PgResult<SrfRows> {
 
 // Where json_each / json_array_elements put each row: C's tuplestore sink with the per-row tmp_cxt reset (the fmgr
 // path, pgrust main), or owned values collected for the Gravity SRF cells (each_pairs / elements_rows).
+#[allow(clippy::large_enum_variant)]
 enum RowSink<'a, 'mcx, T> {
     Srf { sink: &'a mut MaterializedSRF<'mcx>, tmp_cxt: MemoryContext },
     Collect(Vec<T>),

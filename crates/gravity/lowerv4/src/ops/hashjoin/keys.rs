@@ -2,6 +2,7 @@
 //! its side's row, the key pairs' type check, the row's key cells, their image (KeyHash's words) and their NULL flag.
 //! Budget 120 lines. Owner M1-JOIN.
 use gravity_decompose::catalog::Facts;
+#[allow(unused_imports)]
 use gravity_decompose::join::{JoinDesc, JoinKeyDecl, KeyRaise};
 use gravity_decompose::Op;
 use gravity_decompose::catalog::typefacts::{KeyColl, TypeFacts};

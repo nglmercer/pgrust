@@ -251,6 +251,7 @@ pub(crate) fn resolve_special_varno<'mcx>(
     let ps = dpns.plan.borrow();
 
     if var.varno == types_nodes::primnodes::OUTER_VAR && ps.outer_tlist.is_some() {
+        #[allow(clippy::unnecessary_unwrap)]
         let tle = get_tle_by_resno(ps.outer_tlist.unwrap(), var.varattno)
             .unwrap_or_else(|| panic!("bogus varattno for OUTER_VAR var: {}", var.varattno));
         // Descending to an Append/MergeAppend first child: union apprelids
@@ -280,6 +281,7 @@ pub(crate) fn resolve_special_varno<'mcx>(
         return r;
     }
     if var.varno == types_nodes::primnodes::INNER_VAR && ps.inner_tlist.is_some() {
+        #[allow(clippy::unnecessary_unwrap)]
         let tle = get_tle_by_resno(ps.inner_tlist.unwrap(), var.varattno)
             .unwrap_or_else(|| panic!("bogus varattno for INNER_VAR var: {}", var.varattno));
         let inner = ps.inner_plan.unwrap();
@@ -290,6 +292,7 @@ pub(crate) fn resolve_special_varno<'mcx>(
         return r;
     }
     if var.varno == types_nodes::primnodes::INDEX_VAR && ps.index_tlist.is_some() {
+        #[allow(clippy::unnecessary_unwrap)]
         let tle = get_tle_by_resno(ps.index_tlist.unwrap(), var.varattno)
             .unwrap_or_else(|| panic!("bogus varattno for INDEX_VAR var: {}", var.varattno));
         drop(ps);

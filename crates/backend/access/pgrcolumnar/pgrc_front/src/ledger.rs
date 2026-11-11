@@ -19,11 +19,31 @@ pub struct Cost {
     pub publish_us: u64,
 }
 
-pub const FIELDS: [&str; 9] = ["inputs", "live_in", "bytes_in", "bytes_out", "rows", "dropped", "thread_cpu_us", "wal_bytes", "publish_us"];
+pub const FIELDS: [&str; 9] = [
+    "inputs",
+    "live_in",
+    "bytes_in",
+    "bytes_out",
+    "rows",
+    "dropped",
+    "thread_cpu_us",
+    "wal_bytes",
+    "publish_us",
+];
 
 impl Cost {
     fn values(&self) -> [u64; 9] {
-        [self.inputs, self.live_in, self.bytes_in, self.bytes_out, self.rows, self.dropped, self.thread_cpu_us, self.wal_bytes, self.publish_us]
+        [
+            self.inputs,
+            self.live_in,
+            self.bytes_in,
+            self.bytes_out,
+            self.rows,
+            self.dropped,
+            self.thread_cpu_us,
+            self.wal_bytes,
+            self.publish_us,
+        ]
     }
 }
 
@@ -48,11 +68,24 @@ struct Entry {
 
 impl Entry {
     fn new(seq: u64) -> Entry {
-        Entry { seq, sums: [(0, [0; 9]); 6], last: Vec::with_capacity(LAST), sh: [[0; 5]; 2], cold: 0, first: None }
+        Entry {
+            seq,
+            sums: [(0, [0; 9]); 6],
+            last: Vec::with_capacity(LAST),
+            sh: [[0; 5]; 2],
+            cold: 0,
+            first: None,
+        }
     }
 }
 
-pub const SH_FIELDS: [&str; 5] = ["scored", "would_skip", "would_add", "would_reorder", "add_now"];
+pub const SH_FIELDS: [&str; 5] = [
+    "scored",
+    "would_skip",
+    "would_add",
+    "would_reorder",
+    "add_now",
+];
 const SCORED: usize = 0;
 const SKIP: usize = 1;
 const ADD: usize = 2;
@@ -93,7 +126,12 @@ fn csv<const N: usize>(v: &[u64; N]) -> String {
 
 impl Ledger {
     pub const fn new() -> Ledger {
-        Ledger { seq: 0, map: BTreeMap::new(), sweeps: 0, sweep_us: 0 }
+        Ledger {
+            seq: 0,
+            map: BTreeMap::new(),
+            sweeps: 0,
+            sweep_us: 0,
+        }
     }
 
     fn touch(&mut self, db: Oid, relid: Oid) -> &mut Entry {
@@ -122,10 +160,21 @@ impl Ledger {
         if e.last.len() == LAST {
             e.last.remove(0);
         }
-        e.last.push(Done { kind, reason, cost: v });
+        e.last.push(Done {
+            kind,
+            reason,
+            cost: v,
+        });
     }
 
-    pub fn shadow_job(&mut self, db: Oid, relid: Oid, scored: bool, skip: [bool; 2], first: Option<[f64; 2]>) {
+    pub fn shadow_job(
+        &mut self,
+        db: Oid,
+        relid: Oid,
+        scored: bool,
+        skip: [bool; 2],
+        first: Option<[f64; 2]>,
+    ) {
         let e = self.touch(db, relid);
         for (set, &sk) in e.sh.iter_mut().zip(&skip) {
             set[SCORED] += u64::from(scored);
@@ -153,7 +202,15 @@ impl Ledger {
     }
 
     pub fn shadow_pass_end(&mut self, db: Oid, relids: &[Oid]) {
-        let firsts: Vec<(Oid, [f64; 2])> = relids.iter().filter_map(|&r| self.map.get_mut(&(db, r)).and_then(|e| e.first.take()).map(|f| (r, f))).collect();
+        let firsts: Vec<(Oid, [f64; 2])> = relids
+            .iter()
+            .filter_map(|&r| {
+                self.map
+                    .get_mut(&(db, r))
+                    .and_then(|e| e.first.take())
+                    .map(|f| (r, f))
+            })
+            .collect();
         for set in 0..2 {
             let mut order: Vec<usize> = (0..firsts.len()).collect();
             order.sort_by(|&a, &b| firsts[a].1[set].total_cmp(&firsts[b].1[set]));
@@ -180,14 +237,25 @@ impl Ledger {
             let (n, s) = e.map_or((0, [0; 9]), |e| e.sums[r as usize]);
             out.push_str(&format!(" led.{}={n},{}", r.name(), csv(&s)));
         }
-        let last = e.map_or(String::new(), |e| {
-            let mut v: Vec<String> = Vec::with_capacity(LAST);
-            v.extend(e.last.iter().rev().map(|d| format!("{}:{}:{}", kind_name(d.kind), d.reason.name(), csv(&d.cost))));
-            v.join(";")
-        });
+        let last =
+            e.map_or(String::new(), |e| {
+                let mut v: Vec<String> = Vec::with_capacity(LAST);
+                v.extend(e.last.iter().rev().map(|d| {
+                    format!("{}:{}:{}", kind_name(d.kind), d.reason.name(), csv(&d.cost))
+                }));
+                v.join(";")
+            });
         out.push_str(&format!(" led.last={last}"));
         let sh = e.map_or([[0; 5]; 2], |e| e.sh);
-        out.push_str(&format!(" sh.fields={} sh.g={} sh.r={} sh.cold={} sh.sweeps={} sh.sweep_us={}", SH_FIELDS.join(","), csv(&sh[0]), csv(&sh[1]), e.map_or(0, |e| e.cold), self.sweeps, self.sweep_us));
+        out.push_str(&format!(
+            " sh.fields={} sh.g={} sh.r={} sh.cold={} sh.sweeps={} sh.sweep_us={}",
+            SH_FIELDS.join(","),
+            csv(&sh[0]),
+            csv(&sh[1]),
+            e.map_or(0, |e| e.cold),
+            self.sweeps,
+            self.sweep_us
+        ));
         out
     }
 }
@@ -227,7 +295,9 @@ pub fn thread_cpu_us() -> u64 {
 }
 
 pub fn thread_wal_bytes() -> u64 {
-    transam_xlog_seams::wal_usage::is_installed().then(transam_xlog_seams::wal_usage::call).map_or(0, |u| u.wal_bytes)
+    transam_xlog_seams::wal_usage::is_installed()
+        .then(transam_xlog_seams::wal_usage::call)
+        .map_or(0, |u| u.wal_bytes)
 }
 
 #[cfg(test)]
@@ -235,7 +305,17 @@ mod tests {
     use super::*;
 
     fn cost(rows: u64) -> Cost {
-        Cost { inputs: 4, live_in: 40 * rows, bytes_in: 9000, bytes_out: 8000, rows, dropped: 1, thread_cpu_us: 700, wal_bytes: 512, publish_us: 90 }
+        Cost {
+            inputs: 4,
+            live_in: 40 * rows,
+            bytes_in: 9000,
+            bytes_out: 8000,
+            rows,
+            dropped: 1,
+            thread_cpu_us: 700,
+            wal_bytes: 512,
+            publish_us: 90,
+        }
     }
 
     #[test]
@@ -250,19 +330,49 @@ mod tests {
             )
         );
         for i in 0..10 {
-            l.record(5, 16400, JobKind::Concat, if i < 9 { Reason::Fanin } else { Reason::Aged }, &cost(1000 + i));
+            l.record(
+                5,
+                16400,
+                JobKind::Concat,
+                if i < 9 { Reason::Fanin } else { Reason::Aged },
+                &cost(1000 + i),
+            );
         }
         l.record(5, 16401, JobKind::DvRewrite, Reason::DvFloor, &cost(5));
         let t = l.text(5, 16400);
         assert!(t.contains(" led.jobs=10 "), "{t}");
         let fanin_rows: u64 = (0..9).map(|i| 1000 + i).sum();
-        assert!(t.contains(&format!(" led.fanin=9,36,{},81000,72000,{fanin_rows},9,6300,4608,810 ", 40 * fanin_rows)), "{t}");
-        assert!(t.contains(" led.aged=1,4,40360,9000,8000,1009,1,700,512,90 "), "{t}");
-        let last = t.split(" led.last=").nth(1).unwrap().split(" sh.fields=").next().unwrap();
+        assert!(
+            t.contains(&format!(
+                " led.fanin=9,36,{},81000,72000,{fanin_rows},9,6300,4608,810 ",
+                40 * fanin_rows
+            )),
+            "{t}"
+        );
+        assert!(
+            t.contains(" led.aged=1,4,40360,9000,8000,1009,1,700,512,90 "),
+            "{t}"
+        );
+        let last = t
+            .split(" led.last=")
+            .nth(1)
+            .unwrap()
+            .split(" sh.fields=")
+            .next()
+            .unwrap();
         assert_eq!(last.split(';').count(), LAST);
-        assert!(last.starts_with("concat:aged:4,40360,") && last.ends_with("concat:fanin:4,40080,9000,8000,1002,1,700,512,90"), "{last}");
-        assert!(l.text(5, 16401).contains(" led.dv_floor=1,4,200,9000,8000,5,1,700,512,90 "));
-        assert!(l.text(6, 16400).contains(" led.jobs=0 "), "another database's table");
+        assert!(
+            last.starts_with("concat:aged:4,40360,")
+                && last.ends_with("concat:fanin:4,40080,9000,8000,1002,1,700,512,90"),
+            "{last}"
+        );
+        assert!(l
+            .text(5, 16401)
+            .contains(" led.dv_floor=1,4,200,9000,8000,5,1,700,512,90 "));
+        assert!(
+            l.text(6, 16400).contains(" led.jobs=0 "),
+            "another database's table"
+        );
     }
 
     #[test]
@@ -273,10 +383,30 @@ mod tests {
         l.record(5, 16400, JobKind::Run, Reason::Forced, &cost(7));
         let t = l.text(5, 16400);
         assert!(t.contains(" led.jobs=3 "), "{t}");
-        assert!(t.contains(&format!(" led.tiered=1,4,{},9000,8000,64000,1,700,512,90 led.last=", 40 * 64000)), "{t}");
-        assert!(t.contains(" led.forced=1,4,280,9000,8000,7,1,700,512,90 "), "{t}");
-        let last = t.split(" led.last=").nth(1).unwrap().split(" sh.fields=").next().unwrap();
-        assert!(last.starts_with("run:forced:") && last.contains(";run:tiered:4,2560000,") && last.ends_with(";concat:fanin:4,400,9000,8000,10,1,700,512,90"), "{last}");
+        assert!(
+            t.contains(&format!(
+                " led.tiered=1,4,{},9000,8000,64000,1,700,512,90 led.last=",
+                40 * 64000
+            )),
+            "{t}"
+        );
+        assert!(
+            t.contains(" led.forced=1,4,280,9000,8000,7,1,700,512,90 "),
+            "{t}"
+        );
+        let last = t
+            .split(" led.last=")
+            .nth(1)
+            .unwrap()
+            .split(" sh.fields=")
+            .next()
+            .unwrap();
+        assert!(
+            last.starts_with("run:forced:")
+                && last.contains(";run:tiered:4,2560000,")
+                && last.ends_with(";concat:fanin:4,400,9000,8000,10,1,700,512,90"),
+            "{last}"
+        );
     }
 
     #[test]
@@ -286,33 +416,61 @@ mod tests {
             l.record(5, 20000 + r, JobKind::Concat, Reason::Fanin, &cost(1));
         }
         l.record(5, 20000, JobKind::Concat, Reason::Fanin, &cost(1));
-        l.record(5, 20000 + TABLES as Oid, JobKind::Concat, Reason::Fanin, &cost(1));
+        l.record(
+            5,
+            20000 + TABLES as Oid,
+            JobKind::Concat,
+            Reason::Fanin,
+            &cost(1),
+        );
         assert_eq!(l.map.len(), TABLES);
-        assert!(l.text(5, 20000).contains(" led.jobs=2 "), "written again: kept");
-        assert!(l.text(5, 20001).contains(" led.jobs=0 "), "the oldest write went");
+        assert!(
+            l.text(5, 20000).contains(" led.jobs=2 "),
+            "written again: kept"
+        );
+        assert!(
+            l.text(5, 20001).contains(" led.jobs=0 "),
+            "the oldest write went"
+        );
     }
 
     #[test]
     fn the_shadow_counts_by_set_and_a_pass_out_of_payback_order_counts_a_reorder() {
         let mut l = Ledger::new();
         l.shadow_idle(5, 30000, 0, [0, 0]);
-        assert!(l.map.is_empty(), "a table with nothing to score gets no entry");
+        assert!(
+            l.map.is_empty(),
+            "a table with nothing to score gets no entry"
+        );
         l.shadow_idle(5, 30000, 3, [2, 0]);
         l.shadow_idle(5, 30000, 2, [1, 1]);
         l.shadow_job(5, 30000, true, [false, true], None);
         l.shadow_cold(5, 30001);
         let t = l.text(5, 30000);
-        assert!(t.contains(" sh.g=6,0,3,0,1 sh.r=6,1,1,0,1 sh.cold=0 "), "{t}");
+        assert!(
+            t.contains(" sh.g=6,0,3,0,1 sh.r=6,1,1,0,1 sh.cold=0 "),
+            "{t}"
+        );
         assert!(l.text(5, 30001).contains(" sh.cold=1 "));
         l.shadow_job(5, 30010, true, [false, false], Some([50.0, 1.0]));
         l.shadow_job(5, 30011, false, [false, false], Some([0.0, 2.0]));
         l.shadow_job(5, 30012, true, [false, false], Some([10.0, 3.0]));
         l.shadow_pass_end(5, &[30010, 30011, 30012, 30099]);
         let reorder = |l: &Ledger, r: Oid| [0, 1].map(|s| l.map[&(5, r)].sh[s][REORDER]);
-        assert_eq!([reorder(&l, 30010), reorder(&l, 30011), reorder(&l, 30012)], [[1, 0], [1, 0], [1, 0]]);
-        assert!(l.map[&(5, 30010)].first.is_none(), "cleared at the pass's end");
+        assert_eq!(
+            [reorder(&l, 30010), reorder(&l, 30011), reorder(&l, 30012)],
+            [[1, 0], [1, 0], [1, 0]]
+        );
+        assert!(
+            l.map[&(5, 30010)].first.is_none(),
+            "cleared at the pass's end"
+        );
         l.shadow_pass_end(5, &[30010, 30011, 30012]);
-        assert_eq!(reorder(&l, 30010), [1, 0], "no first job this pass: nothing counted");
+        assert_eq!(
+            reorder(&l, 30010),
+            [1, 0],
+            "no first job this pass: nothing counted"
+        );
         l.sweep_done(40);
         l.sweep_done(2);
         assert!(l.text(5, 30000).ends_with(" sh.sweeps=2 sh.sweep_us=42"));

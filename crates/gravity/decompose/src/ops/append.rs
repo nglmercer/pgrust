@@ -161,9 +161,10 @@ fn dup<'p>(op: &Op<'p>) -> Option<Op<'p>> {
     Some(match op {
         Op::Filter(n) => Op::Filter(*n),
         Op::Gate(n) => Op::Gate(*n),
-        Op::Project(l) => Op::Project(*l),
+        Op::Project(l) => Op::Project(l),
         Op::Limit { count, offset, ties } => Op::Limit { count: *count, offset: *offset, ties: ties.as_ref().map(|t| crate::ops::TieDesc { keys: t.keys.clone(), colls: t.colls.clone(), rows: t.rows.clone(), over: t.over }) },
-        Op::Join(JoinDesc::Probe { slot, jointype, clauses, keys, qual, unique, marks, decls, inner_node, outer_first, catalog }) => Op::Join(JoinDesc::Probe { slot: *slot, jointype: *jointype, clauses: *clauses, keys: *keys, qual: *qual, unique: *unique, marks: *marks, decls: decls.clone(), inner_node: *inner_node, outer_first: *outer_first, catalog: *catalog }),
+        #[allow(clippy::redundant_field_names)]
+        Op::Join(JoinDesc::Probe { slot, jointype, clauses, keys, qual, unique, marks, decls, inner_node, outer_first, catalog }) => Op::Join(JoinDesc::Probe { slot: *slot, jointype: *jointype, clauses: clauses, keys: keys, qual: qual, unique: *unique, marks: *marks, decls: decls.clone(), inner_node: *inner_node, outer_first: *outer_first, catalog: *catalog }),
         Op::SubPlan(d) => {
             let form = match d.form {
                 SubForm::Build => SubForm::Build,
@@ -293,7 +294,7 @@ fn map_append<'p>(b: &mut Builder<'p, '_>, a: &'p Append<'p>) -> Result<Open<'p>
 /// D3681: or the Append a top-level UPDATE / DELETE over twin result relations reads (`written`).
 fn relsets(b: &Builder<'_, '_>, a: &Append<'_>) -> bool {
     let read = b.stmt.commandType == types_nodes::nodes_enums::CmdType::CMD_SELECT && b.stmt.rowMarks.is_nil();
-    crate::admit::relsets_on() && (read || written(b, a)) && b.carry.is_none() && a.gravity_sort_col_idx.len() == 0 && a.appendplans.len() > 1
+    crate::admit::relsets_on() && (read || written(b, a)) && b.carry.is_none() && a.gravity_sort_col_idx.is_empty() && a.appendplans.len() > 1
 }
 
 /// D3681: Append `a` is the one under a top-level UPDATE / DELETE whose result relations are written alike (modifytable/mod.rs
@@ -320,6 +321,7 @@ fn leads(b: &Builder<'_, '_>, open: &Open<'_>, l: &SeqScan<'_>) -> bool {
     let write = b.write_set >= 0;
     let rowid = site.lanes().iter().any(|x| matches!(x.id, gravity_program::LaneId::RowId));
     let sys = b.graph.scan_lanes.iter().any(|x| x.node_id == l.scan.plan.plan_node_id && !(write && x.sys == TABLEOID_LANE));
+    #[allow(clippy::nonminimal_bool)]
     let plain = site.walk.is_none() && site.set.is_empty() && !site.rows_via_am && !(rowid && !write) && !sys;
     plain && open.union.is_none() && open.desc.consumes.is_empty() && open.ops.iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_))) && bare_scan(b, l)
 }
@@ -346,7 +348,7 @@ fn bare_rel(b: &Builder<'_, '_>, s: &SeqScan<'_>) -> bool {
 
 /// No system column and no whole row in `n`, every node of a kind the expression walk knows.
 fn plain_columns(n: Node<'_>) -> bool {
-    crate::expr::walk(n, &mut |x| !x.as_var().is_some_and(|v| v.varattno <= 0))
+    crate::expr::walk(n, &mut |x| x.as_var().is_none_or(|v| v.varattno > 0))
 }
 
 /// D3681: `plain_columns`, but scan `varno`'s own `ctid` (-1) and `tableoid` (-6), a write's row identity, read too.

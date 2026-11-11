@@ -13,7 +13,7 @@
 //!   index's `amgetbitmap` over its keys, And intersects its children's bitmaps (stopping at the first empty one), Or
 //!   unions them (`TIDBitmap::intersect` / `union`). The site's key words are the leaves' in leaf order. A leaf whose
 //!   key word is NULL is an empty bitmap (D2180): it empties an And, and an Or still unions its other children.
-//! Created by M2 (owner M2-HOSTS).
+//!   Created by M2 (owner M2-HOSTS).
 use std::rc::Weak;
 
 use gravity_abi::ctx::lane;
@@ -195,6 +195,7 @@ impl PageBatch {
                     sp.rowids[rows] = gravity_kernels::ops::scan::entries::tid_word(page, self.offs[rows]);
                 }
                 // bounded("key-columns: one cell per output column of a row (the row loop is the window's), at most MaxTupleAttributeNumber (1664) columns")
+                #[allow(clippy::needless_range_loop)]
                 for k in 0..natts {
                     self.valid[k * vw + rows / 64] |= ((self.nulls[k] == 0) as u64) << (rows % 64);
                     self.lanes[k * cap + rows] = if attnos[k] == SELF_ITEM_POINTER { &self.tids[rows] as *const ItemPointerData as u64 } else { self.vals[k] };

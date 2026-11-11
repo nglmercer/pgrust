@@ -98,7 +98,12 @@ fn resolve_chain<'mcx>(run: &PlannerRun<'mcx>, node: Node<'mcx>) -> Option<Chain
     if var.vartype != JSONBOID {
         return None;
     }
-    Some(Chain { varno: var.varno, varattno: var.varattno, segs_rev, terminal_text })
+    Some(Chain {
+        varno: var.varno,
+        varattno: var.varattno,
+        segs_rev,
+        terminal_text,
+    })
 }
 
 fn deconstruct_text_array<'mcx>(
@@ -115,7 +120,9 @@ fn deconstruct_text_array<'mcx>(
         if nulls[i] {
             return Ok(None);
         }
-        let Some(p) = varlena_payload(v) else { return Ok(None) };
+        let Some(p) = varlena_payload(v) else {
+            return Ok(None);
+        };
         out.push(p);
     }
     Ok(Some(out))
@@ -161,7 +168,10 @@ fn lookup_blob<'mcx>(
     let Some(base) = get_att_stats(run, rte.relid, varattno, rte.inh)? else {
         return Ok(None);
     };
-    let Some(slot) = base.slots.iter().find(|s| s.kind == fmt::STATISTIC_KIND_JSONB_PATHS)
+    let Some(slot) = base
+        .slots
+        .iter()
+        .find(|s| s.kind == fmt::STATISTIC_KIND_JSONB_PATHS)
     else {
         return Ok(None);
     };
@@ -169,8 +179,12 @@ fn lookup_blob<'mcx>(
     if vals.len() != 1 {
         return Ok(None);
     }
-    let Some(bytes) = varlena_payload(vals[0]) else { return Ok(None) };
-    let Some(hdr) = fmt::header(bytes) else { return Ok(None) };
+    let Some(bytes) = varlena_payload(vals[0]) else {
+        return Ok(None);
+    };
+    let Some(hdr) = fmt::header(bytes) else {
+        return Ok(None);
+    };
     if hdr.analyzed_rows == 0 || hdr.samplerows == 0 {
         return Ok(None);
     }
@@ -179,7 +193,9 @@ fn lookup_blob<'mcx>(
     let offs = match cached {
         Some(o) => o,
         None => {
-            let Some(o) = fmt::index(bytes) else { return Ok(None) };
+            let Some(o) = fmt::index(bytes) else {
+                return Ok(None);
+            };
             let o: Rc<[u32]> = o.into();
             INDEX_CACHE.with(|c| {
                 let mut c = c.borrow_mut();
@@ -220,18 +236,24 @@ pub(crate) fn examine_jsonb_path_stats<'mcx>(
     let mut cast: Option<(Oid, CastClass)> = None;
     let mut basenode = node;
     if let Some(cio) = node.as_coerce_via_io() {
-        let Some(class) = cast_class(cio.resulttype) else { return Ok(()) };
+        let Some(class) = cast_class(cio.resulttype) else {
+            return Ok(());
+        };
         cast = Some((cio.resulttype, class));
         basenode = strip_relabel(cio.arg);
     }
-    let Some(chain) = resolve_chain(run, basenode) else { return Ok(()) };
+    let Some(chain) = resolve_chain(run, basenode) else {
+        return Ok(());
+    };
     if chain.varno != varno || chain.segs_rev.is_empty() {
         return Ok(());
     }
     if cast.is_some() && !chain.terminal_text {
         return Ok(());
     }
-    let Some(blob) = lookup_blob(run, chain.varno, chain.varattno)? else { return Ok(()) };
+    let Some(blob) = lookup_blob(run, chain.varno, chain.varattno)? else {
+        return Ok(());
+    };
     if may_index_array(&blob, &chain) {
         return Ok(());
     }
@@ -240,8 +262,11 @@ pub(crate) fn examine_jsonb_path_stats<'mcx>(
     let bundle = match blob.find(&key) {
         Some(r) => {
             let c = &r.counts;
-            let nonnull_docs =
-                if chain.terminal_text { c.present.saturating_sub(c.json_null) } else { c.present };
+            let nonnull_docs = if chain.terminal_text {
+                c.present.saturating_sub(c.json_null)
+            } else {
+                c.present
+            };
             let stanullfrac = (1.0 - nonnull_docs as f64 * per_doc).clamp(0.0, 1.0) as f32;
             let mut slots: PgVec<'mcx, PgStatisticSlotData<'mcx>> = PgVec::new_in(run.mcx);
             match cast {
@@ -305,7 +330,10 @@ fn text_mcv<'mcx>(
     let mut numbers: PgVec<'mcx, f32> = mcx::vec_with_capacity_in(run.mcx, r.nmcv())?;
     for (cnt, v) in r.mcvs() {
         offs.push(image.len());
-        mcx::vec_append_bytes(&mut image, &datum::set_varsize_4b(v.len() + datum::VARHDRSZ))?;
+        mcx::vec_append_bytes(
+            &mut image,
+            &datum::set_varsize_4b(v.len() + datum::VARHDRSZ),
+        )?;
         mcx::vec_append_bytes(&mut image, v)?;
         while !image.len().is_multiple_of(8) {
             mcx::vec_append_bytes(&mut image, &[0u8])?;
@@ -334,7 +362,13 @@ impl Converter {
         let (typinput, typioparam) = lsyscache::getTypeInputInfo(typid)?;
         let flinfo = fmgr_core::fmgr_info(typinput)?;
         let (typlen, typbyval) = lsyscache::get_typlenbyval(typid)?;
-        Ok(Converter { typid, flinfo, typioparam, typlen, typbyval })
+        Ok(Converter {
+            typid,
+            flinfo,
+            typioparam,
+            typlen,
+            typbyval,
+        })
     }
 
     /// By-reference results are copied into `image` (offset returned; callers rebase).
@@ -344,7 +378,9 @@ impl Converter {
         text: &[u8],
         image: &mut PgVec<'mcx, u8>,
     ) -> PgResult<Option<Datum>> {
-        let Ok(cstr) = std::ffi::CString::new(text) else { return Ok(None) };
+        let Ok(cstr) = std::ffi::CString::new(text) else {
+            return Ok(None);
+        };
         let mut esn = types_fmgr::ErrorSaveNode::new(false);
         let mut d = Datum::null();
         let ok = types_fmgr::input_function_call_safe(
@@ -503,11 +539,15 @@ pub(crate) fn try_jsonb_matching_sel<'mcx>(
         _ => return Ok(None),
     };
     let lhs = strip_relabel(*run.root.expr_node(args[0]));
-    let Some(chain) = resolve_chain(run, lhs) else { return Ok(None) };
+    let Some(chain) = resolve_chain(run, lhs) else {
+        return Ok(None);
+    };
     if chain.terminal_text || (varrelid != 0 && chain.varno != varrelid) {
         return Ok(None);
     }
-    let Some(c) = run.root.expr_node(args[1]).as_const() else { return Ok(None) };
+    let Some(c) = run.root.expr_node(args[1]).as_const() else {
+        return Ok(None);
+    };
     if c.constisnull {
         return Ok(None);
     }
@@ -515,7 +555,9 @@ pub(crate) fn try_jsonb_matching_sel<'mcx>(
         if c.consttype != TEXTOID {
             return Ok(None);
         }
-        let Some(k) = varlena_payload(c.constvalue) else { return Ok(None) };
+        let Some(k) = varlena_payload(c.constvalue) else {
+            return Ok(None);
+        };
         std::vec::Vec::from([k])
     } else {
         if c.consttype != TEXTARRAYOID {
@@ -526,7 +568,9 @@ pub(crate) fn try_jsonb_matching_sel<'mcx>(
             _ => return Ok(None),
         }
     };
-    let Some(blob) = lookup_blob(run, chain.varno, chain.varattno)? else { return Ok(None) };
+    let Some(blob) = lookup_blob(run, chain.varno, chain.varattno)? else {
+        return Ok(None);
+    };
     if may_index_array(&blob, &chain) {
         return Ok(None);
     }
@@ -539,8 +583,9 @@ pub(crate) fn try_jsonb_matching_sel<'mcx>(
     let untracked = blob.untracked_presence();
     let freqs = keys.iter().map(|k| {
         let key = fmt::encode_path(chain.segs_rev.iter().rev().copied().chain([*k]));
-        blob.find(&key)
-            .map_or(untracked, |r| (r.counts.present as f64 * per_doc).clamp(0.0, 1.0))
+        blob.find(&key).map_or(untracked, |r| {
+            (r.counts.present as f64 * per_doc).clamp(0.0, 1.0)
+        })
     });
     let sel = if any {
         1.0 - freqs.fold(1.0, |a, f| a * (1.0 - f))
@@ -571,7 +616,10 @@ fn looks_like_index(seg: &[u8]) -> bool {
         .position(|&b| !matches!(b, b' ' | b'\t' | b'\n' | 0x0b | 0x0c | b'\r'))
         .unwrap_or(seg.len());
     let s = &seg[start..];
-    let s = s.strip_prefix(b"-").or_else(|| s.strip_prefix(b"+")).unwrap_or(s);
+    let s = s
+        .strip_prefix(b"-")
+        .or_else(|| s.strip_prefix(b"+"))
+        .unwrap_or(s);
     !s.is_empty() && s.iter().all(u8::is_ascii_digit)
 }
 

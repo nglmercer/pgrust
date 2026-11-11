@@ -66,10 +66,21 @@ pub enum Logical {
     Bson,
     Uuid,
     Date,
-    Time { unit: TimeUnit },
-    Timestamp { unit: TimeUnit, utc: bool },
-    Int { bits: u8, signed: bool },
-    Decimal { precision: i32, scale: i32 },
+    Time {
+        unit: TimeUnit,
+    },
+    Timestamp {
+        unit: TimeUnit,
+        utc: bool,
+    },
+    Int {
+        bits: u8,
+        signed: bool,
+    },
+    Decimal {
+        precision: i32,
+        scale: i32,
+    },
     Interval,
     Float16,
     /// Group annotations (never on a leaf; carried in `Ancestor::logical`).
@@ -156,7 +167,11 @@ impl ColumnSchema {
             max_def,
             logical,
             max_rep: 0,
-            repetition: if max_def == 0 { Repetition::Required } else { Repetition::Optional },
+            repetition: if max_def == 0 {
+                Repetition::Required
+            } else {
+                Repetition::Optional
+            },
             path: vec![name.to_string()],
             ancestors: Vec::new(),
         }
@@ -278,10 +293,15 @@ impl FileMeta {
     pub fn heap_bytes(&self) -> u64 {
         use crate::held::cap_bytes;
         let s = |x: &String| x.capacity() as u64;
-        let mut b = cap_bytes(self.columns.capacity(), &self.columns) + cap_bytes(self.row_groups.capacity(), &self.row_groups) + self.created_by.as_ref().map_or(0, s);
+        let mut b = cap_bytes(self.columns.capacity(), &self.columns)
+            + cap_bytes(self.row_groups.capacity(), &self.row_groups)
+            + self.created_by.as_ref().map_or(0, s);
         for c in &self.columns {
-            b += s(&c.name) + cap_bytes(c.path.capacity(), &c.path) + c.path.iter().map(s).sum::<u64>();
-            b += cap_bytes(c.ancestors.capacity(), &c.ancestors) + c.ancestors.iter().map(|a| s(&a.name)).sum::<u64>();
+            b += s(&c.name)
+                + cap_bytes(c.path.capacity(), &c.path)
+                + c.path.iter().map(s).sum::<u64>();
+            b += cap_bytes(c.ancestors.capacity(), &c.ancestors)
+                + c.ancestors.iter().map(|a| s(&a.name)).sum::<u64>();
         }
         for rg in &self.row_groups {
             b += cap_bytes(rg.chunks.capacity(), &rg.chunks);
@@ -344,15 +364,21 @@ pub fn parse_file_meta_on(buf: &[u8], owner: Option<memledger::Owner>) -> PgResu
                     .ok_or_else(|| corrupt("row_groups precede schema"))?
                     .len();
                 let mut rgs = Vec::new();
-                rgs.try_reserve(n).map_err(|_| corrupt("row group list too large"))?; // alloc: Exec charged FileMeta::held (heap_bytes, synced as the parse ends)
+                rgs.try_reserve(n)
+                    .map_err(|_| corrupt("row group list too large"))?; // alloc: Exec charged FileMeta::held (heap_bytes, synced as the parse ends)
                 for _ in 0..n {
-                    rgs.push(parse_row_group(&mut cur, schema.as_ref().unwrap(), ncols, owner)?); // alloc: Exec charged FileMeta::held (heap_bytes, synced as the parse ends)
+                    rgs.push(parse_row_group(
+                        &mut cur,
+                        schema.as_ref().unwrap(),
+                        ncols,
+                        owner,
+                    )?); // alloc: Exec charged FileMeta::held (heap_bytes, synced as the parse ends)
                 }
                 row_groups = Some(rgs);
             }
             6 => {
-                created_by =
-                    Some(String::from_utf8_lossy(cur.binary_value(t)?).into_owned()); // alloc: Exec charged FileMeta::held (heap_bytes, synced as the parse ends)
+                created_by = Some(String::from_utf8_lossy(cur.binary_value(t)?).into_owned());
+                // alloc: Exec charged FileMeta::held (heap_bytes, synced as the parse ends)
             }
             8 => {
                 // EncryptionAlgorithm on a plaintext-footer file: columns are
@@ -371,16 +397,26 @@ pub fn parse_file_meta_on(buf: &[u8], owner: Option<memledger::Owner>) -> PgResu
     if num_rows < 0 {
         return Err(corrupt("negative num_rows"));
     }
-    let rg_rows: i64 = row_groups.iter().map(|rg| rg.num_rows).try_fold(0i64, |a, b| {
-        a.checked_add(b).ok_or_else(|| corrupt("row counts overflow"))
-    })?;
+    let rg_rows: i64 = row_groups
+        .iter()
+        .map(|rg| rg.num_rows)
+        .try_fold(0i64, |a, b| {
+            a.checked_add(b)
+                .ok_or_else(|| corrupt("row counts overflow"))
+        })?;
     // An early parquet-rs left FileMetaData.num_rows at zero; the row
     // groups are authoritative then. Any other disagreement is corruption.
     let num_rows = if num_rows == 0 { rg_rows } else { num_rows };
     if rg_rows != num_rows {
         return Err(corrupt("row group row counts do not sum to num_rows"));
     }
-    let mut meta = FileMeta { held: crate::held::HeldCharge::new(owner), num_rows, columns, row_groups, created_by };
+    let mut meta = FileMeta {
+        held: crate::held::HeldCharge::new(owner),
+        num_rows,
+        columns,
+        row_groups,
+        created_by,
+    };
     let held = meta.heap_bytes();
     meta.held.sync(held);
     Ok(meta)
@@ -429,7 +465,8 @@ fn parse_schema(cur: &mut Cur<'_>, owner: Option<memledger::Owner>) -> PgResult<
         anc: Ancestor,
     }
     // memsig E-pub t5: the walk's open groups (at most MAX_SCHEMA_DEPTH), on the load's owner while the walk lives
-    let mut stack: memledger::ChargedVec<Frame> = memledger::ChargedVec::new(owner, memledger::Kind::Region);
+    let mut stack: memledger::ChargedVec<Frame> =
+        memledger::ChargedVec::new(owner, memledger::Kind::Region);
     let mut root_left = root.num_children;
     let mut cols: Vec<ColumnSchema> = Vec::new();
     let mut consumed = 1usize;
@@ -454,20 +491,21 @@ fn parse_schema(cur: &mut Cur<'_>, owner: Option<memledger::Owner>) -> PgResult<
             if stack.len() >= MAX_SCHEMA_DEPTH {
                 return Err(corrupt("schema nests too deeply"));
             }
-            stack.push(Frame {
-                children_left: el.num_children,
-                anc: Ancestor {
-                    name: el.name,
-                    repetition: el.repetition,
-                    logical: match el.logical {
-                        Logical::List | Logical::Map => el.logical,
-                        _ => Logical::None,
+            stack
+                .push(Frame {
+                    children_left: el.num_children,
+                    anc: Ancestor {
+                        name: el.name,
+                        repetition: el.repetition,
+                        logical: match el.logical {
+                            Logical::List | Logical::Map => el.logical,
+                            _ => Logical::None,
+                        },
+                        def_level,
+                        rep_level,
                     },
-                    def_level,
-                    rep_level,
-                },
-            })
-            .map_err(|_| crate::oom_in("reading the parquet schema"))?;
+                })
+                .map_err(|_| crate::oom_in("reading the parquet schema"))?;
         } else {
             let Some(phys) = el.phys else {
                 return Err(corrupt("leaf schema element without a physical type"));
@@ -475,8 +513,13 @@ fn parse_schema(cur: &mut Cur<'_>, owner: Option<memledger::Owner>) -> PgResult<
             let ancestors: Vec<Ancestor> = stack.iter().map(|f| f.anc.clone()).collect(); // alloc: Exec charged FileMeta::held (heap_bytes, synced as the parse ends)
             let mut path: Vec<String> = ancestors.iter().map(|a| a.name.clone()).collect(); // alloc: Exec charged FileMeta::held (heap_bytes, synced as the parse ends)
             path.push(el.name); // alloc: Exec charged FileMeta::held (heap_bytes, synced as the parse ends)
-            let name = if path.len() == 1 { path[0].clone() } else { path.join(".") }; // alloc: Exec charged FileMeta::held (heap_bytes, synced as the parse ends)
-            cols.push(ColumnSchema { // alloc: Exec charged FileMeta::held (heap_bytes, synced as the parse ends)
+            let name = if path.len() == 1 {
+                path[0].clone()
+            } else {
+                path.join(".")
+            }; // alloc: Exec charged FileMeta::held (heap_bytes, synced as the parse ends)
+            cols.push(ColumnSchema {
+                // alloc: Exec charged FileMeta::held (heap_bytes, synced as the parse ends)
                 name,
                 phys,
                 max_def: def_level,
@@ -532,8 +575,7 @@ fn parse_schema_element(cur: &mut Cur<'_>) -> PgResult<SchemaElem> {
             }
             SE_NUM_CHILDREN => {
                 let n = cur.i32_value(t)?;
-                num_children =
-                    usize::try_from(n).map_err(|_| corrupt("negative num_children"))?;
+                num_children = usize::try_from(n).map_err(|_| corrupt("negative num_children"))?;
             }
             SE_CONVERTED => converted = Some(cur.i32_value(t)?),
             SE_SCALE => scale = Some(cur.i32_value(t)?),
@@ -561,7 +603,9 @@ fn parse_schema_element(cur: &mut Cur<'_>) -> PgResult<SchemaElem> {
         Some(7) => {
             let n = type_length.unwrap_or(-1);
             if n <= 0 {
-                return Err(corrupt("FIXED_LEN_BYTE_ARRAY without a positive type_length"));
+                return Err(corrupt(
+                    "FIXED_LEN_BYTE_ARRAY without a positive type_length",
+                ));
             }
             Some(Phys::Flba(n as u32))
         }
@@ -580,7 +624,13 @@ fn parse_schema_element(cur: &mut Cur<'_>) -> PgResult<SchemaElem> {
         Some(l) => l,
         None => converted_to_logical(converted, scale, precision),
     };
-    Ok(SchemaElem { name, phys, repetition, num_children, logical })
+    Ok(SchemaElem {
+        name,
+        phys,
+        repetition,
+        num_children,
+        logical,
+    })
 }
 
 fn converted_to_logical(
@@ -590,33 +640,67 @@ fn converted_to_logical(
 ) -> Logical {
     match converted {
         None => Logical::None,
-        Some(0) => Logical::String,                       // UTF8
-        Some(1) => Logical::Map,                          // MAP
-        Some(2) => Logical::None,                         // MAP_KEY_VALUE
-        Some(3) => Logical::List,                         // LIST
-        Some(4) => Logical::Enum,                         // ENUM
+        Some(0) => Logical::String, // UTF8
+        Some(1) => Logical::Map,    // MAP
+        Some(2) => Logical::None,   // MAP_KEY_VALUE
+        Some(3) => Logical::List,   // LIST
+        Some(4) => Logical::Enum,   // ENUM
         Some(5) => Logical::Decimal {
             precision: precision.unwrap_or(0),
             scale: scale.unwrap_or(0),
         },
-        Some(6) => Logical::Date,                         // DATE
-        Some(7) => Logical::Time { unit: TimeUnit::Millis }, // TIME_MILLIS
-        Some(8) => Logical::Time { unit: TimeUnit::Micros }, // TIME_MICROS
+        Some(6) => Logical::Date, // DATE
+        Some(7) => Logical::Time {
+            unit: TimeUnit::Millis,
+        }, // TIME_MILLIS
+        Some(8) => Logical::Time {
+            unit: TimeUnit::Micros,
+        }, // TIME_MICROS
         // Legacy converted timestamps carry no UTC flag; instant semantics
         // (adjusted to UTC) is the convention every writer follows.
-        Some(9) => Logical::Timestamp { unit: TimeUnit::Millis, utc: true },
-        Some(10) => Logical::Timestamp { unit: TimeUnit::Micros, utc: true },
-        Some(11) => Logical::Int { bits: 8, signed: false },  // UINT_8
-        Some(12) => Logical::Int { bits: 16, signed: false }, // UINT_16
-        Some(13) => Logical::Int { bits: 32, signed: false }, // UINT_32
-        Some(14) => Logical::Int { bits: 64, signed: false }, // UINT_64
-        Some(15) => Logical::Int { bits: 8, signed: true },   // INT_8
-        Some(16) => Logical::Int { bits: 16, signed: true },  // INT_16
-        Some(17) => Logical::Int { bits: 32, signed: true },  // INT_32
-        Some(18) => Logical::Int { bits: 64, signed: true },  // INT_64
-        Some(19) => Logical::Json,                            // JSON
-        Some(20) => Logical::Bson,                            // BSON
-        Some(21) => Logical::Interval,                        // INTERVAL
+        Some(9) => Logical::Timestamp {
+            unit: TimeUnit::Millis,
+            utc: true,
+        },
+        Some(10) => Logical::Timestamp {
+            unit: TimeUnit::Micros,
+            utc: true,
+        },
+        Some(11) => Logical::Int {
+            bits: 8,
+            signed: false,
+        }, // UINT_8
+        Some(12) => Logical::Int {
+            bits: 16,
+            signed: false,
+        }, // UINT_16
+        Some(13) => Logical::Int {
+            bits: 32,
+            signed: false,
+        }, // UINT_32
+        Some(14) => Logical::Int {
+            bits: 64,
+            signed: false,
+        }, // UINT_64
+        Some(15) => Logical::Int {
+            bits: 8,
+            signed: true,
+        }, // INT_8
+        Some(16) => Logical::Int {
+            bits: 16,
+            signed: true,
+        }, // INT_16
+        Some(17) => Logical::Int {
+            bits: 32,
+            signed: true,
+        }, // INT_32
+        Some(18) => Logical::Int {
+            bits: 64,
+            signed: true,
+        }, // INT_64
+        Some(19) => Logical::Json,     // JSON
+        Some(20) => Logical::Bson,     // BSON
+        Some(21) => Logical::Interval, // INTERVAL
         Some(_) => Logical::Other,
     }
 }
@@ -771,7 +855,8 @@ fn parse_row_group(
                     return Err(corrupt("row group chunk count does not match schema"));
                 }
                 let mut v = Vec::new();
-                v.try_reserve(n).map_err(|_| corrupt("chunk list too large"))?; // alloc: Exec charged FileMeta::held (heap_bytes, synced as the parse ends)
+                v.try_reserve(n)
+                    .map_err(|_| corrupt("chunk list too large"))?; // alloc: Exec charged FileMeta::held (heap_bytes, synced as the parse ends)
                 for i in 0..n {
                     v.push(parse_column_chunk(cur, schema, i, owner)?); // alloc: Exec charged FileMeta::held (heap_bytes, synced as the parse ends)
                 }
@@ -815,7 +900,10 @@ fn span(offset: Option<i64>, length: Option<i32>) -> PgResult<Option<FileSpan>> 
             if o < 0 || l < 0 {
                 return Err(corrupt("negative index or bloom filter location"));
             }
-            Ok(Some(FileSpan { offset: o, length: i64::from(l) }))
+            Ok(Some(FileSpan {
+                offset: o,
+                length: i64::from(l),
+            }))
         }
         _ => Ok(None),
     }
@@ -834,7 +922,8 @@ fn parse_column_chunk(
         match id {
             CC_FILE_PATH => {
                 let p = cur.binary_value(t)?;
-                return Err(unsupported(format!( // alloc: Cold
+                return Err(unsupported(format!(
+                    // alloc: Cold
                     "column chunk stored in external file \"{}\"",
                     String::from_utf8_lossy(p) // alloc: Cold
                 )));
@@ -899,21 +988,29 @@ fn parse_column_meta(
                 // writer ever permutes them.
                 let mut matches_ordinal = schema.get(ordinal).is_some_and(|c| c.path.len() == n);
                 // memsig E-pub t5: on the load's owner while the match lives
-                let mut parts: memledger::ChargedVec<&[u8]> = memledger::ChargedVec::new(owner, memledger::Kind::Region);
-                parts.try_reserve(n).map_err(|_| crate::oom_in("reading column path"))?;
+                let mut parts: memledger::ChargedVec<&[u8]> =
+                    memledger::ChargedVec::new(owner, memledger::Kind::Region);
+                parts
+                    .try_reserve(n)
+                    .map_err(|_| crate::oom_in("reading column path"))?;
                 for i in 0..n {
                     let part = cur.binary()?;
                     if matches_ordinal && schema[ordinal].path[i].as_bytes() != part {
                         matches_ordinal = false;
                     }
-                    parts.push(part).map_err(|_| crate::oom_in("reading column path"))?;
+                    parts
+                        .push(part)
+                        .map_err(|_| crate::oom_in("reading column path"))?;
                 }
                 column = if matches_ordinal {
                     Some(ordinal)
                 } else {
                     schema.iter().position(|c| {
                         c.path.len() == n
-                            && c.path.iter().zip(parts.iter()).all(|(a, b)| a.as_bytes() == *b)
+                            && c.path
+                                .iter()
+                                .zip(parts.iter())
+                                .all(|(a, b)| a.as_bytes() == *b)
                     })
                 };
                 if column.is_none() {

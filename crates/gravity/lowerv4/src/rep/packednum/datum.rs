@@ -28,7 +28,7 @@ pub(crate) const ARM: DatumArm = DatumArm { datum, retain, block: None };
 /// A numeric image of an i64 mantissa (`make_result`'s short form): a 4-byte varlena header, the 2-byte short header and
 /// at most 6 base-10000 digits of 2 bytes (19 decimal digits span at most 6 groups aligned on the decimal point), rounded
 /// up to whole words for the stack slot.
-pub(crate) const NUM_IMAGE_BYTES: u32 = (4 + 2 + 6 * 2 + 7) / 8 * 8;
+pub(crate) const NUM_IMAGE_BYTES: u32 = (4u32 + 2 + 6 * 2).div_ceil(8) * 8;
 
 /// The cell's form, facts and element word: `(verbatim, word)` for a `Window` lane (its kind byte, then the element),
 /// `(false, val)` for a kept `Word`.

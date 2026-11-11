@@ -5,10 +5,10 @@ pub mod compact;
 pub mod compile;
 pub mod dml;
 pub mod fetch;
-pub mod ixfetch;
+pub mod filter;
 pub mod ixbitmap;
 pub mod ixclean;
-pub mod filter;
+pub mod ixfetch;
 pub mod ledger;
 pub mod logical;
 pub mod maint;
@@ -30,8 +30,8 @@ pub mod xact;
 
 use mcx::Mcx;
 pub use pgrc_format::class::ColSchema;
-use types_error::PgResult;
 use types_core::Oid;
+use types_error::PgResult;
 use types_rel::{NoLock, Relation};
 
 /// Activate slot 0 of a pgrcolumnar table without an active segment and create its tombstone companion; the caller's
@@ -51,7 +51,14 @@ fn ensure_as<'mcx>(mcx: Mcx<'mcx>, relid: Oid, stacked: bool) -> PgResult<()> {
     // leaves sealed segments without an active one, and an older snapshot may still read them
     let out = match pgrc && ring::find_active(&rel)?.is_none() {
         true => match ring::newest(&rel)?.map(|g| ring::activation_slot(ring::records(&g))) {
-            Some(None) => Err(Box::new(types_error::PgError::error(format!("pgrcolumnar: all {} segment slots of \"{}\" are in use", pgrc_format::rowid::SEG_SLOTS, rel.name())).with_sqlstate(types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED))),
+            Some(None) => Err(Box::new(
+                types_error::PgError::error(format!(
+                    "pgrcolumnar: all {} segment slots of \"{}\" are in use",
+                    pgrc_format::rowid::SEG_SLOTS,
+                    rel.name()
+                ))
+                .with_sqlstate(types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+            )),
             free => ring::activate(mcx, &rel, free.flatten().unwrap_or(0), 0, stacked),
         },
         false => Ok(()),
@@ -70,7 +77,8 @@ fn ensure_as<'mcx>(mcx: Mcx<'mcx>, relid: Oid, stacked: bool) -> PgResult<()> {
 /// with a table AM (`RelationInitTableAccessMethod` skips the other relkinds), so for a partitioned parent it answers
 /// by what the backend opened before: no in a fresh session, yes after any pgrcolumnar table.
 pub fn is_pgrc_table(rel: &types_rel::RelationData<'_>) -> bool {
-    types_rel::RELKIND_HAS_TABLE_AM(rel.rd_rel.relkind) && tableam_vocab::is_pgrcolumnar_am_oid(rel.rd_rel.relam)
+    types_rel::RELKIND_HAS_TABLE_AM(rel.rd_rel.relkind)
+        && tableam_vocab::is_pgrcolumnar_am_oid(rel.rd_rel.relam)
 }
 
 /// Rows only the row executor reads right (design §6.5): live segment rows or uncompiled tombstones, or a statement
@@ -81,7 +89,11 @@ pub fn front_bearing<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>) -> PgResult<boo
 }
 
 fn front_bearing_as<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, served: bool) -> PgResult<bool> {
-    let segs = if served { ring::front_bearing_served(mcx, rel)? } else { ring::front_bearing_parts(mcx, rel)? };
+    let segs = if served {
+        ring::front_bearing_served(mcx, rel)?
+    } else {
+        ring::front_bearing_parts(mcx, rel)?
+    };
     if segs {
         return Ok(true);
     }
@@ -94,7 +106,8 @@ pub fn front_bearing_reads<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>) -> PgResu
 
 pub fn front_blocks_relid<'mcx>(mcx: Mcx<'mcx>, relid: Oid) -> PgResult<(u64, u64)> {
     let rel = table::table_open(mcx, relid, NoLock)?;
-    let out = ring::unsealed_blocks(mcx, &rel).and_then(|seg| Ok((seg, compile::blocks(mcx, &rel)? as u64)));
+    let out = ring::unsealed_blocks(mcx, &rel)
+        .and_then(|seg| Ok((seg, compile::blocks(mcx, &rel)? as u64)));
     rel.close(NoLock)?;
     out
 }
@@ -119,7 +132,13 @@ fn front_bearing_relid_as<'mcx>(mcx: Mcx<'mcx>, relid: Oid, served: bool) -> PgR
     let pgrc = is_pgrc_table(&rel);
     let out = match pgrc {
         true if served && rel.rd_islocaltemp => Ok(true),
-        true => front_bearing_as(mcx, &rel, served).and_then(|b| if b || !served { Ok(b) } else { predicate_lock_served(&rel).map(|()| false) }),
+        true => front_bearing_as(mcx, &rel, served).and_then(|b| {
+            if b || !served {
+                Ok(b)
+            } else {
+                predicate_lock_served(&rel).map(|()| false)
+            }
+        }),
         false => Ok(false),
     };
     rel.close(NoLock)?;
@@ -144,7 +163,10 @@ fn predicate_lock_served(rel: &Relation<'_>) -> PgResult<()> {
 /// Gravity fill the columns those parts lack.
 pub fn served_lock(rel: &Relation<'_>) -> PgResult<()> {
     if pgrc_am::fastadd::lagged(rel)? {
-        return Err(Box::new(types_error::PgError::error(format!("pgrcolumnar: \"{}\" holds parts of an older schema", rel.name()))));
+        return Err(Box::new(types_error::PgError::error(format!(
+            "pgrcolumnar: \"{}\" holds parts of an older schema",
+            rel.name()
+        ))));
     }
     predicate_lock_served(rel)
 }
@@ -165,7 +187,9 @@ pub fn seal_front<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>) -> PgResult<()> {
 }
 
 pub fn segments(parent: Oid) -> PgResult<Vec<Oid>> {
-    (0..pgrc_format::rowid::SEG_SLOTS).filter_map(|s| pgrc_front_seams::segment_relid::call(parent, s).transpose()).collect()
+    (0..pgrc_format::rowid::SEG_SLOTS)
+        .filter_map(|s| pgrc_front_seams::segment_relid::call(parent, s).transpose())
+        .collect()
 }
 
 pub fn companions(parent: Oid) -> PgResult<Vec<Oid>> {

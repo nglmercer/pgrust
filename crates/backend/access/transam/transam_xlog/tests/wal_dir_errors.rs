@@ -35,13 +35,23 @@ fn wal_dir_failures_report_like_c() {
     std::fs::set_permissions(&wal, std::fs::Permissions::from_mode(0o555)).unwrap();
     let err = transam_xlog::write::XLogFileInit(1, 1).unwrap_err();
     let msg = err.message().to_string();
-    let pfx = format!("could not create file \"pg_wal/xlogtemp.{}.", init_small::globals::process_id());
-    assert!(msg.starts_with(&pfx) && msg.ends_with("\": Permission denied"), "{msg}");
+    let pfx = format!(
+        "could not create file \"pg_wal/xlogtemp.{}.",
+        init_small::globals::process_id()
+    );
+    assert!(
+        msg.starts_with(&pfx) && msg.ends_with("\": Permission denied"),
+        "{msg}"
+    );
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INSUFFICIENT_PRIVILEGE);
 
     std::fs::set_permissions(&wal, std::fs::Permissions::from_mode(0o000)).unwrap();
     let err = transam_xlog::RemoveNonParentXlogFiles(0x100_0000, 2).unwrap_err();
-    assert_eq!(err.message(), "could not open directory \"pg_wal\": Permission denied", "{err}");
+    assert_eq!(
+        err.message(),
+        "could not open directory \"pg_wal\": Permission denied",
+        "{err}"
+    );
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INSUFFICIENT_PRIVILEGE);
 
     std::fs::set_permissions(&wal, std::fs::Permissions::from_mode(0o755)).unwrap();

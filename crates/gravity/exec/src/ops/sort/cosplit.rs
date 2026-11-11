@@ -21,6 +21,7 @@ use core::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use gravity_abi::breaker::MAX_OWNERS;
 use gravity_abi::limits::MAXORDER;
 use gravity_abi::program::COSPLIT_MAX_PARTS as MAX_PARTS;
+#[allow(unused_imports)]
 use gravity_driver::mem::fence::Records;
 use gravity_fn::arena::{AVec, ChargedVec, Kind, OpArena, Owner};
 use gravity_parallel::{MorselSource, PartitionRange};

@@ -140,7 +140,7 @@ fn reads_doc(gx: &Gx<'_, '_>, k: usize, scanrelid: i32, relid: u32, attno: i16, 
             hit |= x.as_var().is_some_and(|v| {
                 v.varlevelsup == 0
                     && (v.varno == scanrelid && (v.varattno == attno || v.varattno == 0)
-                        || v.varno == types_nodes::primnodes::OUTER_VAR && fed.map_or(true, |l| l.iter().nth(v.varattno.max(1) as usize - 1).map_or(true, |e| v.varattno <= 0 || scan_read(e) && !super::jsonb_fwd::lane_only(gx, k, v.varattno))))
+                        || v.varno == types_nodes::primnodes::OUTER_VAR && fed.is_none_or(|l| l.iter().nth(v.varattno.max(1) as usize - 1).is_none_or(|e| v.varattno <= 0 || scan_read(e) && !super::jsonb_fwd::lane_only(gx, k, v.varattno))))
             });
             !hit
         });
@@ -159,6 +159,7 @@ fn reads_doc(gx: &Gx<'_, '_>, k: usize, scanrelid: i32, relid: u32, attno: i16, 
     }
     if let Some(g) = group {
         let lane = |n: Node<'_>| field_in(n, scanrelid, gx.mcx).is_some_and(|(a, path)| a == attno && segments(&path, gx.mcx).is_some_and(|keys| gx.facts.shred_election(relid, a, &keys) == Some((shred_kind::TEXT, 0))));
+        #[allow(clippy::nonminimal_bool)]
         g.keys.iter().filter(|x| !aggs_only && !(lane_keys && x.kind == KeyKind::Fp128 && lane(x.expr.node()))).for_each(|x| see(x.expr.node()));
         g.aggs.iter().for_each(|a| {
             see(a.node);

@@ -355,7 +355,7 @@ fn datum_text_lanes<'p>(b: &mut Builder<'p, '_>, site: &mut SiteDesc, plan: &'p 
             continue;
         }
         // a granule's images live in each reading source's arena: wide values keep the one shared dictionary copy
-        if !b.facts.att_width(relid, a).is_some_and(|w| w <= gravity_program::cost::DATUM_TEXT_WIDTH_MAX) {
+        if b.facts.att_width(relid, a).is_none_or(|w| w > gravity_program::cost::DATUM_TEXT_WIDTH_MAX) {
             continue;
         }
         let Some(att) = b.facts.att(relid, a) else { continue };

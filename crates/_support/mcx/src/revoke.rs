@@ -20,7 +20,9 @@
 //! `poll-gap:` lines) once the ask is settled, by the statement's next ask or by its end. Logging only: nothing in it
 //! changes what is asked, cut or served.
 
-use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, AtomicU8, Ordering::Relaxed};
+use core::sync::atomic::{
+    AtomicBool, AtomicPtr, AtomicU32, AtomicU64, AtomicU8, Ordering::Relaxed,
+};
 
 use crate::governor::{StmtMem, SLOTS};
 
@@ -40,7 +42,8 @@ pub fn enabled() -> bool {
 }
 
 /// Each backend's Gravity interrupt byte (init_small `abort_pending_flag`, a leaked 'static), by governor slot.
-static BYTES: [AtomicPtr<AtomicU8>; SLOTS] = [const { AtomicPtr::new(core::ptr::null_mut()) }; SLOTS];
+static BYTES: [AtomicPtr<AtomicU8>; SLOTS] =
+    [const { AtomicPtr::new(core::ptr::null_mut()) }; SLOTS];
 
 /// The next revoke generation: process-wide and never 0, so a participant's last serviced generation never equals an
 /// ask of a later statement.
@@ -114,7 +117,15 @@ pub enum Op {
     Roadless = 6,
 }
 
-const OP_NAMES: [&str; 7] = ["hashagg", "hashagg-t1", "hashbuild", "sort", "owned", "other", "roadless"];
+const OP_NAMES: [&str; 7] = [
+    "hashagg",
+    "hashagg-t1",
+    "hashbuild",
+    "sort",
+    "owned",
+    "other",
+    "roadless",
+];
 
 impl Handle {
     pub(crate) fn reset(&self) {
@@ -137,7 +148,10 @@ impl Handle {
 
     /// The last ask's bytes and generation (generation 0: none).
     pub fn asked(&self) -> (u64, u32) {
-        (self.asked.load(Relaxed), self.gen.load(core::sync::atomic::Ordering::Acquire))
+        (
+            self.asked.load(Relaxed),
+            self.gen.load(core::sync::atomic::Ordering::Acquire),
+        )
     }
 
     /// Asks this statement.
@@ -174,7 +188,10 @@ pub fn clear_own_bit() {
 #[cfg(any(feature = "std", test))]
 fn now_ms() -> u64 {
     static T0: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
-    T0.get_or_init(std::time::Instant::now).elapsed().as_millis() as u64 + 1
+    T0.get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_millis() as u64
+        + 1
 }
 
 /// Store an ask of `bytes` on `l` (`by`: who asks, `Sla::by`) and set its backend's revoke bit; the bytes asked (0 when it
@@ -182,7 +199,9 @@ fn now_ms() -> u64 {
 /// outside the registry's lock).
 #[cfg(any(feature = "std", test))]
 fn ask(l: &StmtMem, bytes: u64, now: u64, by: u32) -> (u64, Option<Settled>) {
-    let Some(b) = l.slot_index().and_then(byte_at) else { return (0, None) };
+    let Some(b) = l.slot_index().and_then(byte_at) else {
+        return (0, None);
+    };
     let h = &l.revoke;
     let prior = settle(l, now, false);
     let gen = loop {
@@ -227,7 +246,11 @@ pub fn request_revoke_within_shares(short: u64, share: u64, requester: Option<us
 /// D4812 (2): `request_revoke_within_shares` with the registry taken by try_lock at both its walks (the block gate's R4b,
 /// inside an allocation: it never waits on the registry, and the walks read atomics into fixed arrays, so the lock is
 /// never held across an allocation): `Err(Busy)` when it was held (no ask sent then, or none at the second walk).
-pub fn try_request_revoke_within_shares(short: u64, share: u64, requester: Option<usize>) -> Result<u64, crate::governor::Busy> {
+pub fn try_request_revoke_within_shares(
+    short: u64,
+    share: u64,
+    requester: Option<usize>,
+) -> Result<u64, crate::governor::Busy> {
     request_revoke_as(short, share, requester, false, false)
 }
 
@@ -242,7 +265,13 @@ fn walk_live(wait: bool, f: &mut dyn FnMut(&StmtMem)) -> Result<(), crate::gover
     }
 }
 
-fn request_revoke_as(short: u64, share: u64, requester: Option<usize>, kill_avoid: bool, wait: bool) -> Result<u64, crate::governor::Busy> {
+fn request_revoke_as(
+    short: u64,
+    share: u64,
+    requester: Option<usize>,
+    kill_avoid: bool,
+    wait: bool,
+) -> Result<u64, crate::governor::Busy> {
     #[cfg(any(feature = "std", test))]
     {
         if !enabled() || short == 0 {
@@ -302,7 +331,8 @@ fn request_revoke_as(short: u64, share: u64, requester: Option<usize>, kill_avoi
             mempolicy::reclaim::revoke_asks(short, share, now, &cands[..n], &mut asks)
         };
         // LEDGER2 step 4's shadow line, written once the asks are sent (D4812: act first, then log)
-        let shadow = (!fair).then(|| shadow_revoke(short, share, now, &cands[..n], &tree_held[..n], &asks[..k]));
+        let shadow = (!fair)
+            .then(|| shadow_revoke(short, share, now, &cands[..n], &tree_held[..n], &asks[..k]));
         let note = |shadow: Option<(crate::ledger2::Choice, crate::ledger2::Choice)>| {
             if let Some((today, by_tree)) = shadow {
                 crate::ledger2::note(crate::ledger2::Decision::Revoke, today, by_tree, now);
@@ -314,9 +344,13 @@ fn request_revoke_as(short: u64, share: u64, requester: Option<usize>, kill_avoi
         }
         walk_live(wait, &mut |l| {
             let Some(slot) = l.slot_index() else { return };
-            let Some(a) = asks[..k].iter().find(|a| a.slot == slot) else { return };
+            let Some(a) = asks[..k].iter().find(|a| a.slot == slot) else {
+                return;
+            };
             // the statement the candidate was read from, not one that started on the same backend since
-            let Some(i) = cands[..n].iter().position(|c| c.slot == slot) else { return };
+            let Some(i) = cands[..n].iter().position(|c| c.slot == slot) else {
+                return;
+            };
             if l.statement_word() == words[i] {
                 let (bytes, prior) = ask(l, a.bytes, now, requester.map_or(0, |r| r as u32 + 1));
                 total += bytes;
@@ -353,12 +387,21 @@ fn shadow_revoke(
 ) -> (crate::ledger2::Choice, crate::ledger2::Choice) {
     let mut tree = [mempolicy::reclaim::RevokeCand::default(); MAX_CANDS];
     for (i, c) in cands.iter().enumerate() {
-        tree[i] = mempolicy::reclaim::RevokeCand { held: tree_held[i], ..*c };
+        tree[i] = mempolicy::reclaim::RevokeCand {
+            held: tree_held[i],
+            ..*c
+        };
     }
     let mut tree_asks = [mempolicy::reclaim::RevokeAsk::default(); MAX_ASKS];
-    let k = mempolicy::reclaim::revoke_asks(short, share, now, &tree[..cands.len()], &mut tree_asks);
+    let k =
+        mempolicy::reclaim::revoke_asks(short, share, now, &tree[..cands.len()], &mut tree_asks);
     let first = |a: Option<&mempolicy::reclaim::RevokeAsk>, held: &dyn Fn(usize) -> u64| {
-        a.map_or((None, 0), |a| (Some(a.slot), cands.iter().position(|c| c.slot == a.slot).map_or(0, held)))
+        a.map_or((None, 0), |a| {
+            (
+                Some(a.slot),
+                cands.iter().position(|c| c.slot == a.slot).map_or(0, held),
+            )
+        })
     };
     let today = first(asks.first(), &|i| cands[i].held);
     let by_tree = first(tree_asks[..k].first(), &|i| tree_held[i]);
@@ -383,7 +426,9 @@ fn spillable_total_as(wait: bool) -> Result<u64, crate::governor::Busy> {
             return Ok(0);
         }
         let mut total = 0u64;
-        walk_live(wait, &mut |l| total = total.saturating_add(l.revoke.spillable.load(Relaxed)))?;
+        walk_live(wait, &mut |l| {
+            total = total.saturating_add(l.revoke.spillable.load(Relaxed))
+        })?;
         Ok(total)
     }
     #[cfg(not(any(feature = "std", test)))]
@@ -398,7 +443,9 @@ fn spillable_total_as(wait: bool) -> Result<u64, crate::governor::Busy> {
 pub fn request_self() {
     #[cfg(any(feature = "std", test))]
     {
-        let Some(l) = crate::governor::current() else { return };
+        let Some(l) = crate::governor::current() else {
+            return;
+        };
         let bytes = (l.revoke.spillable.load(Relaxed) / 2).max(1);
         if let (_, Some(s)) = ask(&l, bytes, now_ms(), SELF_ASK) {
             write_line(&s);
@@ -419,7 +466,9 @@ pub fn request_own(bytes: u64) {
         if bytes == 0 {
             return;
         }
-        let Some(l) = crate::governor::current() else { return };
+        let Some(l) = crate::governor::current() else {
+            return;
+        };
         if let (_, Some(s)) = ask(&l, bytes, now_ms(), SELF_ASK) {
             write_line(&s);
         }
@@ -434,7 +483,8 @@ pub fn request_own(bytes: u64) {
 /// participant compares with the generation it last serviced (gravity_driver `mem::grow::revoke_home`).
 #[inline]
 pub fn generation() -> u32 {
-    crate::governor::with_current(|l| l.revoke.gen.load(core::sync::atomic::Ordering::Acquire)).unwrap_or(0)
+    crate::governor::with_current(|l| l.revoke.gen.load(core::sync::atomic::Ordering::Acquire))
+        .unwrap_or(0)
 }
 
 /// `delta` bytes more (or fewer) in breaker regions with a spill road this thread's statement fills now (the driver
@@ -448,7 +498,10 @@ pub fn note_spillable(delta: i64) {
             l.revoke.spillable.fetch_add(delta as u64, Relaxed);
         } else {
             let d = delta.unsigned_abs();
-            let _ = l.revoke.spillable.fetch_update(Relaxed, Relaxed, |s| Some(s.saturating_sub(d)));
+            let _ = l
+                .revoke
+                .spillable
+                .fetch_update(Relaxed, Relaxed, |s| Some(s.saturating_sub(d)));
         }
     });
 }
@@ -491,7 +544,8 @@ pub fn set_floor(bytes: u64) {
 /// region for that ask lifts the cut (gravity_driver `mem::grow::revoke_home`).
 #[inline]
 pub fn lifted() -> u32 {
-    crate::governor::with_current(|l| l.revoke.lifted.load(core::sync::atomic::Ordering::Acquire)).unwrap_or(0)
+    crate::governor::with_current(|l| l.revoke.lifted.load(core::sync::atomic::Ordering::Acquire))
+        .unwrap_or(0)
 }
 
 /// Ladder 1.3-1.4 counters (the view): samples that set shares, the level last set (`u64::MAX`: all fit), the queries
@@ -530,7 +584,12 @@ pub fn fair_tick(total: u64) {
                 return;
             }
             // full: the smallest is counted as keeping what it holds
-            let (i, m) = held.iter().enumerate().min_by_key(|e| *e.1).map(|(i, &v)| (i, v)).unwrap_or((0, 0));
+            let (i, m) = held
+                .iter()
+                .enumerate()
+                .min_by_key(|e| *e.1)
+                .map(|(i, &v)| (i, v))
+                .unwrap_or((0, 0));
             if m < h {
                 small = small.saturating_add(m);
                 held[i] = h;
@@ -539,7 +598,10 @@ pub fn fair_tick(total: u64) {
             }
         });
         let level = mempolicy::reclaim::fair_level(&mut held[..n], total.saturating_sub(small));
-        let (now, quiet) = (now_ms(), mempolicy::consts::get(mempolicy::consts::K::RevokeQuietMs));
+        let (now, quiet) = (
+            now_ms(),
+            mempolicy::consts::get(mempolicy::consts::K::RevokeQuietMs),
+        );
         let (mut over, mut lifts) = (0u64, 0u64);
         crate::governor::for_each_live(&mut |l| {
             let Some(slot) = l.slot_index() else { return };
@@ -552,7 +614,10 @@ pub fn fair_tick(total: u64) {
                 return;
             }
             let gen = h.gen.load(core::sync::atomic::Ordering::Acquire);
-            if gen != 0 && h.lifted.load(Relaxed) != gen && now.saturating_sub(h.at_ms.load(Relaxed)) >= quiet {
+            if gen != 0
+                && h.lifted.load(Relaxed) != gen
+                && now.saturating_sub(h.at_ms.load(Relaxed)) >= quiet
+            {
                 h.lifted.store(gen, core::sync::atomic::Ordering::Release);
                 if let Some(b) = byte_at(slot) {
                     b.fetch_or(REVOKE_BIT, core::sync::atomic::Ordering::AcqRel);
@@ -586,7 +651,11 @@ pub(crate) fn share_of(l: &crate::governor::StmtMem) -> u64 {
 #[cfg(any(feature = "std", test))]
 fn tag(w: &AtomicU64, gen: u32, v: u32, keep: fn(u32, u32) -> u32) {
     let _ = w.fetch_update(Relaxed, Relaxed, |x| {
-        let v = if (x >> 32) as u32 == gen { keep(x as u32, v) } else { v };
+        let v = if (x >> 32) as u32 == gen {
+            keep(x as u32, v)
+        } else {
+            v
+        };
         Some((gen as u64) << 32 | v as u64)
     });
 }
@@ -604,7 +673,10 @@ fn since_ask(h: &Handle, gen: u32, now: u64) -> Option<u32> {
     if gen == 0 || h.gen.load(core::sync::atomic::Ordering::Acquire) != gen {
         return None;
     }
-    Some(now.saturating_sub(h.at_ms.load(Relaxed)).min(u32::MAX as u64) as u32)
+    Some(
+        now.saturating_sub(h.at_ms.load(Relaxed))
+            .min(u32::MAX as u64) as u32,
+    )
 }
 
 /// REVOKESLA: a participant of this thread's statement serviced ask `gen` (gravity_driver `mem::grow::revoke_home`): it
@@ -613,7 +685,9 @@ pub fn sla_cut(gen: u32, op: Op) {
     #[cfg(any(feature = "std", test))]
     let _ = crate::governor::with_current(|l| {
         let h = &l.revoke;
-        let Some(ms) = since_ask(h, gen, now_ms()) else { return };
+        let Some(ms) = since_ask(h, gen, now_ms()) else {
+            return;
+        };
         tag(&h.sla.ops, gen, 1 << op as u32, |a, b| a | b);
         if op != Op::Roadless {
             tag(&h.sla.cut_first, gen, ms, u32::min);
@@ -631,9 +705,16 @@ pub fn sla_given(gen: u32, bytes: u64) {
     #[cfg(any(feature = "std", test))]
     let _ = crate::governor::with_current(|l| {
         let h = &l.revoke;
-        let Some(ms) = since_ask(h, gen, now_ms()) else { return };
+        let Some(ms) = since_ask(h, gen, now_ms()) else {
+            return;
+        };
         crate::ladder_stats::note_given(bytes);
-        tag(&h.sla.given_kb, gen, (bytes >> 10).min(u32::MAX as u64) as u32, u32::saturating_add);
+        tag(
+            &h.sla.given_kb,
+            gen,
+            (bytes >> 10).min(u32::MAX as u64) as u32,
+            u32::saturating_add,
+        );
         tag(&h.sla.given_ms, gen, ms, u32::max);
     });
     #[cfg(not(any(feature = "std", test)))]
@@ -675,7 +756,9 @@ fn settle(l: &StmtMem, now: u64, end: bool) -> Option<Settled> {
         n: h.count.load(Relaxed),
         by: tagged(&s.by, gen),
         asked: h.asked.load(Relaxed),
-        at: now.saturating_sub(h.at_ms.load(Relaxed)).min(u32::MAX as u64) as u32,
+        at: now
+            .saturating_sub(h.at_ms.load(Relaxed))
+            .min(u32::MAX as u64) as u32,
         end,
         cut_first: tagged(&s.cut_first, gen),
         cut_last: tagged(&s.cut_last, gen),
@@ -726,7 +809,13 @@ fn write_line(s: &Settled) {
     crate::ladder_stats::note_settled(s.cut_last, s.given_ms);
     use core::fmt::Write as _;
     let mut e = LineBuf { b: [0; 512], n: 0 };
-    let _ = write!(e, "revoke-sla: asked {} kB of slot {} (ask {} of its statement) by ", s.asked >> 10, s.slot, s.n);
+    let _ = write!(
+        e,
+        "revoke-sla: asked {} kB of slot {} (ask {} of its statement) by ",
+        s.asked >> 10,
+        s.slot,
+        s.n
+    );
     let _ = match s.by {
         Some(0) => write!(e, "the pressure ladder"),
         Some(SELF_ASK) => write!(e, "its own test lever"),
@@ -745,14 +834,27 @@ fn write_line(s: &Settled) {
         }
     }
     let _ = match (s.cut_first, s.cut_last) {
-        (Some(a), Some(b)) => write!(e, "; stopped growing {a} ms after the ask ({} region(s), the last {b} ms)", s.cuts),
+        (Some(a), Some(b)) => write!(
+            e,
+            "; stopped growing {a} ms after the ask ({} region(s), the last {b} ms)",
+            s.cuts
+        ),
         _ => write!(e, "; stopped growing: no region with a spill road cut"),
     };
     let _ = match s.given_ms {
         Some(ms) => write!(e, "; gave back {} kB {ms} ms after the ask", s.given_kb),
         None => write!(e, "; gave back nothing"),
     };
-    let _ = write!(e, "; settled by {} {} ms after the ask", if s.end { "its statement's end" } else { "its next ask" }, s.at);
+    let _ = write!(
+        e,
+        "; settled by {} {} ms after the ask",
+        if s.end {
+            "its statement's end"
+        } else {
+            "its next ask"
+        },
+        s.at
+    );
     e.n = e.n.min(e.b.len() - 1);
     e.b[e.n] = b'\n';
     // D4812: through the server's stderr writer (deferred on a memory safety thread), never a raw stderr write
@@ -780,7 +882,11 @@ mod tests {
             register_byte(&VICTIM);
             crate::governor::statement_start(0, true);
             note_spillable((900 * MIB) as i64);
-            assert_eq!(requester(), Some(7), "a Grow's requester: its statement's backend slot");
+            assert_eq!(
+                requester(),
+                Some(7),
+                "a Grow's requester: its statement's backend slot"
+            );
             ready_tx.send(()).unwrap();
             go_rx.recv().unwrap();
             let asked = generation();
@@ -797,17 +903,39 @@ mod tests {
         assert_eq!(request_revoke(64 * MIB, 0, None), 0, "off: nobody asked");
         set_enabled(true);
         assert_eq!(request_revoke(0, 0, None), 0, "nothing short: nobody asked");
-        assert_eq!(request_revoke(64 * MIB, 0, Some(7)), 0, "the requester is never asked");
+        assert_eq!(
+            request_revoke(64 * MIB, 0, Some(7)),
+            0,
+            "the requester is never asked"
+        );
         assert_eq!(VICTIM.load(Relaxed) & REVOKE_BIT, 0);
-        assert_eq!(request_revoke(64 * MIB, 0, None), 64 * MIB, "what is short, under half its spillable bytes");
-        assert_ne!(VICTIM.load(Relaxed) & REVOKE_BIT, 0, "the victim's byte carries the bit");
+        assert_eq!(
+            request_revoke(64 * MIB, 0, None),
+            64 * MIB,
+            "what is short, under half its spillable bytes"
+        );
+        assert_ne!(
+            VICTIM.load(Relaxed) & REVOKE_BIT,
+            0,
+            "the victim's byte carries the bit"
+        );
         set_enabled(false);
         go_tx.send(()).unwrap();
         let (asked, mine, again, bit) = victim.join().unwrap();
-        assert_ne!(asked, 0, "the victim's statement reads the ask's generation");
+        assert_ne!(
+            asked, 0,
+            "the victim's statement reads the ask's generation"
+        );
         assert_eq!(mine, Some((64 * MIB, asked)));
-        assert!(again != 0 && again != asked && bit != 0, "the lever asks the statement itself, a new generation");
-        assert_eq!(VICTIM.load(Relaxed) & REVOKE_BIT, 0, "the statement's end clears the bit");
+        assert!(
+            again != 0 && again != asked && bit != 0,
+            "the lever asks the statement itself, a new generation"
+        );
+        assert_eq!(
+            VICTIM.load(Relaxed) & REVOKE_BIT,
+            0,
+            "the statement's end clears the bit"
+        );
     }
 
     /// Ladder 1.3-1.4 (`fair_share`): each sample sets every running query's share (max-min over their held bytes, never
@@ -817,13 +945,19 @@ mod tests {
     #[test]
     fn ladder13_fair_shares_ask_only_over_share_queries_and_lift_their_cuts() {
         // its statements hold GiBs: never beside the governor tests (the watchdog's largest, the fits)
-        let _gov = crate::tests::GOVERNOR_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        let _gov = crate::tests::GOVERNOR_TESTS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let _one = SWITCH.lock().unwrap_or_else(|e| e.into_inner());
         use mempolicy::consts::{get, set, K};
         const MIB: u64 = 1 << 20;
         static BYTES: [AtomicU8; 3] = [const { AtomicU8::new(0) }; 3];
         // (slot, held MiB, spillable MiB, waits)
-        let qs = [(31usize, 100u64, 50u64, false), (32, 900, 800, true), (33, 2000, 1500, false)];
+        let qs = [
+            (31usize, 100u64, 50u64, false),
+            (32, 900, 800, true),
+            (33, 2000, 1500, false),
+        ];
         let (ready_tx, ready_rx) = std::sync::mpsc::channel::<()>();
         let mut gos = std::vec::Vec::new();
         let mut ts = std::vec::Vec::new();
@@ -869,7 +1003,11 @@ mod tests {
             let mut v = None;
             crate::governor::for_each_live(&mut |l| {
                 if l.slot_index() == Some(slot) {
-                    v = Some((l.revoke.share.load(Relaxed), l.revoke.gen.load(Relaxed), l.revoke.lifted.load(Relaxed)));
+                    v = Some((
+                        l.revoke.share.load(Relaxed),
+                        l.revoke.gen.load(Relaxed),
+                        l.revoke.lifted.load(Relaxed),
+                    ));
                 }
             });
             v
@@ -883,16 +1021,35 @@ mod tests {
         fair_tick(1000 * MIB);
         assert_eq!(FAIR[FAIR_TICKS].load(Relaxed), ticks + 1);
         let level = FAIR[FAIR_LEVEL].load(Relaxed);
-        assert!(level <= 450 * MIB && level > 400 * MIB, "the max-min level ({} MiB)", level / MIB);
-        assert_eq!((share(31), share(32), share(33)), (Some(level), Some(level), Some(level)));
+        assert!(
+            level <= 450 * MIB && level > 400 * MIB,
+            "the max-min level ({} MiB)",
+            level / MIB
+        );
+        assert_eq!(
+            (share(31), share(32), share(33)),
+            (Some(level), Some(level), Some(level))
+        );
         // the ladder's rung: only 33 (32 waits, 31 is within its share), for what is short
-        assert_eq!(request_revoke_within_shares(600 * MIB, 0, None), 600 * MIB, "33 asked for what is short, under its part over its share");
-        assert_eq!((BYTES[0].load(Relaxed), BYTES[1].load(Relaxed)) , (0, 0), "within its share, and a waiter: never asked");
+        assert_eq!(
+            request_revoke_within_shares(600 * MIB, 0, None),
+            600 * MIB,
+            "33 asked for what is short, under its part over its share"
+        );
+        assert_eq!(
+            (BYTES[0].load(Relaxed), BYTES[1].load(Relaxed)),
+            (0, 0),
+            "within its share, and a waiter: never asked"
+        );
         assert_ne!(BYTES[2].load(Relaxed) & REVOKE_BIT, 0);
         BYTES[2].fetch_and(!REVOKE_BIT, Relaxed);
         // 33 answers (its bytes back): the next sample lifts its cut
         let (_, gen, lifted0) = handle(33).unwrap();
-        assert!(gen != 0 && lifted0 == 0, "asked, not lifted: {:?}", handle(33));
+        assert!(
+            gen != 0 && lifted0 == 0,
+            "asked, not lifted: {:?}",
+            handle(33)
+        );
         fair_tick(1000 * MIB);
         assert_eq!(handle(33).unwrap().2, 0, "still over its share: no lift");
         gos[2].send(1).unwrap();
@@ -902,18 +1059,38 @@ mod tests {
             fair_tick(1000 * MIB);
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
-        assert_eq!(handle(33).unwrap().2, gen, "back within its share: its ask's cut lifted");
+        assert_eq!(
+            handle(33).unwrap().2,
+            gen,
+            "back within its share: its ask's cut lifted"
+        );
         assert!(FAIR[FAIR_LIFTS].load(Relaxed) > lifts, "counted");
-        assert_ne!(BYTES[2].load(Relaxed) & REVOKE_BIT, 0, "its bit set: its participants' next poll lifts the cuts");
+        assert_ne!(
+            BYTES[2].load(Relaxed) & REVOKE_BIT,
+            0,
+            "its bit set: its participants' next poll lifts the cuts"
+        );
         BYTES[2].fetch_and(!REVOKE_BIT, Relaxed);
         fair_tick(1000 * MIB);
-        assert_eq!((handle(33).unwrap().2, BYTES[2].load(Relaxed) & REVOKE_BIT), (gen, 0), "once per ask");
-        assert_eq!((handle(31).unwrap().2, handle(32).unwrap().2), (0, 0), "never asked: nothing to lift");
+        assert_eq!(
+            (handle(33).unwrap().2, BYTES[2].load(Relaxed) & REVOKE_BIT),
+            (gen, 0),
+            "once per ask"
+        );
+        assert_eq!(
+            (handle(31).unwrap().2, handle(32).unwrap().2),
+            (0, 0),
+            "never asked: nothing to lift"
+        );
         for g in &gos {
             g.send(2).unwrap();
         }
         let seen: std::vec::Vec<(u32, u32)> = ts.into_iter().map(|t| t.join().unwrap()).collect();
-        assert_eq!(seen[2], (gen, gen), "33 reads the lifted generation of its ask");
+        assert_eq!(
+            seen[2],
+            (gen, gen),
+            "33 reads the lifted generation of its ask"
+        );
         assert_eq!((seen[0], seen[1]), ((0, 0), (0, 0)));
         set(K::FairShare, 0);
         set(K::RevokeQuietMs, quiet);
@@ -956,18 +1133,40 @@ mod tests {
         });
         let (b1, b2, none, g1, g2, first, second, again) = victim.join().unwrap();
         assert_eq!((b1, b2), (64 * MIB, 32 * MIB));
-        assert!(none.is_none(), "the statement's first ask settles nothing: {none:?}");
+        assert!(
+            none.is_none(),
+            "the statement's first ask settles nothing: {none:?}"
+        );
         assert!(g1 != 0 && g2 != 0 && g1 != g2);
         let f = first.expect("the next ask settles the first");
-        assert_eq!((f.slot, f.n, f.by, f.asked, f.end), (9, 1, Some(0), 64 * MIB, false), "{f:?}");
+        assert_eq!(
+            (f.slot, f.n, f.by, f.asked, f.end),
+            (9, 1, Some(0), 64 * MIB, false),
+            "{f:?}"
+        );
         assert_eq!(f.cuts, 2, "the roadless cut stops nothing: {f:?}");
-        assert_eq!(f.ops, 1 << Op::HashAggT1 as u32 | 1 << Op::Sort as u32 | 1 << Op::Roadless as u32, "{f:?}");
+        assert_eq!(
+            f.ops,
+            1 << Op::HashAggT1 as u32 | 1 << Op::Sort as u32 | 1 << Op::Roadless as u32,
+            "{f:?}"
+        );
         let (a, b) = (f.cut_first.unwrap(), f.cut_last.unwrap());
-        assert!(b >= a + 25, "stopped growing at the first cut, the last 30 ms later: {f:?}");
+        assert!(
+            b >= a + 25,
+            "stopped growing at the first cut, the last 30 ms later: {f:?}"
+        );
         assert_eq!((f.given_kb, f.given_ms.is_some()), (8 << 10, true), "{f:?}");
         let s = second.expect("the statement's end settles the second");
-        assert_eq!((s.n, s.by, s.asked, s.end, s.cuts), (2, Some(4), 32 * MIB, true, 1), "{s:?}");
-        assert_eq!(s.ops, 1 << Op::HashBuild as u32, "the first ask's late notes are dropped: {s:?}");
+        assert_eq!(
+            (s.n, s.by, s.asked, s.end, s.cuts),
+            (2, Some(4), 32 * MIB, true, 1),
+            "{s:?}"
+        );
+        assert_eq!(
+            s.ops,
+            1 << Op::HashBuild as u32,
+            "the first ask's late notes are dropped: {s:?}"
+        );
         assert_eq!((s.given_kb, s.given_ms), (0, None), "{s:?}");
         assert!(again.is_none(), "an ask's line is written once: {again:?}");
     }

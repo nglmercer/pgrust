@@ -1,3 +1,4 @@
+#![allow(clippy::missing_transmute_annotations)]
 //! dlopen/dlsym binding to the system libicu (i18n + common), resolved once
 //! per process. No build-time ICU dependency: PGDG images ship version-
 //! suffixed symbols (ucol_open_72), so each symbol is probed bare then with

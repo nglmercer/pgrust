@@ -2083,6 +2083,7 @@ mod store_emitted {
         b.store(out_valid, 0, valid8);
         b.store(out_err, 0, l.err);
         b.ret(&[zero]);
+        #[allow(clippy::drop_non_drop)]
         drop(b);
         (pb.finish(), f)
     }

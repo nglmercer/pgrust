@@ -16,8 +16,8 @@ use types_error::{
 };
 use types_nodes::parsenodes::{ObjectType, SecLabelStmt};
 use types_rel::{
-    AccessShareLock, NoLock, RowExclusiveLock, ShareUpdateExclusiveLock,
-    RELKIND_PARTITIONED_TABLE, RELKIND_RELATION, RELKIND_VIEW,
+    AccessShareLock, NoLock, RowExclusiveLock, ShareUpdateExclusiveLock, RELKIND_PARTITIONED_TABLE,
+    RELKIND_RELATION, RELKIND_VIEW,
 };
 use types_scan::scankey::{BTEqualStrategyNumber, ScanKeyData};
 
@@ -51,7 +51,9 @@ fn invalid_parameter(message: String) -> Box<PgError> {
 
 impl ProviderRegistry {
     const fn new() -> Self {
-        Self { providers: Vec::new() }
+        Self {
+            providers: Vec::new(),
+        }
     }
 
     // seclabel.c:579 register_label_provider: lappend, never full.
@@ -78,9 +80,7 @@ impl ProviderRegistry {
                 Ok(*first)
             }
             Some(name) => loaded.find(|p| p.name == name).copied().ok_or_else(|| {
-                invalid_parameter(format!(
-                    "security label provider \"{name}\" is not loaded"
-                ))
+                invalid_parameter(format!("security label provider \"{name}\" is not loaded"))
             }),
         }
     }
@@ -92,7 +92,10 @@ impl ProviderRegistry {
 static LABEL_PROVIDERS: Mutex<ProviderRegistry> = Mutex::new(ProviderRegistry::new());
 
 pub fn register_label_provider(provider_name: &'static str, hook: check_object_relabel_type) {
-    LABEL_PROVIDERS.lock().unwrap().register(provider_name, hook);
+    LABEL_PROVIDERS
+        .lock()
+        .unwrap()
+        .register(provider_name, hook);
 }
 
 // C loads dummy_seclabel via shared_preload_libraries; the env gate is our
@@ -130,18 +133,40 @@ pub fn SecLabelSupportsObjectType(objtype: ObjectType) -> bool {
         OBJECT_AGGREGATE | OBJECT_COLUMN | OBJECT_DATABASE | OBJECT_DOMAIN
         | OBJECT_EVENT_TRIGGER | OBJECT_FOREIGN_TABLE | OBJECT_FUNCTION | OBJECT_LANGUAGE
         | OBJECT_LARGEOBJECT | OBJECT_MATVIEW | OBJECT_PROCEDURE | OBJECT_PUBLICATION
-        | OBJECT_ROLE | OBJECT_ROUTINE | OBJECT_SCHEMA | OBJECT_SEQUENCE
-        | OBJECT_SUBSCRIPTION | OBJECT_TABLE | OBJECT_TABLESPACE | OBJECT_TYPE
-        | OBJECT_VIEW => true,
+        | OBJECT_ROLE | OBJECT_ROUTINE | OBJECT_SCHEMA | OBJECT_SEQUENCE | OBJECT_SUBSCRIPTION
+        | OBJECT_TABLE | OBJECT_TABLESPACE | OBJECT_TYPE | OBJECT_VIEW => true,
 
-        OBJECT_ACCESS_METHOD | OBJECT_AMOP | OBJECT_AMPROC | OBJECT_ATTRIBUTE | OBJECT_CAST
-        | OBJECT_COLLATION | OBJECT_CONVERSION | OBJECT_DEFAULT | OBJECT_DEFACL
-        | OBJECT_DOMCONSTRAINT | OBJECT_EXTENSION | OBJECT_FDW | OBJECT_FOREIGN_SERVER
-        | OBJECT_INDEX | OBJECT_OPCLASS | OBJECT_OPERATOR | OBJECT_OPFAMILY
-        | OBJECT_PARAMETER_ACL | OBJECT_POLICY | OBJECT_PUBLICATION_NAMESPACE
-        | OBJECT_PUBLICATION_REL | OBJECT_RULE | OBJECT_STATISTIC_EXT | OBJECT_TABCONSTRAINT
-        | OBJECT_TRANSFORM | OBJECT_TRIGGER | OBJECT_TSCONFIGURATION | OBJECT_TSDICTIONARY
-        | OBJECT_TSPARSER | OBJECT_TSTEMPLATE | OBJECT_USER_MAPPING => false,
+        OBJECT_ACCESS_METHOD
+        | OBJECT_AMOP
+        | OBJECT_AMPROC
+        | OBJECT_ATTRIBUTE
+        | OBJECT_CAST
+        | OBJECT_COLLATION
+        | OBJECT_CONVERSION
+        | OBJECT_DEFAULT
+        | OBJECT_DEFACL
+        | OBJECT_DOMCONSTRAINT
+        | OBJECT_EXTENSION
+        | OBJECT_FDW
+        | OBJECT_FOREIGN_SERVER
+        | OBJECT_INDEX
+        | OBJECT_OPCLASS
+        | OBJECT_OPERATOR
+        | OBJECT_OPFAMILY
+        | OBJECT_PARAMETER_ACL
+        | OBJECT_POLICY
+        | OBJECT_PUBLICATION_NAMESPACE
+        | OBJECT_PUBLICATION_REL
+        | OBJECT_RULE
+        | OBJECT_STATISTIC_EXT
+        | OBJECT_TABCONSTRAINT
+        | OBJECT_TRANSFORM
+        | OBJECT_TRIGGER
+        | OBJECT_TSCONFIGURATION
+        | OBJECT_TSDICTIONARY
+        | OBJECT_TSPARSER
+        | OBJECT_TSTEMPLATE
+        | OBJECT_USER_MAPPING => false,
     }
 }
 
@@ -153,8 +178,11 @@ pub fn ExecSecLabelStmt<'mcx>(
 
     if !SecLabelSupportsObjectType(stmt.objtype) {
         return Err(Box::new(
-            PgError::new(ERROR, "security labels are not supported for this type of object")
-                .with_sqlstate(ERRCODE_WRONG_OBJECT_TYPE),
+            PgError::new(
+                ERROR,
+                "security labels are not supported for this type of object",
+            )
+            .with_sqlstate(ERRCODE_WRONG_OBJECT_TYPE),
         ));
     }
 
@@ -177,7 +205,9 @@ pub fn ExecSecLabelStmt<'mcx>(
     )?;
 
     if stmt.objtype == ObjectType::OBJECT_COLUMN {
-        let rel = relation.as_ref().expect("column security label carries its relation");
+        let rel = relation
+            .as_ref()
+            .expect("column security label carries its relation");
         let relkind = rel.rd_rel.relkind;
         if !matches!(
             relkind,
@@ -499,21 +529,48 @@ mod tests {
     fn whitelist_matches_c() {
         use ObjectType::*;
         let supported = [
-            OBJECT_AGGREGATE, OBJECT_COLUMN, OBJECT_DATABASE, OBJECT_DOMAIN,
-            OBJECT_EVENT_TRIGGER, OBJECT_FOREIGN_TABLE, OBJECT_FUNCTION, OBJECT_LANGUAGE,
-            OBJECT_LARGEOBJECT, OBJECT_MATVIEW, OBJECT_PROCEDURE, OBJECT_PUBLICATION,
-            OBJECT_ROLE, OBJECT_ROUTINE, OBJECT_SCHEMA, OBJECT_SEQUENCE, OBJECT_SUBSCRIPTION,
-            OBJECT_TABLE, OBJECT_TABLESPACE, OBJECT_TYPE, OBJECT_VIEW,
+            OBJECT_AGGREGATE,
+            OBJECT_COLUMN,
+            OBJECT_DATABASE,
+            OBJECT_DOMAIN,
+            OBJECT_EVENT_TRIGGER,
+            OBJECT_FOREIGN_TABLE,
+            OBJECT_FUNCTION,
+            OBJECT_LANGUAGE,
+            OBJECT_LARGEOBJECT,
+            OBJECT_MATVIEW,
+            OBJECT_PROCEDURE,
+            OBJECT_PUBLICATION,
+            OBJECT_ROLE,
+            OBJECT_ROUTINE,
+            OBJECT_SCHEMA,
+            OBJECT_SEQUENCE,
+            OBJECT_SUBSCRIPTION,
+            OBJECT_TABLE,
+            OBJECT_TABLESPACE,
+            OBJECT_TYPE,
+            OBJECT_VIEW,
         ];
         assert_eq!(supported.len(), 21);
         for t in supported {
             assert!(SecLabelSupportsObjectType(t), "{t:?}");
         }
         for t in [
-            OBJECT_ACCESS_METHOD, OBJECT_ATTRIBUTE, OBJECT_CAST, OBJECT_COLLATION,
-            OBJECT_DOMCONSTRAINT, OBJECT_EXTENSION, OBJECT_INDEX, OBJECT_OPERATOR,
-            OBJECT_PARAMETER_ACL, OBJECT_POLICY, OBJECT_RULE, OBJECT_TABCONSTRAINT,
-            OBJECT_TRIGGER, OBJECT_TSPARSER, OBJECT_USER_MAPPING,
+            OBJECT_ACCESS_METHOD,
+            OBJECT_ATTRIBUTE,
+            OBJECT_CAST,
+            OBJECT_COLLATION,
+            OBJECT_DOMCONSTRAINT,
+            OBJECT_EXTENSION,
+            OBJECT_INDEX,
+            OBJECT_OPERATOR,
+            OBJECT_PARAMETER_ACL,
+            OBJECT_POLICY,
+            OBJECT_RULE,
+            OBJECT_TABCONSTRAINT,
+            OBJECT_TRIGGER,
+            OBJECT_TSPARSER,
+            OBJECT_USER_MAPPING,
         ] {
             assert!(!SecLabelSupportsObjectType(t), "{t:?}");
         }
@@ -526,7 +583,10 @@ mod tests {
         assert_eq!(err.message, "no security label providers have been loaded");
         assert_eq!(err.sqlstate, ERRCODE_INVALID_PARAMETER_VALUE);
         let err = reg.resolve(Some("dummy")).unwrap_err();
-        assert_eq!(err.message, "security label provider \"dummy\" is not loaded");
+        assert_eq!(
+            err.message,
+            "security label provider \"dummy\" is not loaded"
+        );
         assert_eq!(err.sqlstate, ERRCODE_INVALID_PARAMETER_VALUE);
     }
 
@@ -537,7 +597,10 @@ mod tests {
         assert_eq!(reg.resolve(None).unwrap().name, "dummy");
         assert_eq!(reg.resolve(Some("dummy")).unwrap().name, "dummy");
         let err = reg.resolve(Some("selinux")).unwrap_err();
-        assert_eq!(err.message, "security label provider \"selinux\" is not loaded");
+        assert_eq!(
+            err.message,
+            "security label provider \"selinux\" is not loaded"
+        );
     }
 
     #[test]
@@ -560,9 +623,7 @@ mod tests {
     #[test]
     fn register_is_unbounded_like_c() {
         let mut reg = ProviderRegistry::new();
-        let names: [&'static str; 9] = [
-            "p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9",
-        ];
+        let names: [&'static str; 9] = ["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9"];
         for name in names {
             reg.register(name, ok_hook);
         }

@@ -17,7 +17,9 @@ use std::sync::atomic::Ordering::Relaxed;
 
 use types_core::primitive::{ForkNumber, INVALID_PROC_NUMBER};
 use types_core::BLCKSZ;
-use types_storage::{RelFileLocator, RelFileLocatorBackend, DELAY_CHKPT_COMPLETE, DELAY_CHKPT_START};
+use types_storage::{
+    RelFileLocator, RelFileLocatorBackend, DELAY_CHKPT_COMPLETE, DELAY_CHKPT_START,
+};
 
 fn fork_suffix(forknum: ForkNumber) -> &'static str {
     match forknum {
@@ -54,7 +56,12 @@ fn setup(tag: &str) -> std::path::PathBuf {
     waitevent_seams::pgstat_report_wait_end::set(|| {});
     pgstat_seams::pgstat_report_tempfile::set(|_| {});
     relpath_seams::relpathbackend::set(|rlocator, _backend, forknum| {
-        format!("base/{}/{}{}", rlocator.dbOid, rlocator.relNumber, fork_suffix(forknum))
+        format!(
+            "base/{}/{}{}",
+            rlocator.dbOid,
+            rlocator.relNumber,
+            fork_suffix(forknum)
+        )
     });
     sync_seams::register_sync_request::set(|_tag, _ty, _retry| Ok(true));
     tablespace_seams::tablespace_create_dbspace::set(|_, _, _| Ok(()));
@@ -89,8 +96,15 @@ fn error_inside_truncate_critical_section_is_a_panic() {
     use init_small::globals as g;
 
     let dir = setup("truncate_crit");
-    let locator = RelFileLocator { spcOid: 1663, dbOid: 5, relNumber: 16384 };
-    let key = RelFileLocatorBackend { locator, backend: INVALID_PROC_NUMBER };
+    let locator = RelFileLocator {
+        spcOid: 1663,
+        dbOid: 5,
+        relNumber: 16384,
+    };
+    let key = RelFileLocatorBackend {
+        locator,
+        backend: INVALID_PROC_NUMBER,
+    };
 
     smgr::smgropen(locator, INVALID_PROC_NUMBER).unwrap();
     smgr::smgrcreate(key, ForkNumber::MAIN_FORKNUM, false).unwrap();
@@ -102,7 +116,9 @@ fn error_inside_truncate_critical_section_is_a_panic() {
     // default wal_level): the truncate record insert is the first step
     // inside the critical section, and it fails (out-of-space WAL insert).
     xloginsert_seams::xlog_insert_record::set(|_, _, _, _, _| {
-        Err(Box::new(types_error::PgError::error("could not write to WAL: No space left on device")))
+        Err(Box::new(types_error::PgError::error(
+            "could not write to WAL: No space left on device",
+        )))
     });
     let rel = xlogutils::CreateFakeRelcacheEntry(locator);
     assert_eq!(g::CritSectionCount(), 0);
@@ -112,7 +128,9 @@ fn error_inside_truncate_critical_section_is_a_panic() {
         catalog_storage::RelationTruncate(&rel, 1)
     }));
     let crit_after = g::CritSectionCount();
-    let flags_after = lmgr_proc::GetPGProcByNumber(0).delayChkptFlags.load(Relaxed);
+    let flags_after = lmgr_proc::GetPGProcByNumber(0)
+        .delayChkptFlags
+        .load(Relaxed);
     g::SetCritSectionCount(0);
     lmgr_proc::GetPGProcByNumber(0)
         .delayChkptFlags

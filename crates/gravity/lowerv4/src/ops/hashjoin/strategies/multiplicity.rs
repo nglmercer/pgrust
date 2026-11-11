@@ -121,9 +121,9 @@ mod tests {
         let d = buf.as_mut_ptr() as *mut u8;
         // SAFETY: `buf` is the region; records of 16 bytes (the key word, the link word) from HDR.
         unsafe {
-            (wr::<u8>(d, PHASE, 1), wr::<u8>(d, WORDS, 1), wr::<u32>(d, REC, 16), wr::<u8>(d, ALLOW, allow), wr::<u8>(d, FLAGS, F_RANGE));
-            (wr::<u64>(d, N, keys.len() as u64), wr::<u64>(d, TOP, len as u64));
-            (wr::<i64>(d, LO, *keys.iter().min().unwrap()), wr::<i64>(d, HI, *keys.iter().max().unwrap()));
+            wr::<u8>(d, PHASE, 1); wr::<u8>(d, WORDS, 1); wr::<u32>(d, REC, 16); wr::<u8>(d, ALLOW, allow); wr::<u8>(d, FLAGS, F_RANGE);
+            wr::<u64>(d, N, keys.len() as u64); wr::<u64>(d, TOP, len as u64);
+            wr::<i64>(d, LO, *keys.iter().min().unwrap()); wr::<i64>(d, HI, *keys.iter().max().unwrap());
             keys.iter().enumerate().for_each(|(i, &k)| wr::<i64>(d, crate::ops::hashjoin::build::HDR + 16 * i, k));
             lay_out(d, len).unwrap();
             let (form, lo) = (rd::<u8>(d, FORM), rd::<i64>(d, LO));

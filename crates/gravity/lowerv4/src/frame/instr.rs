@@ -895,6 +895,7 @@ pub fn at_step<'m>(j: usize, mcx: Mcx<'m>) -> PgVec<'m, i32> {
 /// counted.
 pub fn partial() {
     if on() {
+        #[allow(dropping_copy_types)]
         all_nodes().into_iter().for_each(|n| drop(cell(n, Ctr::Partial)));
     }
 }

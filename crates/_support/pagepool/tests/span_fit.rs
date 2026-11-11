@@ -9,7 +9,8 @@ use pagepool::hooks;
 use pagepool::*;
 
 fn thp_host() -> bool {
-    std::fs::read_to_string("/sys/kernel/mm/transparent_hugepage/enabled").is_ok_and(|s| !s.contains("[never]"))
+    std::fs::read_to_string("/sys/kernel/mm/transparent_hugepage/enabled")
+        .is_ok_and(|s| !s.contains("[never]"))
 }
 
 fn one(on: bool, bytes: usize) -> (bool, usize, usize) {
@@ -18,18 +19,32 @@ fn one(on: bool, bytes: usize) -> (bool, usize, usize) {
     let (_, f0, t0) = span_fits();
     let p = take(bytes, 64, h).expect("a span");
     let a = p.cast::<u8>().as_ptr() as usize;
-    assert_eq!(p.len(), bytes.next_multiple_of(SUPER), "the span reads whole superpages long");
+    assert_eq!(
+        p.len(),
+        bytes.next_multiple_of(SUPER),
+        "the span reads whole superpages long"
+    );
     // the ask's last byte, touched: its superpage's residency
     let last = a + bytes - 1;
     // SAFETY: inside the block we hold.
     unsafe { core::ptr::write_volatile(last as *mut u8, 7) };
     let r = resident(last & !(SUPER - 1), SUPER);
     let (_, f1, t1) = span_fits();
-    let lazy = !matches!(run_of(a as *const u8).map(|i| i.kind), Some(Kind::Span { .. })) || f1 > f0;
+    let lazy = !matches!(
+        run_of(a as *const u8).map(|i| i.kind),
+        Some(Kind::Span { .. })
+    ) || f1 > f0;
     // SAFETY: ours, freed once.
     unsafe { give(p.cast(), bytes) };
     flush_shelf();
-    assert_eq!((t1 - t0) as usize, if f1 > f0 { bytes.next_multiple_of(SUPER) - bytes } else { 0 });
+    assert_eq!(
+        (t1 - t0) as usize,
+        if f1 > f0 {
+            bytes.next_multiple_of(SUPER) - bytes
+        } else {
+            0
+        }
+    );
     (f1 > f0 && lazy, r, (f1 - f0) as usize)
 }
 
@@ -43,16 +58,28 @@ fn span_fit() {
     let page = hooks::page_size();
     // 5 MiB + 1: 3 superpages, ~1 MiB unused past the ask
     let (fit, r, _) = one(true, 5 * MIB + 1);
-    assert!(fit, "on: a partly filled last superpage sends the span to base pages");
-    assert!(r >= page && r < SUPER, "on: the touched page resident in the last superpage, not all 2 MiB: {r}");
+    assert!(
+        fit,
+        "on: a partly filled last superpage sends the span to base pages"
+    );
+    assert!(
+        r >= page && r < SUPER,
+        "on: the touched page resident in the last superpage, not all 2 MiB: {r}"
+    );
     // a span the ask fills whole stays a pool span
     let (fit, _, n) = one(true, 4 * MIB);
-    assert!(!fit && n == 0, "on: a whole-superpage ask stays a pool span");
+    assert!(
+        !fit && n == 0,
+        "on: a whole-superpage ask stays a pool span"
+    );
     // off: as before
     let (fit, r, _) = one(false, 5 * MIB + 1);
     assert!(!fit, "off: a pool span");
     if thp_host() {
-        assert!(r >= page, "off: the touch faulted (a huge page where the host gives one: {r})");
+        assert!(
+            r >= page,
+            "off: the touch faulted (a huge page where the host gives one: {r})"
+        );
     }
     purge_now(usize::MAX, None);
     lazy_pass_now();

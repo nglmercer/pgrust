@@ -32,14 +32,20 @@ fn release_of(o: Owner) -> Release {
 impl HeldCharge {
     /// No owner: nothing is charged.
     pub const fn none() -> HeldCharge {
-        HeldCharge { charge: Charge::NONE, on: false }
+        HeldCharge {
+            charge: Charge::NONE,
+            on: false,
+        }
     }
 
     /// A charge on `owner` (kind lane `Region`: a statement's load data), 0 bytes until the first
     /// [`HeldCharge::sync`]; `None`: [`HeldCharge::none`].
     pub fn new(owner: Option<Owner>) -> HeldCharge {
         match owner {
-            Some(o) => HeldCharge { charge: Charge::open(o, release_of(o), Kind::Region, Door::Heap, 0), on: true },
+            Some(o) => HeldCharge {
+                charge: Charge::open(o, release_of(o), Kind::Region, Door::Heap, 0),
+                on: true,
+            },
             None => HeldCharge::none(),
         }
     }
@@ -59,7 +65,11 @@ impl HeldCharge {
 
     /// The bytes the charge holds now (0 uncharged).
     pub fn charged(&self) -> u64 {
-        if self.on { self.charge.committed() } else { 0 }
+        if self.on {
+            self.charge.committed()
+        } else {
+            0
+        }
     }
 }
 

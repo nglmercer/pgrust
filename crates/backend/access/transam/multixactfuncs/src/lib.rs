@@ -1,12 +1,9 @@
 //! pg_get_multixact_members (multixact.c) — hosted apart from the multixact
 //! crate because fmgr_core's dep tree reaches multixact (adt_scalar).
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use datum::Datum;
-use types_error::{
-    PgError, PgResult, ERRCODE_DATATYPE_MISMATCH, ERRCODE_INVALID_PARAMETER_VALUE,
-};
+use types_error::{PgError, PgResult, ERRCODE_DATATYPE_MISMATCH, ERRCODE_INVALID_PARAMETER_VALUE};
 use types_fmgr::{byref_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 use types_tuple::TupleDescData;
 
@@ -45,13 +42,18 @@ fn result_desc<'mcx>(
     if resolved.class != funcapi::TypeFuncClass::Composite {
         return Err(Box::new(PgError::error("return type must be a row type")));
     }
-    let mut desc = resolved.result_tuple_desc.expect("composite result carries a tupdesc");
+    let mut desc = resolved
+        .result_tuple_desc
+        .expect("composite result carries a tupdesc");
     // C BlessTupleDesc: only an anonymous record gets a typmod assigned.
     if desc.tdtypeid == types_core::catalog::RECORDOID && desc.tdtypmod < 0 {
         ::typcache_seams::assign_record_type_typmod::call(&mut desc)?;
     }
     let natts = desc.natts as usize;
-    let live = desc.attrs[..natts].iter().filter(|a| !a.attisdropped).count();
+    let live = desc.attrs[..natts]
+        .iter()
+        .filter(|a| !a.attisdropped)
+        .count();
     // DIVERGENCE (multixact.c:3767-3774): C's BuildTupleFromCStrings reads
     // past its two-entry values[] for a wider column definition list and
     // crashes the backend; refuse with the executor's tupledesc_match text
@@ -79,11 +81,18 @@ fn member_tuple(
     let natts = desc.natts as usize;
     let mut attinmeta = funcapi::AttInMetadata::new(&desc)?;
     let xid = m.xid.to_string();
-    let mut live = [Some(xid.as_bytes()), Some(mxstatus_to_string(m.status).as_bytes())]
-        .into_iter();
+    let mut live = [
+        Some(xid.as_bytes()),
+        Some(mxstatus_to_string(m.status).as_bytes()),
+    ]
+    .into_iter();
     let mut cstrings = ::mcx::std_vec_with_capacity("access", natts)?;
     for att in &desc.attrs[..natts] {
-        cstrings.push(if att.attisdropped { None } else { live.next().flatten() });
+        cstrings.push(if att.attisdropped {
+            None
+        } else {
+            live.next().flatten()
+        });
     }
     let (values, isnull) = attinmeta.build(mcx, &cstrings)?;
     let tuple = heaptuple::heap_form_tuple(mcx, &desc, &values, &isnull)?;

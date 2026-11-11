@@ -34,9 +34,7 @@ use types_scan::ForwardScanDirection;
 use types_slot::SlotData;
 use types_tuple::TupleDescData;
 
-use crate::{
-    force_flags, CopyFormatOptions, CopyGetAttnums, ProcessCopyOptions, RELKIND_RELATION,
-};
+use crate::{force_flags, CopyFormatOptions, CopyGetAttnums, ProcessCopyOptions, RELKIND_RELATION};
 
 // C buffers per-row fwrite in libc's FILE; the File destination's stream
 // (fd::StdioWrite) buffers likewise, while Program/Stdout retain rows in
@@ -158,7 +156,9 @@ pub fn BeginCopyTo<'mcx: 's, 's>(
     };
     let tup_desc: &TupleDescData<'_> = match rel {
         Some(rel) => &rel.rd_att,
-        None => tupdesc.as_deref().expect("ExecutorStart computed a result tupDesc"),
+        None => tupdesc
+            .as_deref()
+            .expect("ExecutorStart computed a result tupDesc"),
     };
 
     let attnumlist = CopyGetAttnums(mcx, tup_desc, rel, attnamelist)?;
@@ -177,8 +177,8 @@ pub fn BeginCopyTo<'mcx: 's, 's>(
     } else {
         opts.file_encoding
     };
-    let need_transcoding = !(file_encoding == mbutils::GetDatabaseEncoding()
-        || file_encoding == wchar::PG_SQL_ASCII);
+    let need_transcoding =
+        !(file_encoding == mbutils::GetDatabaseEncoding() || file_encoding == wchar::PG_SQL_ASCII);
     let encoding_embeds_ascii = wchar::pg_encoding_is_client_only(file_encoding);
 
     let dest = match filename {
@@ -192,7 +192,10 @@ pub fn BeginCopyTo<'mcx: 's, 's>(
                     .errmsg(format!("could not execute command \"{filename}\": {PCT_M}"))
                     .finish(loc("BeginCopyTo"))?;
             }
-            CopyDest::Program { fd: copy_file, filename }
+            CopyDest::Program {
+                fd: copy_file,
+                filename,
+            }
         }
         Some(filename) => {
             if !filename.starts_with('/') {
@@ -224,7 +227,9 @@ pub fn BeginCopyTo<'mcx: 's, 's>(
                 let mut e = ereport(ERROR)
                     .with_saved_errno(save_errno)
                     .errcode_for_file_access()
-                    .errmsg(format!("could not open file \"{filename}\" for writing: {PCT_M}"));
+                    .errmsg(format!(
+                        "could not open file \"{filename}\" for writing: {PCT_M}"
+                    ));
                 if crate::open_failure_hint_applies(save_errno) {
                     e = e.errhint(
                         "COPY TO instructs the PostgreSQL server process to write a file. You \
@@ -285,7 +290,10 @@ pub fn BeginCopyTo<'mcx: 's, 's>(
             }
             // The stdio buffer C's copy_file FILE gets: st_blksize (__smakebuf).
             let _ = fd::StdioSetBuf(copy_file, blksize);
-            CopyDest::File { fd: copy_file, filename }
+            CopyDest::File {
+                fd: copy_file,
+                filename,
+            }
         }
         None => {
             // copyto.c:918: a pipe COPY outside a remote session (single-user
@@ -378,10 +386,14 @@ fn begin_copy_query<'mcx>(
         if u.as_variant::<CreateTableAsStmt>().is_some() {
             return Err(feature_not_supported("COPY (SELECT INTO) is not supported"));
         }
-        return Err(feature_not_supported("COPY query must not be a utility command"));
+        return Err(feature_not_supported(
+            "COPY query must not be a utility command",
+        ));
     }
     if query.commandType != CmdType::CMD_SELECT && query.returningList.is_nil() {
-        return Err(feature_not_supported("COPY query must have a RETURNING clause"));
+        return Err(feature_not_supported(
+            "COPY query must have a RETURNING clause",
+        ));
     }
 
     let plan = postgres::simple_query::pg_plan_query(
@@ -477,7 +489,9 @@ fn do_copy_to<'mcx>(
     let query_tupdesc = cstate.tupdesc.clone();
     let tup_desc: &TupleDescData<'_> = match rel {
         Some(rel) => &rel.rd_att,
-        None => query_tupdesc.as_deref().expect("query COPY carries the executor tupDesc"),
+        None => query_tupdesc
+            .as_deref()
+            .expect("query COPY carries the executor tupDesc"),
     };
 
     if matches!(cstate.dest, CopyDest::Frontend) {
@@ -487,9 +501,9 @@ fn do_copy_to<'mcx>(
     // FmgrInfo carries droppy fn_extra, so PgVec::new_in (printtup precedent);
     // resolve-once, never per row (rule 4).
     let mut out_functions: PgVec<'mcx, FmgrInfo> = PgVec::new_in(mcx);
-    out_functions.try_reserve_exact(cstate.attnumlist.len()).map_err(|_| {
-        mcx.oom(cstate.attnumlist.len() * core::mem::size_of::<FmgrInfo>())
-    })?;
+    out_functions
+        .try_reserve_exact(cstate.attnumlist.len())
+        .map_err(|_| mcx.oom(cstate.attnumlist.len() * core::mem::size_of::<FmgrInfo>()))?;
     for &attnum in cstate.attnumlist.iter() {
         let attr = tup_desc.attr(attnum as usize - 1);
         let (func_oid, _is_varlena) = if cstate.opts.binary {
@@ -498,12 +512,21 @@ fn do_copy_to<'mcx>(
             lsyscache::typ::getTypeOutputInfo(attr.atttypid)?
         };
         let finfo = fmgr_core::fmgr_info(func_oid)?;
-        let into = if cstate.opts.binary { None } else { fmgr_core::fmgr_out_into(&finfo) };
+        let into = if cstate.opts.binary {
+            None
+        } else {
+            fmgr_core::fmgr_out_into(&finfo)
+        };
         let direct = |e: &OutInto| {
-            !cstate.opts.csv_mode && !cstate.need_transcoding && e.chars.is_some_and(|c| !c.contains(&cstate.opts.delim))
+            !cstate.opts.csv_mode
+                && !cstate.need_transcoding
+                && e.chars.is_some_and(|c| !c.contains(&cstate.opts.delim))
         };
         let slot = into.map(|e| (e, direct(e)));
-        cstate.out_into.try_reserve(1).map_err(|_| mcx.oom(core::mem::size_of_val(&slot)))?;
+        cstate
+            .out_into
+            .try_reserve(1)
+            .map_err(|_| mcx.oom(core::mem::size_of_val(&slot)))?;
         cstate.out_into.push(slot);
         out_functions.push(finfo);
     }
@@ -576,8 +599,7 @@ fn do_copy_to<'mcx>(
     let processed: u64 = match rel {
         Some(rel) => {
             let snapshot = Some(snapmgr::GetActiveSnapshot());
-            let mut scandesc =
-                tableam::table_beginscan(mcx, rel, snapshot, 0, PgVec::new_in(mcx))?;
+            let mut scandesc = tableam::table_beginscan(mcx, rel, snapshot, 0, PgVec::new_in(mcx))?;
             let mut slot = tableam::table_slot_create(mcx, rel)?;
 
             let mut processed: u64 = 0;
@@ -601,8 +623,15 @@ fn do_copy_to<'mcx>(
             processed
         }
         None => {
-            let qd = cstate.query_desc.as_ref().expect("query COPY has a QueryDesc").0;
-            let mut frame = QueryFrame { cstate, out_functions: &mut out_functions };
+            let qd = cstate
+                .query_desc
+                .as_ref()
+                .expect("query COPY has a QueryDesc")
+                .0;
+            let mut frame = QueryFrame {
+                cstate,
+                out_functions: &mut out_functions,
+            };
             let mut dest = tcop_dest::DestReceiver::CopyOut(copy_seams::CopyDestState::new(
                 (&mut frame as *mut QueryFrame<'_, '_, '_>).cast(),
             ));
@@ -612,7 +641,9 @@ fn do_copy_to<'mcx>(
                 0,
                 &mut dest,
             )?;
-            let tcop_dest::DestReceiver::CopyOut(st) = &dest else { unreachable!() };
+            let tcop_dest::DestReceiver::CopyOut(st) = &dest else {
+                unreachable!()
+            };
             st.processed
         }
     };
@@ -670,7 +701,12 @@ const BINARY_SIGNATURE: [u8; 11] = *b"PGCOPY\n\xff\r\n\0";
 
 /// An output function's text appended through its into-entry (`bound` from `e.bound(value)`).
 #[inline]
-fn append_rendered(buf: &mut StringInfo<'_>, e: &OutInto, value: Datum, bound: usize) -> PgResult<()> {
+fn append_rendered(
+    buf: &mut StringInfo<'_>,
+    e: &OutInto,
+    value: Datum,
+    bound: usize,
+) -> PgResult<()> {
     let mut failed = None;
     buf.append_written(bound, |d| {
         // SAFETY: append_written reserved `bound` bytes at d; bound came from e.bound(value).
@@ -750,7 +786,11 @@ fn CopyOneRowTo<'mcx>(
             continue;
         }
         let value: Datum = base.tts_values[m];
-        let into = out_into.get(i).copied().flatten().and_then(|(e, direct)| Some((e, direct, (e.bound)(value)?)));
+        let into = out_into
+            .get(i)
+            .copied()
+            .flatten()
+            .and_then(|(e, direct)| Some((e, direct, (e.bound)(value)?)));
         let s: &[u8] = match into {
             Some((e, true, bound)) => {
                 // no escape can apply: the output function's bytes straight into the row
@@ -1068,11 +1108,7 @@ pub fn EndCopyTo(mut cstate: CopyToState<'_, '_>) -> PgResult<()> {
 
 /// `CopyAttributeOutText` (copyto.c), server-encoding arm: chunked dump with
 /// the exact C escape table (\b \f \n \r \t \v, backslash, delimiter).
-pub fn copy_attribute_out_text(
-    buf: &mut StringInfo<'_>,
-    s: &[u8],
-    delimc: u8,
-) -> PgResult<()> {
+pub fn copy_attribute_out_text(buf: &mut StringInfo<'_>, s: &[u8], delimc: u8) -> PgResult<()> {
     let mut start = 0usize;
     let mut ptr = 0usize;
     while ptr < s.len() {
@@ -1325,6 +1361,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
 
         assert_eq!(created, 0o600, "server umask 077 masks the 0666 open");
-        assert_eq!(mode, 0o644, "no default ACL: fchmod reaches C's 0666 & ~022");
+        assert_eq!(
+            mode, 0o644,
+            "no default ACL: fchmod reaches C's 0666 & ~022"
+        );
     }
 }

@@ -218,7 +218,7 @@ impl IosBatch {
             if self.has_null[k] {
                 let words = &self.valid[k * WORDS..(k + 1) * WORDS];
                 // bounded("small-fixed: one window's rows, at most IOS_MAX_ROWS (MaxIndexTuplesPerPage, 408 at 8 K pages), an add each")
-                for (r, cell) in lane.iter_mut().enumerate().filter(|(r, _)| words[r / 64] >> (r % 64) & 1 != 0) {
+                for (_r, cell) in lane.iter_mut().enumerate().filter(|(r, _)| words[r / 64] >> (r % 64) & 1 != 0) {
                     *cell += base;
                 }
             } else {
@@ -275,7 +275,7 @@ impl Cells<'_> {
                 let words = &mut self.valid[k * WORDS..(k + 1) * WORDS];
                 words.fill(0);
                 words[..r / 64].fill(u64::MAX);
-                if r % 64 != 0 {
+                if !r.is_multiple_of(64) {
                     words[r / 64] = (1u64 << (r % 64)) - 1;
                 }
             }
@@ -632,7 +632,7 @@ impl AmWalk {
                 (row.attr(attno, &mut null), null)
             };
             if q.heap.contains(&0) {
-                table_row(slot, q.index, &att, mcx);
+                table_row(slot, q.index, att, mcx);
                 form(q.heap, q.index, &mut *q.info, slot, &mut self.row, &mut self.ivals, &mut self.inull, mcx)?;
                 exectuples::exec_clear_tuple(slot, mcx);
             }
@@ -741,6 +741,7 @@ mod tests {
             };
             let rows = got.unwrap().0 as usize;
             assert_eq!(rows, cap, "a window holds its cap");
+            #[allow(clippy::needless_range_loop)]
             for k in 0..n {
                 let l = lanes[k];
                 let any = (0..rows).any(|r| null_at(k, r));
@@ -749,6 +750,7 @@ mod tests {
                 if any {
                     assert_eq!(l.valid, b.valid[k * super::WORDS..].as_ptr(), "lane {k}'s valid words are the batch's");
                 }
+                #[allow(clippy::needless_range_loop)]
                 for r in 0..rows {
                     let ok = !any || b.valid[k * super::WORDS + r / 64] >> (r % 64) & 1 != 0;
                     assert_eq!(ok, !null_at(k, r), "lane {k} row {r}");

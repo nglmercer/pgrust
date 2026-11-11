@@ -101,6 +101,7 @@ fn wide_at<'p>(b: &Builder<'p, '_>, child: At<'_, 'p>, e: Node<'p>, agg: bool, d
 
 /// `(scale, integer digits)` of a numeric expression (a product adds both, a sum takes the larger and a carry): D197's word bound.
 pub(super) fn num_form_at<'p>(b: &Builder<'p, '_>, child: &Open<'p>, e: Node<'p>, agg: bool) -> Option<(u32, u32)> {
+    #[allow(const_item_mutation)]
     form_at(b, At::of(child), e, agg, &mut Digits::START).map(|f| (f.0, f.1))
 }
 
@@ -480,7 +481,7 @@ pub(super) fn origin<'a, 'p>(b: &'a Builder<'p, '_>, pipe: &'a Open<'p>, proj: u
     }
     let from = pipe.ops[..at].iter().rposition(|op| matches!(op, Op::Append(AppendDesc::Arm { .. }))).map_or(0, |m| m + 1);
     let ops = &pipe.ops[from..at];
-    let join = ops.iter().filter_map(|op| if let Op::Join(j) = op { Some(j) } else { None }).last();
+    let join = ops.iter().filter_map(|op| if let Op::Join(j) = op { Some(j) } else { None }).next_back();
     let mut go = |p: &'a Open<'p>, j: Option<usize>| match j.and_then(|j| Some((j, entry(projection(p, j)?, v.varattno)?))) {
         Some((j, x)) => origin(b, p, j, x, depth - 1, each, expr),
         None => false,
@@ -504,7 +505,7 @@ pub(super) fn origin<'a, 'p>(b: &'a Builder<'p, '_>, pipe: &'a Open<'p>, proj: u
             _ => false,
         },
         (INNER_VAR, Some(crate::join::JoinDesc::Probe { slot, .. } | crate::join::JoinDesc::Merge { slot, .. })) => producer(b, pipe, *slot).is_some_and(|p| go(p, last(p))),
-        (INNER_VAR, Some(crate::join::JoinDesc::Nest { inner, .. })) => go(&**inner, last(inner)),
+        (INNER_VAR, Some(crate::join::JoinDesc::Nest { inner, .. })) => go(inner, last(inner)),
         _ => false,
     }
 }

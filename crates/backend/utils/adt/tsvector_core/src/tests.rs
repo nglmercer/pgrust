@@ -109,7 +109,7 @@ fn tsq<'a>(mcx: ::mcx::Mcx<'a>, s: &str) -> TsQueryRef<'a> {
     items.extend_from_slice(&1i32.to_ne_bytes());
     let mut raw = [0u8; 12];
     raw[0] = 1;
-    let packed = (s.len() as u32 & 0xfff);
+    let packed = s.len() as u32 & 0xfff;
     raw[8..12].copy_from_slice(&packed.to_ne_bytes());
     items.extend_from_slice(&raw);
     items.extend_from_slice(s.as_bytes());

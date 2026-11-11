@@ -27,8 +27,8 @@ use openssl::hash::MessageDigest;
 use openssl::nid::Nid;
 use openssl::pkey::Params;
 use openssl::ssl::{
-    select_next_proto, AlpnError, ErrorCode, Ssl, SslContext, SslContextBuilder,
-    SslMethod, SslMode, SslOptions, SslSessionCacheMode, SslStream, SslVerifyMode, SslVersion,
+    select_next_proto, AlpnError, ErrorCode, Ssl, SslContext, SslContextBuilder, SslMethod,
+    SslMode, SslOptions, SslSessionCacheMode, SslStream, SslVerifyMode, SslVersion,
 };
 use openssl::x509::verify::X509VerifyFlags;
 use openssl::x509::{X509Name, X509NameRef, X509Ref, X509};
@@ -435,7 +435,9 @@ fn x509_name_to_cstring(name: &X509NameRef) -> PgResult<Vec<u8>> {
         Err(cffi::X509NameError::NoFieldName(nid)) => {
             return ereport(ERROR)
                 .errcode(ERRCODE_INVALID_PARAMETER_VALUE)
-                .errmsg(format!("could not convert NID {nid} to an ASN1_OBJECT structure"))
+                .errmsg(format!(
+                    "could not convert NID {nid} to an ASN1_OBJECT structure"
+                ))
                 .finish(loc("X509_NAME_to_cstring"))
                 .map(|()| Vec::new());
         }
@@ -456,7 +458,9 @@ fn load_dh_file(cx: &InitCx, filename: &str) -> PgResult<Option<Dh<Params>>> {
         ereport(cx.level())
             .with_saved_errno(fd::get_errno())
             .errcode_for_file_access()
-            .errmsg(format!("could not open DH parameters file \"{filename}\": {PCT_M}"))
+            .errmsg(format!(
+                "could not open DH parameters file \"{filename}\": {PCT_M}"
+            ))
             .finish(loc("load_dh_file"))?;
         return Ok(None);
     }
@@ -468,7 +472,9 @@ fn load_dh_file(cx: &InitCx, filename: &str) -> PgResult<Option<Dh<Params>>> {
             ereport(cx.level())
                 .with_saved_errno(e.raw_os_error().unwrap_or(0))
                 .errcode_for_file_access()
-                .errmsg(format!("could not open DH parameters file \"{filename}\": {PCT_M}"))
+                .errmsg(format!(
+                    "could not open DH parameters file \"{filename}\": {PCT_M}"
+                ))
                 .finish(loc("load_dh_file"))?;
             return Ok(None);
         }
@@ -483,7 +489,11 @@ fn load_dh_file(cx: &InitCx, filename: &str) -> PgResult<Option<Dh<Params>>> {
                     "could not load DH parameters file: {}",
                     ssl_errmessage(Some(&st))
                 ))
-                .finish(ErrorLocation::new("be-secure-openssl.c", 1063, "load_dh_file"))?;
+                .finish(ErrorLocation::new(
+                    "be-secure-openssl.c",
+                    1063,
+                    "load_dh_file",
+                ))?;
             return Ok(None);
         }
     };
@@ -877,9 +887,11 @@ pub fn be_tls_init(is_server_start: bool) -> PgResult<i32> {
         select_next_proto(ALPN_PROTOS, client).ok_or_else(|| alpn_no_overlap(client))
     });
 
-    SSL_CONFIG.with(|c| *c.borrow_mut() = TlsConfig {
-        context: Some(ctx.build()),
-        loaded_verify_locations: !ssl_ca_file.is_empty(),
+    SSL_CONFIG.with(|c| {
+        *c.borrow_mut() = TlsConfig {
+            context: Some(ctx.build()),
+            loaded_verify_locations: !ssl_ca_file.is_empty(),
+        }
     });
 
     Ok(0)
@@ -959,7 +971,9 @@ fn accept_failure_report(err: &openssl::ssl::Error) -> PgResult<()> {
             // rust-openssl BIO does not, leaving SYSCALL with no errno.
             ereport(COMMERROR)
                 .errcode(ERRCODE_PROTOCOL_VIOLATION)
-                .errmsg(format!("could not accept SSL connection: {UNEXPECTED_EOF_WHILE_READING}"))
+                .errmsg(format!(
+                    "could not accept SSL connection: {UNEXPECTED_EOF_WHILE_READING}"
+                ))
                 .finish(loc("be_tls_open_server"))
         }
         ErrorCode::SSL => {
@@ -1268,7 +1282,10 @@ fn classify_io(res: Result<usize, openssl::ssl::Error>, is_read: bool) -> PgResu
                 waitfor: WL_SOCKET_WRITEABLE,
             }),
             ErrorCode::SYSCALL => {
-                let e = err.io_error().and_then(|io| io.raw_os_error()).filter(|&e| e != 0);
+                let e = err
+                    .io_error()
+                    .and_then(|io| io.raw_os_error())
+                    .filter(|&e| e != 0);
                 if e.is_none() && is_read {
                     // Peer EOF without close_notify: C's SSL_ERROR_SSL arm
                     // (see accept_failure_report).
@@ -1538,7 +1555,10 @@ pub fn be_tls_get_certificate_hash() -> PgResult<Option<Vec<u8>>> {
         };
 
         match server_cert.digest(algo_type) {
-            Ok(hash) => Ok(Some(::mcx::std_vec_from_slice("be_secure_openssl", hash.as_ref())?)),
+            Ok(hash) => Ok(Some(::mcx::std_vec_from_slice(
+                "be_secure_openssl",
+                hash.as_ref(),
+            )?)),
             Err(_) => ereport(ERROR)
                 .errmsg_internal("could not generate server certificate hash")
                 .finish(loc("be_tls_get_certificate_hash"))
@@ -1554,7 +1574,9 @@ mod tests {
 
     #[test]
     fn inherited_ca_store_survives_parent_reload_and_destroy() {
-        let context = SslContextBuilder::new(SslMethod::tls_server()).unwrap().build();
+        let context = SslContextBuilder::new(SslMethod::tls_server())
+            .unwrap()
+            .build();
         inherit_tls_config(&TlsConfig {
             context: Some(context.clone()),
             loaded_verify_locations: true,
@@ -1562,7 +1584,9 @@ mod tests {
         let inherited = tls_config_snapshot();
         be_tls_destroy();
         assert!(!ssl_loaded_verify_locations());
-        let replacement = SslContextBuilder::new(SslMethod::tls_server()).unwrap().build();
+        let replacement = SslContextBuilder::new(SslMethod::tls_server())
+            .unwrap()
+            .build();
         inherit_tls_config(&TlsConfig {
             context: Some(replacement),
             loaded_verify_locations: false,
@@ -1570,10 +1594,15 @@ mod tests {
         std::thread::spawn(move || {
             inherit_tls_config(&inherited);
             assert!(ssl_loaded_verify_locations());
-            assert_eq!(tls_config_snapshot().context.unwrap().as_ptr(), context.as_ptr());
+            assert_eq!(
+                tls_config_snapshot().context.unwrap().as_ptr(),
+                context.as_ptr()
+            );
             be_tls_destroy();
             assert!(!ssl_loaded_verify_locations());
-        }).join().unwrap();
+        })
+        .join()
+        .unwrap();
         assert!(!ssl_loaded_verify_locations());
         be_tls_destroy();
     }
@@ -1617,14 +1646,19 @@ mod tests {
         b.set_subject_name(&name).unwrap();
         b.set_issuer_name(&name).unwrap();
         b.set_pubkey(&key).unwrap();
-        b.set_not_before(&Asn1Time::days_from_now(0).unwrap()).unwrap();
-        b.set_not_after(&Asn1Time::days_from_now(1).unwrap()).unwrap();
+        b.set_not_before(&Asn1Time::days_from_now(0).unwrap())
+            .unwrap();
+        b.set_not_after(&Asn1Time::days_from_now(1).unwrap())
+            .unwrap();
         b.sign(&key, MessageDigest::sha256()).unwrap();
         let cert = b.build();
 
         let got = extract_peer_cn(&cert).unwrap().expect("no embedded NUL");
         assert_eq!(got.as_deref(), Some(&cn[..]));
-        assert!(std::str::from_utf8(&cn[..]).is_err(), "the fixture must not be UTF-8");
+        assert!(
+            std::str::from_utf8(&cn[..]).is_err(),
+            "the fixture must not be UTF-8"
+        );
     }
 
     // be-secure-openssl.c:1177-1190: names over 71 bytes keep their last 71
@@ -1665,10 +1699,8 @@ mod tests {
 
     #[test]
     fn verification_name_error_preserves_sqlstate() {
-        let cert = X509::from_pem(include_bytes!(
-            "../tests/fixtures/unknown-subject-oid.pem"
-        ))
-        .unwrap();
+        let cert =
+            X509::from_pem(include_bytes!("../tests/fixtures/unknown-subject-oid.pem")).unwrap();
         let store = openssl::x509::store::X509StoreBuilder::new()
             .unwrap()
             .build();
@@ -1702,15 +1734,22 @@ mod tests {
         static REPORTS: AtomicUsize = AtomicUsize::new(0);
         xact_seams::get_current_sub_transaction_id::set(|| 0);
         openssl::init();
-        let cx = InitCx { is_server_start: false };
+        let cx = InitCx {
+            is_server_start: false,
+        };
         let previous = elog::set_emit_log_hook(Some(|err, output| {
             assert_eq!(err.sqlstate(), ERRCODE_CONFIG_FILE_ERROR);
-            assert_eq!(err.message(), "could not load DH parameters file: no start line");
+            assert_eq!(
+                err.message(),
+                "could not load DH parameters file: no start line"
+            );
             assert_eq!(err.location().unwrap().lineno, 1063);
             REPORTS.fetch_add(1, O::SeqCst);
             *output = false;
         }));
-        assert!(load_dh_file(&cx, env!("CARGO_MANIFEST_DIR")).unwrap().is_none());
+        assert!(load_dh_file(&cx, env!("CARGO_MANIFEST_DIR"))
+            .unwrap()
+            .is_none());
         assert_eq!(REPORTS.load(O::SeqCst), 1);
         let path = std::env::temp_dir().join(format!("dh-params-{}.pem", std::process::id()));
         std::fs::write(&path, FILE_DH2048).unwrap();
@@ -1719,7 +1758,9 @@ mod tests {
         std::fs::remove_file(&path).unwrap();
         elog::set_emit_log_hook(Some(|err, output| {
             assert_eq!(err.sqlstate(), types_error::ERRCODE_UNDEFINED_FILE);
-            assert!(err.message().starts_with("could not open DH parameters file"));
+            assert!(err
+                .message()
+                .starts_with("could not open DH parameters file"));
             REPORTS.fetch_add(1, O::SeqCst);
             *output = false;
         }));
@@ -1788,13 +1829,19 @@ mod tests {
         for (code, text) in [
             (SSL_R_NO_PROTOCOLS_AVAILABLE, "no protocols available"),
             (SSL_R_UNSUPPORTED_PROTOCOL, "unsupported protocol"),
-            (SSL_R_BAD_PROTOCOL_VERSION_NUMBER, "bad protocol version number"),
+            (
+                SSL_R_BAD_PROTOCOL_VERSION_NUMBER,
+                "bad protocol version number",
+            ),
             (SSL_R_UNKNOWN_PROTOCOL, "unknown protocol"),
             (SSL_R_UNKNOWN_SSL_VERSION, "unknown ssl version"),
             (SSL_R_UNSUPPORTED_SSL_VERSION, "unsupported ssl version"),
             (SSL_R_WRONG_SSL_VERSION, "wrong ssl version"),
             (SSL_R_WRONG_VERSION_NUMBER, "wrong version number"),
-            (SSL_R_TLSV1_ALERT_PROTOCOL_VERSION, "tlsv1 alert protocol version"),
+            (
+                SSL_R_TLSV1_ALERT_PROTOCOL_VERSION,
+                "tlsv1 alert protocol version",
+            ),
             (SSL_R_VERSION_TOO_HIGH, "version too high"),
             (SSL_R_VERSION_TOO_LOW, "version too low"),
         ] {

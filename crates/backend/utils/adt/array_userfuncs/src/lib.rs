@@ -253,10 +253,12 @@ pub fn array_cat_internal<'m>(
 
 fn write_dims_lbs(out: &mut [u8], ndims: i32, dims: &[i32], lbs: &[i32]) {
     let mut off = ARRAYTYPE_HDRSZ;
+    #[allow(clippy::needless_range_loop)]
     for i in 0..ndims as usize {
         out[off..off + 4].copy_from_slice(&dims[i].to_ne_bytes());
         off += 4;
     }
+    #[allow(clippy::needless_range_loop)]
     for i in 0..ndims as usize {
         out[off..off + 4].copy_from_slice(&lbs[i].to_ne_bytes());
         off += 4;

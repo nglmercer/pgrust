@@ -316,7 +316,7 @@ fn through<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals
     env.x.l_stop_in = stop_in;
     let here = b.current();
     b.switch_to(l_seen);
-    let p = mcx::to_vec_in(&b.block_params(l_seen)[..], mcx);
+    let p = mcx::to_vec_in(b.block_params(l_seen), mcx);
     let past = b.icmp(IntCond::Eq, p[1], row.next);
     let at = b.icmp(IntCond::Eq, p[1], row.at);
     let known = b.int_bin(IntBinOp::Or, past, at);

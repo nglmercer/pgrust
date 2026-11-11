@@ -132,7 +132,10 @@ pub fn resolve_effective(
 /// Section 0 of `manifest-<gen>` (`read_front_bytes`): the manifest, section 0's length and the bytes read.
 pub fn read_front(dir: &dyn TableDirIo, gen: u64) -> ReadResult<(Manifest, usize, Vec<u8>)> {
     let name = manifest_file_name(gen);
-    let (bytes, _) = read_front_bytes(&mut |len| dir.read_prefix(&name, len)?.ok_or(ReadError::ManifestMissing { gen }))?;
+    let (bytes, _) = read_front_bytes(&mut |len| {
+        dir.read_prefix(&name, len)?
+            .ok_or(ReadError::ManifestMissing { gen })
+    })?;
     let (m, s0) = decode_front(&bytes)?;
     Ok((m, s0, bytes))
 }

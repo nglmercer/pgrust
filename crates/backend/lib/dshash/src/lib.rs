@@ -14,7 +14,7 @@ use core::sync::atomic::{AtomicPtr, AtomicU32, Ordering::Relaxed};
 
 use init_small::globals;
 use lwlock::{
-    LWLock, LWLockAcquire, LWLockHeldByMeInMode, LWLockPadded, LWLockRelease, LWLockMode,
+    LWLock, LWLockAcquire, LWLockHeldByMeInMode, LWLockMode, LWLockPadded, LWLockRelease,
     LW_EXCLUSIVE, LW_SHARED,
 };
 use types_error::PgResult;
@@ -186,14 +186,14 @@ impl<P: DshashParams> DshashTable<P> {
     }
 
     pub fn find_shared(&self, key: &P::Key) -> PgResult<Option<DshashEntryShared<'_, P>>> {
-        Ok(self.find_impl(key, LW_SHARED)?.map(|(item, partition)| {
-            DshashEntryShared {
+        Ok(self
+            .find_impl(key, LW_SHARED)?
+            .map(|(item, partition)| DshashEntryShared {
                 table: self,
                 item,
                 partition,
                 _not_send: PhantomData,
-            }
-        }))
+            }))
     }
 
     pub fn find_exclusive(&self, key: &P::Key) -> PgResult<Option<DshashEntry<'_, P>>> {
@@ -619,6 +619,7 @@ impl<P: DshashParams> DshashSeqScan<'_, P> {
         Ok(Some(next))
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> PgResult<Option<&P::Entry>> {
         // SAFETY: item stays valid while our partition lock is held; the
         // returned borrow ends before the next scan call can free it.

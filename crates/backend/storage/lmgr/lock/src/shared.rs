@@ -204,6 +204,7 @@ pub(crate) unsafe fn proclock_from_proc_link(node: *mut dlist_node) -> *mut PROC
 }
 
 // Iterates lock->procLocks, deletion-safe; SAFETY contract: partition LWLock held.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn foreach_proclock_on_lock(
     lock: *mut LOCK,
     mut body: impl FnMut(*mut PROCLOCK) -> bool,
@@ -472,6 +473,7 @@ pub(crate) unsafe fn lock_check_conflicts_raw(
     let myLocks = (*proclock).holdMask;
     let mut conflicts_remaining = [0i32; MAX_LOCKMODES];
     let mut total_conflicts = 0;
+    #[allow(clippy::needless_range_loop)]
     for i in 1..=numLockModes as usize {
         if conflictMask & LOCKBIT_ON(i as LOCKMODE) == 0 {
             continue;
@@ -508,6 +510,7 @@ pub(crate) unsafe fn lock_check_conflicts_raw(
             && (*other).holdMask & conflictMask != 0
         {
             let intersect = (*other).holdMask & conflictMask;
+            #[allow(clippy::needless_range_loop)]
             for i in 1..=numLockModes as usize {
                 if intersect & LOCKBIT_ON(i as LOCKMODE) != 0 {
                     assert!(conflicts_remaining[i] > 0, "proclocks held do not match lock");

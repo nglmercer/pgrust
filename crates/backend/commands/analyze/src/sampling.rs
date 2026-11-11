@@ -30,6 +30,7 @@ impl BlockSamplerData {
         self.t < self.n_total && self.m < self.n_sample
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> BlockNumber {
         let k_remaining = self.n_total - self.t;
         let k_needed = self.n_sample - self.m;
@@ -64,7 +65,10 @@ pub struct ReservoirStateData {
 }
 
 pub fn reservoir_init_selection_state(seed: u32, n: u32) -> ReservoirStateData {
-    let mut rs = ReservoirStateData { w: 0.0, randstate: PgPrng::seeded(seed as u64) };
+    let mut rs = ReservoirStateData {
+        w: 0.0,
+        randstate: PgPrng::seeded(seed as u64),
+    };
     rs.w = (-sampler_random_fract(&mut rs.randstate).ln() / n as f64).exp();
     rs
 }

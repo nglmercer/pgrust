@@ -934,6 +934,7 @@ fn return_full_value_and_error_restore_masks_and_cleanup() {
 }
 
 #[test]
+#[allow(clippy::unnecessary_unwrap)]
 fn byval_prologue_replaces_assignments_once_even_after_zero_use_release() {
     for references in [0, 2] {
         for frame_off in [None, Some(-72), Some(0)] {

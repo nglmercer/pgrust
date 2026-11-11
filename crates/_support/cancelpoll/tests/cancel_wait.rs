@@ -28,12 +28,20 @@ fn an_interruptible_wait_is_no_gap_and_its_start_ends_one() {
             busy(1);
         }
     });
-    assert_eq!(cancelpoll::probe_max().1, 0, "the waits booked no gap, and each wake starts the stretch again");
+    assert_eq!(
+        cancelpoll::probe_max().1,
+        0,
+        "the waits booked no gap, and each wake starts the stretch again"
+    );
     cancelpoll::scoped(&byte, || {
         busy(LONG);
         let _wait = cancelpoll::waiting();
     });
-    assert_eq!(cancelpoll::probe_max().1, 1, "the busy stretch before a wait is a gap, ended at the wait's start");
+    assert_eq!(
+        cancelpoll::probe_max().1,
+        1,
+        "the busy stretch before a wait is a gap, ended at the wait's start"
+    );
     cancelpoll::set_probe_ms(0);
     cancelpoll::scoped(&byte, || drop(cancelpoll::waiting()));
     assert_eq!(cancelpoll::probe_max().1, 1, "off: nothing");

@@ -1022,6 +1022,7 @@ fn def_get_string(
 // parseCreateReplSlotOptions (walsender.c:1114).
 // CRSSnapshotAction (walsender.h).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[allow(clippy::enum_variant_names)]
 pub(crate) enum CrsSnapshotAction {
     ExportSnapshot,
     NoExportSnapshot,

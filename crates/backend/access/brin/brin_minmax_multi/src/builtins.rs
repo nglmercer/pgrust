@@ -97,7 +97,12 @@ unsafe fn arg_numeric_payload(fcinfo: &Fcinfo, i: usize) -> PgResult<&[u8]> {
 
 fn fc_dist_numeric(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     // SAFETY: numeric args are live inline varlena images.
-    let (p1, p2) = unsafe { (arg_numeric_payload(fcinfo, 0)?, arg_numeric_payload(fcinfo, 1)?) };
+    let (p1, p2) = unsafe {
+        (
+            arg_numeric_payload(fcinfo, 0)?,
+            arg_numeric_payload(fcinfo, 1)?,
+        )
+    };
     let a1 = ::adt_numeric::Num::from_payload(p1);
     let a2 = ::adt_numeric::Num::from_payload(p2);
     let d = ::adt_numeric::ops::numeric_sub_common(a2, a1)?;
@@ -189,7 +194,12 @@ fn fc_dist_macaddr8(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<
 
 fn fc_dist_inet(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     // SAFETY: inet args are live inline varlena images.
-    let (pa, pb) = unsafe { (arg_varlena_payload(fcinfo, 0)?, arg_varlena_payload(fcinfo, 1)?) };
+    let (pa, pb) = unsafe {
+        (
+            arg_varlena_payload(fcinfo, 0)?,
+            arg_varlena_payload(fcinfo, 1)?,
+        )
+    };
     // inet_struct: family u8, bits u8, ipaddr [u8; 4|16].
     let (fam_a, bits_a) = (pa[0], pa[1] as i32);
     let (fam_b, bits_b) = (pb[0], pb[1] as i32);
@@ -331,8 +341,8 @@ fn fc_summary_out(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Da
 
     s.push(b'}');
 
-    let mut out: mcx::PgVec<'_, u8> = mcx::vec_with_capacity_in(mcx, s.len() + 1)
-        .map_err(|_| mcx.oom(s.len() + 1))?;
+    let mut out: mcx::PgVec<'_, u8> =
+        mcx::vec_with_capacity_in(mcx, s.len() + 1).map_err(|_| mcx.oom(s.len() + 1))?;
     out.extend_from_slice(&s);
     out.push(0);
     Ok(::fmgr::cstring_result(out))
@@ -346,7 +356,14 @@ fn fc_summary_send(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<D
 }
 
 const fn b(foid: Oid, name: &'static str, nargs: i16, func: ::fmgr::PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
+    FmgrBuiltin {
+        foid,
+        name,
+        nargs,
+        strict: true,
+        retset: false,
+        func,
+    }
 }
 
 fn fc_options(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -366,28 +383,73 @@ fn fc_options(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum>
 
 pub const MINMAX_MULTI_BUILTINS: &[FmgrBuiltin] = &[
     // opclass support: native BRIN dispatch; fmgr-lookup parity rows.
-    b(4616, "brin_minmax_multi_opcinfo", 1, ::fmgr::fc_internal_dispatch_only),
-    b(4617, "brin_minmax_multi_add_value", 4, ::fmgr::fc_internal_dispatch_only),
-    b(4618, "brin_minmax_multi_consistent", 4, ::fmgr::fc_internal_dispatch_only),
-    b(4619, "brin_minmax_multi_union", 3, ::fmgr::fc_internal_dispatch_only),
+    b(
+        4616,
+        "brin_minmax_multi_opcinfo",
+        1,
+        ::fmgr::fc_internal_dispatch_only,
+    ),
+    b(
+        4617,
+        "brin_minmax_multi_add_value",
+        4,
+        ::fmgr::fc_internal_dispatch_only,
+    ),
+    b(
+        4618,
+        "brin_minmax_multi_consistent",
+        4,
+        ::fmgr::fc_internal_dispatch_only,
+    ),
+    b(
+        4619,
+        "brin_minmax_multi_union",
+        3,
+        ::fmgr::fc_internal_dispatch_only,
+    ),
     b(4620, "brin_minmax_multi_options", 1, fc_options),
     b(4621, "brin_minmax_multi_distance_int2", 2, fc_dist_int2),
     b(4622, "brin_minmax_multi_distance_int4", 2, fc_dist_int4),
     b(4623, "brin_minmax_multi_distance_int8", 2, fc_dist_int8),
     b(4624, "brin_minmax_multi_distance_float4", 2, fc_dist_float4),
     b(4625, "brin_minmax_multi_distance_float8", 2, fc_dist_float8),
-    b(4626, "brin_minmax_multi_distance_numeric", 2, fc_dist_numeric),
+    b(
+        4626,
+        "brin_minmax_multi_distance_numeric",
+        2,
+        fc_dist_numeric,
+    ),
     b(4627, "brin_minmax_multi_distance_tid", 2, fc_dist_tid),
     b(4628, "brin_minmax_multi_distance_uuid", 2, fc_dist_uuid),
     b(4629, "brin_minmax_multi_distance_date", 2, fc_dist_date),
     b(4630, "brin_minmax_multi_distance_time", 2, fc_dist_time),
-    b(4631, "brin_minmax_multi_distance_interval", 2, fc_dist_interval),
+    b(
+        4631,
+        "brin_minmax_multi_distance_interval",
+        2,
+        fc_dist_interval,
+    ),
     b(4632, "brin_minmax_multi_distance_timetz", 2, fc_dist_timetz),
     b(4633, "brin_minmax_multi_distance_pg_lsn", 2, fc_dist_pg_lsn),
-    b(4634, "brin_minmax_multi_distance_macaddr", 2, fc_dist_macaddr),
-    b(4635, "brin_minmax_multi_distance_macaddr8", 2, fc_dist_macaddr8),
+    b(
+        4634,
+        "brin_minmax_multi_distance_macaddr",
+        2,
+        fc_dist_macaddr,
+    ),
+    b(
+        4635,
+        "brin_minmax_multi_distance_macaddr8",
+        2,
+        fc_dist_macaddr8,
+    ),
     b(4636, "brin_minmax_multi_distance_inet", 2, fc_dist_inet),
-    b(4637, "brin_minmax_multi_distance_timestamp", 2, fc_dist_timestamp),
+    b(
+        4637,
+        "brin_minmax_multi_distance_timestamp",
+        2,
+        fc_dist_timestamp,
+    ),
     b(4638, "brin_minmax_multi_summary_in", 1, fc_summary_in),
     b(4639, "brin_minmax_multi_summary_out", 1, fc_summary_out),
     b(4640, "brin_minmax_multi_summary_recv", 1, fc_summary_recv),

@@ -118,6 +118,7 @@ impl GranuleRangeSource {
         }
         let nparts = self.list.as_ref().map_or(0, |l| l.len());
         let natts = self.recipe.natts;
+        #[allow(clippy::borrowed_box)]
         let sk: &'r Box<SiteKept> = self.resolved_unbound().kept.get(self.site)?.get_or_init(|| Box::new(SiteKept::new(natts, nparts))); // alloc: Exec
         Some(&**sk)
     }

@@ -38,7 +38,12 @@ mod legacy_gistproc {
         pg_qsort_range(v, 0, v.len(), &cmp);
     }
 
-    fn pg_qsort_range<T: Copy>(v: &mut [T], mut a: usize, mut n: usize, cmp: &impl Fn(&T, &T) -> i32) {
+    fn pg_qsort_range<T: Copy>(
+        v: &mut [T],
+        mut a: usize,
+        mut n: usize,
+        cmp: &impl Fn(&T, &T) -> i32,
+    ) {
         loop {
             if n < 7 {
                 let mut pm = a + 1;
@@ -143,14 +148,12 @@ mod legacy_gistproc {
             return;
         }
     }
-
 }
 
 mod legacy_rangetypes {
     // Verbatim: crates/backend/utils/adt/rangetypes_gist/src/qsort.rs
     // (identical algorithm text to brin_minmax_multi's copy)
     type PgResult<T> = Result<T, ()>;
-
 
     fn med3<T: Copy>(
         v: &[T],
@@ -310,7 +313,12 @@ mod legacy_sortitem {
         }
     }
 
-    fn qsort_rec<T: Copy, C: FnMut(&T, &T) -> i32>(a: &mut [T], mut lo: usize, mut n: usize, cmp: &mut C) {
+    fn qsort_rec<T: Copy, C: FnMut(&T, &T) -> i32>(
+        a: &mut [T],
+        mut lo: usize,
+        mut n: usize,
+        cmp: &mut C,
+    ) {
         loop {
             if n < 7 {
                 for pm in lo + 1..lo + n {
@@ -450,9 +458,15 @@ fn lcg(state: &mut u64) -> u64 {
 fn cases() -> Vec<Vec<(i32, u32)>> {
     let mut out = Vec::new();
     let mut rng = 0xfeed_beef_u64;
-    for n in [0usize, 1, 2, 5, 6, 7, 8, 13, 39, 40, 41, 64, 100, 500, 1000, 4096] {
+    for n in [
+        0usize, 1, 2, 5, 6, 7, 8, 13, 39, 40, 41, 64, 100, 500, 1000, 4096,
+    ] {
         for &kmod in &[2u64, 7, 16, 1000] {
-            out.push((0..n).map(|i| ((lcg(&mut rng) % kmod) as i32, i as u32)).collect());
+            out.push(
+                (0..n)
+                    .map(|i| ((lcg(&mut rng) % kmod) as i32, i as u32))
+                    .collect(),
+            );
         }
         out.push((0..n).map(|i| ((i / 3) as i32, i as u32)).collect());
         out.push((0..n).map(|i| (-((i / 3) as i32), i as u32)).collect());

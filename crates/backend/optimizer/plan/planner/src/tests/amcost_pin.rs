@@ -47,16 +47,34 @@ struct PinIndex {
 fn pin_index(table: u32) -> Option<PinIndex> {
     let (oid, name, indkey, partial, pages, tuples, height) = match table {
         PIN_T1 => (PIN_I1, "pin1_a", &[1i16][..], false, 276, HEAP_TUPLES, 1),
-        PIN_T2 => (PIN_I2, "pin2_abc", &[1i16, 2, 3][..], false, 386, HEAP_TUPLES, 2),
+        PIN_T2 => (
+            PIN_I2,
+            "pin2_abc",
+            &[1i16, 2, 3][..],
+            false,
+            386,
+            HEAP_TUPLES,
+            2,
+        ),
         PIN_T3 => (PIN_I3, "pin3_b_part", &[2i16][..], true, 139, 50_000.0, 1),
         PIN_T4 => (PIN_I4, "pin4_expr", &[0i16][..], false, 276, HEAP_TUPLES, 1),
         _ => return None,
     };
-    Some(PinIndex { oid, name, indkey, partial, pages, tuples, height })
+    Some(PinIndex {
+        oid,
+        name,
+        indkey,
+        partial,
+        pages,
+        tuples,
+        height,
+    })
 }
 
 fn table_of_index(index: u32) -> Option<u32> {
-    [PIN_T1, PIN_T2, PIN_T3, PIN_T4].into_iter().find(|&t| pin_index(t).is_some_and(|i| i.oid == index))
+    [PIN_T1, PIN_T2, PIN_T3, PIN_T4]
+        .into_iter()
+        .find(|&t| pin_index(t).is_some_and(|i| i.oid == index))
 }
 
 fn pin_pg_class(oid: u32) -> Option<types_rel::FormData_pg_class> {
@@ -84,7 +102,14 @@ fn int4<'mcx>(mcx: Mcx<'mcx>, v: i32) -> Node<'mcx> {
     Node::mk_const(mcx, 23, -1, 0, 4, Datum::from_i32(v), false, true).unwrap()
 }
 
-fn op<'mcx>(mcx: Mcx<'mcx>, opno: u32, opfuncid: u32, restype: u32, l: Node<'mcx>, r: Node<'mcx>) -> Node<'mcx> {
+fn op<'mcx>(
+    mcx: Mcx<'mcx>,
+    opno: u32,
+    opfuncid: u32,
+    restype: u32,
+    l: Node<'mcx>,
+    r: Node<'mcx>,
+) -> Node<'mcx> {
     Node::mk(
         mcx,
         OpExpr {
@@ -106,8 +131,15 @@ fn a_plus_b<'mcx>(mcx: Mcx<'mcx>) -> Node<'mcx> {
 }
 
 fn and<'mcx>(mcx: Mcx<'mcx>, l: Node<'mcx>, r: Node<'mcx>) -> Node<'mcx> {
-    Node::mk(mcx, BoolExpr { boolop: BoolExprType::AND_EXPR, args: NodeList::make2(mcx, l, r).unwrap(), location: -1 })
-        .unwrap()
+    Node::mk(
+        mcx,
+        BoolExpr {
+            boolop: BoolExprType::AND_EXPR,
+            args: NodeList::make2(mcx, l, r).unwrap(),
+            location: -1,
+        },
+    )
+    .unwrap()
 }
 
 fn int4_array<'mcx>(mcx: Mcx<'mcx>, elems: &[i32]) -> Node<'mcx> {
@@ -152,11 +184,18 @@ pub(super) fn relation<'mcx>(mcx: Mcx<'mcx>, relid: u32) -> Option<types_rel::Re
         })
     };
     if pin_index(relid).is_some() {
-        return Some(types_rel::Relation::open(make_rel_data(mcx, relid, form, attrs_of(&["a", "b", "c"][..])), None));
+        return Some(types_rel::Relation::open(
+            make_rel_data(mcx, relid, form, attrs_of(&["a", "b", "c"][..])),
+            None,
+        ));
     }
     let table = table_of_index(relid)?;
     let t = pin_index(table)?;
-    let names: Vec<&str> = t.indkey.iter().map(|&k| ["expr", "a", "b", "c"][k as usize]).collect();
+    let names: Vec<&str> = t
+        .indkey
+        .iter()
+        .map(|&k| ["expr", "a", "b", "c"][k as usize])
+        .collect();
     let mut data = make_rel_data(mcx, relid, form, attrs_of(&names[..]));
     let mut indkey = mcx::PgVec::new_in(mcx);
     indkey.extend_from_slice(t.indkey);
@@ -183,7 +222,18 @@ pub(super) fn relation<'mcx>(mcx: Mcx<'mcx>, relid: u32) -> Option<types_rel::Re
         } else {
             None
         },
-        indpred_src: if t.partial { src(op(mcx, INT4_GT_OP, INT4GT_PROC, 16, var(mcx, 3), int4(mcx, 0))) } else { None },
+        indpred_src: if t.partial {
+            src(op(
+                mcx,
+                INT4_GT_OP,
+                INT4GT_PROC,
+                16,
+                var(mcx, 3),
+                int4(mcx, 0),
+            ))
+        } else {
+            None
+        },
     });
     for _ in 0..n {
         data.rd_opfamily.push(INT4_BTREE_FAM);
@@ -191,17 +241,18 @@ pub(super) fn relation<'mcx>(mcx: Mcx<'mcx>, relid: u32) -> Option<types_rel::Re
         data.rd_indoption.push(0);
         data.rd_indcollation.push(0);
     }
-    data.rd_amcache.set(Some(types_nbtree::page::BTMetaPageData {
-        btm_magic: types_nbtree::page::BTREE_MAGIC,
-        btm_version: types_nbtree::page::BTREE_VERSION,
-        btm_root: 3,
-        btm_level: t.height,
-        btm_fastroot: 3,
-        btm_fastlevel: t.height,
-        btm_last_cleanup_num_delpages: 0,
-        btm_last_cleanup_num_heap_tuples: -1.0,
-        btm_allequalimage: true,
-    }));
+    data.rd_amcache
+        .set(Some(types_nbtree::page::BTMetaPageData {
+            btm_magic: types_nbtree::page::BTREE_MAGIC,
+            btm_version: types_nbtree::page::BTREE_VERSION,
+            btm_root: 3,
+            btm_level: t.height,
+            btm_fastroot: 3,
+            btm_fastlevel: t.height,
+            btm_last_cleanup_num_delpages: 0,
+            btm_last_cleanup_num_heap_tuples: -1.0,
+            btm_allequalimage: true,
+        }));
     Some(types_rel::Relation::open(data, None))
 }
 
@@ -254,9 +305,18 @@ pub(super) fn statistic<'mcx>(
         return None;
     }
     let (distinct, mcv, hist, corr): (f32, &[(i32, f32)], Vec<i32>, f32) = match (relid, attnum) {
-        (PIN_T1 | PIN_T2 | PIN_T3 | PIN_T4, 1) => (-1.0, NO_MCV, (0..=10).map(|i| i * 10_000).collect(), 0.97),
-        (PIN_T1 | PIN_T2 | PIN_T3 | PIN_T4, 2) => (50.0, B_MCV, (0..=10).map(|i| i * 5).collect(), 0.3),
-        (PIN_T1 | PIN_T2 | PIN_T3 | PIN_T4, 3) => (1000.0, NO_MCV, (0..=10).map(|i| i * 100 - 500).collect(), -0.2),
+        (PIN_T1 | PIN_T2 | PIN_T3 | PIN_T4, 1) => {
+            (-1.0, NO_MCV, (0..=10).map(|i| i * 10_000).collect(), 0.97)
+        }
+        (PIN_T1 | PIN_T2 | PIN_T3 | PIN_T4, 2) => {
+            (50.0, B_MCV, (0..=10).map(|i| i * 5).collect(), 0.3)
+        }
+        (PIN_T1 | PIN_T2 | PIN_T3 | PIN_T4, 3) => (
+            1000.0,
+            NO_MCV,
+            (0..=10).map(|i| i * 100 - 500).collect(),
+            -0.2,
+        ),
         (PIN_I4, 1) => (-0.5, NO_MCV, (0..=10).map(|i| i * 11_000).collect(), 0.5),
         _ => return None,
     };
@@ -300,7 +360,12 @@ pub(super) fn statistic<'mcx>(
         numbers,
         mcx::PgVec::new_in(mcx),
     ));
-    Some(syscache_seams::PgStatisticBundle { stanullfrac: 0.0, stawidth: 4, stadistinct: distinct, slots })
+    Some(syscache_seams::PgStatisticBundle {
+        stanullfrac: 0.0,
+        stawidth: 4,
+        stadistinct: distinct,
+        slots,
+    })
 }
 
 fn query<'mcx>(mcx: Mcx<'mcx>, relid: u32, qual: Node<'mcx>) -> Query<'mcx> {
@@ -312,11 +377,18 @@ fn query<'mcx>(mcx: Mcx<'mcx>, relid: u32, qual: Node<'mcx>) -> Query<'mcx> {
     rte.inh = false;
     let rtable = NodeList::make1(mcx, rte.seal()).unwrap();
     let rtr = Node::mk_range_tbl_ref(mcx, 1).unwrap();
-    let jointree =
-        alloc_leak_in(mcx, FromExpr { fromlist: NodeList::make1(mcx, rtr).unwrap(), quals: Some(qual) }).unwrap();
+    let jointree = alloc_leak_in(
+        mcx,
+        FromExpr {
+            fromlist: NodeList::make1(mcx, rtr).unwrap(),
+            quals: Some(qual),
+        },
+    )
+    .unwrap();
     let mut target_list = NodeList::nil();
     for (i, n) in ["a", "b", "c"].into_iter().enumerate() {
-        let tle = Node::mk_target_entry(mcx, var(mcx, i as i16 + 1), i as i16 + 1, Some(n), false).unwrap();
+        let tle = Node::mk_target_entry(mcx, var(mcx, i as i16 + 1), i as i16 + 1, Some(n), false)
+            .unwrap();
         target_list.lappend(mcx, tle).unwrap();
     }
     Query {
@@ -332,11 +404,22 @@ fn query<'mcx>(mcx: Mcx<'mcx>, relid: u32, qual: Node<'mcx>) -> Query<'mcx> {
 }
 
 /// Plans `qual` over `relid` and prints one line per IndexPath among the base rel's surviving paths.
-fn case_lines(case: &str, relid: u32, qual: impl for<'m> FnOnce(Mcx<'m>) -> Node<'m>) -> Vec<String> {
+fn case_lines(
+    case: &str,
+    relid: u32,
+    qual: impl for<'m> FnOnce(Mcx<'m>) -> Node<'m>,
+) -> Vec<String> {
     let cx = cx();
     let mcx = cx.mcx();
     let mut run = crate::run::PlannerRun::new(mcx);
-    crate::subquery::subquery_planner(&mut run, leak_q(mcx, query(mcx, relid, qual(mcx))), false, 0.0, None).unwrap();
+    crate::subquery::subquery_planner(
+        &mut run,
+        leak_q(mcx, query(mcx, relid, qual(mcx))),
+        false,
+        0.0,
+        None,
+    )
+    .unwrap();
     let base = crate::relnode::find_base_rel_noerr(&run.root, 1).expect("base rel 1");
     let mut ids = Vec::new();
     for &p in run.root.rel(base).pathlist.iter() {
@@ -347,8 +430,12 @@ fn case_lines(case: &str, relid: u32, qual: impl for<'m> FnOnce(Mcx<'m>) -> Node
                 while let Some(q) = stack.pop() {
                     match run.root.path(q) {
                         PathNode::IndexPath(_) => ids.push((q, "bitmap ")),
-                        PathNode::BitmapAndPath(b) => stack.extend(b.bitmapquals.iter().rev().copied()),
-                        PathNode::BitmapOrPath(b) => stack.extend(b.bitmapquals.iter().rev().copied()),
+                        PathNode::BitmapAndPath(b) => {
+                            stack.extend(b.bitmapquals.iter().rev().copied())
+                        }
+                        PathNode::BitmapOrPath(b) => {
+                            stack.extend(b.bitmapquals.iter().rev().copied())
+                        }
                         _ => {}
                     }
                 }
@@ -359,7 +446,9 @@ fn case_lines(case: &str, relid: u32, qual: impl for<'m> FnOnce(Mcx<'m>) -> Node
     let mut out = Vec::new();
     for (id, how) in ids {
         let (head, tag) = {
-            let PathNode::IndexPath(ip) = run.root.path(id) else { unreachable!() };
+            let PathNode::IndexPath(ip) = run.root.path(id) else {
+                unreachable!()
+            };
             let p = &ip.path;
             (
                 format!(
@@ -379,7 +468,11 @@ fn case_lines(case: &str, relid: u32, qual: impl for<'m> FnOnce(Mcx<'m>) -> Node
             let e = crate::selfuncs::amcostestimate(&mut run, id, loops).unwrap();
             line.push_str(&format!(
                 "; am({loops:?}) {:?} {:?} {:?} {:?} {:?}",
-                e.index_startup_cost, e.index_total_cost, e.index_selectivity, e.index_correlation, e.index_pages
+                e.index_startup_cost,
+                e.index_total_cost,
+                e.index_selectivity,
+                e.index_correlation,
+                e.index_pages
             ));
         }
         out.push(line);
@@ -403,7 +496,9 @@ const GOLDEN: &[&str] = &[
 #[test]
 fn btcostestimate_outputs_are_pinned() {
     let mut got = Vec::new();
-    got.extend(case_lines("a = 42", PIN_T1, |m| op(m, INT4EQ_OP, INT4EQ_PROC, 16, var(m, 1), int4(m, 42))));
+    got.extend(case_lines("a = 42", PIN_T1, |m| {
+        op(m, INT4EQ_OP, INT4EQ_PROC, 16, var(m, 1), int4(m, 42))
+    }));
     got.extend(case_lines("a > 42000 AND a < 44500", PIN_T1, |m| {
         and(
             m,
@@ -434,34 +529,49 @@ fn btcostestimate_outputs_are_pinned() {
             op(m, INT4EQ_OP, INT4EQ_PROC, 16, var(m, 3), int4(m, 7)),
         )
     }));
-    got.extend(case_lines("a < 44500 AND b = 2 on (a, b, c)", PIN_T2, |m| {
-        and(
-            m,
-            op(m, INT4_LT_OP, INT4LT_PROC, 16, var(m, 1), int4(m, 44_500)),
-            op(m, INT4EQ_OP, INT4EQ_PROC, 16, var(m, 2), int4(m, 2)),
-        )
-    }));
-    got.extend(case_lines("b < 20 AND c > 0 on (b) WHERE c > 0", PIN_T3, |m| {
-        and(
-            m,
-            op(m, INT4_LT_OP, INT4LT_PROC, 16, var(m, 2), int4(m, 20)),
-            op(m, INT4_GT_OP, INT4GT_PROC, 16, var(m, 3), int4(m, 0)),
-        )
-    }));
+    got.extend(case_lines(
+        "a < 44500 AND b = 2 on (a, b, c)",
+        PIN_T2,
+        |m| {
+            and(
+                m,
+                op(m, INT4_LT_OP, INT4LT_PROC, 16, var(m, 1), int4(m, 44_500)),
+                op(m, INT4EQ_OP, INT4EQ_PROC, 16, var(m, 2), int4(m, 2)),
+            )
+        },
+    ));
+    got.extend(case_lines(
+        "b < 20 AND c > 0 on (b) WHERE c > 0",
+        PIN_T3,
+        |m| {
+            and(
+                m,
+                op(m, INT4_LT_OP, INT4LT_PROC, 16, var(m, 2), int4(m, 20)),
+                op(m, INT4_GT_OP, INT4GT_PROC, 16, var(m, 3), int4(m, 0)),
+            )
+        },
+    ));
     got.extend(case_lines("(a + b) = 10 on ((a + b))", PIN_T4, |m| {
         op(m, INT4EQ_OP, INT4EQ_PROC, 16, a_plus_b(m), int4(m, 10))
     }));
-    got.extend(case_lines("(a + b) > 50000 AND (a + b) < 52000 on ((a + b))", PIN_T4, |m| {
-        and(
-            m,
-            op(m, INT4_GT_OP, INT4GT_PROC, 16, a_plus_b(m), int4(m, 50_000)),
-            op(m, INT4_LT_OP, INT4LT_PROC, 16, a_plus_b(m), int4(m, 52_000)),
-        )
-    }));
+    got.extend(case_lines(
+        "(a + b) > 50000 AND (a + b) < 52000 on ((a + b))",
+        PIN_T4,
+        |m| {
+            and(
+                m,
+                op(m, INT4_GT_OP, INT4GT_PROC, 16, a_plus_b(m), int4(m, 50_000)),
+                op(m, INT4_LT_OP, INT4LT_PROC, 16, a_plus_b(m), int4(m, 52_000)),
+            )
+        },
+    ));
     if got != GOLDEN {
         panic!(
             "btcostestimate outputs moved off the pin (captured from e59aa10685f); actual:\n{}",
-            got.iter().map(|l| format!("    {l:?},")).collect::<Vec<_>>().join("\n")
+            got.iter()
+                .map(|l| format!("    {l:?},"))
+                .collect::<Vec<_>>()
+                .join("\n")
         );
     }
 }

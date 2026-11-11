@@ -106,7 +106,8 @@ impl<'mcx> BbsinkOps<'mcx> for BbsinkGzip<'mcx> {
         let buffer_length = sink.buffer_length();
         sink.set_buffer(self.mcx, buffer_length)?;
         bbsink_begin_backup(
-            sink.next_mut().expect("compression sink must have next sink"),
+            sink.next_mut()
+                .expect("compression sink must have next sink"),
             state,
             buffer_length,
         )
@@ -129,7 +130,9 @@ impl<'mcx> BbsinkOps<'mcx> for BbsinkGzip<'mcx> {
         // Add ".gz" to the archive name. pg_basebackup -z produces archives
         // named ".tar.gz" rather than ".tgz"; match that here.
         let gz_archive_name = format!("{archive_name}.gz");
-        let next = sink.next_mut().expect("compression sink must have next sink");
+        let next = sink
+            .next_mut()
+            .expect("compression sink must have next sink");
         ::sink::bbsink_begin_archive(next, state, &gz_archive_name)?;
 
         // Stage the gzip member header (zlib emits it on the first deflate
@@ -203,14 +206,21 @@ impl<'mcx> BbsinkOps<'mcx> for BbsinkGzip<'mcx> {
             .compressor
             .as_mut()
             .expect("gzip compressor initialized in begin_archive");
-        let next = sink.next_mut().expect("compression sink must have next sink");
+        let next = sink
+            .next_mut()
+            .expect("compression sink must have next sink");
         let next_len = next.buffer_length();
 
         loop {
             debug_assert!(self.bytes_written < next_len);
             let (status, _, written) = {
                 let out = next.buffer_slice_mut(next_len);
-                compress(comp, &[], &mut out[self.bytes_written..], TDEFLFlush::Finish)
+                compress(
+                    comp,
+                    &[],
+                    &mut out[self.bytes_written..],
+                    TDEFLFlush::Finish,
+                )
             };
             self.bytes_written += written;
             match status {

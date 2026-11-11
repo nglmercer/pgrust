@@ -143,6 +143,7 @@ impl Model {
 }
 
 /// `steps` random puts, takes, drops, kept-pool round trips, clears and switch flips over `keys` keys against the model.
+#[allow(clippy::blocks_in_conditions)]
 fn walk(cap: usize, keys: u64, cap_bytes: usize, steps: usize, seed: u64, flips: bool) -> (u64, u64) {
     let contents: Vec<ContentKey> = (0..3).map(|s| shape_program(s).key).collect();
     let other = Arc::new(p_rows(9)).key;
@@ -333,6 +334,7 @@ fn kept(table: &RangeTable) -> usize {
 
 /// Two parked Nodes over two relations, each keeping its table's handle; a record of one relation releases that one, and
 /// (indexed) the pass visits that Node alone; a reset (relid 0) reaches both.
+#[allow(unused_variables)]
 fn release_pass(on: bool) -> (u64, u64) {
     const R1: u32 = 7101;
     const R2: u32 = 7102;

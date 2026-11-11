@@ -388,9 +388,9 @@ pub(crate) fn keyed_slots(px: &mut Px<'_, '_>, l: &mut RecordLayout, g: &GroupDe
     let gx = px.gx;
     let user = |d: &AggDecl<'_>| !still(gx, d);
     let sorting = |d: &AggDecl<'_>| crate::ops::shared::agg::sorted(d) || matches!(d.class, Class::OrderedSet(_) | Class::Hypothetical(_));
-    let capped = (bare && hs.iter().any(|d| agg::collect(d) && user(*d))) || hs.iter().any(|d| sorting(*d) && user(*d));
+    let capped = (bare && hs.iter().any(|d| agg::collect(d) && user(d))) || hs.iter().any(|d| sorting(d) && user(d));
     if streamed && capped {
-        px.declare_proto(Proto::new(ProtoKind::Volatile, g.producer.0 as u16));
+        px.declare_proto(Proto::new(ProtoKind::Volatile, g.producer.0));
     }
     let implicit = l.flags & LAYOUT_IMPLICIT_COUNT != 0;
     let (m, n) = (l.nslots() - usize::from(implicit), state_count(g, hosted_kind));
@@ -491,8 +491,8 @@ pub(crate) fn arena_word(px: &mut Px<'_, '_>, k: usize, g: &GroupDecl<'_>) -> u1
     let fed = u64::from(crate::ops::agg::trans::plain::fed(px, g)) * gravity_kernels::ops::agg::trans::hosted::AGG_PRESORTED_FED; // D1596
     let gx = px.gx;
     let ordered = crate::effects::ordered_fed(gx, g, &|d: &AggDecl<'_>| still(gx, d)) || crate::effects::ordered_fed_acting(gx, g);
-    let fed = fed | u64::from(ordered) * AGG_ORDERED_FED; // presorted ORDER BY aggregates advanced per row
-    let fed = fed | u64::from(gx.streams().any(|s| core::ptr::eq(s, g))) * AGG_STREAMED; // one open group at a time (group/stream.rs)
+    let fed = fed | (u64::from(ordered) * AGG_ORDERED_FED); // presorted ORDER BY aggregates advanced per row
+    let fed = fed | (u64::from(gx.streams().any(|s| core::ptr::eq(s, g))) * AGG_STREAMED); // one open group at a time (group/stream.rs)
     let arg = g.node_id as u32 as u64 | g.set.map_or(0, |s| (s.arm as u64 + 1) << 32) | fed;
     let base = match px.protos.iter().find(|p| p.kind == ProtoKind::AggArena && p.arg == arg) {
         Some(p) => p.words.base,

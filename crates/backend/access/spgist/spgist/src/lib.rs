@@ -2,9 +2,7 @@
 //! spgscan.c + spgvacuum.c; spgxlog.c redo lives in spgist_xlog, spgbuild in
 //! spgist_build). LOUD lanes: spgbuildempty (unlogged), polymorphic leaf
 //! types.
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(clippy::too_many_arguments)]
+#![allow(clippy::too_many_arguments, non_snake_case, non_upper_case_globals)]
 
 pub mod doinsert;
 pub mod scan;
@@ -24,13 +22,13 @@ use ::types_tuple::itemptr::ItemPointerData;
 pub use ::types_spgist::{spgFormDeadTuple, spgPageIndexMultiDelete, spgUpdateNodeLink};
 pub use doinsert::{spgdoinsert, RM_SPGIST_ID};
 pub use scan::{spgbeginscan, spgcanreturn, spgendscan, spggetbitmap, spggettuple, spgrescan};
-pub use vacuum::{spgbulkdelete, spgbulkdelete_collect, spgvacuumcleanup};
 pub use utils::{
     buf_page_mut as spg_buf_page_mut, initSpGistState,
     relation_needs_wal as spg_relation_needs_wal, spgGetCache,
-    unlock_release as spg_unlock_release, SpGistGetBuffer, SpGistInitBuffer,
-    SpGistInitMetapage, SpGistNewBuffer, SpGistSetLastUsedPage, SpGistUpdateMetaPage,
+    unlock_release as spg_unlock_release, SpGistGetBuffer, SpGistInitBuffer, SpGistInitMetapage,
+    SpGistNewBuffer, SpGistSetLastUsedPage, SpGistUpdateMetaPage,
 };
+pub use vacuum::{spgbulkdelete, spgbulkdelete_collect, spgvacuumcleanup};
 
 #[cold]
 #[inline(never)]
@@ -66,7 +64,9 @@ pub fn spginsert<'mcx>(
     amcache: &mut Option<SpgInsertAmCache<'mcx>>,
 ) -> PgResult<bool> {
     if amcache.is_none() {
-        *amcache = Some(SpgInsertAmCache { state: initSpGistState(mcx, r)? });
+        *amcache = Some(SpgInsertAmCache {
+            state: initSpGistState(mcx, r)?,
+        });
     }
     let cache = amcache.as_mut().expect("just initialized");
     // C re-runs initSpGistState per call; only redirectXid can change.

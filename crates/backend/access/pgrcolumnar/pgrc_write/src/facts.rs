@@ -41,9 +41,14 @@ use std::collections::BTreeMap;
 use cost_profile::device::Device;
 use pgrc_format::class::{CLASS_BOOL, CLASS_BYVAL, CLASS_F32, CLASS_F64, CLASS_FIXED};
 use pgrc_format::enc::EncodingId;
-use pgrc_format::facts::{ColFacts, FactsHeader, FactsImage, COLF_DICT_ALL, COLF_NDV_ABSENT, COLF_WIDTH_POISONED, COLF_ZONES};
+use pgrc_format::facts::{
+    ColFacts, FactsHeader, FactsImage, COLF_DICT_ALL, COLF_NDV_ABSENT, COLF_WIDTH_POISONED,
+    COLF_ZONES,
+};
 use pgrc_format::manifest::Manifest;
-use pgrc_format::meta::{stats_section_len, KeyKind, StatsRecord, STATSF_COMPUTED, STATS_RECORD_LEN};
+use pgrc_format::meta::{
+    stats_section_len, KeyKind, StatsRecord, STATSF_COMPUTED, STATS_RECORD_LEN,
+};
 use pgrc_format::part::{SectionKind, StreamRole, SECTIONF_META_ZSTD, STREAMF_SIGNED};
 use pgrc_format::wire::Cur;
 use pgrc_format::zonemap::ZoneMap;
@@ -94,8 +99,14 @@ pub fn meta_coalesce_gap(part: &OpenPart, idxs: &[usize]) -> u64 {
     let (lo, hi) = idxs
         .iter()
         .filter_map(|&i| sections.get(i))
-        .fold((u64::MAX, 0u64), |(lo, hi), e| (lo.min(e.off), hi.max(e.off.saturating_add(e.len))));
-    let resident = if hi > lo { part.page_resident(lo, hi - lo) } else { None };
+        .fold((u64::MAX, 0u64), |(lo, hi), e| {
+            (lo.min(e.off), hi.max(e.off.saturating_add(e.len)))
+        });
+    let resident = if hi > lo {
+        part.page_resident(lo, hi - lo)
+    } else {
+        None
+    };
     Device::at_residency(resident).coalesce_gap()
 }
 
@@ -222,7 +233,11 @@ fn unwrap_meta(flags: u16, raw: &[u8]) -> FormatResult<Vec<u8>> {
 /// bytes from the section table.
 pub fn part_facts_from_open(part: &OpenPart, file_len: u64) -> ReadResult<OwnedPartFacts> {
     let sections = part.sections();
-    let mut attnos: Vec<u32> = sections.iter().filter(|e| e.attno != 0).map(|e| e.attno).collect();
+    let mut attnos: Vec<u32> = sections
+        .iter()
+        .filter(|e| e.attno != 0)
+        .map(|e| e.attno)
+        .collect();
     attnos.sort_unstable();
     attnos.dedup();
     let mut idxs: Vec<usize> = pgrc_format::try_vec(2 * attnos.len() + 1, "facts")?;
@@ -241,12 +256,21 @@ pub fn part_facts_from_open(part: &OpenPart, file_len: u64) -> ReadResult<OwnedP
     let raw = part.section_bytes_batch(&idxs, meta_coalesce_gap(part, &idxs), &keep)?;
     let mut body_of: BTreeMap<usize, Vec<u8>> = BTreeMap::new();
     for (&i, seg) in idxs.iter().zip(&raw) {
-        body_of.insert(i, unwrap_meta(sections[i].flags, seg.bytes()).map_err(ReadError::Format)?);
+        body_of.insert(
+            i,
+            unwrap_meta(sections[i].flags, seg.bytes()).map_err(ReadError::Format)?,
+        );
     }
     let dir = part.stream_directory()?;
     // D3038: the octet-length lanes' sections are no scan's reads of their column (`seal_part`'s disk bytes the same)
     let octet_ords: Vec<u32> = pgrc_read::read_path_table(part)?
-        .map(|p| p.iter().enumerate().filter(|(_, s)| s.as_str() == pgrc_format::shredlane::OCTET_LENGTH_PATH).map(|(i, _)| i as u32 + 1).collect())
+        .map(|p| {
+            p.iter()
+                .enumerate()
+                .filter(|(_, s)| s.as_str() == pgrc_format::shredlane::OCTET_LENGTH_PATH)
+                .map(|(i, _)| i as u32 + 1)
+                .collect()
+        })
         .unwrap_or_default();
     let mut cols = pgrc_format::try_vec(attnos.len(), "facts")?;
     for (k, &attno) in attnos.iter().enumerate() {
@@ -254,7 +278,16 @@ pub fn part_facts_from_open(part: &OpenPart, file_len: u64) -> ReadResult<OwnedP
         let dict = values.is_some_and(|e| e.encoding == EncodingId::DictCodes.as_u16());
         let disk_bytes = sections
             .iter()
-            .filter(|e| e.attno == attno && !octet_ords.contains(&e.path_ord) && matches!(SectionKind::from_u16(e.kind), Ok(SectionKind::StreamDir) | Ok(SectionKind::Stream) | Ok(SectionKind::PathTable)))
+            .filter(|e| {
+                e.attno == attno
+                    && !octet_ords.contains(&e.path_ord)
+                    && matches!(
+                        SectionKind::from_u16(e.kind),
+                        Ok(SectionKind::StreamDir)
+                            | Ok(SectionKind::Stream)
+                            | Ok(SectionKind::PathTable)
+                    )
+            })
             .map(|e| e.len)
             .sum();
         cols.push(OwnedColFacts {
@@ -266,11 +299,22 @@ pub fn part_facts_from_open(part: &OpenPart, file_len: u64) -> ReadResult<OwnedP
             ndv_body: ndv_idx[k].and_then(|i| body_of.remove(&i)),
             bloom: part.find_section(SectionKind::Bloom, attno, 0).is_some(),
             dict,
-            ncodes: if dict { dir.lookup(attno, 0, StreamRole::DictPayload).map_or(0, |d| d.entry.values) } else { 0 },
+            ncodes: if dict {
+                dir.lookup(attno, 0, StreamRole::DictPayload)
+                    .map_or(0, |d| d.entry.values)
+            } else {
+                0
+            },
             disk_bytes,
         });
     }
-    Ok(OwnedPartFacts { rows: part.rows(), file_len, granules: part.footer().granule_count, bands: part.footer().band_count, cols })
+    Ok(OwnedPartFacts {
+        rows: part.rows(),
+        file_len,
+        granules: part.footer().granule_count,
+        bands: part.footer().band_count,
+        cols,
+    })
 }
 
 /// K1 L7: one column of a part as compaction's size estimate ([`cut_bytes`]) reads it.
@@ -301,8 +345,12 @@ pub fn cut_bytes(rows: u64, cols: &[ColSize]) -> u64 {
     let heap: u64 = cols
         .iter()
         .map(|c| match c.stats {
-            Some(r) if c.class == pgrc_format::class::CLASS_VARLENA => r.byte_len_sum + u64::from(r.nonnull) * 15 / 2,
-            Some(r) if c.class == CLASS_FIXED => u64::from(r.nonnull) * u64::from(c.fixed_len).next_multiple_of(8),
+            Some(r) if c.class == pgrc_format::class::CLASS_VARLENA => {
+                r.byte_len_sum + u64::from(r.nonnull) * 15 / 2
+            }
+            Some(r) if c.class == CLASS_FIXED => {
+                u64::from(r.nonnull) * u64::from(c.fixed_len).next_multiple_of(8)
+            }
             _ => 0,
         })
         .sum();
@@ -312,7 +360,12 @@ pub fn cut_bytes(rows: u64, cols: &[ColSize]) -> u64 {
 /// K1 L7: an open part's columns (attno-ascending, from its section table) with each one's Values class and fixed
 /// length from the stream directory, without statistics.
 pub fn part_columns(part: &OpenPart) -> ReadResult<Vec<ColSize>> {
-    let mut attnos: Vec<u32> = part.sections().iter().filter(|e| e.attno != 0).map(|e| e.attno).collect();
+    let mut attnos: Vec<u32> = part
+        .sections()
+        .iter()
+        .filter(|e| e.attno != 0)
+        .map(|e| e.attno)
+        .collect();
     attnos.sort_unstable();
     attnos.dedup();
     let dir = part.stream_directory()?;
@@ -320,7 +373,12 @@ pub fn part_columns(part: &OpenPart) -> ReadResult<Vec<ColSize>> {
         .into_iter()
         .map(|attno| {
             let v = dir.lookup(attno, 0, StreamRole::Values).map(|v| v.entry);
-            ColSize { attno, class: v.map_or(u8::MAX, |e| e.class), fixed_len: v.map_or(0, |e| e.fixed_len), stats: None }
+            ColSize {
+                attno,
+                class: v.map_or(u8::MAX, |e| e.class),
+                fixed_len: v.map_or(0, |e| e.fixed_len),
+                stats: None,
+            }
         })
         .collect())
 }
@@ -330,15 +388,23 @@ pub fn part_columns(part: &OpenPart) -> ReadResult<Vec<ColSize>> {
 /// estimate when the bank stats plane does not cover the part.
 pub fn part_heap_stats(part: &OpenPart) -> ReadResult<Vec<ColSize>> {
     let mut cols = part_columns(part)?;
-    let at: Vec<(usize, usize)> =
-        cols.iter().enumerate().filter(|(_, c)| c.heap()).filter_map(|(k, c)| part.find_section(SectionKind::Stats, c.attno, 0).map(|i| (k, i))).collect();
+    let at: Vec<(usize, usize)> = cols
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| c.heap())
+        .filter_map(|(k, c)| {
+            part.find_section(SectionKind::Stats, c.attno, 0)
+                .map(|i| (k, i))
+        })
+        .collect();
     let idxs: Vec<usize> = at.iter().map(|&(_, i)| i).collect();
     let raw = part.section_bytes_batch(&idxs, meta_coalesce_gap(part, &idxs), &|_| true)?;
     let sections = part.sections();
     let (granules, bands) = (part.footer().granule_count, part.footer().band_count);
     for (&(k, i), seg) in at.iter().zip(&raw) {
         let body = unwrap_meta(sections[i].flags, seg.bytes()).map_err(ReadError::Format)?;
-        let rec = part_stats_record(&body, granules, bands, cols[k].attno).map_err(ReadError::Format)?;
+        let rec =
+            part_stats_record(&body, granules, bands, cols[k].attno).map_err(ReadError::Format)?;
         cols[k].stats = Some(rec).filter(|r| r.flags & STATSF_COMPUTED != 0);
     }
     Ok(cols)
@@ -350,7 +416,11 @@ pub fn part_heap_stats(part: &OpenPart) -> ReadResult<Vec<ColSize>> {
 pub fn part_facts_from_sealed(s: &SealedPart) -> FormatResult<PartFacts<'_>> {
     let mut cols = pgrc_format::try_vec(s.facts_slices.len(), "facts")?;
     for f in &s.facts_slices {
-        let stats_body = s.plane_slices.iter().find(|p| p.attno == f.attno).map(|p| p.stats_body.as_slice());
+        let stats_body = s
+            .plane_slices
+            .iter()
+            .find(|p| p.attno == f.attno)
+            .map(|p| p.stats_body.as_slice());
         cols.push(PartColFacts {
             attno: f.attno,
             class: f.class,
@@ -364,17 +434,30 @@ pub fn part_facts_from_sealed(s: &SealedPart) -> FormatResult<PartFacts<'_>> {
             disk_bytes: f.disk_bytes,
         });
     }
-    Ok(PartFacts { rows: s.rows, file_len: s.file_len, granules: s.granule_count, bands: s.band_count, cols })
+    Ok(PartFacts {
+        rows: s.rows,
+        file_len: s.file_len,
+        granules: s.granule_count,
+        bands: s.band_count,
+        cols,
+    })
 }
 
 /// Slice + decode the ONE part-grain record at the tail of a Stats section
 /// body (spec §8.1: granule records, then band records, then one part
 /// record), checking the body's length against the geometry first.
-pub fn part_stats_record(body: &[u8], granules: u32, bands: u32, attno: u32) -> FormatResult<StatsRecord> {
+pub fn part_stats_record(
+    body: &[u8],
+    granules: u32,
+    bands: u32,
+    attno: u32,
+) -> FormatResult<StatsRecord> {
     let expect = stats_section_len(granules, bands);
     if body.len() != expect {
         let _ = attno;
-        return Err(FormatError::Corrupt { at: "Stats section length vs geometry" });
+        return Err(FormatError::Corrupt {
+            at: "Stats section length vs geometry",
+        });
     }
     let off = (granules as usize + bands as usize) * STATS_RECORD_LEN;
     let mut c = Cur::new(&body[off..]);
@@ -438,7 +521,11 @@ impl ColAcc {
             rows_dict: 0,
             dict_all: !seen_before,
             ncodes: 0,
-            zones: if !seen_before && zone_candidate(c.class) { Some(Vec::new()) } else { None },
+            zones: if !seen_before && zone_candidate(c.class) {
+                Some(Vec::new())
+            } else {
+                None
+            },
         }
     }
 
@@ -453,12 +540,22 @@ impl ColAcc {
         self.zones = None;
     }
 
-    fn fold(&mut self, c: &PartColFacts<'_>, rows: u64, granules: u32, bands: u32) -> FormatResult<()> {
+    fn fold(
+        &mut self,
+        c: &PartColFacts<'_>,
+        rows: u64,
+        granules: u32,
+        bands: u32,
+    ) -> FormatResult<()> {
         if (self.class, self.signed) != (c.class, c.signed) {
-            return Err(FormatError::Corrupt { at: "facts: column class differs across parts" });
+            return Err(FormatError::Corrupt {
+                at: "facts: column class differs across parts",
+            });
         }
         if self.width != 0 && c.width != 0 && self.width != c.width {
-            return Err(FormatError::Corrupt { at: "facts: column width differs across parts" });
+            return Err(FormatError::Corrupt {
+                at: "facts: column width differs across parts",
+            });
         }
         if self.width == 0 {
             self.width = c.width;
@@ -481,7 +578,8 @@ impl ColAcc {
                     if exact {
                         pgrc_format::try_reserve_more(z, granules as usize, "facts")?;
                         for g in 0..granules as usize {
-                            let mut cur = Cur::new(&body[g * STATS_RECORD_LEN..(g + 1) * STATS_RECORD_LEN]);
+                            let mut cur =
+                                Cur::new(&body[g * STATS_RECORD_LEN..(g + 1) * STATS_RECORD_LEN]);
                             z.push(granule_range(&StatsRecord::decode(&mut cur)?));
                         }
                     } else {
@@ -502,7 +600,9 @@ impl ColAcc {
                 match &mut self.hll {
                     Some(u) => {
                         if u.regs_len() != hll.regs_len() {
-                            return Err(FormatError::Corrupt { at: "NdvRegisters register count differs across parts" });
+                            return Err(FormatError::Corrupt {
+                                at: "NdvRegisters register count differs across parts",
+                            });
                         }
                         u.merge(&hll);
                     }
@@ -548,10 +648,14 @@ impl ColAcc {
     /// Fold `o` (a later set of parts, all carrying the column) into `self`. Zones concatenate; the caller orders them.
     fn merge(&mut self, o: &ColAcc) -> FormatResult<()> {
         if (self.class, self.signed) != (o.class, o.signed) {
-            return Err(FormatError::Corrupt { at: "facts: column class differs across parts" });
+            return Err(FormatError::Corrupt {
+                at: "facts: column class differs across parts",
+            });
         }
         if self.width != 0 && o.width != 0 && self.width != o.width {
-            return Err(FormatError::Corrupt { at: "facts: column width differs across parts" });
+            return Err(FormatError::Corrupt {
+                at: "facts: column width differs across parts",
+            });
         }
         if self.width == 0 {
             self.width = o.width;
@@ -561,7 +665,9 @@ impl ColAcc {
             self.hll = None;
         } else if let (Some(u), Some(h)) = (self.hll.as_mut(), o.hll.as_ref()) {
             if u.regs_len() != h.regs_len() {
-                return Err(FormatError::Corrupt { at: "NdvRegisters register count differs across parts" });
+                return Err(FormatError::Corrupt {
+                    at: "NdvRegisters register count differs across parts",
+                });
             }
             u.merge(h);
         } else if self.hll.is_none() {
@@ -614,7 +720,11 @@ impl FactsAcc {
         let mut cols = pgrc_format::try_vec(img.cols.len(), "facts")?;
         for c in &img.cols {
             let ndv_absent = c.flags & COLF_NDV_ABSENT != 0;
-            let hll = if ndv_absent || c.ndv_body.is_empty() { None } else { Some(Hll::decode_section(&c.ndv_body)?.1) };
+            let hll = if ndv_absent || c.ndv_body.is_empty() {
+                None
+            } else {
+                Some(Hll::decode_section(&c.ndv_body)?.1)
+            };
             cols.push(ColAcc {
                 attno: c.attno,
                 class: c.class,
@@ -632,16 +742,27 @@ impl FactsAcc {
                 rows_dict: c.rows_dict,
                 dict_all: c.flags & COLF_DICT_ALL != 0,
                 ncodes: c.ncodes,
-                zones: if c.flags & COLF_ZONES != 0 { Some(c.zones.decode()?) } else { None },
+                zones: if c.flags & COLF_ZONES != 0 {
+                    Some(c.zones.decode()?)
+                } else {
+                    None
+                },
             });
         }
-        Ok(FactsAcc { rows: img.header.rows, bytes: img.header.bytes, granules: img.header.granules, parts: img.header.parts, cols })
+        Ok(FactsAcc {
+            rows: img.header.rows,
+            bytes: img.header.bytes,
+            granules: img.header.granules,
+            parts: img.header.parts,
+            cols,
+        })
     }
 
     /// Fold one more part (manifest order).
     pub fn fold_part(&mut self, p: &PartFacts<'_>) -> FormatResult<()> {
         let parts_before = self.parts;
-        let mut merged: Vec<ColAcc> = pgrc_format::try_vec(self.cols.len().max(p.cols.len()), "facts")?;
+        let mut merged: Vec<ColAcc> =
+            pgrc_format::try_vec(self.cols.len().max(p.cols.len()), "facts")?;
         let (mut i, mut j) = (0, 0);
         while i < self.cols.len() || j < p.cols.len() {
             let a = self.cols.get(i).map(|c| c.attno);
@@ -684,10 +805,14 @@ impl FactsAcc {
     }
 
     /// Fold parts on disk in the given order (the walk; a retiring publish).
-    pub fn fold_open_parts<'a>(&mut self, parts: impl IntoIterator<Item = (&'a OpenPart, u64)>) -> ReadResult<()> {
+    pub fn fold_open_parts<'a>(
+        &mut self,
+        parts: impl IntoIterator<Item = (&'a OpenPart, u64)>,
+    ) -> ReadResult<()> {
         for (part, file_len) in parts {
             let owned = part_facts_from_open(part, file_len)?;
-            self.fold_part(&owned.as_facts()).map_err(ReadError::Format)?;
+            self.fold_part(&owned.as_facts())
+                .map_err(ReadError::Format)?;
         }
         Ok(())
     }
@@ -705,10 +830,14 @@ impl FactsAcc {
             *self = o.clone();
             return Ok(());
         }
-        let mut merged: Vec<ColAcc> = pgrc_format::try_vec(self.cols.len().max(o.cols.len()), "facts")?;
+        let mut merged: Vec<ColAcc> =
+            pgrc_format::try_vec(self.cols.len().max(o.cols.len()), "facts")?;
         let (mut i, mut j) = (0, 0);
         while i < self.cols.len() || j < o.cols.len() {
-            match (self.cols.get(i).map(|c| c.attno), o.cols.get(j).map(|c| c.attno)) {
+            match (
+                self.cols.get(i).map(|c| c.attno),
+                o.cols.get(j).map(|c| c.attno),
+            ) {
                 (Some(x), Some(y)) if x == y => {
                     let mut c = self.cols[i].clone();
                     c.merge(&o.cols[j])?;
@@ -742,23 +871,40 @@ impl FactsAcc {
     /// Re-assemble every zoned column's per-granule ranges in manifest order: `slices` lists, for each part in that
     /// order, `(image index, first granule, granules)` in `images[image index]`'s own zone vector. Every image named
     /// must carry the column's zones (the merged accumulator only keeps zones every part had).
-    pub fn assemble_zones(&mut self, images: &[&FactsImage], slices: &[(u32, u32, u32)]) -> FormatResult<()> {
+    pub fn assemble_zones(
+        &mut self,
+        images: &[&FactsImage],
+        slices: &[(u32, u32, u32)],
+    ) -> FormatResult<()> {
         let total: u64 = slices.iter().map(|s| u64::from(s.2)).sum();
         for c in self.cols.iter_mut().filter(|c| c.zones.is_some()) {
-            let mut decoded: Vec<Option<Vec<(i64, i64)>>> = pgrc_format::try_filled(images.len(), None, "facts")?;
+            let mut decoded: Vec<Option<Vec<(i64, i64)>>> =
+                pgrc_format::try_filled(images.len(), None, "facts")?;
             let mut out: Vec<(i64, i64)> = pgrc_format::try_vec(total as usize, "facts")?;
             for &(ix, first, n) in slices {
                 let ix = ix as usize;
                 if decoded[ix].is_none() {
-                    let col = images[ix].cols.iter().find(|x| x.attno == c.attno && x.flags & COLF_ZONES != 0).ok_or(FormatError::Corrupt { at: "facts: zones absent from an assembled source" })?;
+                    let col = images[ix]
+                        .cols
+                        .iter()
+                        .find(|x| x.attno == c.attno && x.flags & COLF_ZONES != 0)
+                        .ok_or(FormatError::Corrupt {
+                            at: "facts: zones absent from an assembled source",
+                        })?;
                     decoded[ix] = Some(col.zones.decode()?);
                 }
                 let z = decoded[ix].as_ref().expect("decoded");
-                let range = z.get(first as usize..first as usize + n as usize).ok_or(FormatError::Corrupt { at: "facts: zone slice past its source" })?;
+                let range = z.get(first as usize..first as usize + n as usize).ok_or(
+                    FormatError::Corrupt {
+                        at: "facts: zone slice past its source",
+                    },
+                )?;
                 out.extend_from_slice(range);
             }
             if out.len() as u64 != self.granules {
-                return Err(FormatError::Corrupt { at: "facts: assembled zones vs granules" });
+                return Err(FormatError::Corrupt {
+                    at: "facts: assembled zones vs granules",
+                });
             }
             c.zones = Some(out);
         }
@@ -766,7 +912,12 @@ impl FactsAcc {
     }
 
     /// The persisted form under a generation's identity.
-    pub fn into_image(self, gen: u64, publisher_fxid: u64, schema_fingerprint: u64) -> FormatResult<FactsImage> {
+    pub fn into_image(
+        self,
+        gen: u64,
+        publisher_fxid: u64,
+        schema_fingerprint: u64,
+    ) -> FormatResult<FactsImage> {
         let cols = self
             .cols
             .into_iter()
@@ -812,7 +963,15 @@ impl FactsAcc {
             })
             .collect::<FormatResult<Vec<ColFacts>>>()?;
         Ok(FactsImage {
-            header: FactsHeader { gen, publisher_fxid, schema_fingerprint, rows: self.rows, bytes: self.bytes, granules: self.granules, parts: self.parts },
+            header: FactsHeader {
+                gen,
+                publisher_fxid,
+                schema_fingerprint,
+                rows: self.rows,
+                bytes: self.bytes,
+                granules: self.granules,
+                parts: self.parts,
+            },
             cols,
         })
     }
@@ -841,21 +1000,39 @@ pub struct ServedCol {
 
 /// The served values of an image (the fold's `finish`); `zone_rule` says
 /// which columns' zone ranges the planner gets (the word-keyed ones).
-pub fn serve(img: &FactsImage, zone_rule: &dyn Fn(&ColFacts) -> bool) -> FormatResult<Vec<ServedCol>> {
+pub fn serve(
+    img: &FactsImage,
+    zone_rule: &dyn Fn(&ColFacts) -> bool,
+) -> FormatResult<Vec<ServedCol>> {
     let total = img.header.rows;
-    let carried = |rows: u64| total > 0 && rows.saturating_mul(100) >= total.saturating_mul(QUAL_CLASS_VOTE_ROW_PERCENT);
+    let carried = |rows: u64| {
+        total > 0 && rows.saturating_mul(100) >= total.saturating_mul(QUAL_CLASS_VOTE_ROW_PERCENT)
+    };
     let mut out = pgrc_format::try_vec(img.cols.len(), "facts")?;
     for c in &img.cols {
-        let ndv = if c.flags & COLF_NDV_ABSENT != 0 || c.ndv_body.is_empty() { 0 } else { u64::from(Hll::decode_section(&c.ndv_body)?.1.estimate()) };
+        let ndv = if c.flags & COLF_NDV_ABSENT != 0 || c.ndv_body.is_empty() {
+            0
+        } else {
+            u64::from(Hll::decode_section(&c.ndv_body)?.1.estimate())
+        };
         let poisoned = c.flags & COLF_WIDTH_POISONED != 0;
         let avg_width = if poisoned || c.nonnull == 0 || c.byte_len_sum == 0 {
             0
         } else {
-            ((c.byte_len_sum + c.nonnull / 2) / c.nonnull + VARLENA_HEADER_BYTES).min(i32::MAX as u64) as i32
+            ((c.byte_len_sum + c.nonnull / 2) / c.nonnull + VARLENA_HEADER_BYTES)
+                .min(i32::MAX as u64) as i32
         };
-        let max_len = if poisoned { 0 } else { i32::try_from(c.char_len_max).unwrap_or(i32::MAX) };
+        let max_len = if poisoned {
+            0
+        } else {
+            i32::try_from(c.char_len_max).unwrap_or(i32::MAX)
+        };
         let mut qual_class = 0u8;
-        for (rows, bit) in [(c.rows_zone, QUAL_CLASS_ZONE), (c.rows_bloom, QUAL_CLASS_BLOOM), (c.rows_dict, QUAL_CLASS_DICT)] {
+        for (rows, bit) in [
+            (c.rows_zone, QUAL_CLASS_ZONE),
+            (c.rows_bloom, QUAL_CLASS_BLOOM),
+            (c.rows_dict, QUAL_CLASS_DICT),
+        ] {
             if carried(rows) {
                 qual_class |= bit;
             }
@@ -868,7 +1045,11 @@ pub fn serve(img: &FactsImage, zone_rule: &dyn Fn(&ColFacts) -> bool) -> FormatR
             max_len,
             disk_bytes: c.disk_bytes,
             qual_class,
-            codec: if dict { CODEC_DICT } else { class_codec(c.class) },
+            codec: if dict {
+                CODEC_DICT
+            } else {
+                class_codec(c.class)
+            },
             ncodes: if dict { c.ncodes } else { 0 },
             nonnull: (!poisoned).then_some(c.nonnull),
             zones: (c.flags & COLF_ZONES != 0 && zone_rule(c)).then(|| c.zones.clone()),
@@ -890,10 +1071,18 @@ pub fn restamp(img: &FactsImage, manifest: &Manifest) -> FactsImage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pgrc_format::class::{CLASS_VARLENA, CLASS_F64};
+    use pgrc_format::class::{CLASS_F64, CLASS_VARLENA};
     use pgrc_format::facts::FactsImage;
 
-    fn rec(min: i64, max: i64, nonnull: u32, kind: KeyKind, computed: bool, byte_len_sum: u64, char_len_max: u32) -> StatsRecord {
+    fn rec(
+        min: i64,
+        max: i64,
+        nonnull: u32,
+        kind: KeyKind,
+        computed: bool,
+        byte_len_sum: u64,
+        char_len_max: u32,
+    ) -> StatsRecord {
         let mut r = StatsRecord::absent();
         r.min_key = min;
         r.max_key = max;
@@ -963,9 +1152,26 @@ mod tests {
         }
     }
 
-    fn two_granule_part(rows: u64, lo: i64, hi: i64, values: std::ops::Range<u64>, bloom: bool) -> P {
-        let g = [rec(lo, (lo + hi) / 2, 5, KeyKind::Exact, true, 0, 0), rec((lo + hi) / 2, hi, 5, KeyKind::Exact, true, 0, 0)];
-        P { rows, stats: stats_body(&g, &rec(lo, hi, 10, KeyKind::Exact, true, 0, 0)), ndv: Some(hll_body(values)), bloom, dict: false, ncodes: 0, disk: 1000 }
+    fn two_granule_part(
+        rows: u64,
+        lo: i64,
+        hi: i64,
+        values: std::ops::Range<u64>,
+        bloom: bool,
+    ) -> P {
+        let g = [
+            rec(lo, (lo + hi) / 2, 5, KeyKind::Exact, true, 0, 0),
+            rec((lo + hi) / 2, hi, 5, KeyKind::Exact, true, 0, 0),
+        ];
+        P {
+            rows,
+            stats: stats_body(&g, &rec(lo, hi, 10, KeyKind::Exact, true, 0, 0)),
+            ndv: Some(hll_body(values)),
+            bloom,
+            dict: false,
+            ncodes: 0,
+            disk: 1000,
+        }
     }
 
     /// The catalog's rule as the prime would apply it (every width known here).
@@ -1009,12 +1215,25 @@ mod tests {
             acc.merge(&FactsAcc::from_image(b).unwrap()).unwrap();
             acc.merge(&FactsAcc::new()).unwrap();
             // part order: 0 (even 0..2), 1 (odd 0..2), 2 (even 2..4), 3 (odd 2..4)
-            acc.assemble_zones(&[&even, &odd], &[(0, 0, 2), (1, 0, 2), (0, 2, 2), (1, 2, 2)]).unwrap();
+            acc.assemble_zones(
+                &[&even, &odd],
+                &[(0, 0, 2), (1, 0, 2), (0, 2, 2), (1, 2, 2)],
+            )
+            .unwrap();
             let got = acc.into_image(9, 77, 0xfeed).unwrap();
-            assert_eq!(got.encode().unwrap(), full.encode().unwrap(), "byte-identical to the ordered fold here (no poisoned width)");
+            assert_eq!(
+                got.encode().unwrap(),
+                full.encode().unwrap(),
+                "byte-identical to the ordered fold here (no poisoned width)"
+            );
         }
         let mut short = FactsAcc::from_image(&even).unwrap();
-        assert!(short.assemble_zones(&[&even], &[(0, 0, 2), (0, 2, 3)]).is_err(), "a slice past its source");
+        assert!(
+            short
+                .assemble_zones(&[&even], &[(0, 0, 2), (0, 2, 3)])
+                .is_err(),
+            "a slice past its source"
+        );
         // a column one side lacks: served as unknown, like the fold
         let mut other = FactsAcc::new();
         other.fold_part(&word_part(&parts[3], 2)).unwrap();
@@ -1023,33 +1242,59 @@ mod tests {
         let mut seq = FactsAcc::new();
         seq.fold_part(&word_part(&parts[0], 1)).unwrap();
         seq.fold_part(&word_part(&parts[3], 2)).unwrap();
-        let (m, f) = (acc.into_image(1, 1, 1).unwrap(), seq.into_image(1, 1, 1).unwrap());
+        let (m, f) = (
+            acc.into_image(1, 1, 1).unwrap(),
+            seq.into_image(1, 1, 1).unwrap(),
+        );
         assert_eq!(serve(&m, &word).unwrap(), serve(&f, &word).unwrap());
         let mut float = FactsAcc::new();
         let mut fp = word_part(&parts[1], 1);
         fp.cols[0].class = CLASS_F64;
         float.fold_part(&fp).unwrap();
-        assert!(FactsAcc::from_image(&imgs[0]).unwrap().merge(&float).is_err(), "a class change refuses");
+        assert!(
+            FactsAcc::from_image(&imgs[0])
+                .unwrap()
+                .merge(&float)
+                .is_err(),
+            "a class change refuses"
+        );
     }
 
     #[test]
     fn incremental_fold_through_the_image_equals_the_full_fold() {
-        let parts = [two_granule_part(100, 0, 100, 0..500, true), two_granule_part(100, 50, 200, 250..900, true), two_granule_part(7, -5, 5, 0..7, false)];
+        let parts = [
+            two_granule_part(100, 0, 100, 0..500, true),
+            two_granule_part(100, 50, 200, 250..900, true),
+            two_granule_part(7, -5, 5, 0..7, false),
+        ];
         let full = fold_all(&parts);
         let mut acc = FactsAcc::new();
         acc.fold_part(&word_part(&parts[0], 1)).unwrap();
         let img1 = acc.into_image(1, 1, 0xfeed).unwrap();
-        let mut resumed = FactsAcc::from_image(&FactsImage::decode(&img1.encode().unwrap()).unwrap()).unwrap();
+        let mut resumed =
+            FactsAcc::from_image(&FactsImage::decode(&img1.encode().unwrap()).unwrap()).unwrap();
         resumed.fold_part(&word_part(&parts[1], 1)).unwrap();
         let img2 = resumed.into_image(2, 2, 0xfeed).unwrap();
         let mut resumed = FactsAcc::from_image(&img2).unwrap();
         resumed.fold_part(&word_part(&parts[2], 1)).unwrap();
-        assert_eq!(resumed.into_image(9, 77, 0xfeed).unwrap().encode().unwrap(), full.encode().unwrap(), "byte-identical image");
+        assert_eq!(
+            resumed.into_image(9, 77, 0xfeed).unwrap().encode().unwrap(),
+            full.encode().unwrap(),
+            "byte-identical image"
+        );
         let served = serve(&full, &word).unwrap();
         assert_eq!(served.len(), 1);
         let c = &served[0];
-        assert_eq!(c.zones.as_ref().map(|z| z.decode().unwrap()).as_deref(), Some(&[(0, 50), (50, 100), (50, 125), (125, 200), (-5, 0), (0, 5)][..]), "granule ranges in part order");
-        assert!(c.ndv >= 810 && c.ndv <= 990, "union estimate {} for 900 distinct", c.ndv);
+        assert_eq!(
+            c.zones.as_ref().map(|z| z.decode().unwrap()).as_deref(),
+            Some(&[(0, 50), (50, 100), (50, 125), (125, 200), (-5, 0), (0, 5)][..]),
+            "granule ranges in part order"
+        );
+        assert!(
+            c.ndv >= 810 && c.ndv <= 990,
+            "union estimate {} for 900 distinct",
+            c.ndv
+        );
         assert_eq!(full.header.rows, 207);
         assert_eq!(full.header.granules, 6);
         assert_eq!(full.header.parts, 3);
@@ -1058,12 +1303,26 @@ mod tests {
 
     #[test]
     fn qual_classes_are_a_row_fraction_vote() {
-        let parts = [two_granule_part(950, 0, 10, 0..10, true), two_granule_part(50, 0, 10, 0..10, false)];
+        let parts = [
+            two_granule_part(950, 0, 10, 0..10, true),
+            two_granule_part(50, 0, 10, 0..10, false),
+        ];
         let c = &serve(&fold_all(&parts), &word).unwrap()[0];
-        assert_eq!(c.qual_class & QUAL_CLASS_BLOOM, QUAL_CLASS_BLOOM, "95 % of the rows carry a bloom");
+        assert_eq!(
+            c.qual_class & QUAL_CLASS_BLOOM,
+            QUAL_CLASS_BLOOM,
+            "95 % of the rows carry a bloom"
+        );
         assert_eq!(c.qual_class & QUAL_CLASS_ZONE, QUAL_CLASS_ZONE);
-        let parts = [two_granule_part(500, 0, 10, 0..10, true), two_granule_part(500, 0, 10, 0..10, false)];
-        assert_eq!(serve(&fold_all(&parts), &word).unwrap()[0].qual_class & QUAL_CLASS_BLOOM, 0, "half the rows is not a class");
+        let parts = [
+            two_granule_part(500, 0, 10, 0..10, true),
+            two_granule_part(500, 0, 10, 0..10, false),
+        ];
+        assert_eq!(
+            serve(&fold_all(&parts), &word).unwrap()[0].qual_class & QUAL_CLASS_BLOOM,
+            0,
+            "half the rows is not a class"
+        );
     }
 
     /// P5-27's keep: the vote reads the carried share of the rows and nothing else. The share at the ruled bound
@@ -1071,28 +1330,60 @@ mod tests {
     /// parts hold change nothing.
     #[test]
     fn qual_class_vote_reads_only_the_row_fraction() {
-        let bloom = |parts: &[P]| serve(&fold_all(parts), &word).unwrap()[0].qual_class & QUAL_CLASS_BLOOM != 0;
+        let bloom = |parts: &[P]| {
+            serve(&fold_all(parts), &word).unwrap()[0].qual_class & QUAL_CLASS_BLOOM != 0
+        };
         for scale in [1u64, 10, 1000] {
             let at = QUAL_CLASS_VOTE_ROW_PERCENT * scale;
             let rest = (100 - QUAL_CLASS_VOTE_ROW_PERCENT) * scale;
-            assert!(bloom(&[two_granule_part(at, 0, 10, 0..10, true), two_granule_part(rest, 0, 10, 0..10, false)]), "x{scale}: the bound carries");
-            assert!(bloom(&[two_granule_part(rest, 5, 9, 0..3, false), two_granule_part(at, -7, 70, 0..500, true)]), "x{scale}: order and values");
-            assert!(!bloom(&[two_granule_part(at - 1, 0, 10, 0..10, true), two_granule_part(rest + 1, 0, 10, 0..10, false)]), "x{scale}: under the bound");
+            assert!(
+                bloom(&[
+                    two_granule_part(at, 0, 10, 0..10, true),
+                    two_granule_part(rest, 0, 10, 0..10, false)
+                ]),
+                "x{scale}: the bound carries"
+            );
+            assert!(
+                bloom(&[
+                    two_granule_part(rest, 5, 9, 0..3, false),
+                    two_granule_part(at, -7, 70, 0..500, true)
+                ]),
+                "x{scale}: order and values"
+            );
+            assert!(
+                !bloom(&[
+                    two_granule_part(at - 1, 0, 10, 0..10, true),
+                    two_granule_part(rest + 1, 0, 10, 0..10, false)
+                ]),
+                "x{scale}: under the bound"
+            );
         }
-        let split: Vec<P> = (0..9).map(|_| two_granule_part(100, 0, 10, 0..10, true)).chain([two_granule_part(100, 0, 10, 0..10, false)]).collect();
+        let split: Vec<P> = (0..9)
+            .map(|_| two_granule_part(100, 0, 10, 0..10, true))
+            .chain([two_granule_part(100, 0, 10, 0..10, false)])
+            .collect();
         assert!(bloom(&split), "nine carrying parts of ten, equal rows");
     }
 
     #[test]
     fn ndv_absence_in_any_part_is_unknown_for_good_and_register_skew_refuses() {
-        let mut parts = [two_granule_part(10, 0, 1, 0..100, false), two_granule_part(10, 0, 1, 0..100, false)];
+        let mut parts = [
+            two_granule_part(10, 0, 1, 0..100, false),
+            two_granule_part(10, 0, 1, 0..100, false),
+        ];
         parts[1].ndv = None;
         assert_eq!(serve(&fold_all(&parts), &word).unwrap()[0].ndv, 0);
         let img = fold_all(&parts);
         assert_eq!(img.cols[0].flags & COLF_NDV_ABSENT, COLF_NDV_ABSENT);
         let mut resumed = FactsAcc::from_image(&img).unwrap();
-        resumed.fold_part(&word_part(&two_granule_part(10, 0, 1, 0..100, false), 1)).unwrap();
-        assert_eq!(serve(&resumed.into_image(3, 3, 3).unwrap(), &word).unwrap()[0].ndv, 0, "a later part cannot revive it");
+        resumed
+            .fold_part(&word_part(&two_granule_part(10, 0, 1, 0..100, false), 1))
+            .unwrap();
+        assert_eq!(
+            serve(&resumed.into_image(3, 3, 3).unwrap(), &word).unwrap()[0].ndv,
+            0,
+            "a later part cannot revive it"
+        );
         let mut skew = two_granule_part(10, 0, 1, 0..100, false);
         let mut short = Vec::new();
         short.extend_from_slice(&[1, 4, 0, 0, 16, 0, 0, 0]);
@@ -1107,7 +1398,10 @@ mod tests {
     fn width_average_needs_the_witness_in_every_part() {
         let text = |rows: u64, sum: u64, max: u32, computed: bool| P {
             rows,
-            stats: stats_body(&[rec(0, 0, rows as u32, KeyKind::Absent, computed, sum, max); 2], &rec(0, 0, rows as u32, KeyKind::Absent, computed, sum, max)),
+            stats: stats_body(
+                &[rec(0, 0, rows as u32, KeyKind::Absent, computed, sum, max); 2],
+                &rec(0, 0, rows as u32, KeyKind::Absent, computed, sum, max),
+            ),
             ndv: None,
             bloom: false,
             dict: false,
@@ -1116,7 +1410,15 @@ mod tests {
         };
         fn text_part(p: &P) -> PartFacts<'_> {
             let w = word_part(p, 2);
-            PartFacts { cols: vec![PartColFacts { class: CLASS_VARLENA, signed: false, width: 0, ..w.cols[0] }], ..w }
+            PartFacts {
+                cols: vec![PartColFacts {
+                    class: CLASS_VARLENA,
+                    signed: false,
+                    width: 0,
+                    ..w.cols[0]
+                }],
+                ..w
+            }
         }
         let mut acc = FactsAcc::new();
         acc.fold_part(&text_part(&text(10, 100, 12, true))).unwrap();
@@ -1128,29 +1430,67 @@ mod tests {
         assert!(c.zones.is_none(), "a varlena column never carries zones");
         acc.fold_part(&text_part(&text(10, 0, 0, false))).unwrap();
         let c = &serve(&acc.into_image(2, 2, 2).unwrap(), &word).unwrap()[0];
-        assert_eq!((c.avg_width, c.max_len), (0, 0), "the witness missing in one part poisons both");
+        assert_eq!(
+            (c.avg_width, c.max_len),
+            (0, 0),
+            "the witness missing in one part poisons both"
+        );
         let mut acc = FactsAcc::new();
         acc.fold_part(&text_part(&text(10, 0, 0, true))).unwrap();
-        assert_eq!(serve(&acc.into_image(1, 1, 1).unwrap(), &word).unwrap()[0].avg_width, 0, "zero sums read unknown");
+        assert_eq!(
+            serve(&acc.into_image(1, 1, 1).unwrap(), &word).unwrap()[0].avg_width,
+            0,
+            "zero sums read unknown"
+        );
     }
 
     #[test]
     fn zones_drop_without_the_exact_witness_and_never_exist_for_floats() {
         let mut coarse = two_granule_part(10, 0, 10, 0..10, false);
-        coarse.stats = stats_body(&[rec(0, 5, 5, KeyKind::Coarse, true, 0, 0); 2], &rec(0, 10, 10, KeyKind::Coarse, true, 0, 0));
+        coarse.stats = stats_body(
+            &[rec(0, 5, 5, KeyKind::Coarse, true, 0, 0); 2],
+            &rec(0, 10, 10, KeyKind::Coarse, true, 0, 0),
+        );
         let img = fold_all(&[two_granule_part(10, 0, 10, 0..10, false), coarse]);
         let c = &serve(&img, &word).unwrap()[0];
         assert!(c.zones.is_none());
-        assert_eq!(c.qual_class & QUAL_CLASS_ZONE, 0, "10 of 20 rows carry the exact witness");
+        assert_eq!(
+            c.qual_class & QUAL_CLASS_ZONE,
+            0,
+            "10 of 20 rows carry the exact witness"
+        );
         let p = two_granule_part(10, 0, 10, 0..10, false);
         let mut acc = FactsAcc::new();
-        acc.fold_part(&PartFacts { cols: vec![PartColFacts { class: CLASS_F64, signed: false, width: 8, ..word_part(&p, 3).cols[0] }], ..word_part(&p, 3) }).unwrap();
+        acc.fold_part(&PartFacts {
+            cols: vec![PartColFacts {
+                class: CLASS_F64,
+                signed: false,
+                width: 8,
+                ..word_part(&p, 3).cols[0]
+            }],
+            ..word_part(&p, 3)
+        })
+        .unwrap();
         let c = &serve(&acc.into_image(1, 1, 1).unwrap(), &word).unwrap()[0];
         assert!(c.zones.is_none());
         assert_eq!(c.codec, CODEC_WORD);
         let mut nulls = two_granule_part(10, 0, 10, 0..10, false);
-        nulls.stats = stats_body(&[rec(0, 5, 5, KeyKind::Exact, true, 0, 0), rec(0, 0, 0, KeyKind::Exact, true, 0, 0)], &rec(0, 5, 5, KeyKind::Exact, true, 0, 0));
-        assert_eq!(serve(&fold_all(&[nulls]), &word).unwrap()[0].zones.as_ref().map(|z| z.decode().unwrap()).as_deref(), Some(&[(0, 5), (i64::MAX, i64::MIN)][..]), "an all-null granule is the empty range");
+        nulls.stats = stats_body(
+            &[
+                rec(0, 5, 5, KeyKind::Exact, true, 0, 0),
+                rec(0, 0, 0, KeyKind::Exact, true, 0, 0),
+            ],
+            &rec(0, 5, 5, KeyKind::Exact, true, 0, 0),
+        );
+        assert_eq!(
+            serve(&fold_all(&[nulls]), &word).unwrap()[0]
+                .zones
+                .as_ref()
+                .map(|z| z.decode().unwrap())
+                .as_deref(),
+            Some(&[(0, 5), (i64::MAX, i64::MIN)][..]),
+            "an all-null granule is the empty range"
+        );
     }
 
     #[test]
@@ -1167,8 +1507,16 @@ mod tests {
         let mut a = two_granule_part(10, 0, 10, 0..10, false);
         a.dict = true;
         a.ncodes = 7;
-        let c = &serve(&fold_all(&[a, two_granule_part(10, 0, 10, 0..10, false)]), &word).unwrap()[0];
-        assert_eq!((c.codec, c.ncodes), (CODEC_WORD, 0), "one plain part: the class codec, no codes");
+        let c = &serve(
+            &fold_all(&[a, two_granule_part(10, 0, 10, 0..10, false)]),
+            &word,
+        )
+        .unwrap()[0];
+        assert_eq!(
+            (c.codec, c.ncodes),
+            (CODEC_WORD, 0),
+            "one plain part: the class codec, no codes"
+        );
     }
 
     #[test]
@@ -1180,17 +1528,32 @@ mod tests {
         let mut acc = FactsAcc::new();
         acc.fold_part(&walked).unwrap();
         let img = acc.clone().into_image(1, 1, 1).unwrap();
-        assert_eq!(img.cols[0].flags & COLF_ZONES, COLF_ZONES, "zones are stored for every byval word");
-        assert_eq!(zone_rule_without_catalog(&img.cols[0]), None, "an unsigned word of unknown width is ambiguous");
+        assert_eq!(
+            img.cols[0].flags & COLF_ZONES,
+            COLF_ZONES,
+            "zones are stored for every byval word"
+        );
+        assert_eq!(
+            zone_rule_without_catalog(&img.cols[0]),
+            None,
+            "an unsigned word of unknown width is ambiguous"
+        );
         let served = serve(&img, &|_| true).unwrap();
-        assert!(served[0].zones.is_some(), "a catalog holder can still serve them");
+        assert!(
+            served[0].zones.is_some(),
+            "a catalog holder can still serve them"
+        );
         let mut published = word_part(&a, 1);
         published.cols[0].signed = false;
         published.cols[0].width = 4;
         acc.fold_part(&published).unwrap();
         let img = acc.into_image(2, 2, 2).unwrap();
         assert_eq!(img.cols[0].width, 4);
-        assert_eq!(zone_rule_without_catalog(&img.cols[0]), Some(true), "oid-class: zoned");
+        assert_eq!(
+            zone_rule_without_catalog(&img.cols[0]),
+            Some(true),
+            "oid-class: zoned"
+        );
         let mut acc = FactsAcc::new();
         acc.fold_part(&published).unwrap();
         let mut eight = published.clone();
@@ -1204,13 +1567,29 @@ mod tests {
         let b = two_granule_part(10, 0, 10, 0..10, true);
         let mut acc = FactsAcc::new();
         acc.fold_part(&word_part(&a, 1)).unwrap();
-        acc.fold_part(&PartFacts { cols: Vec::new(), ..word_part(&b, 1) }).unwrap();
+        acc.fold_part(&PartFacts {
+            cols: Vec::new(),
+            ..word_part(&b, 1)
+        })
+        .unwrap();
         let c = &serve(&acc.into_image(1, 1, 1).unwrap(), &word).unwrap()[0];
-        assert_eq!((c.ndv, c.avg_width, c.zones.is_none(), c.codec), (0, 0, true, CODEC_WORD));
+        assert_eq!(
+            (c.ndv, c.avg_width, c.zones.is_none(), c.codec),
+            (0, 0, true, CODEC_WORD)
+        );
         let mut acc = FactsAcc::new();
-        acc.fold_part(&PartFacts { cols: Vec::new(), ..word_part(&a, 1) }).unwrap();
+        acc.fold_part(&PartFacts {
+            cols: Vec::new(),
+            ..word_part(&a, 1)
+        })
+        .unwrap();
         acc.fold_part(&word_part(&b, 1)).unwrap();
-        assert!(serve(&acc.into_image(1, 1, 1).unwrap(), &word).unwrap()[0].zones.is_none(), "first seen after a part without it");
+        assert!(
+            serve(&acc.into_image(1, 1, 1).unwrap(), &word).unwrap()[0]
+                .zones
+                .is_none(),
+            "first seen after a part without it"
+        );
         let mut acc = FactsAcc::new();
         acc.fold_part(&word_part(&a, 1)).unwrap();
         let mut other = word_part(&b, 1);

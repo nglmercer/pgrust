@@ -14,7 +14,7 @@
 //!   levels (R7) and count by E4's metric (§7).
 //! - R6: a PARALLEL SAFE function under PG's Gather never reaches here: decompose refuses Gather / Gather Merge by kind.
 //! - Decision 7: the program is its session's (its SetFn names the incumbent node: exec admit.rs `shareable`, V4R-258).
-//! Owner M5-PL.
+//!   Owner M5-PL.
 use gravity_decompose::ops::shared::srf::SrfPlace;
 use gravity_decompose::Op;
 use mcx::PgBox;

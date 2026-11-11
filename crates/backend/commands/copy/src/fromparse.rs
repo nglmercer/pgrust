@@ -105,8 +105,15 @@ impl<'mcx, 's> CopyFromState<'mcx, 's> {
             }
             CopySrc::Callback { .. } => {
                 // Split borrows: the callback writes straight into raw_buf.
-                let CopyFromState { src, raw_buf, raw_reached_eof, .. } = self;
-                let CopySrc::Callback { cb } = src else { unreachable!() };
+                let CopyFromState {
+                    src,
+                    raw_buf,
+                    raw_reached_eof,
+                    ..
+                } = self;
+                let CopySrc::Callback { cb } = src else {
+                    unreachable!()
+                };
                 let n = cb(&mut raw_buf[at..at + maxread], minread)?;
                 if n == 0 {
                     *raw_reached_eof = true;
@@ -138,8 +145,15 @@ impl<'mcx, 's> CopyFromState<'mcx, 's> {
                 unreachable!("parquet sources produce rows, not raw bytes")
             }
             CopySrc::Chunk { .. } => {
-                let CopyFromState { src, raw_buf, raw_reached_eof, .. } = self;
-                let CopySrc::Chunk { cur, .. } = src else { unreachable!() };
+                let CopyFromState {
+                    src,
+                    raw_buf,
+                    raw_reached_eof,
+                    ..
+                } = self;
+                let CopySrc::Chunk { cur, .. } = src else {
+                    unreachable!()
+                };
                 let n = cur.read(&mut raw_buf[at..at + maxread])?;
                 if n == 0 {
                     *raw_reached_eof = true;
@@ -584,7 +598,11 @@ impl<'mcx, 's> CopyFromState<'mcx, 's> {
                     last_was_esc = false;
                 }
                 if in_quote
-                    && c == if self.eol_type == EolType::Nl { b'\n' } else { b'\r' }
+                    && c == if self.eol_type == EolType::Nl {
+                        b'\n'
+                    } else {
+                        b'\r'
+                    }
                 {
                     self.cur_lineno += 1;
                 }
@@ -644,6 +662,7 @@ impl<'mcx, 's> CopyFromState<'mcx, 's> {
                     if c2 != b'\r' && c2 != b'\n' {
                         return Err(marker_not_alone());
                     }
+                    #[allow(clippy::nonminimal_bool)]
                     if (self.eol_type == EolType::Nl && c2 != b'\n')
                         || (self.eol_type == EolType::Crnl && c2 != b'\n')
                         || (self.eol_type == EolType::Cr && c2 != b'\r')
@@ -935,8 +954,14 @@ impl<'mcx, 's> CopyFromState<'mcx, 's> {
             }
             for k in 0..self.defmap.len() {
                 let m = self.defmap[k];
-                let state = self.defexprs[m].as_mut().expect("defmap entry sans defexpr");
-                let mut slots = execexpr::EvalSlots { scan: None, inner: None, outer: None };
+                let state = self.defexprs[m]
+                    .as_mut()
+                    .expect("defmap entry sans defexpr");
+                let mut slots = execexpr::EvalSlots {
+                    scan: None,
+                    inner: None,
+                    outer: None,
+                };
                 let r = execexpr::exec_eval_expr(state, &mut slots)?;
                 values[m] = r.value;
                 nulls[m] = r.isnull;
@@ -950,8 +975,14 @@ impl<'mcx, 's> CopyFromState<'mcx, 's> {
             }
             for k in 0..self.defmap.len() {
                 let m = self.defmap[k];
-                let state = self.defexprs[m].as_mut().expect("defmap entry sans defexpr");
-                let mut slots = execexpr::EvalSlots { scan: None, inner: None, outer: None };
+                let state = self.defexprs[m]
+                    .as_mut()
+                    .expect("defmap entry sans defexpr");
+                let mut slots = execexpr::EvalSlots {
+                    scan: None,
+                    inner: None,
+                    outer: None,
+                };
                 let r = execexpr::exec_eval_expr(state, &mut slots)?;
                 values[m] = r.value;
                 nulls[m] = r.isnull;
@@ -1048,10 +1079,7 @@ impl<'mcx, 's> CopyFromState<'mcx, 's> {
                 if off < 0 && self.force_notnull_flags[m] {
                     // FORCE_NOT_NULL: convert NULL back to the null string.
                     off = self.null_print_field();
-                } else if off >= 0
-                    && self.force_null_flags[m]
-                    && self.field_is_null_print(off)
-                {
+                } else if off >= 0 && self.force_null_flags[m] && self.field_is_null_print(off) {
                     off = -1;
                 }
             }
@@ -1066,8 +1094,14 @@ impl<'mcx, 's> CopyFromState<'mcx, 's> {
             };
             nulls[m] = cstr.is_none();
             if self.defaults[m] {
-                let state = self.defexprs[m].as_mut().expect("DEFAULT marker sans defexpr");
-                let mut slots = execexpr::EvalSlots { scan: None, inner: None, outer: None };
+                let state = self.defexprs[m]
+                    .as_mut()
+                    .expect("DEFAULT marker sans defexpr");
+                let mut slots = execexpr::EvalSlots {
+                    scan: None,
+                    inner: None,
+                    outer: None,
+                };
                 let r = execexpr::exec_eval_expr(state, &mut slots)?;
                 values[m] = r.value;
                 nulls[m] = r.isnull;
@@ -1121,8 +1155,14 @@ impl<'mcx, 's> CopyFromState<'mcx, 's> {
         }
         for k in 0..self.defmap.len() {
             let m = self.defmap[k];
-            let state = self.defexprs[m].as_mut().expect("defmap entry sans defexpr");
-            let mut slots = execexpr::EvalSlots { scan: None, inner: None, outer: None };
+            let state = self.defexprs[m]
+                .as_mut()
+                .expect("defmap entry sans defexpr");
+            let mut slots = execexpr::EvalSlots {
+                scan: None,
+                inner: None,
+                outer: None,
+            };
             let r = execexpr::exec_eval_expr(state, &mut slots)?;
             values[m] = r.value;
             nulls[m] = r.isnull;
@@ -1359,7 +1399,10 @@ fn literal_nl(is_csv: bool) -> Box<PgError> {
             "Use quoted CSV field to represent newline.",
         )
     } else {
-        ("literal newline found in data", "Use \"\\n\" to represent newline.")
+        (
+            "literal newline found in data",
+            "Use \"\\n\" to represent newline.",
+        )
     };
     Box::new(
         PgError::error(msg)
@@ -1420,7 +1463,8 @@ pub(crate) fn stringinfo_reserve(buf: &mut mcx::PgVec<'_, u8>, total: usize) -> 
     if buf.capacity() < total {
         let mcx = *buf.allocator();
         let target = mcx::grow_target(buf.capacity(), total);
-        buf.try_reserve_exact(target - buf.len()).map_err(|_| mcx.oom_boxed(target))?;
+        buf.try_reserve_exact(target - buf.len())
+            .map_err(|_| mcx.oom_boxed(target))?;
     }
     Ok(())
 }
@@ -1434,7 +1478,9 @@ fn string_buffer_limit(len: usize, needed: usize) -> Box<PgError> {
             mcx::MAX_ALLOC_SIZE
         ))
         .with_sqlstate(types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED)
-        .with_detail(format!("Cannot enlarge string buffer containing {len} bytes by {needed} more bytes.")),
+        .with_detail(format!(
+            "Cannot enlarge string buffer containing {len} bytes by {needed} more bytes."
+        )),
     )
 }
 
@@ -1480,7 +1526,10 @@ pub mod bench_internals {
                 log_verbosity: crate::CopyLogVerbosityChoice::Default,
                 reject_limit: 0,
             },
-            src: CopySrc::File { fd: -1, filename: "" },
+            src: CopySrc::File {
+                fd: -1,
+                filename: "",
+            },
             raw_buf: PgVec::new_in(mcx),
             raw_buf_index: 0,
             raw_buf_len: 0,
@@ -1615,7 +1664,9 @@ pub mod bench_internals {
         // A truncated/oversize field drains raw_buf and calls copy_load_raw_buf
         // -> copy_get_data; give it a source that yields 0 (clean EOF) instead
         // of the default File{fd:-1}, which would try a real read.
-        st.src = CopySrc::Callback { cb: Box::new(|_buf, _min| Ok(0)) };
+        st.src = CopySrc::Callback {
+            cb: Box::new(|_buf, _min| Ok(0)),
+        };
         // Preload the whole stream into raw_buf (full RAW_BUF_SIZE+1 capacity
         // so copy_load_raw_buf's `raw_buf[nbytes]=0` is always in bounds), and
         // pin EOF so no fd read is attempted when a short field drains it.
@@ -1633,7 +1684,9 @@ pub mod bench_internals {
             if fld_count == -1 {
                 let mut dummy = [0u8; 1];
                 if st.copy_read_binary_data(&mut dummy)? > 0 {
-                    return Err(super::bad_copy_format("received copy data after EOF marker"));
+                    return Err(super::bad_copy_format(
+                        "received copy data after EOF marker",
+                    ));
                 }
                 return Ok(Vec::new());
             }
@@ -1712,7 +1765,9 @@ pub mod bench_internals {
         st.input_buf_len = 0;
         st.input_reached_eof = false;
         st.input_reached_error = false;
-        st.src = CopySrc::Callback { cb: Box::new(|_buf, _min| Ok(0)) };
+        st.src = CopySrc::Callback {
+            cb: Box::new(|_buf, _min| Ok(0)),
+        };
 
         let mut run = || -> Result<(Vec<Vec<u8>>, bool), Box<types_error::PgError>> {
             let mut lines: Vec<Vec<u8>> = Vec::new();

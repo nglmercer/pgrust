@@ -7,8 +7,7 @@
 //! while recovery reads themselves stay on the sync buffered path — see
 //! docs/optimizations/2026-07-04-recovery-prefetch-divergence.md.
 
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use std::cell::Cell;
 use std::sync::atomic::{AtomicI32, AtomicU32, AtomicU64, Ordering::Relaxed};
@@ -249,7 +248,8 @@ pub fn XLogPrefetchShmemResetAfterCrash() {
 
 pub fn XLogPrefetchResetStats() {
     let s = shared_stats();
-    s.reset_time.store(adt_timestamp::GetCurrentTimestamp() as u64, Relaxed);
+    s.reset_time
+        .store(adt_timestamp::GetCurrentTimestamp() as u64, Relaxed);
     s.prefetch.store(0, Relaxed);
     s.hit.store(0, Relaxed);
     s.skip_init.store(0, Relaxed);
@@ -309,7 +309,8 @@ pub fn XLogPrefetcherComputeStatsAtPageRead(read_rec_ptr: XLogRecPtr) {
     let completed = PAGE_READ_COMPLETED.load(Relaxed);
     let s = shared_stats();
     s.io_depth.store(io_depth as i32, Relaxed);
-    s.block_distance.store((io_depth + completed) as i32, Relaxed);
+    s.block_distance
+        .store((io_depth + completed) as i32, Relaxed);
     s.wal_distance.store(0, Relaxed);
     PAGE_READ_NEXT_STATS_LSN.store(read_rec_ptr + XLOGPREFETCHER_STATS_DISTANCE, Relaxed);
 }
@@ -347,23 +348,30 @@ impl<'mcx> XLogPrefetcher<'mcx> {
     }
 
     pub fn XLogPrefetcherComputeStats(&mut self, reader: &XLogReaderState<'_>) {
-        let wal_distance: i64 =
-            match (reader.decode_queue_tail_lsn(), reader.decode_queue_head_lsn()) {
-                (Some(tail), Some(head)) => tail as i64 - head as i64,
-                _ => 0,
-            };
-        let lrq = self.streaming_read.as_ref().expect("streaming_read allocated");
+        let wal_distance: i64 = match (
+            reader.decode_queue_tail_lsn(),
+            reader.decode_queue_head_lsn(),
+        ) {
+            (Some(tail), Some(head)) => tail as i64 - head as i64,
+            _ => 0,
+        };
+        let lrq = self
+            .streaming_read
+            .as_ref()
+            .expect("streaming_read allocated");
         let io_depth = lrq.inflight;
         let completed = lrq.completed;
 
         let s = shared_stats();
         s.io_depth.store(io_depth as i32, Relaxed);
-        s.block_distance.store((io_depth + completed) as i32, Relaxed);
+        s.block_distance
+            .store((io_depth + completed) as i32, Relaxed);
         s.wal_distance.store(wal_distance as i32, Relaxed);
 
         self.next_stats_shm_lsn = reader.v.ReadRecPtr + XLOGPREFETCHER_STATS_DISTANCE;
     }
 
+    #[allow(clippy::unnecessary_unwrap)]
     fn XLogPrefetcherNextBlock<R: XLogReaderRoutine>(
         &mut self,
         reader: &mut XLogReaderState<'_>,
@@ -391,7 +399,9 @@ impl<'mcx> XLogPrefetcher<'mcx> {
                 if !RecoveryPrefetchEnabled() {
                     return Ok((LsnReadQueueNextStatus::NoIo, InvalidXLogRecPtr));
                 }
-                record = reader.read_ahead_record_info().expect("XLogReadAhead queued a record");
+                record = reader
+                    .read_ahead_record_info()
+                    .expect("XLogReadAhead queued a record");
                 self.record = Some(record);
                 self.next_block_id = 0;
             } else {

@@ -290,8 +290,13 @@ pub fn ExecuteTruncateGuts<'mcx>(
         if tableam_vocab::is_pgrcolumnar_am_oid(rel.rd_rel.relam) {
             for t in pgrc_front_seams::tomb_relids::call(rel.rd_id)? {
                 let trel = table::table_open(mcx, t, AccessExclusiveLock)?;
-                let same = trel.rd_createSubid.get() == my_subid || trel.rd_newRelfilelocatorSubid.get() == my_subid;
-                let out = if same { catalog_heap::heap_truncate_one_rel(mcx, &trel) } else { Ok(()) };
+                let same = trel.rd_createSubid.get() == my_subid
+                    || trel.rd_newRelfilelocatorSubid.get() == my_subid;
+                let out = if same {
+                    catalog_heap::heap_truncate_one_rel(mcx, &trel)
+                } else {
+                    Ok(())
+                };
                 if same {
                     let l = trel.rd_locator.get();
                     pgrc_marks::truncated((l.spcOid, l.dbOid, l.relNumber));
@@ -334,7 +339,8 @@ pub fn ExecuteTruncateGuts<'mcx>(
             flags |= XLH_TRUNCATE_RESTART_SEQS;
         }
         xlrec[8] = flags;
-        let mut logrelids: Vec<u8> = ::mcx::std_vec_with_capacity("commands", relids_logged.len() * 4)?;
+        let mut logrelids: Vec<u8> =
+            ::mcx::std_vec_with_capacity("commands", relids_logged.len() * 4)?;
         for &relid in relids_logged.iter() {
             logrelids.extend_from_slice(&relid.to_ne_bytes());
         }

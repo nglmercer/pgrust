@@ -1,4 +1,3 @@
-
 pub const fn break_even(touched: f64, whole: f64) -> f64 {
     if touched.is_nan() || touched <= 0.0 {
         return 1.0;
@@ -68,9 +67,13 @@ pub fn least_squares(points: &[(f64, f64)]) -> (f64, f64) {
     if points.len() < 2 {
         return (0.0, 0.0);
     }
-    let (sx, sy) = points.iter().fold((0.0, 0.0), |(sx, sy), &(x, y)| (sx + x, sy + y));
+    let (sx, sy) = points
+        .iter()
+        .fold((0.0, 0.0), |(sx, sy), &(x, y)| (sx + x, sy + y));
     let (mx, my) = (sx / n, sy / n);
-    let (sxx, sxy) = points.iter().fold((0.0, 0.0), |(a, b), &(x, y)| (a + (x - mx) * (x - mx), b + (x - mx) * (y - my)));
+    let (sxx, sxy) = points.iter().fold((0.0, 0.0), |(a, b), &(x, y)| {
+        (a + (x - mx) * (x - mx), b + (x - mx) * (y - my))
+    });
     if sxx.is_nan() || sxx <= 0.0 {
         return (0.0, 0.0);
     }
@@ -110,25 +113,50 @@ mod tests {
         assert_eq!(break_even_div(10.0, 3.0), 4, "1/4 <= 0.3 < 1/3");
         // a strategy dearer per whole unit than per touched one always pays; a free one never needs a divisor
         assert_eq!((break_even(1.0, 2.0), break_even_div(1.0, 2.0)), (1.0, 1));
-        assert_eq!((break_even(0.0, 1.0), break_even_div(1.0, 0.0)), (1.0, usize::MAX));
+        assert_eq!(
+            (break_even(0.0, 1.0), break_even_div(1.0, 0.0)),
+            (1.0, usize::MAX)
+        );
         const DIV: usize = break_even_div(2.6, 0.31);
         assert_eq!(DIV, 9);
     }
 
     #[test]
     fn a_prefetch_covers_the_miss() {
-        assert_eq!((prefetch_distance(100.0, 12.5, 16), prefetch_distance(100.0, 13.0, 16)), (8, 8));
-        assert_eq!((prefetch_distance(400.0, 1.0, 16), prefetch_distance(1.0, 100.0, 16), prefetch_distance(0.0, 1.0, 0)), (16, 1, 1));
+        assert_eq!(
+            (
+                prefetch_distance(100.0, 12.5, 16),
+                prefetch_distance(100.0, 13.0, 16)
+            ),
+            (8, 8)
+        );
+        assert_eq!(
+            (
+                prefetch_distance(400.0, 1.0, 16),
+                prefetch_distance(1.0, 100.0, 16),
+                prefetch_distance(0.0, 1.0, 0)
+            ),
+            (16, 1, 1)
+        );
     }
 
     #[test]
     fn a_fraction_never_overflows() {
-        assert_eq!((fraction(1000, 1, 4), fraction(u64::MAX, 1, 2), fraction(7, 3, 0)), (250, u64::MAX / 2, 7));
+        assert_eq!(
+            (
+                fraction(1000, 1, 4),
+                fraction(u64::MAX, 1, 2),
+                fraction(7, 3, 0)
+            ),
+            (250, u64::MAX / 2, 7)
+        );
     }
 
     #[test]
     fn least_squares_recovers_a_line() {
-        let pts: Vec<(f64, f64)> = (1..=8).map(|x| (x as f64 * 100.0, 50.0 + 2.5 * x as f64 * 100.0)).collect();
+        let pts: Vec<(f64, f64)> = (1..=8)
+            .map(|x| (x as f64 * 100.0, 50.0 + 2.5 * x as f64 * 100.0))
+            .collect();
         let (a, b) = least_squares(&pts);
         assert!((a - 50.0).abs() < 1e-6 && (b - 2.5).abs() < 1e-9, "{a} {b}");
         assert_eq!(least_squares(&[(1.0, 2.0)]), (0.0, 0.0));

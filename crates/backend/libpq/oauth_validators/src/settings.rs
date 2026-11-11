@@ -21,7 +21,11 @@ pub(super) static SETTINGS: &[GucSetting] = &[
 fn jwt_validator_settings_are_sighup_custom_options() {
     assert_eq!(SETTINGS.len(), 12);
     for setting in SETTINGS {
-        assert!(setting.name().starts_with("jwt_validator."), "{}", setting.name());
+        assert!(
+            setting.name().starts_with("jwt_validator."),
+            "{}",
+            setting.name()
+        );
         assert_eq!(setting.context(), PGC_SIGHUP, "{}", setting.name());
         assert_eq!(setting.group(), CUSTOM_OPTIONS, "{}", setting.name());
     }

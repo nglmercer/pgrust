@@ -36,7 +36,12 @@ fn fetch_tuple_carries_keys_wider_than_an_index_row() {
     let total = 4 + 32_000usize;
     let mut v = vec![b'a'; total];
     v[..4].copy_from_slice(&((total as u32) << 2).to_le_bytes());
-    let formed =
-        form_fetch_tuple(mcx, &desc, &[Datum::from_usize(v.as_ptr() as usize)], &[false]).unwrap();
+    let formed = form_fetch_tuple(
+        mcx,
+        &desc,
+        &[Datum::from_usize(v.as_ptr() as usize)],
+        &[false],
+    )
+    .unwrap();
     assert!(formed.as_tuple().t_len as usize > total);
 }

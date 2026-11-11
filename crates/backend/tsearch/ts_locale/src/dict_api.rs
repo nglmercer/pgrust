@@ -35,6 +35,7 @@ impl<'mcx> DictInitData<'mcx> {
 
 // SAFETY: `p` is the init method's state pointer of type T, allocated in the
 // dictionary context, and is dropped exactly once by the entry owner.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn drop_dict_state<T>(p: usize) {
     unsafe { core::ptr::drop_in_place(p as *mut T) }
 }
@@ -44,6 +45,7 @@ pub struct LexizeResult<'mcx>(pub PgVec<'mcx, TsLexeme<'mcx>>);
 pub type DictSubStatePtr = *mut DictSubState;
 
 // SAFETY: callers pass a lexize-result Datum word whose result mcx is live.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn lexize_result_ref<'a>(addr: usize) -> Option<&'a LexizeResult<'a>> {
     if addr == 0 {
         None

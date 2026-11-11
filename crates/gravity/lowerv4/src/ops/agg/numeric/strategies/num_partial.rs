@@ -941,6 +941,7 @@ mod tests {
         row(other, 1 << 58, (7, 0)); // its pair block is af's: the row fold, then its hash's second block 2 claimed
         row(other, 1 << 58, (8, 0)); // the pair test misses, the hashed path adds in block 2
         row(af, 5 << 58, (i64::MAX, 0)); // the pair add overflows: the hashed path closes block 43, then the row fold
+        #[allow(clippy::drop_non_drop)]
         drop(row);
         assert_eq!((log[1], log[3]), (4, 6), "the row fold: af's first, the first long, the first other, the overflow; the hashed path: those, the second long (a hit in 44) and the second other (a hit in 2)");
         let closes: Vec<(u64, i64, i64, u64)> = (0..log[0] as usize).map(|k| { let r = &log[8 + 32 * k..]; (r[0], r[5] as i64, r[8] as i64, r[7]) }).collect(); // alloc: Program

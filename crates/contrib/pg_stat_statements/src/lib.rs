@@ -270,6 +270,7 @@ fn pgss_shmem_startup() -> PgResult<()> {
 }
 
 /// pg_stat_statements.c:533-560's ShmemIndex rows; entries live in PGSS.
+#[allow(clippy::field_reassign_with_default)]
 pub(crate) fn pgss_shmem_register() -> PgResult<()> {
     let (_, found) = shmem::ShmemInitStruct("pg_stat_statements", PGSS_SHARED_STATE_SIZE)?;
     if !found {

@@ -44,6 +44,7 @@ fn run_exhausted(headroom: u64) -> (Result<u64>, u64, Vec<Vec<u64>>) {
     let r = entry.run_to_end(&mut exec, &mut b);
     entry.end(exec, r.is_ok());
     let grown = res.grown() - grown;
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     drop(carved);
     drop(res);

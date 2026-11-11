@@ -572,6 +572,7 @@ const _: () = assert!(crate::MAX_EXECS < 0xff);
 pub(super) struct Away {
     /// `slots`' block on the per-backend holder (`crate::BACKEND_OWNER`: the table is the thread's, `AWAY`), fixed at
     /// `send_away` (the group only shrinks after). FIRST field: a door-1 charge drops before the bytes it counts are freed.
+    #[allow(dead_code)]
     held: memledger::Charge,
     /// Each portal's token and slot.
     pub(super) slots: Vec<(u64, Box<ExecSlot>)>,

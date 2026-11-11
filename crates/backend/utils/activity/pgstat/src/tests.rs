@@ -26,6 +26,7 @@ thread_local! {
 static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 #[must_use]
+#[allow(clippy::double_must_use)]
 fn setup() -> MutexGuard<'static, ()> {
     let guard = pgsync::lock(&TEST_LOCK);
     static ONCE: pgsync::Once = pgsync::Once::new();
@@ -827,6 +828,7 @@ fn statsfile_corrupt_body_is_rejected() {
 }
 
 #[must_use]
+#[allow(clippy::double_must_use)]
 fn setup_io() -> MutexGuard<'static, ()> {
     let guard = setup();
     miscinit::SetMyBackendType(types_core::BackendType::Backend);

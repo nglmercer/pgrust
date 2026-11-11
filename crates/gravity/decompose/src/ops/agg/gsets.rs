@@ -228,7 +228,7 @@ impl<'p> Spool<'p> {
         if plain && (rewalk_cheap(left) || walks_wide(left)) {
             return Ok(None);
         }
-        let mcx = b.alloc.ok_or(Refusal::shape(k, id, "grouping sets: no node allocator (decompose_in)"))?;
+        let _mcx = b.alloc.ok_or(Refusal::shape(k, id, "grouping sets: no node allocator (decompose_in)"))?;
         let oom = |_| Refusal::shape(k, id, "grouping sets: out of memory building the input run");
         let input = &left.as_plan().ok_or(Refusal::shape(k, id, "an aggregate over a node that is not a plan"))?.targetlist;
         let (mut phase, mut nodes, mut sorted) = (ArenaVec::new_in(b.arena), ArenaVec::new_in(b.arena), false);
@@ -509,7 +509,7 @@ pub(super) struct Steps<'p> {
 impl<'p> Steps<'p> {
     /// Column `e` appended; the `OUTER_VAR` a later reader reads it by.
     pub(super) fn add(&mut self, e: Node<'p>) -> types_error::PgResult<Node<'p>> {
-        let (mcx, n) = (self.mcx, self.n);
+        let (mcx, _n) = (self.mcx, self.n);
         let l = match &mut self.step {
             Some(l) => l,
             None => self.step.insert(self.cols.clone_in(mcx)?),
@@ -587,7 +587,7 @@ pub(super) fn fold_ahead<'p>(b: &mut Builder<'p, '_>, a: &'p Agg<'p>) -> bool {
 ///   LIMIT 1) FROM o` reached a group past the stop that PostgreSQL never folds);
 /// - it sits in the plan of a SubPlan that is no CTE's (an InitPlan or a SubPlan, run on demand at its first read,
 ///   which may come after a UNION ALL arm sent its row).
-/// A group in a CTE's plan is lowerv4's to answer (D4203: ops/ctescan/lower.rs runs the producers first or refuses).
+///   A group in a CTE's plan is lowerv4's to answer (D4203: ops/ctescan/lower.rs runs the producers first or refuses).
 pub(super) fn late_run<'p>(b: &Builder<'p, '_>, a: &'p Agg<'p>) -> bool {
     crate::rerun::runs_late(b.stmt, b.arena, &a.plan)
 }
@@ -1036,7 +1036,7 @@ impl<'p> RollupOrder<'p> {
             let null = Node::mk_const(mcx, typ, typmod, coll, len, datum::Datum::from_i64(0), true, byval).map_err(oom)?;
             l.as_mut_slice()[i] = Node::mk_target_entry(mcx, null, te.resno, te.resname, te.resjunk).map_err(oom)?;
         }
-        let mut push = |l: &mut NodeList<'p>, e: Node<'p>| -> Result<(), Refusal> {
+        let push = |l: &mut NodeList<'p>, e: Node<'p>| -> Result<(), Refusal> {
             let te = Node::mk_target_entry(mcx, e, l.len() as i16 + 1, None, true).map_err(oom)?;
             l.lappend(mcx, te).map_err(oom)
         };
@@ -1164,8 +1164,8 @@ pub(super) fn resorted(root: Option<Node<'_>>, id: i32) -> bool {
 /// - an `OUTER_VAR` column of `all` (all_grouped_cols) that `grouped` does not group reads NULL (prepare_projection_slot),
 ///   typed, typmod'd and collated as the column;
 /// - `GROUPING(..)` is its mask over its `cols`, a bit set where the set does not group the column (EEOP_GROUPING_FUNC).
-/// A `GROUPING` inside an aggregate's arguments refuses by name. Unchanged lists are the node's own (the mutator is
-/// copy-on-write); `fresh` (every arm after the first) copies the literals too, so no two arms share a literal node.
+///   A `GROUPING` inside an aggregate's arguments refuses by name. Unchanged lists are the node's own (the mutator is
+///   copy-on-write); `fresh` (every arm after the first) copies the literals too, so no two arms share a literal node.
 pub(super) fn arm_lists<'p>(b: &Builder<'p, '_>, a: &'p Agg<'p>, tl: &'p NodeList<'p>, grouped: &[i16], all: &[i16], fresh: bool, k: Kind, id: i32) -> Result<(&'p NodeList<'p>, &'p NodeList<'p>), Refusal> {
     let lists = [tl, &a.plan.qual];
     check_grouping(&lists, k, id)?;

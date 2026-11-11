@@ -25,14 +25,13 @@ use types_nodes::parsenodes::Query;
 use types_nodes::primnodes::{
     Aggref, AlternativeSubPlan, ArrayCoerceExpr, ArrayExpr, BoolExpr, BoolExprType, BooleanTest,
     CaseExpr, CaseTestExpr, CaseWhen, CoalesceExpr, CoerceToDomain, CoerceToDomainValue,
-    CoerceViaIO, CoercionForm, CollateExpr, Const, ConvertRowtypeExpr, CurrentOfExpr,
-    DistinctExpr, FieldSelect, FieldStore, FuncExpr, GroupingFunc, InferenceElem, JsonBehavior,
-    JsonBehaviorType, JsonConstructorExpr, JsonConstructorType, JsonExpr, JsonExprOp,
-    JsonIsPredicate, JsonReturning, JsonValueExpr, MergeSupportFunc, MinMaxExpr, NamedArgExpr,
-    NextValueExpr, NullIfExpr, NullTest, OpExpr, Param, ParamKind, PlaceHolderVar, RelabelType,
-    ReturningExpr, RowCompareExpr, RowExpr, SQLValueFunction, SQLValueFunctionOp,
-    ScalarArrayOpExpr, SetToDefault, SubLink, SubLinkType, SubPlan, SubscriptingRef, Var,
-    WindowFunc, XmlExpr, XmlExprOp,
+    CoerceViaIO, CoercionForm, CollateExpr, Const, ConvertRowtypeExpr, CurrentOfExpr, DistinctExpr,
+    FieldSelect, FieldStore, FuncExpr, GroupingFunc, InferenceElem, JsonBehavior, JsonBehaviorType,
+    JsonConstructorExpr, JsonConstructorType, JsonExpr, JsonExprOp, JsonIsPredicate, JsonReturning,
+    JsonValueExpr, MergeSupportFunc, MinMaxExpr, NamedArgExpr, NextValueExpr, NullIfExpr, NullTest,
+    OpExpr, Param, ParamKind, PlaceHolderVar, RelabelType, ReturningExpr, RowCompareExpr, RowExpr,
+    SQLValueFunction, SQLValueFunctionOp, ScalarArrayOpExpr, SetToDefault, SubLink, SubLinkType,
+    SubPlan, SubscriptingRef, Var, WindowFunc, XmlExpr, XmlExprOp,
 };
 use types_nodes::{Bitmapset, IntList, Node, NodeList, NodeTag, OptNodeList};
 
@@ -178,9 +177,16 @@ fn bool_const(mcx: Mcx<'_>) -> Node<'_> {
 }
 
 fn json_returning(mcx: Mcx<'_>) -> &JsonReturning<'_> {
-    Node::mk_mut(mcx, JsonReturning { format: None, typid: JSONOID, typmod: -1 })
-        .unwrap()
-        .seal_ref()
+    Node::mk_mut(
+        mcx,
+        JsonReturning {
+            format: None,
+            typid: JSONOID,
+            typmod: -1,
+        },
+    )
+    .unwrap()
+    .seal_ref()
 }
 
 fn expr_subplan<'mcx>(mcx: Mcx<'mcx>) -> Node<'mcx> {
@@ -252,7 +258,11 @@ fn build<'mcx>(mcx: Mcx<'mcx>, tag: NodeTag) -> Node<'mcx> {
         }
         NodeTag::T_GroupingFunc => Node::mk(
             mcx,
-            GroupingFunc { args: single, location: 13, ..GroupingFunc::default() },
+            GroupingFunc {
+                args: single,
+                location: 13,
+                ..GroupingFunc::default()
+            },
         )
         .unwrap(),
         NodeTag::T_WindowFunc => Node::mk(
@@ -268,7 +278,11 @@ fn build<'mcx>(mcx: Mcx<'mcx>, tag: NodeTag) -> Node<'mcx> {
         .unwrap(),
         NodeTag::T_MergeSupportFunc => Node::mk(
             mcx,
-            MergeSupportFunc { msftype: TEXTOID, msfcollid: DEFAULT_COLLATION_OID, location: 17 },
+            MergeSupportFunc {
+                msftype: TEXTOID,
+                msfcollid: DEFAULT_COLLATION_OID,
+                location: 17,
+            },
         )
         .unwrap(),
         NodeTag::T_SubscriptingRef => Node::mk(
@@ -299,7 +313,12 @@ fn build<'mcx>(mcx: Mcx<'mcx>, tag: NodeTag) -> Node<'mcx> {
         .unwrap(),
         NodeTag::T_NamedArgExpr => Node::mk(
             mcx,
-            NamedArgExpr { arg: Some(c), name: Some("x"), argnumber: 0, location: 21 },
+            NamedArgExpr {
+                arg: Some(c),
+                name: Some("x"),
+                argnumber: 0,
+                location: 21,
+            },
         )
         .unwrap(),
         NodeTag::T_OpExpr => Node::mk(
@@ -393,7 +412,13 @@ fn build<'mcx>(mcx: Mcx<'mcx>, tag: NodeTag) -> Node<'mcx> {
         .unwrap(),
         NodeTag::T_FieldSelect => Node::mk(
             mcx,
-            FieldSelect { arg: c, fieldnum: 1, resulttype: INT4OID, resulttypmod: -1, resultcollid: 0 },
+            FieldSelect {
+                arg: c,
+                fieldnum: 1,
+                resulttype: INT4OID,
+                resulttypmod: -1,
+                resultcollid: 0,
+            },
         )
         .unwrap(),
         NodeTag::T_FieldStore => Node::mk(
@@ -452,14 +477,23 @@ fn build<'mcx>(mcx: Mcx<'mcx>, tag: NodeTag) -> Node<'mcx> {
             },
         )
         .unwrap(),
-        NodeTag::T_CollateExpr => {
-            Node::mk(mcx, CollateExpr { arg: c, collOid: DEFAULT_COLLATION_OID, location: 43 })
-                .unwrap()
-        }
+        NodeTag::T_CollateExpr => Node::mk(
+            mcx,
+            CollateExpr {
+                arg: c,
+                collOid: DEFAULT_COLLATION_OID,
+                location: 43,
+            },
+        )
+        .unwrap(),
         NodeTag::T_CaseExpr => {
             let when = Node::mk(
                 mcx,
-                CaseWhen { expr: Some(bool_const(mcx)), result: Some(c), location: 45 },
+                CaseWhen {
+                    expr: Some(bool_const(mcx)),
+                    result: Some(c),
+                    location: 45,
+                },
             )
             .unwrap();
             Node::mk(
@@ -475,9 +509,15 @@ fn build<'mcx>(mcx: Mcx<'mcx>, tag: NodeTag) -> Node<'mcx> {
             )
             .unwrap()
         }
-        NodeTag::T_CaseTestExpr => {
-            Node::mk(mcx, CaseTestExpr { typeId: INT4OID, typeMod: -1, collation: 0 }).unwrap()
-        }
+        NodeTag::T_CaseTestExpr => Node::mk(
+            mcx,
+            CaseTestExpr {
+                typeId: INT4OID,
+                typeMod: -1,
+                collation: 0,
+            },
+        )
+        .unwrap(),
         NodeTag::T_ArrayExpr => Node::mk(
             mcx,
             ArrayExpr {
@@ -491,7 +531,12 @@ fn build<'mcx>(mcx: Mcx<'mcx>, tag: NodeTag) -> Node<'mcx> {
         .unwrap(),
         NodeTag::T_RowExpr => Node::mk(
             mcx,
-            RowExpr { args: single, row_typeid: RECORDOID, location: 51, ..RowExpr::default() },
+            RowExpr {
+                args: single,
+                row_typeid: RECORDOID,
+                location: 51,
+                ..RowExpr::default()
+            },
         )
         .unwrap(),
         NodeTag::T_RowCompareExpr => Node::mk(
@@ -505,12 +550,22 @@ fn build<'mcx>(mcx: Mcx<'mcx>, tag: NodeTag) -> Node<'mcx> {
         .unwrap(),
         NodeTag::T_CoalesceExpr => Node::mk(
             mcx,
-            CoalesceExpr { coalescetype: INT4OID, coalescecollid: 0, args: single, location: 53 },
+            CoalesceExpr {
+                coalescetype: INT4OID,
+                coalescecollid: 0,
+                args: single,
+                location: 53,
+            },
         )
         .unwrap(),
         NodeTag::T_MinMaxExpr => Node::mk(
             mcx,
-            MinMaxExpr { minmaxtype: INT4OID, args: single, location: 55, ..MinMaxExpr::default() },
+            MinMaxExpr {
+                minmaxtype: INT4OID,
+                args: single,
+                location: 55,
+                ..MinMaxExpr::default()
+            },
         )
         .unwrap(),
         NodeTag::T_SQLValueFunction => Node::mk(
@@ -537,7 +592,11 @@ fn build<'mcx>(mcx: Mcx<'mcx>, tag: NodeTag) -> Node<'mcx> {
         .unwrap(),
         NodeTag::T_JsonValueExpr => Node::mk(
             mcx,
-            JsonValueExpr { raw_expr: Some(c), formatted_expr: Some(c), format: None },
+            JsonValueExpr {
+                raw_expr: Some(c),
+                formatted_expr: Some(c),
+                format: None,
+            },
         )
         .unwrap(),
         NodeTag::T_JsonConstructorExpr => Node::mk(
@@ -553,7 +612,11 @@ fn build<'mcx>(mcx: Mcx<'mcx>, tag: NodeTag) -> Node<'mcx> {
         .unwrap(),
         NodeTag::T_JsonIsPredicate => Node::mk(
             mcx,
-            JsonIsPredicate { expr: Some(c), location: 63, ..JsonIsPredicate::default() },
+            JsonIsPredicate {
+                expr: Some(c),
+                location: 63,
+                ..JsonIsPredicate::default()
+            },
         )
         .unwrap(),
         NodeTag::T_JsonExpr => Node::mk(
@@ -578,12 +641,22 @@ fn build<'mcx>(mcx: Mcx<'mcx>, tag: NodeTag) -> Node<'mcx> {
             },
         )
         .unwrap(),
-        NodeTag::T_NullTest => {
-            Node::mk(mcx, NullTest { arg: Some(c), location: 69, ..NullTest::default() }).unwrap()
-        }
+        NodeTag::T_NullTest => Node::mk(
+            mcx,
+            NullTest {
+                arg: Some(c),
+                location: 69,
+                ..NullTest::default()
+            },
+        )
+        .unwrap(),
         NodeTag::T_BooleanTest => Node::mk(
             mcx,
-            BooleanTest { arg: Some(bool_const(mcx)), location: 71, ..BooleanTest::default() },
+            BooleanTest {
+                arg: Some(bool_const(mcx)),
+                location: 71,
+                ..BooleanTest::default()
+            },
         )
         .unwrap(),
         NodeTag::T_CoerceToDomain => Node::mk(
@@ -600,31 +673,60 @@ fn build<'mcx>(mcx: Mcx<'mcx>, tag: NodeTag) -> Node<'mcx> {
         .unwrap(),
         NodeTag::T_CoerceToDomainValue => Node::mk(
             mcx,
-            CoerceToDomainValue { typeId: INT4OID, typeMod: -1, collation: 0, location: 75 },
+            CoerceToDomainValue {
+                typeId: INT4OID,
+                typeMod: -1,
+                collation: 0,
+                location: 75,
+            },
         )
         .unwrap(),
         NodeTag::T_SetToDefault => Node::mk(
             mcx,
-            SetToDefault { typeId: INT4OID, typeMod: -1, collation: 0, location: 77 },
+            SetToDefault {
+                typeId: INT4OID,
+                typeMod: -1,
+                collation: 0,
+                location: 77,
+            },
         )
         .unwrap(),
         NodeTag::T_CurrentOfExpr => Node::mk(
             mcx,
-            CurrentOfExpr { cvarno: 1, cursor_name: Some("cur"), cursor_param: 0 },
+            CurrentOfExpr {
+                cvarno: 1,
+                cursor_name: Some("cur"),
+                cursor_param: 0,
+            },
         )
         .unwrap(),
         // The PR1604-1 shape: an identity column's default expansion.
-        NodeTag::T_NextValueExpr => {
-            Node::mk(mcx, NextValueExpr { seqid: 16385, typeId: INT4OID }).unwrap()
-        }
-        NodeTag::T_InferenceElem => Node::mk(
+        NodeTag::T_NextValueExpr => Node::mk(
             mcx,
-            InferenceElem { expr: Some(c), infercollid: 0, inferopclass: 0 },
+            NextValueExpr {
+                seqid: 16385,
+                typeId: INT4OID,
+            },
         )
         .unwrap(),
-        NodeTag::T_ReturningExpr => {
-            Node::mk(mcx, ReturningExpr { retlevelsup: 0, retold: false, retexpr: c }).unwrap()
-        }
+        NodeTag::T_InferenceElem => Node::mk(
+            mcx,
+            InferenceElem {
+                expr: Some(c),
+                infercollid: 0,
+                inferopclass: 0,
+            },
+        )
+        .unwrap(),
+        NodeTag::T_ReturningExpr => Node::mk(
+            mcx,
+            ReturningExpr {
+                retlevelsup: 0,
+                retold: false,
+                retexpr: c,
+            },
+        )
+        .unwrap(),
         NodeTag::T_PlaceHolderVar => Node::mk(
             mcx,
             PlaceHolderVar {
@@ -675,10 +777,16 @@ fn expr_tag_universe_matches_c_and_default_sets_are_subsets() {
         assert!(!EXPR_TAGS[..i].contains(t), "duplicate tag {t:?}");
     }
     for t in TYPMOD_C_DEFAULT.iter().chain(LOCATION_C_DEFAULT) {
-        assert!(EXPR_TAGS.contains(t), "{t:?} listed as C-default but not an expression tag");
+        assert!(
+            EXPR_TAGS.contains(t),
+            "{t:?} listed as C-default but not an expression tag"
+        );
     }
     for (_, t) in KNOWN_MISSING_ARMS {
-        assert!(EXPR_TAGS.contains(t), "{t:?} listed as known-missing but not an expression tag");
+        assert!(
+            EXPR_TAGS.contains(t),
+            "{t:?} listed as known-missing but not an expression tag"
+        );
     }
     assert!(!tags_equal_as_sets(TYPMOD_C_DEFAULT, LOCATION_C_DEFAULT));
 }
@@ -773,13 +881,20 @@ fn next_value_expr_collation_is_invalid_oid_once_the_arm_exists() {
     assert_eq!(expr_typmod(node), -1);
     assert_eq!(expr_location(node), -1);
     match quietly(|| probe(|| expr_collation(node))) {
-        Ok(collid) => assert_eq!(collid, types_core::InvalidOid, "C: NextValueExpr has no collation"),
+        Ok(collid) => assert_eq!(
+            collid,
+            types_core::InvalidOid,
+            "C: NextValueExpr has no collation"
+        ),
         Err(msg) => {
             assert!(
                 KNOWN_MISSING_ARMS.contains(&("expr_collation", NodeTag::T_NextValueExpr)),
                 "expr_collation(NextValueExpr) panicked and is not a recorded gap: {msg}"
             );
-            assert!(msg.contains("unrecognized node type"), "unexpected panic: {msg}");
+            assert!(
+                msg.contains("unrecognized node type"),
+                "unexpected panic: {msg}"
+            );
         }
     }
 }

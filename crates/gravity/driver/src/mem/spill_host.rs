@@ -635,6 +635,7 @@ pub mod v4 {
     /// Decision 5 (a): the owner's produced region grown within its limit (grow.rs `region_grow_in`): the new base, 1 when
     /// the limit refused it (nothing drawn, no error), `FAILED` on a real failure.
     /// # Safety — `ctx` is bound, its running pipeline produces a region, head + tail <= its length.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn grow_in(ctx: *mut Ctx, need: u64, head: u64, tail: u64) -> i64 {
         run(ctx, |n| {
             let r = crate::mem::grow::region_grow_in(n, need, head, tail);
@@ -646,6 +647,7 @@ pub mod v4 {
     /// D4265: the length a cut kind-7 build at `region` shrinks to before it gives its growth back (grow.rs `build_keep`):
     /// 0 when the owner's home is not cut, or the build cannot give back (counted there).
     /// # Safety — `ctx` is bound, `region` the build its running pipeline fills.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn cut_keep(ctx: *mut Ctx, region: *const u8) -> u64 {
         run(ctx, |n| Ok(crate::mem::grow::build_keep(n, region) as i64)).max(0) as u64
     }
@@ -653,12 +655,14 @@ pub mod v4 {
     /// D4265: a cut kind-7 build at `region`, every kept record and image within `keep` bytes when `fits`, gives back what
     /// it committed past them (grow.rs `give_back_build`); the bytes given.
     /// # Safety — `ctx` is bound, `region` the build its running pipeline fills, nothing of it read past `keep` from now.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn give_back(ctx: *mut Ctx, region: *mut u8, keep: u64, fits: bool) -> u64 {
         run(ctx, |n| Ok(crate::mem::grow::give_back_build(n, region, keep, fits) as i64)).max(0) as u64
     }
 
     /// `bytes` staged for partition `part` of the owner's file of `stream` (`SpillTable::stage_put`); 0.
     /// # Safety — `ctx` is bound.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn put(ctx: *mut Ctx, stream: u64, bits: u8, part: u32, bytes: &[u8]) -> i64 {
         run(ctx, |n| {
             // D3967 / D3968 / D3972: a put, flush or read ticks at its start: a build's reload or stage loop of calls
@@ -671,6 +675,7 @@ pub mod v4 {
 
     /// The owner's staged bytes of `stream` written (`SpillTable::stage_flush`); 0.
     /// # Safety — `ctx` is bound.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn flush(ctx: *mut Ctx, stream: u64, bits: u8) -> i64 {
         run(ctx, |n| {
             cancelpoll::step("spill v4 flush: an owner's staged bytes written").tick()?;
@@ -681,6 +686,7 @@ pub mod v4 {
 
     /// The owners of `stream`'s files (a pair claim reads a partition from each).
     /// # Safety — `ctx` is bound.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn owners(ctx: *mut Ctx, stream: u64) -> i64 {
         run(ctx, |n| {
             let slot = n.stream_of(stream)?;
@@ -691,6 +697,7 @@ pub mod v4 {
     /// A reader over owner `owner`'s partition `part` of `stream`: its handle + 1, 0 when that owner wrote nothing there.
     /// A read must not miss the caller's own staged bytes: they are flushed first.
     /// # Safety — `ctx` is bound.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn open(ctx: *mut Ctx, stream: u64, owner: usize, part: u32) -> i64 {
         run(ctx, |n| {
             let (slot, index) = (n.stream_of(stream)?, n.spill_index);
@@ -709,6 +716,7 @@ pub mod v4 {
 
     /// Up to `buf.len()` bytes of reader `handle` (open's value - 1); 0 at its end, where the reader is dropped.
     /// # Safety — `ctx` is bound.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn read(ctx: *mut Ctx, handle: usize, buf: &mut [u8]) -> i64 {
         run(ctx, |n| {
             cancelpoll::step("spill v4 read: a reader's chunk").tick()?;
@@ -723,6 +731,7 @@ pub mod v4 {
 
     /// Reader `handle` dropped before its end (a cancelled or failed pair claim); 0.
     /// # Safety — `ctx` is bound.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn close(ctx: *mut Ctx, handle: usize) -> i64 {
         run(ctx, |n| {
             if let Some(r) = n.readers.get_mut(handle) {
@@ -739,12 +748,14 @@ pub mod v4 {
     /// partition no split separates (one join key whose rows pass the grant: they share every route bit) reloads whole as
     /// PostgreSQL's batch file does, instead of raising; the page cache writes it back under memory pressure.
     /// # Safety — `ctx` is bound.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn take(ctx: *mut Ctx, bytes: usize) -> *mut u8 {
         take_road(ctx, bytes, true)
     }
 
     /// D3644 (b): `take` whose pool region is not zeroed (`spill_region_unzeroed`; a mapped file is zero as made).
     /// # Safety — `ctx` is bound; the taker writes every byte it reads.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn take_unzeroed(ctx: *mut Ctx, bytes: usize) -> *mut u8 {
         take_road(ctx, bytes, false)
     }
@@ -757,6 +768,7 @@ pub mod v4 {
     /// (`GrantPool::take_wait`, 2 s) while another statement held the pool, and then mapped the file anyway: four trimmed
     /// W4 joins in cell e2 (8G) ran 423-446 s, 85% of their workers' off-CPU time in that wait. With no file road, `take`.
     /// # Safety — `ctx` is bound.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn take_reload(ctx: *mut Ctx, bytes: usize) -> *mut u8 {
         if !crate::mem::spill::file_road() {
             return take(ctx, bytes);
@@ -811,6 +823,7 @@ pub mod v4 {
     /// Whether `p` is the base of a region this owner's `take` gave and no `give` returned yet (an address compare: nothing
     /// at `p` is read).
     /// # Safety — `ctx` is bound.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn taken(ctx: *mut Ctx, p: *const u8) -> bool {
         let n = inner_of(ctx);
         n.spills.iter().any(|c| c.as_ptr() == p) || n.owner_maps.iter().any(|m| std::ptr::eq(m.as_mut_ptr(), p))
@@ -828,6 +841,7 @@ pub mod v4 {
     /// A region `take` gave back before the statement's end: its pages returned, the buffer dropped. H3 step (4) C1-a
     /// (give_back_spill): through the give-back service as one job when it takes it (`mem::giveback::give`), else here.
     /// # Safety — `ctx` is bound; `p` is a `take` of this owner no reader holds.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn give(ctx: *mut Ctx, p: *mut u8) {
         let n = inner_of(ctx);
         if let Some(i) = n.spills.iter_mut().position(|c| c.as_mut_ptr() == p) {
@@ -842,6 +856,7 @@ pub mod v4 {
 
     /// An error of the caller's own (a malformed spill record) held for the IR's raise; `FAILED`.
     /// # Safety — `ctx` is bound.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn fail(ctx: *mut Ctx, e: Error) -> i64 {
         super::fail(inner_of(ctx), e);
         FAILED

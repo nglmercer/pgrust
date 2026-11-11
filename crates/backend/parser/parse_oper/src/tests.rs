@@ -226,8 +226,17 @@ fn plus_name<'mcx>(mcx: Mcx<'mcx>) -> NodeList<'mcx> {
 }
 
 fn int4_const<'mcx>(mcx: Mcx<'mcx>, v: i32) -> Node<'mcx> {
-    Node::mk_const(mcx, INT4OID, -1, InvalidOid, 4, datum::Datum::from_i32(v), false, true)
-        .unwrap()
+    Node::mk_const(
+        mcx,
+        INT4OID,
+        -1,
+        InvalidOid,
+        4,
+        datum::Datum::from_i32(v),
+        false,
+        true,
+    )
+    .unwrap()
 }
 
 #[test]
@@ -240,7 +249,9 @@ fn exact_match_and_memo_hit() {
     // process-global seams, so "+" probes race across test threads).
     let name = NodeList::make1(mcx, Node::mk(mcx, PgStr { sval: "@@" }).unwrap()).unwrap();
 
-    let op = oper(&pstate, &name, INT4OID, INT4OID, false, -1).unwrap().unwrap();
+    let op = oper(&pstate, &name, INT4OID, INT4OID, false, -1)
+        .unwrap()
+        .unwrap();
     assert_eq!(op.oid, INT4_PLUS_OP);
     assert_eq!(
         (op.shape.oprleft, op.shape.oprright, op.shape.oprresult),
@@ -249,12 +260,20 @@ fn exact_match_and_memo_hit() {
     assert_eq!(op.shape.oprcode, INT4PL_PROC);
 
     let before = CANDIDATE_PROBES.load(Ordering::Relaxed);
-    let op2 = oper(&pstate, &name, INT4OID, INT4OID, false, -1).unwrap().unwrap();
+    let op2 = oper(&pstate, &name, INT4OID, INT4OID, false, -1)
+        .unwrap()
+        .unwrap();
     assert_eq!(op2.oid, INT4_PLUS_OP);
-    assert_eq!(CANDIDATE_PROBES.load(Ordering::Relaxed), before, "memo hit must skip catalog");
+    assert_eq!(
+        CANDIDATE_PROBES.load(Ordering::Relaxed),
+        before,
+        "memo hit must skip catalog"
+    );
 
     inval::invalidate::CallSyscacheCallbacks(cache_syscache::cacheinfo::OPERNAMENSP, 0).unwrap();
-    let op3 = oper(&pstate, &name, INT4OID, INT4OID, false, -1).unwrap().unwrap();
+    let op3 = oper(&pstate, &name, INT4OID, INT4OID, false, -1)
+        .unwrap()
+        .unwrap();
     assert_eq!(op3.oid, INT4_PLUS_OP);
     assert_eq!(
         CANDIDATE_PROBES.load(Ordering::Relaxed),
@@ -271,7 +290,9 @@ fn unknown_operand_resolves_via_other_side() {
     let pstate = make_parsestate(mcx, None);
     let name = plus_name(mcx);
 
-    let op = oper(&pstate, &name, UNKNOWNOID, INT4OID, false, -1).unwrap().unwrap();
+    let op = oper(&pstate, &name, UNKNOWNOID, INT4OID, false, -1)
+        .unwrap()
+        .unwrap();
     assert_eq!(op.oid, INT4_PLUS_OP);
 }
 
@@ -283,13 +304,19 @@ fn undefined_operator_is_42883() {
     let pstate = make_parsestate(mcx, None);
     let name = NodeList::make1(mcx, Node::mk(mcx, PgStr { sval: "<%>" }).unwrap()).unwrap();
 
-    let err = oper(&pstate, &name, INT4OID, INT4OID, false, 7).map(|_| ()).unwrap_err();
+    let err = oper(&pstate, &name, INT4OID, INT4OID, false, 7)
+        .map(|_| ())
+        .unwrap_err();
     assert_eq!(err.sqlstate(), ERRCODE_UNDEFINED_FUNCTION);
 
-    assert!(oper(&pstate, &name, INT4OID, INT4OID, true, 7).unwrap().is_none());
+    assert!(oper(&pstate, &name, INT4OID, INT4OID, true, 7)
+        .unwrap()
+        .is_none());
 
     // C parse_oper.c op_error via format_type_be: exact message + hint.
-    let err = oper(&pstate, &name, INT4OID, TEXTOID, false, 7).map(|_| ()).unwrap_err();
+    let err = oper(&pstate, &name, INT4OID, TEXTOID, false, 7)
+        .map(|_| ())
+        .unwrap_err();
     assert_eq!(err.sqlstate(), ERRCODE_UNDEFINED_FUNCTION);
     assert_eq!(err.message(), "operator does not exist: integer <%> text");
     assert_eq!(
@@ -310,7 +337,9 @@ fn inexact_without_coercible_candidate_is_42883() {
     let name = plus_name(mcx);
     // int4+int4 is the only "+" candidate and text has no cast to int4 in
     // this fixture, so func_match_argtypes eliminates it (C op_error arm).
-    let err = oper(&pstate, &name, INT4OID, TEXTOID, false, -1).map(|_| ()).unwrap_err();
+    let err = oper(&pstate, &name, INT4OID, TEXTOID, false, -1)
+        .map(|_| ())
+        .unwrap_err();
     assert_eq!(err.sqlstate(), ERRCODE_UNDEFINED_FUNCTION);
     assert_eq!(err.message(), "operator does not exist: integer + text");
 }
@@ -383,15 +412,22 @@ fn sort_group_operators_int4() {
 #[test]
 fn sort_group_operators_missing_is_42883() {
     install_fixture();
-    let err =
-        crate::get_sort_group_operators(NOSORT_OID, true, true, false, true).unwrap_err();
+    let err = crate::get_sort_group_operators(NOSORT_OID, true, true, false, true).unwrap_err();
     assert_eq!(err.sqlstate(), ERRCODE_UNDEFINED_FUNCTION);
-    assert_eq!(err.message(), "could not identify an ordering operator for type nosort");
-    assert_eq!(err.hint(), Some("Use an explicit ordering operator or modify the query."));
+    assert_eq!(
+        err.message(),
+        "could not identify an ordering operator for type nosort"
+    );
+    assert_eq!(
+        err.hint(),
+        Some("Use an explicit ordering operator or modify the query.")
+    );
 
-    let err =
-        crate::get_sort_group_operators(NOSORT_OID, false, true, false, true).unwrap_err();
-    assert_eq!(err.message(), "could not identify an equality operator for type nosort");
+    let err = crate::get_sort_group_operators(NOSORT_OID, false, true, false, true).unwrap_err();
+    assert_eq!(
+        err.message(),
+        "could not identify an equality operator for type nosort"
+    );
     assert_eq!(err.hint(), None);
 }
 
@@ -402,8 +438,7 @@ fn compatible_oper_opid_exact_and_missing() {
     let mcx = ctx.mcx();
     let pstate = make_parsestate(mcx, None);
 
-    let opid =
-        compatible_oper_opid(&pstate, &plus_name(mcx), INT4OID, INT4OID, false).unwrap();
+    let opid = compatible_oper_opid(&pstate, &plus_name(mcx), INT4OID, INT4OID, false).unwrap();
     assert_eq!(opid, INT4_PLUS_OP);
 
     let missing = NodeList::make1(mcx, Node::mk(mcx, PgStr { sval: "<%>" }).unwrap()).unwrap();
@@ -435,7 +470,10 @@ fn operator_accepting_internal_is_0a000() {
     )
     .unwrap_err();
     assert_eq!(err.sqlstate(), ERRCODE_FEATURE_NOT_SUPPORTED);
-    assert_eq!(err.message(), "functions accepting type \"internal\" cannot be called explicitly");
+    assert_eq!(
+        err.message(),
+        "functions accepting type \"internal\" cannot be called explicitly"
+    );
 }
 
 #[test]
@@ -459,7 +497,10 @@ fn operator_returning_internal_is_0a000() {
     )
     .unwrap_err();
     assert_eq!(err.sqlstate(), ERRCODE_FEATURE_NOT_SUPPORTED);
-    assert_eq!(err.message(), "functions returning type \"internal\" cannot be called explicitly");
+    assert_eq!(
+        err.message(),
+        "functions returning type \"internal\" cannot be called explicitly"
+    );
 }
 
 fn str_node<'mcx>(mcx: Mcx<'mcx>, s: &'static str) -> Node<'mcx> {
@@ -479,19 +520,25 @@ fn explicit_schema_lookup_error_carries_operator_cursor() {
     let name = NodeList::make2(mcx, str_node(mcx, "b221_nosuch"), str_node(mcx, "+")).unwrap();
 
     // OPERATOR token at byte offset 9: cursor 10 (1-based).
-    let err = oper(&pstate, &name, INT4OID, INT4OID, false, 9).map(|_| ()).unwrap_err();
+    let err = oper(&pstate, &name, INT4OID, INT4OID, false, 9)
+        .map(|_| ())
+        .unwrap_err();
     assert_eq!(err.sqlstate(), ERRCODE_UNDEFINED_SCHEMA);
     assert_eq!(err.message(), "schema \"b221_nosuch\" does not exist");
     assert_eq!(err.cursor_position(), Some(10));
 
     // left_oper (prefix form) shares the same cache-key arm.
-    let err = left_oper(&pstate, &name, INT4OID, false, 9).map(|_| ()).unwrap_err();
+    let err = left_oper(&pstate, &name, INT4OID, false, 9)
+        .map(|_| ())
+        .unwrap_err();
     assert_eq!(err.sqlstate(), ERRCODE_UNDEFINED_SCHEMA);
     assert_eq!(err.cursor_position(), Some(10));
 
     // location -1 (compatible_oper_opid callers): C's parser_errposition
     // leaves the cursor alone.
-    let err = oper(&pstate, &name, INT4OID, INT4OID, false, -1).map(|_| ()).unwrap_err();
+    let err = oper(&pstate, &name, INT4OID, INT4OID, false, -1)
+        .map(|_| ())
+        .unwrap_err();
     assert_eq!(err.sqlstate(), ERRCODE_UNDEFINED_SCHEMA);
     assert_eq!(err.cursor_position(), None);
 }
@@ -507,24 +554,35 @@ fn too_many_dotted_names_reports_every_element() {
     let mcx = ctx.mcx();
     let mut pstate = make_parsestate(mcx, None);
     pstate.p_sourcetext = Some("SELECT 1 OPERATOR(a.b.c.d.e.+) 2".as_bytes());
-    let mut name =
-        NodeList::make3(mcx, str_node(mcx, "a"), str_node(mcx, "b"), str_node(mcx, "c")).unwrap();
+    let mut name = NodeList::make3(
+        mcx,
+        str_node(mcx, "a"),
+        str_node(mcx, "b"),
+        str_node(mcx, "c"),
+    )
+    .unwrap();
     name.lappend(mcx, str_node(mcx, "d")).unwrap();
     name.lappend(mcx, str_node(mcx, "e")).unwrap();
     name.lappend(mcx, str_node(mcx, "+")).unwrap();
     const MSG: &str = "improper qualified name (too many dotted names): a.b.c.d.e.+";
 
-    let err = oper(&pstate, &name, INT4OID, INT4OID, false, 9).map(|_| ()).unwrap_err();
+    let err = oper(&pstate, &name, INT4OID, INT4OID, false, 9)
+        .map(|_| ())
+        .unwrap_err();
     assert_eq!(err.sqlstate(), ERRCODE_SYNTAX_ERROR);
     assert_eq!(err.message(), MSG);
     assert_eq!(err.cursor_position(), None);
 
-    let err = left_oper(&pstate, &name, INT4OID, false, 9).map(|_| ()).unwrap_err();
+    let err = left_oper(&pstate, &name, INT4OID, false, 9)
+        .map(|_| ())
+        .unwrap_err();
     assert_eq!(err.sqlstate(), ERRCODE_SYNTAX_ERROR);
     assert_eq!(err.message(), MSG);
 
     // DDL lookup (DROP/ALTER OPERATOR): LookupOperName -> OpernameGetOprid.
-    let err = LookupOperName(&name, INT4OID, INT4OID, false).map(|_| ()).unwrap_err();
+    let err = LookupOperName(&name, INT4OID, INT4OID, false)
+        .map(|_| ())
+        .unwrap_err();
     assert_eq!(err.sqlstate(), ERRCODE_SYNTAX_ERROR);
     assert_eq!(err.message(), MSG);
 }
@@ -536,7 +594,8 @@ fn session_operator_cache_teardown_preserves_live_datum() {
         let value = mcx::alloc_leak_in(*map.allocator(), [7u8; 16384]).unwrap();
         assert!(std::panic::catch_unwind(crate::clear_opr_cache).is_err());
         assert_eq!(value[16383], 7);
-    }).unwrap();
+    })
+    .unwrap();
     crate::clear_opr_cache();
     crate::OPR_CACHE.with(|cell| assert!(cell.borrow().is_none()));
     crate::with_opr_cache(|map| assert!(map.is_empty())).unwrap();
@@ -547,7 +606,9 @@ fn session_operator_cache_teardown_preserves_live_datum() {
 fn session_operator_cache_invalidation_and_passivation() {
     install_fixture();
     let key = crate::OprCacheKey {
-        oprname: [b'+'; 64], left_arg: INT4OID, right_arg: INT4OID,
+        oprname: [b'+'; 64],
+        left_arg: INT4OID,
+        right_arg: INT4OID,
         search_path: [PG_CATALOG; 16],
     };
     crate::with_opr_cache(|map| map.insert(key, INT4_PLUS_OP)).unwrap();
@@ -567,14 +628,20 @@ fn session_operator_cache_reclaims_complete_context() {
     for _ in 0..64 {
         let owner = mcx::McxOwned::<crate::OprCacheTy>::try_new(
             MemoryContext::new("operator ownership test"),
-            |mcx| Ok(crate::OprCache { map: mcx::PgHashMap::with_capacity_in(16, mcx) }),
-        ).unwrap();
+            |mcx| {
+                Ok(crate::OprCache {
+                    map: mcx::PgHashMap::with_capacity_in(16, mcx),
+                })
+            },
+        )
+        .unwrap();
         crate::OPR_CACHE.with(|cell| {
             *cell.borrow_mut() = Some(core::mem::ManuallyDrop::new(owner));
         });
         crate::with_opr_cache(|map| {
             let _value = mcx::alloc_leak_in(*map.allocator(), [7u8; 32768]).unwrap();
-        }).unwrap();
+        })
+        .unwrap();
         crate::clear_opr_cache();
         assert_eq!(mcx::global_footprint::bytes(), before);
     }

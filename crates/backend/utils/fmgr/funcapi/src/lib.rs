@@ -1,5 +1,4 @@
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use fmgr::FmgrInfo;
 use mcx::{vec_with_capacity_in, Mcx, PgString, PgVec};
@@ -965,6 +964,7 @@ pub fn resolve_polymorphic_argtypes(
     const R_C_MULTI: usize = 7;
 
     let mut inargno = 0usize;
+    #[allow(clippy::needless_range_loop)]
     for i in 0..argtypes.len() {
         let argmode = argmodes.get(i).copied().unwrap_or(PROARGMODE_IN);
         let is_out = argmode == PROARGMODE_OUT || argmode == PROARGMODE_TABLE;
@@ -1070,6 +1070,7 @@ pub fn cfunc_resolve_polymorphic_argtypes(
             ));
         }
         let mut inargno = 0usize;
+        #[allow(clippy::needless_range_loop)]
         for i in 0..argtypes.len() {
             let argmode = argmodes.get(i).copied().unwrap_or(PROARGMODE_IN);
             if argmode == PROARGMODE_OUT || argmode == PROARGMODE_TABLE {

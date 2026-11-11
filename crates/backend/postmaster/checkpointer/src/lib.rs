@@ -5,9 +5,7 @@
 //! start_cv/done_cv storage belongs to the condition_variable unit, reached
 //! through its seams (broadcasts skip while uninstalled: nothing can sleep).
 
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(clippy::result_large_err)]
+#![allow(clippy::result_large_err, non_snake_case, non_upper_case_globals)]
 
 use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering::Relaxed};
@@ -177,6 +175,7 @@ fn checkpointer_comm_lock() -> &'static lwlock::LWLock {
 }
 
 pub fn CheckpointerShmemSize(nbuffers: i32) -> usize {
+    #[allow(clippy::manual_clamp)]
     let n = nbuffers.min(MAX_CHECKPOINT_REQUESTS).max(0) as usize;
     core::mem::size_of::<CheckpointerShmemStruct>()
         + n * core::mem::size_of::<SyncCell<CheckpointerRequest>>()
@@ -207,6 +206,7 @@ pub fn CheckpointerShmemInit(nbuffers: i32) -> PgResult<()> {
         // allocation is already zeroed, which is what
         // CompactCheckpointerRequestQueue's pad-byte assumption needs) and
         // fills in the header.
+        #[allow(clippy::manual_clamp)]
         let max_requests = nbuffers.min(MAX_CHECKPOINT_REQUESTS).max(0);
         let zero = CheckpointerRequest {
             req_type: SyncRequestType::SYNC_REQUEST,

@@ -1,13 +1,20 @@
 //! The publish plan and the file operations the primary and redo share (design §7.4, §7.6): one `apply_*` per record.
 
-use pgrc_format::dirlayout::{manifest_file_name, part_file_name, CURRENT_FILE_NAME, CURRENT_TMP_FILE_NAME};
 use pgrc_format::class::ColSchema;
+use pgrc_format::dirlayout::{
+    manifest_file_name, part_file_name, CURRENT_FILE_NAME, CURRENT_TMP_FILE_NAME,
+};
 use pgrc_format::ident::schema_fingerprint;
-use pgrc_format::manifest::{entries_of, has_tag, schemas, with_schemas, CommitPointer, Manifest, ManifestHeader, PartRecord, SchemaEntry, EXT_SCHEMAS, MANIFESTF_SCHEMAS, MANIFEST_MAGIC};
+use pgrc_format::manifest::{
+    entries_of, has_tag, schemas, with_schemas, CommitPointer, Manifest, ManifestHeader,
+    PartRecord, SchemaEntry, EXT_SCHEMAS, MANIFESTF_SCHEMAS, MANIFEST_MAGIC,
+};
 use pgrc_format::part::{FooterFixed, PartHeader, FOOTER_FIXED_LEN, PART_HEADER_LEN};
 use pgrc_format::sections::{decode_front, read_front_bytes};
 use pgrc_format::spool::MaskedCrc;
-use pgrc_format::wal::{DirLoc, FileRefRec, InstallRec, PartInstall, PublishKind, PublishRec, ReclaimRec};
+use pgrc_format::wal::{
+    DirLoc, FileRefRec, InstallRec, PartInstall, PublishKind, PublishRec, ReclaimRec,
+};
 use pgrc_format::wire::crc32c;
 use pgrc_format::{FormatError, FORMAT_VERSION};
 
@@ -23,7 +30,11 @@ pub enum ApplyMode {
 }
 
 pub fn dir_loc(spec: &PartSpec) -> DirLoc {
-    DirLoc { spc: spec.spc, db: spec.db, relnumber: spec.relfilenumber as u32 }
+    DirLoc {
+        spc: spec.spc,
+        db: spec.db,
+        relnumber: spec.relfilenumber as u32,
+    }
 }
 
 fn path(dir: &str, name: &str) -> String {
@@ -54,7 +65,12 @@ pub struct PublishPlan {
 }
 
 impl PublishPlan {
-    pub fn build<'b>(base: Option<&'b Manifest>, spec: &PartSpec, fxid: u64, kind: PublishKind) -> PlanBuilder<'b> {
+    pub fn build<'b>(
+        base: Option<&'b Manifest>,
+        spec: &PartSpec,
+        fxid: u64,
+        kind: PublishKind,
+    ) -> PlanBuilder<'b> {
         PlanBuilder {
             base,
             spec: *spec,
@@ -86,7 +102,8 @@ impl PublishPlan {
     /// plan fixed). The manifest, the record's header and its crc follow.
     pub fn set_ext(&mut self, ext: Vec<u8>) {
         let header = self.manifest.header;
-        self.manifest = std::mem::replace(&mut self.manifest, Manifest::new(header, Vec::new())).with_ext(ext.clone());
+        self.manifest = std::mem::replace(&mut self.manifest, Manifest::new(header, Vec::new()))
+            .with_ext(ext.clone());
         self.rec.header = self.manifest.header;
         self.rec.ext = ext;
         self.bytes = self.manifest.encode();
@@ -130,7 +147,11 @@ impl PlanBuilder<'_> {
     pub fn describe(&mut self, cols: Vec<ColSchema>) {
         let fingerprint = schema_fingerprint(&cols);
         if !self.described.iter().any(|e| e.fingerprint == fingerprint) {
-            self.described.push(SchemaEntry { fingerprint, cols, runs: Vec::new() });
+            self.described.push(SchemaEntry {
+                fingerprint,
+                cols,
+                runs: Vec::new(),
+            });
         }
     }
 
@@ -143,14 +164,26 @@ impl PlanBuilder<'_> {
 
     pub fn install_as(&mut self, s: &SealedPart, part_no: u32) -> WriteResult<()> {
         let mut header = Vec::with_capacity(PART_HEADER_LEN);
-        PartHeader::new(part_no, self.spec.schema_fingerprint, self.spec.spc, self.spec.db, self.spec.relfilenumber)
-            .encode_into(&mut header);
+        PartHeader::new(
+            part_no,
+            self.spec.schema_fingerprint,
+            self.spec.spc,
+            self.spec.db,
+            self.spec.relfilenumber,
+        )
+        .encode_into(&mut header);
         let mut footer = FooterFixed::decode(&s.footer_image)?;
         footer.part_no = part_no;
         let granule_rows = footer.granule_rows;
         let mut footer_bytes = Vec::with_capacity(FOOTER_FIXED_LEN);
         footer.encode_into(&mut footer_bytes);
-        self.installs.push(PartInstall { tmp: s.tmp_name.clone(), part_no, header, footer_off: s.footer_off, footer: footer_bytes });
+        self.installs.push(PartInstall {
+            tmp: s.tmp_name.clone(),
+            part_no,
+            header,
+            footer_off: s.footer_off,
+            footer: footer_bytes,
+        });
         self.set_ranges(part_no, s.ids.clone());
         self.upsert.push(PartRecord {
             rows: s.rows,
@@ -187,7 +220,10 @@ impl PlanBuilder<'_> {
     /// Set the `flags` of the record this plan upserts for `part_no` (K1: a compaction output's map form and
     /// `PART_FLAG_COMPACTED`).
     pub fn set_flags(&mut self, part_no: u32, flags: u32) {
-        self.upsert.iter_mut().filter(|u| u.part_no == part_no).for_each(|u| u.flags = flags);
+        self.upsert
+            .iter_mut()
+            .filter(|u| u.part_no == part_no)
+            .for_each(|u| u.flags = flags);
     }
 
     pub fn rename(&mut self, from: String, to: String) {
@@ -196,7 +232,10 @@ impl PlanBuilder<'_> {
 
     /// SORTRUNS-E0 L2: the DV triplet of the record this plan upserts for `part_no` (a run member's carried rows).
     pub fn set_dv(&mut self, part_no: u32, dv_gen: u64, dv_len: u64, dv_crc: u32) {
-        self.upsert.iter_mut().filter(|u| u.part_no == part_no).for_each(|u| (u.dv_gen, u.dv_len, u.dv_crc) = (dv_gen, dv_len, dv_crc));
+        self.upsert
+            .iter_mut()
+            .filter(|u| u.part_no == part_no)
+            .for_each(|u| (u.dv_gen, u.dv_len, u.dv_crc) = (dv_gen, dv_len, dv_crc));
     }
 
     pub fn ext(&mut self, ext: Vec<u8>) {
@@ -258,7 +297,9 @@ impl PlanBuilder<'_> {
         let spec = self.spec;
         if let Some(b) = self.base {
             if b.header.relfilenumber != spec.relfilenumber {
-                return Err(WriteError::Contract { detail: "manifest base identity mismatch" });
+                return Err(WriteError::Contract {
+                    detail: "manifest base identity mismatch",
+                });
             }
         }
         let prev_gen = self.base.map_or(0, |b| b.header.gen);
@@ -267,16 +308,28 @@ impl PlanBuilder<'_> {
         // IX0 L2: a part this plan installs or retires changes the row-ID directory; a plan that does neither keeps the
         // base's records as they are (no pass over the parts)
         if !self.ranges.is_empty() || !self.retire.is_empty() {
-            self.ext = pgrc_format::manifest::rebuild_ranges(&std::mem::take(&mut self.ext), &parts, &self.ranges)?;
+            self.ext = pgrc_format::manifest::rebuild_ranges(
+                &std::mem::take(&mut self.ext),
+                &parts,
+                &self.ranges,
+            )?;
         }
         // SORTRUNS-E0: a retired member leaves its run's slot (or hands it to its in-place rewrite); a run left with
         // no member goes. The edited runs are checked against the generation's parts here, before the record is
         // logged, as a decode checks them.
         let runs = pgrc_format::sortrun::has_runs(&self.ext);
         if runs && !self.retire.is_empty() {
-            self.ext = pgrc_format::sortrun::retire_members(&self.ext, &self.retire, &self.repoint)?;
+            self.ext =
+                pgrc_format::sortrun::retire_members(&self.ext, &self.retire, &self.repoint)?;
         }
-        self.ext = schemas_ext(self.base, spec.schema_fingerprint, &self.installs, &self.described, &parts, std::mem::take(&mut self.ext))?;
+        self.ext = schemas_ext(
+            self.base,
+            spec.schema_fingerprint,
+            &self.installs,
+            &self.described,
+            &parts,
+            std::mem::take(&mut self.ext),
+        )?;
         let header = ManifestHeader {
             gen,
             prev_gen,
@@ -309,7 +362,11 @@ impl PlanBuilder<'_> {
             renames: self.renames,
             manifest_crc: trailing_crc(&bytes),
         };
-        Ok(PublishPlan { rec, manifest, bytes })
+        Ok(PublishPlan {
+            rec,
+            manifest,
+            bytes,
+        })
     }
 }
 
@@ -322,18 +379,36 @@ impl PlanBuilder<'_> {
 /// no part left under it (a publisher of a stale schema never moves the header back). Descriptions no part needs
 /// are dropped. With nothing to list (the base's fingerprint is `fp` and the base lists no part), `ext` is returned
 /// as it is: no work over the parts.
-fn schemas_ext(base: Option<&Manifest>, fp: u64, installs: &[PartInstall], described: &[SchemaEntry], parts: &[PartRecord], ext: Vec<u8>) -> WriteResult<Vec<u8>> {
-    let refuse = || WriteError::Contract { detail: "manifest base identity mismatch" };
+fn schemas_ext(
+    base: Option<&Manifest>,
+    fp: u64,
+    installs: &[PartInstall],
+    described: &[SchemaEntry],
+    parts: &[PartRecord],
+    ext: Vec<u8>,
+) -> WriteResult<Vec<u8>> {
+    let refuse = || WriteError::Contract {
+        detail: "manifest base identity mismatch",
+    };
     let base_fp = base.map_or(fp, |b| b.header.schema_fingerprint);
     let base_lists = base.is_some_and(|b| b.header.flags & MANIFESTF_SCHEMAS != 0);
     if base_fp == fp && !base_lists {
-        return Ok(if has_tag(&ext, EXT_SCHEMAS) { with_schemas(&ext, &[])? } else { ext });
+        return Ok(if has_tag(&ext, EXT_SCHEMAS) {
+            with_schemas(&ext, &[])?
+        } else {
+            ext
+        });
     }
     let base_entries = match base {
         Some(b) if base_lists => schemas(b)?,
         _ => Vec::new(),
     };
-    let known = |f: u64| base_entries.iter().chain(described).find(|e| e.fingerprint == f);
+    let known = |f: u64| {
+        base_entries
+            .iter()
+            .chain(described)
+            .find(|e| e.fingerprint == f)
+    };
     if base_fp != fp && known(base_fp).is_none() {
         return Err(refuse());
     }
@@ -345,14 +420,20 @@ fn schemas_ext(base: Option<&Manifest>, fp: u64, installs: &[PartInstall], descr
         while j < base_parts.len() && base_parts[j].part_no < p.part_no {
             j += 1;
         }
-        let f = if installed.binary_search(&p.part_no).is_ok() || base_parts.get(j).is_none_or(|b| b.part_no != p.part_no) {
+        let f = if installed.binary_search(&p.part_no).is_ok()
+            || base_parts.get(j).is_none_or(|b| b.part_no != p.part_no)
+        {
             fp
         } else {
-            base_entries.iter().find(|e| e.holds(p.part_no)).map_or(base_fp, |e| e.fingerprint)
+            base_entries
+                .iter()
+                .find(|e| e.holds(p.part_no))
+                .map_or(base_fp, |e| e.fingerprint)
         };
         (p.part_no, f)
     });
-    let entries = entries_of(fps, fp, &mut |f| known(f).map(|e| e.cols.clone())).map_err(|_| refuse())?;
+    let entries =
+        entries_of(fps, fp, &mut |f| known(f).map(|e| e.cols.clone())).map_err(|_| refuse())?;
     Ok(with_schemas(&ext, &entries)?)
 }
 
@@ -361,23 +442,43 @@ fn trailing_crc(manifest_bytes: &[u8]) -> u32 {
 }
 
 #[cfg(test)]
-pub(crate) fn merged_parts(base: Option<&Manifest>, upsert: &[PartRecord], retire: &[u32]) -> Vec<PartRecord> {
+pub(crate) fn merged_parts(
+    base: Option<&Manifest>,
+    upsert: &[PartRecord],
+    retire: &[u32],
+) -> Vec<PartRecord> {
     try_merged_parts(base, upsert, retire).expect("test merge")
 }
 
 /// The base's parts (`part_no` ascending) less `retire`, then `upsert` by `part_no` (the last upsert of a number wins;
 /// a retired number upserted again comes back), `part_no` ascending. One merge (P-1 L4a): O(base + k log k) for k
 /// changes, where a scan of the list per upsert and per retire was O(base × k).
-pub(crate) fn try_merged_parts(base: Option<&Manifest>, upsert: &[PartRecord], retire: &[u32]) -> WriteResult<Vec<PartRecord>> {
-    let mut up: Vec<(u32, usize)> = upsert.iter().enumerate().map(|(i, p)| (p.part_no, i)).collect();
+pub(crate) fn try_merged_parts(
+    base: Option<&Manifest>,
+    upsert: &[PartRecord],
+    retire: &[u32],
+) -> WriteResult<Vec<PartRecord>> {
+    let mut up: Vec<(u32, usize)> = upsert
+        .iter()
+        .enumerate()
+        .map(|(i, p)| (p.part_no, i))
+        .collect();
     up.sort_unstable();
-    let up: Vec<PartRecord> = up.iter().enumerate().filter(|&(k, x)| up.get(k + 1).is_none_or(|n| n.0 != x.0)).map(|(_, x)| upsert[x.1]).collect();
+    let up: Vec<PartRecord> = up
+        .iter()
+        .enumerate()
+        .filter(|&(k, x)| up.get(k + 1).is_none_or(|n| n.0 != x.0))
+        .map(|(_, x)| upsert[x.1])
+        .collect();
     let mut gone: Vec<u32> = pgrc_format::try_to_vec(retire, "plan")?;
     gone.sort_unstable();
     let base = base.map_or(&[][..], |b| &b.parts[..]);
     let mut out = pgrc_format::try_vec(base.len() + up.len(), "plan")?;
     let mut j = 0;
-    for b in base.iter().filter(|p| gone.binary_search(&p.part_no).is_err()) {
+    for b in base
+        .iter()
+        .filter(|p| gone.binary_search(&p.part_no).is_err())
+    {
         while j < up.len() && up[j].part_no < b.part_no {
             out.push(up[j]);
             j += 1;
@@ -401,12 +502,20 @@ pub fn manifest_of(base: Option<&Manifest>, rec: &PublishRec) -> Manifest {
 /// The manifest a publish record produces over its base: the base's parts less the retired ones, upserts by
 /// `part_no`, ordered by `part_no`; the record's header and extension block.
 pub fn try_manifest_of(base: Option<&Manifest>, rec: &PublishRec) -> WriteResult<Manifest> {
-    Ok(Manifest::new(rec.header, try_merged_parts(base, &rec.upsert, &rec.retire)?).with_ext(rec.ext.clone()))
+    Ok(Manifest::new(
+        rec.header,
+        try_merged_parts(base, &rec.upsert, &rec.retire)?,
+    )
+    .with_ext(rec.ext.clone()))
 }
 
 /// Every name `apply_publish` leaves written or renamed into place: what the directory's sync registration covers.
 pub fn publish_touched(rec: &PublishRec) -> Vec<String> {
-    let mut v: Vec<String> = rec.installs.iter().map(|i| part_file_name(i.part_no)).collect();
+    let mut v: Vec<String> = rec
+        .installs
+        .iter()
+        .map(|i| part_file_name(i.part_no))
+        .collect();
     v.extend(rec.renames.iter().map(|(_, to)| to.clone()));
     v.push(manifest_file_name(rec.header.gen));
     v.push(CURRENT_FILE_NAME.to_string());
@@ -420,8 +529,21 @@ fn write_whole(vfs: &mut dyn WriteVfs, p: &str, bytes: &[u8]) -> WriteResult<()>
 }
 
 /// Point `CURRENT` at generation `gen` (its manifest image is `mbytes`), through `CURRENT.tmp` and a rename.
-pub fn write_current(vfs: &mut dyn WriteVfs, dir: &str, gen: u64, mbytes: &[u8]) -> WriteResult<()> {
-    write_pointer(vfs, dir, CommitPointer::new(gen, mbytes.len() as u64, crc32c(&mbytes[..mbytes.len() - 4])))
+pub fn write_current(
+    vfs: &mut dyn WriteVfs,
+    dir: &str,
+    gen: u64,
+    mbytes: &[u8],
+) -> WriteResult<()> {
+    write_pointer(
+        vfs,
+        dir,
+        CommitPointer::new(
+            gen,
+            mbytes.len() as u64,
+            crc32c(&mbytes[..mbytes.len() - 4]),
+        ),
+    )
 }
 
 /// Point `CURRENT` at `cp`'s generation, through `CURRENT.tmp` and a rename.
@@ -448,17 +570,25 @@ fn holds_part(vfs: &mut dyn WriteVfs, p: &str, i: &PartInstall) -> WriteResult<b
 
 /// Whether the file at `p` already carries this install's patched header and footer, byte for byte.
 fn installed(vfs: &mut dyn WriteVfs, p: &str, i: &PartInstall) -> WriteResult<bool> {
-    Ok(vfs.read_at(p, i.footer_off, i.footer.len())? == i.footer && vfs.read_at(p, 0, i.header.len())? == i.header)
+    Ok(vfs.read_at(p, i.footer_off, i.footer.len())? == i.footer
+        && vfs.read_at(p, 0, i.header.len())? == i.header)
 }
 
-fn apply_part_install(vfs: &mut dyn WriteVfs, dir: &str, i: &PartInstall, mode: ApplyMode) -> WriteResult<()> {
+fn apply_part_install(
+    vfs: &mut dyn WriteVfs,
+    dir: &str,
+    i: &PartInstall,
+    mode: ApplyMode,
+) -> WriteResult<()> {
     let tmp = path(dir, &i.tmp);
     let target = path(dir, &part_file_name(i.part_no));
     let renaming = mode == ApplyMode::Primary || vfs.exists_path(&tmp)?;
     if mode == ApplyMode::Redo {
         if renaming {
             if !holds_part(vfs, &tmp, i)? {
-                return Err(WriteError::Format(FormatError::Corrupt { at: "PUBLISH redo: tmp part is not the sealed part" }));
+                return Err(WriteError::Format(FormatError::Corrupt {
+                    at: "PUBLISH redo: tmp part is not the sealed part",
+                }));
             }
         } else if !vfs.exists_path(&target)? || !holds_part(vfs, &target, i)? {
             return crate::cleanup::check_not_swept(&tmp);
@@ -490,9 +620,17 @@ fn prefetch_installs(vfs: &mut dyn WriteVfs, dir: &str, rec: &PublishRec) {
     }
 }
 
-fn apply_rename(vfs: &mut dyn WriteVfs, dir: &str, from: &str, to: &str, mode: ApplyMode) -> WriteResult<()> {
+fn apply_rename(
+    vfs: &mut dyn WriteVfs,
+    dir: &str,
+    from: &str,
+    to: &str,
+    mode: ApplyMode,
+) -> WriteResult<()> {
     match vfs.rename_path(&path(dir, from), &path(dir, to)) {
-        Err(e) if mode == ApplyMode::Redo && is_enoent(&e) => crate::cleanup::check_not_swept(&path(dir, from)),
+        Err(e) if mode == ApplyMode::Redo && is_enoent(&e) => {
+            crate::cleanup::check_not_swept(&path(dir, from))
+        }
         r => r,
     }
 }
@@ -516,15 +654,32 @@ pub fn apply_publish(
 /// [`apply_publish`] by the publisher, which holds the image its plan encoded ([`PublishPlan::into_parts`]): the
 /// manifest is not rebuilt from the base and the record (P-1 L4a: one encode per publish). Redo rebuilds it; debug
 /// builds check here that the rebuild is this image.
-pub fn apply_planned(vfs: &mut dyn WriteVfs, dir: &str, base: Option<&Manifest>, rec: &PublishRec, bytes: &[u8]) -> WriteResult<()> {
-    debug_assert!(try_manifest_of(base, rec)?.encode() == bytes, "redo's rebuild of the manifest is the plan's image");
+pub fn apply_planned(
+    vfs: &mut dyn WriteVfs,
+    dir: &str,
+    base: Option<&Manifest>,
+    rec: &PublishRec,
+    bytes: &[u8],
+) -> WriteResult<()> {
+    debug_assert!(
+        try_manifest_of(base, rec)?.encode() == bytes,
+        "redo's rebuild of the manifest is the plan's image"
+    );
     apply_image(vfs, dir, rec, bytes, ApplyMode::Primary)
 }
 
 /// Install the parts, apply the renames, write the manifest image `bytes` (its crc the record's) and point `CURRENT`.
-fn apply_image(vfs: &mut dyn WriteVfs, dir: &str, rec: &PublishRec, bytes: &[u8], mode: ApplyMode) -> WriteResult<()> {
+fn apply_image(
+    vfs: &mut dyn WriteVfs,
+    dir: &str,
+    rec: &PublishRec,
+    bytes: &[u8],
+    mode: ApplyMode,
+) -> WriteResult<()> {
     if trailing_crc(bytes) != rec.manifest_crc {
-        return Err(WriteError::Format(FormatError::Corrupt { at: "PUBLISH manifest crc" }));
+        return Err(WriteError::Format(FormatError::Corrupt {
+            at: "PUBLISH manifest crc",
+        }));
     }
     if mode == ApplyMode::Redo {
         prefetch_installs(vfs, dir, rec);
@@ -538,14 +693,22 @@ fn apply_image(vfs: &mut dyn WriteVfs, dir: &str, rec: &PublishRec, bytes: &[u8]
     write_whole(vfs, &path(dir, &manifest_file_name(rec.header.gen)), bytes)?;
     // the image's trailing crc was checked against the record's: `CURRENT` takes that crc (P-1 L4a: not a second pass
     // over the manifest)
-    write_pointer(vfs, dir, CommitPointer::new(rec.header.gen, bytes.len() as u64, rec.manifest_crc))
+    write_pointer(
+        vfs,
+        dir,
+        CommitPointer::new(rec.header.gen, bytes.len() as u64, rec.manifest_crc),
+    )
 }
 
 /// Redo of `PUBLISH`: the base generation is read back from the directory. `None` when it is gone, which is legal
 /// only for a publish that never committed (end-of-recovery checks the rest) or one an earlier pass over this WAL
 /// applied before a later `RECLAIM` retired its base (replay restarted from an older redo point). Either way its
 /// temps are dead: `FILE_WRITE` redo recreated them, and nothing renames them now, so they are unlinked here.
-pub fn redo_publish(vfs: &mut dyn WriteVfs, dir: &str, rec: &PublishRec) -> WriteResult<Option<Manifest>> {
+pub fn redo_publish(
+    vfs: &mut dyn WriteVfs,
+    dir: &str,
+    rec: &PublishRec,
+) -> WriteResult<Option<Manifest>> {
     let base = match rec.base_gen {
         0 => None,
         g => match read_manifest(vfs, dir, g) {
@@ -563,8 +726,17 @@ pub fn redo_publish(vfs: &mut dyn WriteVfs, dir: &str, rec: &PublishRec) -> Writ
 /// names included), each unlinked when present.
 fn unlink_temps(vfs: &mut dyn WriteVfs, dir: &str, rec: &PublishRec) -> WriteResult<()> {
     use pgrc_format::dirlayout::{classify, FileClass};
-    let temps = rec.installs.iter().map(|i| &i.tmp).chain(rec.renames.iter().map(|(from, _)| from));
-    for n in temps.filter(|n| matches!(classify(n), Some(FileClass::Tmp { .. } | FileClass::BankStatsTmp(_) | FileClass::RunTmp(..)))) {
+    let temps = rec
+        .installs
+        .iter()
+        .map(|i| &i.tmp)
+        .chain(rec.renames.iter().map(|(from, _)| from));
+    for n in temps.filter(|n| {
+        matches!(
+            classify(n),
+            Some(FileClass::Tmp { .. } | FileClass::BankStatsTmp(_) | FileClass::RunTmp(..))
+        )
+    }) {
         match vfs.unlink_path(&path(dir, n)) {
             Err(e) if is_enoent(&e) => {}
             r => r?,
@@ -573,7 +745,12 @@ fn unlink_temps(vfs: &mut dyn WriteVfs, dir: &str, rec: &PublishRec) -> WriteRes
     Ok(())
 }
 
-pub fn apply_install(vfs: &mut dyn WriteVfs, dir: &str, rec: &InstallRec, mode: ApplyMode) -> WriteResult<()> {
+pub fn apply_install(
+    vfs: &mut dyn WriteVfs,
+    dir: &str,
+    rec: &InstallRec,
+    mode: ApplyMode,
+) -> WriteResult<()> {
     for (from, to) in &rec.renames {
         apply_rename(vfs, dir, from, to, mode)?;
     }
@@ -594,7 +771,14 @@ pub fn apply_reclaim(vfs: &mut dyn WriteVfs, dir: &str, rec: &ReclaimRec) -> Wri
 /// Redo of `FILE_WRITE` / `FILE_CREATE`. A create truncates. A later chunk whose file is gone is skipped: the file
 /// was finished durably (`file_done`) and then renamed or unlinked, and recreating it would leave a sparse file. A
 /// temp a restartpoint swept is never skipped (WR L5f).
-pub fn apply_file_write(vfs: &mut dyn WriteVfs, dir: &str, name: &str, off: u64, bytes: &[u8], create: bool) -> WriteResult<()> {
+pub fn apply_file_write(
+    vfs: &mut dyn WriteVfs,
+    dir: &str,
+    name: &str,
+    off: u64,
+    bytes: &[u8],
+    create: bool,
+) -> WriteResult<()> {
     let p = path(dir, name);
     let fd = if create {
         vfs.create_rw(&p)?
@@ -653,19 +837,28 @@ pub fn verify_ref(vfs: &mut dyn WriteVfs, path: &str, rec: &FileRefRec<'_>) -> W
 /// inode), and a later `FILE_CREATE` of the same tmp name (a transaction's seal and compile stage a part's sidecars
 /// under one) truncates the shared inode. So such a source is not linked: a missing name stays missing (the later
 /// records find theirs) and a name holding other bytes gets a copy.
-pub fn apply_file_ref(vfs: &mut dyn WriteVfs, dir: &str, rec: &FileRefRec<'_>, src: RefSource) -> WriteResult<()> {
+pub fn apply_file_ref(
+    vfs: &mut dyn WriteVfs,
+    dir: &str,
+    rec: &FileRefRec<'_>,
+    src: RefSource,
+) -> WriteResult<()> {
     let target = path(dir, rec.name);
     let from = match src {
         RefSource::InPlace => {
             return match verify_ref(vfs, &target, rec)? {
                 true => Ok(()),
-                false => Err(WriteError::Format(FormatError::Corrupt { at: "FILE_REF redo: the referenced file is not available" })),
+                false => Err(WriteError::Format(FormatError::Corrupt {
+                    at: "FILE_REF redo: the referenced file is not available",
+                })),
             };
         }
         RefSource::Spool(p) | RefSource::Pending(p) | RefSource::Archive(p) => p,
     };
     if !verify_ref(vfs, &from, rec)? {
-        return Err(WriteError::Format(FormatError::Corrupt { at: "FILE_REF redo: the source does not hold the referenced file" }));
+        return Err(WriteError::Format(FormatError::Corrupt {
+            at: "FILE_REF redo: the source does not hold the referenced file",
+        }));
     }
     if verify_ref(vfs, &target, rec)? {
         return Ok(());

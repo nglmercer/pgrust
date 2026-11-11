@@ -80,7 +80,10 @@ fn recent_past_xid(fxid: u64) -> RecentPast {
 /// the next full xid only moved forward since: the mapping differs from a fresh read's only for an fxid at the
 /// window's far end (some 2^32 xids back), which a freezing cluster never has under a live generation (a held value
 /// lives one [`SnapshotCommitCheck`], one catalog lookup).
-fn recent_past_with(fxid: u64, held: Option<FullTransactionId>) -> (RecentPast, Option<FullTransactionId>) {
+fn recent_past_with(
+    fxid: u64,
+    held: Option<FullTransactionId>,
+) -> (RecentPast, Option<FullTransactionId>) {
     let xid = fxid as TransactionId;
     // Special/bootstrap xids are epoch-independent (BootstrapXid, FrozenXid)
     // and are never recycled — probe them directly, matching
@@ -103,8 +106,10 @@ fn recent_past_at(fxid: u64, next_full: FullTransactionId) -> RecentPast {
     if full_xid_from_allowable_at(next_full, xid).to_u64() == fxid {
         RecentPast::Live(xid)
     } else {
-        RecentPast::Aliased(Box::<PgError>::new( // alloc: Cold
-            PgError::error(format!( // alloc: Cold
+        RecentPast::Aliased(Box::<PgError>::new(
+            // alloc: Cold
+            PgError::error(format!(
+                // alloc: Cold
                 "pgrcolumnar: publisher fxid {fxid} predates the clog-addressable \
                  recent-past window (next full xid {}); its clog slot has been \
                  recycled and cannot adjudicate this generation",
@@ -125,7 +130,10 @@ pub fn full_xid_at_now(xid: TransactionId) -> Result<u64, Box<PgError>> {
 /// `FullTransactionIdFromAllowableAt` (access/transam.h): the unique full xid
 /// `<= next_full` whose low 32 bits are `xid`, from `next_full`'s epoch or the
 /// one before. Non-normal xids are epoch-0. Caller guarantees normality here.
-fn full_xid_from_allowable_at(next_full: FullTransactionId, xid: TransactionId) -> FullTransactionId {
+fn full_xid_from_allowable_at(
+    next_full: FullTransactionId,
+    xid: TransactionId,
+) -> FullTransactionId {
     if !TransactionIdIsNormal(xid) {
         return FullTransactionId::from_epoch_and_xid(0, xid);
     }
@@ -139,7 +147,10 @@ fn full_xid_from_allowable_at(next_full: FullTransactionId, xid: TransactionId) 
 
 /// SEAL-OFFHEAD: the clog seams [`ClogTxnProbe`] calls are installed (a server; not a unit test's process).
 pub fn clog_available() -> bool {
-    varsup_seams::read_next_full_transaction_id::is_installed() && xact_seams::transaction_id_is_current_transaction_id::is_installed() && transam_seams::transaction_id_did_commit::is_installed() && procarray_seams::transaction_id_is_in_progress::is_installed()
+    varsup_seams::read_next_full_transaction_id::is_installed()
+        && xact_seams::transaction_id_is_current_transaction_id::is_installed()
+        && transam_seams::transaction_id_did_commit::is_installed()
+        && procarray_seams::transaction_id_is_in_progress::is_installed()
 }
 
 /// Snapshot-scoped commit check for scans.
@@ -233,11 +244,15 @@ impl CommitCheck for SnapshotCommitCheck<'_> {
     /// Without a snapshot, or for a generation of another transaction or one this session did not record, the commit
     /// check decides.
     fn sees_command(&self, fxid: u64, key: (u32, u32, u64, u64)) -> bool {
-        let Some(snap) = self.snapshot else { return true };
+        let Some(snap) = self.snapshot else {
+            return true;
+        };
         if snap.snapshot_type != types_snapshot::SnapshotType::SNAPSHOT_MVCC {
             return true;
         }
-        let Some(cid) = crate::session::publish_cid((key.0, key.1, key.2), key.3) else { return true };
+        let Some(cid) = crate::session::publish_cid((key.0, key.1, key.2), key.3) else {
+            return true;
+        };
         let xid = match self.recent_past(fxid) {
             RecentPast::Live(xid) => xid,
             RecentPast::Aliased(_) => return true,
@@ -250,11 +265,16 @@ impl CommitCheck for SnapshotCommitCheck<'_> {
 
     /// RR-VIEW: a publish of this transaction under an MVCC snapshot (`catalog::visible` composes the own view).
     fn own(&self, fxid: u64) -> bool {
-        if !self.snapshot.is_some_and(|s| s.snapshot_type == types_snapshot::SnapshotType::SNAPSHOT_MVCC) {
+        if !self
+            .snapshot
+            .is_some_and(|s| s.snapshot_type == types_snapshot::SnapshotType::SNAPSHOT_MVCC)
+        {
             return false;
         }
         match self.recent_past(fxid) {
-            RecentPast::Live(xid) => xact_seams::transaction_id_is_current_transaction_id::call(xid),
+            RecentPast::Live(xid) => {
+                xact_seams::transaction_id_is_current_transaction_id::call(xid)
+            }
             RecentPast::Aliased(_) => false,
         }
     }
@@ -269,7 +289,9 @@ pub struct UnabortedCheck {
 
 impl UnabortedCheck {
     pub fn new() -> UnabortedCheck {
-        UnabortedCheck { next_full: Cell::new(None) }
+        UnabortedCheck {
+            next_full: Cell::new(None),
+        }
     }
 }
 
@@ -283,7 +305,9 @@ impl CommitCheck for UnabortedCheck {
     fn committed(&self, fxid: u64) -> bool {
         let (past, held) = recent_past_with(fxid, self.next_full.get());
         self.next_full.set(held);
-        let RecentPast::Live(xid) = past else { return true };
+        let RecentPast::Live(xid) = past else {
+            return true;
+        };
         if xact_seams::transaction_id_is_current_transaction_id::call(xid) {
             return true;
         }
@@ -321,7 +345,10 @@ impl ClogTxnProbe {
 
     /// SEAL-OFFHEAD: the probe of a maintenance publish that chains on a foreign in-progress head instead of waiting.
     pub fn stacking() -> ClogTxnProbe {
-        ClogTxnProbe { stack: true, ..ClogTxnProbe::new() }
+        ClogTxnProbe {
+            stack: true,
+            ..ClogTxnProbe::new()
+        }
     }
 
     /// End of recovery: no transaction survives but the prepared ones. `prepared` holds their xids and their
@@ -393,7 +420,9 @@ impl StandbyTempProbe {
     /// The horizon now (`GetOldestTransactionIdConsideredRunning`). The caller has checked that hot standby is active:
     /// before it the known-assigned xids are not complete.
     pub fn take() -> StandbyTempProbe {
-        StandbyTempProbe { horizon: procarray_seams::get_oldest_transaction_id_considered_running::call() }
+        StandbyTempProbe {
+            horizon: procarray_seams::get_oldest_transaction_id_considered_running::call(),
+        }
     }
 
     /// Whether the temp named by the writer `fxid` may go. An error (a clog probe's, or an fxid older than the
@@ -472,7 +501,9 @@ impl TxnProbe for ClogTxnProbe {
         // Own transaction: in progress (recovery must never reclaim the
         // current transaction's temps; publish walks past its own gens via
         // the CommitCheck arm, not this one).
-        if self.recovery.is_none() && xact_seams::transaction_id_is_current_transaction_id::call(xid) {
+        if self.recovery.is_none()
+            && xact_seams::transaction_id_is_current_transaction_id::call(xid)
+        {
             return TxnVerdict::InProgress;
         }
         // A committer sets clog before it leaves the ProcArray: running first, then clog (heapam_visibility.c's order).
@@ -519,7 +550,9 @@ mod tests {
 
     // One test's failed assertion fails that test alone: the lock it held is taken again, not poisoned for the rest.
     fn serial() -> std::sync::MutexGuard<'static, ()> {
-        TEST_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
     // IXDMLPATH2: reads of the next full xid (XidGenLock in a server)
     static NEXT_FULL_READS: AtomicU64 = AtomicU64::new(0);
@@ -532,7 +565,8 @@ mod tests {
     static RACE_LEFT: AtomicU64 = AtomicU64::new(0);
 
     fn race_tick(xid: TransactionId) -> Option<u64> {
-        (xid as u64 == RACE_XID.load(Ordering::Relaxed)).then(|| RACE_TICK.fetch_add(1, Ordering::Relaxed))
+        (xid as u64 == RACE_XID.load(Ordering::Relaxed))
+            .then(|| RACE_TICK.fetch_add(1, Ordering::Relaxed))
     }
 
     fn install_seams() {
@@ -540,7 +574,9 @@ mod tests {
         SETUP.call_once(|| {
             varsup_seams::read_next_full_transaction_id::set(|| {
                 NEXT_FULL_READS.fetch_add(1, Ordering::Relaxed);
-                Ok(FullTransactionId::from_u64(NEXT_FULL.load(Ordering::Relaxed)))
+                Ok(FullTransactionId::from_u64(
+                    NEXT_FULL.load(Ordering::Relaxed),
+                ))
             });
             xact_seams::transaction_id_is_current_transaction_id::set(|_| false);
             transam_seams::transaction_id_did_commit::set(|xid| {
@@ -566,9 +602,15 @@ mod tests {
     fn allowable_at_current_and_prior_epoch() {
         let next = FullTransactionId::from_epoch_and_xid(3, 100);
         // xid <= next.xid() ⇒ current epoch.
-        assert_eq!(full_xid_from_allowable_at(next, 50).to_u64(), (3u64 << 32) | 50);
+        assert_eq!(
+            full_xid_from_allowable_at(next, 50).to_u64(),
+            (3u64 << 32) | 50
+        );
         // xid > next.xid() ⇒ it must be from the prior epoch.
-        assert_eq!(full_xid_from_allowable_at(next, 200).to_u64(), (2u64 << 32) | 200);
+        assert_eq!(
+            full_xid_from_allowable_at(next, 200).to_u64(),
+            (2u64 << 32) | 200
+        );
         // Non-normal xids are epoch-0.
         assert_eq!(full_xid_from_allowable_at(next, 2).to_u64(), 2);
     }
@@ -589,7 +631,10 @@ mod tests {
         // Publisher recorded in epoch 1 (aborted), xid 50 — now recycled.
         let aborted_old = (1u64 << 32) | 50;
         assert_eq!(probe.verdict(aborted_old), TxnVerdict::InProgress);
-        assert!(probe.take_error().is_err(), "aliased fxid must surface an error");
+        assert!(
+            probe.take_error().is_err(),
+            "aliased fxid must surface an error"
+        );
     }
 
     // D2876 (trunk 9afaaac28b5): after a crash the next full xid is the first xid no WAL named, and procarray
@@ -611,8 +656,15 @@ mod tests {
         assert_eq!(probe.verdict((2u64 << 32) | 100), TxnVerdict::Aborted);
         assert!(probe.take_error().is_ok());
         let recovery = ClogTxnProbe::recovery(Vec::new());
-        assert_eq!(recovery.verdict((2u64 << 32) | 150), TxnVerdict::Aborted, "the end-of-recovery cleanup's verdict");
-        assert!(recovery.take_error().is_ok(), "no error: the directory's cleanup goes on");
+        assert_eq!(
+            recovery.verdict((2u64 << 32) | 150),
+            TxnVerdict::Aborted,
+            "the end-of-recovery cleanup's verdict"
+        );
+        assert!(
+            recovery.take_error().is_ok(),
+            "no error: the directory's cleanup goes on"
+        );
 
         IN_PROGRESS_XID.store(99, Ordering::Relaxed);
         assert_eq!(probe.verdict((2u64 << 32) | 99), TxnVerdict::InProgress);
@@ -655,7 +707,11 @@ mod tests {
         assert_eq!(probe.verdict(450), TxnVerdict::Committed);
         assert_eq!(probe.verdict(500), TxnVerdict::InProgress);
         assert_eq!(probe.verdict(510), TxnVerdict::InProgress);
-        assert_eq!(probe.verdict(600), TxnVerdict::Aborted, "P5: a crashed transaction after a prepared one is dead");
+        assert_eq!(
+            probe.verdict(600),
+            TxnVerdict::Aborted,
+            "P5: a crashed transaction after a prepared one is dead"
+        );
         assert_eq!(probe.verdict(800), TxnVerdict::Aborted);
         let none = ClogTxnProbe::recovery(Vec::new());
         assert_eq!(none.verdict(600), TxnVerdict::Aborted);
@@ -672,21 +728,39 @@ mod tests {
         NEXT_FULL.store(1000, Ordering::Relaxed);
         COMMITTED_XID.store(450, Ordering::Relaxed);
         // 500 prepared (or live), 510 its subtransaction: the horizon is 500
-        assert!(standby_temp_removable(400, 500).unwrap(), "a crashed or aborted writer below the horizon");
-        assert!(!standby_temp_removable(450, 500).unwrap(), "a committed writer keeps its temps");
+        assert!(
+            standby_temp_removable(400, 500).unwrap(),
+            "a crashed or aborted writer below the horizon"
+        );
+        assert!(
+            !standby_temp_removable(450, 500).unwrap(),
+            "a committed writer keeps its temps"
+        );
         assert!(!standby_temp_removable(500, 500).unwrap());
         assert!(!standby_temp_removable(510, 500).unwrap());
         assert!(!standby_temp_removable(900, 500).unwrap());
-        assert!(!standby_temp_removable(400, 0).unwrap(), "no horizon, nothing goes");
-        assert!(!standby_temp_removable(2, 500).unwrap(), "a special xid is no writer's");
+        assert!(
+            !standby_temp_removable(400, 0).unwrap(),
+            "no horizon, nothing goes"
+        );
+        assert!(
+            !standby_temp_removable(2, 500).unwrap(),
+            "a special xid is no writer's"
+        );
         // the horizon in the epoch before next's: 32-bit order is not full-xid order
         NEXT_FULL.store((2u64 << 32) | 100, Ordering::Relaxed);
         COMMITTED_XID.store(0, Ordering::Relaxed);
         let h = 4_000_000_000u32;
         assert!(standby_temp_removable((1u64 << 32) | 3_999_999_000, h).unwrap());
         assert!(!standby_temp_removable((1u64 << 32) | 4_000_000_500, h).unwrap());
-        assert!(!standby_temp_removable((2u64 << 32) | 50, h).unwrap(), "past the horizon in the next epoch");
-        assert!(standby_temp_removable(3_999_999_000, h).is_err(), "epoch 0: older than the clog window");
+        assert!(
+            !standby_temp_removable((2u64 << 32) | 50, h).unwrap(),
+            "past the horizon in the next epoch"
+        );
+        assert!(
+            standby_temp_removable(3_999_999_000, h).is_err(),
+            "epoch 0: older than the clog window"
+        );
     }
 
     // CommitCheck (reader path): a recycled old-epoch aborted publisher must
@@ -715,14 +789,19 @@ mod tests {
         let ctx = mcx::MemoryContext::new("probe dirty test");
         let committed = (2u64 << 32) | 700;
         let aborted = (2u64 << 32) | 701;
-        for t in [types_snapshot::SnapshotType::SNAPSHOT_DIRTY, types_snapshot::SnapshotType::SNAPSHOT_SELF, types_snapshot::SnapshotType::SNAPSHOT_NON_VACUUMABLE] {
+        for t in [
+            types_snapshot::SnapshotType::SNAPSHOT_DIRTY,
+            types_snapshot::SnapshotType::SNAPSHOT_SELF,
+            types_snapshot::SnapshotType::SNAPSHOT_NON_VACUUMABLE,
+        ] {
             let snap = SnapshotData::sentinel(ctx.mcx(), t);
             let check = SnapshotCommitCheck::new(Some(&snap));
             assert!(check.committed(committed), "{t:?}");
             assert!(!check.committed(aborted), "{t:?}");
             check.take_error().unwrap();
         }
-        let mut mvcc = SnapshotData::sentinel(ctx.mcx(), types_snapshot::SnapshotType::SNAPSHOT_MVCC);
+        let mut mvcc =
+            SnapshotData::sentinel(ctx.mcx(), types_snapshot::SnapshotType::SNAPSHOT_MVCC);
         mvcc.xmin = 600;
         mvcc.xmax = 650;
         let check = SnapshotCommitCheck::new(Some(&mvcc));
@@ -740,7 +819,8 @@ mod tests {
         let _g = serial();
         install_seams();
         let ctx = mcx::MemoryContext::new("probe next_full test");
-        let mut mvcc = SnapshotData::sentinel(ctx.mcx(), types_snapshot::SnapshotType::SNAPSHOT_MVCC);
+        let mut mvcc =
+            SnapshotData::sentinel(ctx.mcx(), types_snapshot::SnapshotType::SNAPSHOT_MVCC);
         // every test xid precedes xmin: none is in the snapshot, so committed() reaches the clog
         mvcc.xmin = 5_000;
         mvcc.xmax = 5_000;
@@ -754,15 +834,34 @@ mod tests {
                 assert!(!check.own(fxid));
                 assert!(!check.committed(fxid));
             }
-            assert_eq!(NEXT_FULL_READS.load(Ordering::Relaxed) - before, 1, "one read for the ten generations (mvcc {})", snapshot.is_some());
+            assert_eq!(
+                NEXT_FULL_READS.load(Ordering::Relaxed) - before,
+                1,
+                "one read for the ten generations (mvcc {})",
+                snapshot.is_some()
+            );
             // xids 1000 and 1001 are assigned mid-walk; 1001's publisher committed
             NEXT_FULL.store(epoch | 1_002, Ordering::Relaxed);
             COMMITTED_XID.store(1_001, Ordering::Relaxed);
-            assert!(check.committed(epoch | 1_001), "a publisher past the value read is judged in the window (mvcc {})", snapshot.is_some());
+            assert!(
+                check.committed(epoch | 1_001),
+                "a publisher past the value read is judged in the window (mvcc {})",
+                snapshot.is_some()
+            );
             assert!(!check.own(epoch | 1_001));
-            assert!(check.take_error().is_ok(), "no recycled-slot error for a new publisher");
-            assert_eq!(NEXT_FULL_READS.load(Ordering::Relaxed) - before, 2, "one more read, for the publisher past it");
-            assert!(check.committed(epoch | 1_001) && NEXT_FULL_READS.load(Ordering::Relaxed) - before == 2);
+            assert!(
+                check.take_error().is_ok(),
+                "no recycled-slot error for a new publisher"
+            );
+            assert_eq!(
+                NEXT_FULL_READS.load(Ordering::Relaxed) - before,
+                2,
+                "one more read, for the publisher past it"
+            );
+            assert!(
+                check.committed(epoch | 1_001)
+                    && NEXT_FULL_READS.load(Ordering::Relaxed) - before == 2
+            );
         }
     }
 
@@ -804,14 +903,24 @@ mod tests {
                 RACE_LEFT.store(left, Ordering::Relaxed);
                 RACE_XID.store(900, Ordering::Relaxed);
                 let probe = ClogTxnProbe::stacking();
-                let y = d.publish_by(1_000, &[3], 1, BaseStats::None, &Known(&probe, (x.gen, x.manifest.header.next_part_no)));
+                let y = d.publish_by(
+                    1_000,
+                    &[3],
+                    1,
+                    BaseStats::None,
+                    &Known(&probe, (x.gen, x.manifest.header.next_part_no)),
+                );
                 RACE_XID.store(0, Ordering::Relaxed);
-                let kept = y.manifest.parts.len() == 3 && y.manifest.parts.iter().any(|p| p.part_no == x.part_nos[0]);
+                let kept = y.manifest.parts.len() == 3
+                    && y.manifest.parts.iter().any(|p| p.part_no == x.part_nos[0]);
                 if !kept || !y.dropped.is_empty() || probe.take_error().is_err() {
                     lost.push((clog, left, y.dropped));
                 }
             }
         }
-        assert!(lost.is_empty(), "X's part lost at (clog tick, ProcArray tick, dropped): {lost:?}");
+        assert!(
+            lost.is_empty(),
+            "X's part lost at (clog tick, ProcArray tick, dropped): {lost:?}"
+        );
     }
 }

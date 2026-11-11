@@ -19,6 +19,7 @@ use crate::buf_table::{BufMappingPartitionLock, BufTableHashCode, BufTableInsert
 use crate::freelist::{GetPinLimit, IOContextForStrategy, StrategyFreeBuffer};
 use crate::pin::{buffer_refcount, PinBuffer, UnpinBuffer};
 use crate::privref::{overflowed_count, ReservePrivateRefCountEntry, REFCOUNT_ARRAY_ENTRIES};
+#[allow(unused_imports)]
 use crate::read::{GetVictimBuffer, ReadBuffer_common, StartBufferIO, TerminateBufferIO};
 
 #[cold]
@@ -291,6 +292,7 @@ fn ExtendBufferedRelShared(
 
     // Insert into the mapping table (IO-in-progress) before smgrzeroextend:
     // once the relation grows, other backends may read these blocks.
+    #[allow(clippy::needless_range_loop)]
     for i in 0..extend_by as usize {
         let victim_buf = buffers[i];
         let victim_desc = GetBufferDescriptor(victim_buf - 1);
@@ -373,6 +375,7 @@ fn ExtendBufferedRelShared(
         extend_by as u64 * BLCKSZ as u64,
     );
 
+    #[allow(clippy::needless_range_loop)]
     for i in 0..extend_by as usize {
         let buf = buffers[i];
         let desc = GetBufferDescriptor(buf - 1);

@@ -351,6 +351,7 @@ unsafe extern "C" fn h_next(sp: *mut Site) -> i64 {
     }
     let all_match = site.all_match_from.is_some_and(|w| site.windows >= w);
     let wpp = site.windows_per_part;
+    #[allow(clippy::manual_checked_ops)]
     let (w, part) = if wpp > 0 { let w = site.windows - site.seek_windows - 1; (w, (site.seek_key0 as usize / wpp + w / wpp) as u32) } else { (0, 0) };
     for k in 0..site.natts {
         let valid = if site.valid[k] == all { core::ptr::null() } else { &site.valid[k] as *const u64 };
@@ -561,6 +562,7 @@ unsafe extern "C" fn h_fetch(sp: *mut Site, n: u32) -> i64 {
         }
     }
     let all = if n == 64 { u64::MAX } else { (1u64 << n) - 1 };
+    #[allow(clippy::needless_range_loop)]
     for k in 0..site.natts {
         let valid = if site.valid[k] == all { core::ptr::null() } else { &site.valid[k] as *const u64 };
         lanes[k] = Lane::byval(site.cols[k].as_ptr() as *const u8, valid, 8, lane::REGION_ARENA, lane::id(lane::ID_ATTR, k as u32));
@@ -1241,11 +1243,13 @@ pub const RECHECK: i64 = gravity_abi::status::WRITE_RECHECK;
 pub const LOCKED: i64 = WRITE_DONE;
 
 /// The owner functions of a program whose first pipeline is a phase-1 table kernel (the runner's rule, in miniature).
+#[allow(unexpected_cfgs)]
 pub fn owner_fns_for(program: &Program, params: &[Datum]) -> Option<gravity_abi::breaker::OwnerFns> {
     let mut words = [0u64; 16];
     let n = params.len().min(16);
     words[..n].copy_from_slice(&params[..n]);
     // the hand kernels exist only under the feature; without it no program runs one (the lib's own tests build the rig so)
+    #[allow(unexpected_cfgs)]
     #[cfg(feature = "hand-kernels")]
     {
         use gravity_kernels::par_distinct;
@@ -1324,6 +1328,7 @@ unsafe fn publish_page(site: &mut FakeSite, s: &mut Site, atts: &[(i16, u8, i16)
                 Some(k) => {
                     let l = &lanes[k];
                     let v = *(l.ptr as *const u64).add(r);
+                    #[allow(clippy::unnecessary_cast)]
                     let valid = l.valid.is_null() || (*(l.valid as *const u64).add(r / 64) >> (r % 64)) & 1 != 0;
                     (v, valid)
                 }

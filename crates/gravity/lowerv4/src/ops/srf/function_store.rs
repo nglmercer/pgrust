@@ -177,7 +177,7 @@ impl StepMech for StoreStep<'_> {
         self.rd.rewind_fed(b, env, &fed);
         b.br(l_poll, &mcx::concat_in(&[&[env.zero][..], &row.carry.params()[..]], mcx));
         b.switch_to(l_win);
-        let p = mcx::to_vec_in(&b.block_params(l_win)[..], mcx);
+        let p = mcx::to_vec_in(b.block_params(l_win), mcx);
         let l_eof = b.create_block(&[Type::I64]);
         let win = self.rd.window(b, env, l_eof, p[0]);
         let base = b.int_bin(IntBinOp::Sub, p[0], win.cursor);
@@ -187,7 +187,7 @@ impl StepMech for StoreStep<'_> {
         b.switch_to(l_row);
         b.mark_loop_header(l_row);
         env.bounded.push_in(l_row);
-        let q = mcx::to_vec_in(&b.block_params(l_row)[..], mcx);
+        let q = mcx::to_vec_in(b.block_params(l_row), mcx);
         let (at, carry) = (q[0], Carry::from_params(&q[1..], env.mcx));
         let (l_one, l_next) = (b.create_block(&[]), b.create_block(&[]));
         let more = b.icmp(IntCond::Ult, at, win.end);

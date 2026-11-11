@@ -2,9 +2,7 @@
 //! flush engine, and StartupXLOG. Recovery record-reading is xlogrecovery's;
 //! record assembly is xloginsert's.
 
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(non_camel_case_types)]
+#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
 
 use std::cell::Cell;
 
@@ -15,7 +13,8 @@ mod backup;
 pub mod bootstrap;
 pub use backup::{
     do_pg_abort_backup, do_pg_backup_start, do_pg_backup_stop, get_backup_status,
-    register_persistent_abort_backup_handler, want_lowlevel_backup, SessionBackupState, TablespaceInfo,
+    register_persistent_abort_backup_handler, want_lowlevel_backup, SessionBackupState,
+    TablespaceInfo,
 };
 pub mod control_file;
 pub mod ctl;
@@ -24,22 +23,25 @@ pub mod guc_vars;
 pub mod insert;
 pub mod redo;
 pub(crate) mod removal;
+pub use removal::{
+    spool_bytes_from, spool_grew, spool_removed_upto, wal_keep_horizon, wal_removed_horizon,
+};
 pub use removal::{CheckXLogRemoved, RemoveNonParentXlogFiles, XLogGetOldestSegno};
-pub use removal::{spool_bytes_from, spool_grew, spool_removed_upto, wal_keep_horizon, wal_removed_horizon};
 pub mod startup;
 pub mod write;
 
 #[cfg(test)]
 mod tests;
 
+pub use bootstrap::{BootStrapXLOG, PG_DATA_CHECKSUM_VERSION};
 pub use control_file::{
-    CheckPoint, ControlFileData, DataChecksumsEnabled, GetActiveWalLevelOnStandby,
-    GetDefaultCharSignedness,
-    control_file_mark_read_for_tests, GetMockAuthenticationNonce, GetSystemIdentifier,
-    LocalProcessControlFile, ReadControlFile,
-    UpdateControlFile,
+    control_file_mark_read_for_tests, CheckPoint, ControlFileData, DataChecksumsEnabled,
+    GetActiveWalLevelOnStandby, GetDefaultCharSignedness, GetMockAuthenticationNonce,
+    GetSystemIdentifier, LocalProcessControlFile, ReadControlFile, UpdateControlFile,
 };
-pub use ctl::{GetWALInsertionTimeLineIfSet, XLOGShmemInit, XLOGShmemResetAfterCrash, XLOGShmemSize};
+pub use ctl::{
+    GetWALInsertionTimeLineIfSet, XLOGShmemInit, XLOGShmemResetAfterCrash, XLOGShmemSize,
+};
 pub use insert::{
     GetFullPageWriteInfo, GetInsertRecPtr, GetLastImportantRecPtr, GetRedoRecPtr,
     GetXLogInsertEndRecPtr, GetXLogInsertRecPtr, RecoveryInProgress, WALReadFromBuffers,
@@ -50,7 +52,6 @@ pub use startup::{
     SetInstallXLogFileSegmentActive, ShutdownXLOG, StartupXLOG, SwitchIntoArchiveRecovery,
     UpdateFullPageWrites,
 };
-pub use bootstrap::{BootStrapXLOG, PG_DATA_CHECKSUM_VERSION};
 pub use write::{
     stamp_wal_sync_method, wal_flush_pacing_decide, GetFlushRecPtr, GetLastSegSwitchData,
     GetXLogWriteRecPtr, SetWalWriterSleeping, WalFlushPacing, XLogBackgroundFlush, XLogFileInit,
@@ -173,7 +174,9 @@ pub fn StatusFilePath(xlog: &str, suffix: &str) -> String {
 pub fn IsTLHistoryFileName(fname: &str) -> bool {
     let b = fname.as_bytes();
     b.len() == 8 + ".history".len()
-        && b[..8].iter().all(|c| c.is_ascii_digit() || (b'A'..=b'F').contains(c))
+        && b[..8]
+            .iter()
+            .all(|c| c.is_ascii_digit() || (b'A'..=b'F').contains(c))
         && fname.ends_with(".history")
 }
 
@@ -198,7 +201,11 @@ pub fn GetOldestRestartPoint() -> PgResult<(XLogRecPtr, TimeLineID)> {
 
 /// RequestXLogSwitch (xlog.c): XLOG SWITCH record, no data.
 pub fn RequestXLogSwitch(mark_unimportant: bool) -> PgResult<XLogRecPtr> {
-    let flags = if mark_unimportant { XLOG_MARK_UNIMPORTANT } else { 0 };
+    let flags = if mark_unimportant {
+        XLOG_MARK_UNIMPORTANT
+    } else {
+        0
+    };
     xloginsert_seams::xlog_insert_with_flags::call(RM_XLOG_ID, XLOG_SWITCH, flags, &[])
 }
 
@@ -280,6 +287,7 @@ pub fn XLogBytePosToRecPtr(bytepos: u64) -> XLogRecPtr {
     let usable_seg = UsableBytesInSegment();
     let fullsegs = bytepos / usable_seg;
     let mut bytesleft = bytepos % usable_seg;
+    #[allow(clippy::needless_late_init)]
     let seg_offset;
     if bytesleft < (XLOG_BLCKSZ - SizeOfXLogLongPHD) as u64 {
         seg_offset = bytesleft + SizeOfXLogLongPHD as u64;
@@ -299,9 +307,14 @@ pub fn XLogBytePosToEndRecPtr(bytepos: u64) -> XLogRecPtr {
     let usable_seg = UsableBytesInSegment();
     let fullsegs = bytepos / usable_seg;
     let mut bytesleft = bytepos % usable_seg;
+    #[allow(clippy::needless_late_init)]
     let seg_offset;
     if bytesleft < (XLOG_BLCKSZ - SizeOfXLogLongPHD) as u64 {
-        seg_offset = if bytesleft == 0 { 0 } else { bytesleft + SizeOfXLogLongPHD as u64 };
+        seg_offset = if bytesleft == 0 {
+            0
+        } else {
+            bytesleft + SizeOfXLogLongPHD as u64
+        };
     } else {
         bytesleft -= (XLOG_BLCKSZ - SizeOfXLogLongPHD) as u64;
         let fullpages = bytesleft / UsableBytesInPage;
@@ -469,8 +482,9 @@ fn parse_wal_consistency_checking(spec: &str) -> Result<[bool; RM_N_IDS], String
             for &(_, rmid) in &maskable {
                 flags[rmid as usize] = true;
             }
-        } else if let Some(&(_, rmid)) =
-            maskable.iter().find(|(name, _)| tok.eq_ignore_ascii_case(name))
+        } else if let Some(&(_, rmid)) = maskable
+            .iter()
+            .find(|(name, _)| tok.eq_ignore_ascii_case(name))
         {
             flags[rmid as usize] = true;
         } else {
@@ -491,7 +505,8 @@ fn parse_wal_consistency_checking(spec: &str) -> Result<[bool; RM_N_IDS], String
 fn split_identifier_list(raw: &str) -> Option<Vec<String>> {
     const NAMEDATALEN: usize = 64;
     let s = raw.as_bytes();
-    let is_space = |b: u8| b == b' ' || b == b'\t' || b == b'\n' || b == b'\r' || b == 0x0b || b == 0x0c;
+    let is_space =
+        |b: u8| b == b' ' || b == b'\t' || b == b'\n' || b == b'\r' || b == 0x0b || b == 0x0c;
     let skip_space = |p: &mut usize| {
         while *p < s.len() && is_space(s[*p]) {
             *p += 1;
@@ -643,7 +658,9 @@ pub fn pgWalUsage() -> types_core::instrument::WalUsage {
 }
 
 /// D4240: the WAL usage since `start`, taken off this thread's pgWalUsage (a pool claim's, which its leader adds).
-pub fn take_wal_usage_since(start: &types_core::instrument::WalUsage) -> types_core::instrument::WalUsage {
+pub fn take_wal_usage_since(
+    start: &types_core::instrument::WalUsage,
+) -> types_core::instrument::WalUsage {
     wal_usage_update(|wu| {
         let took = types_core::instrument::WalUsage {
             wal_records: wu.wal_records - start.wal_records,
@@ -726,8 +743,7 @@ pub fn init_seams() {
     guc_tables::hooks::check_wal_segment_size.install(check_wal_segment_size_hook);
     guc_tables::hooks::check_wal_buffers.install(check_wal_buffers_hook);
     guc_tables::hooks::assign_wal_sync_method.install(write::assign_wal_sync_method);
-    guc_tables::hooks::check_wal_consistency_checking
-        .install(check_wal_consistency_checking_hook);
+    guc_tables::hooks::check_wal_consistency_checking.install(check_wal_consistency_checking_hook);
     guc_tables::hooks::assign_wal_consistency_checking
         .install(assign_wal_consistency_checking_hook);
     guc_vars::install_wal_consistency_checking_string();

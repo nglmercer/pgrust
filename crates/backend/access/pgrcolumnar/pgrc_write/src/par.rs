@@ -120,9 +120,9 @@ use crate::ingest::{
     normalize_varlena, ColBuffer, DictEntries, ExternalDetoast, NoExternalDetoast, RawDatum,
     DICT_ROW_PLAIN,
 };
+use crate::plan::{apply_reclaim, dir_loc};
 use crate::seal::{seal_part, PartSpec, SealReport, SealedPart, VerifyResolver};
 use crate::shred::{validate_lanes, NoShred, ShredLane, ShredLaneSource};
-use crate::plan::{apply_reclaim, dir_loc};
 use crate::structural::StructuralPolicy;
 use crate::walsink::{log_forwarded, ForwardSink, Forwarded, LoggedVfs, NoWal, WalSink};
 use crate::writer::PartCutPolicy;
@@ -232,7 +232,13 @@ pub fn cpu_list_len(list: &str) -> Option<usize> {
     let mut n = 0usize;
     for range in list.split(',').map(str::trim).filter(|r| !r.is_empty()) {
         n += match range.split_once('-') {
-            Some((a, b)) => b.trim().parse::<usize>().ok()?.checked_sub(a.trim().parse::<usize>().ok()?)? + 1,
+            Some((a, b)) => {
+                b.trim()
+                    .parse::<usize>()
+                    .ok()?
+                    .checked_sub(a.trim().parse::<usize>().ok()?)?
+                    + 1
+            }
             None => {
                 range.parse::<usize>().ok()?;
                 1
@@ -267,15 +273,29 @@ pub fn chunks_for_parts(parts: usize) -> usize {
 fn machine_headroom_bytes() -> Option<u64> {
     let avail = std::fs::read_to_string("/proc/meminfo").ok().and_then(|s| {
         s.lines().find_map(|l| {
-            l.strip_prefix("MemAvailable:")?.trim().strip_suffix("kB")?.trim().parse::<u64>().ok()
+            l.strip_prefix("MemAvailable:")?
+                .trim()
+                .strip_suffix("kB")?
+                .trim()
+                .parse::<u64>()
+                .ok()
         })
     }); // alloc: Cold
     let limit = mcx::governor::limit() as u64;
-    let governed = (limit != 0).then(|| limit.saturating_sub(mcx::governor::projected() as u64) / 2);
+    let governed =
+        (limit != 0).then(|| limit.saturating_sub(mcx::governor::projected() as u64) / 2);
     let room = mcx::governor::probe_resident()
-        .map(|r| mempolicy::load::load_parts(load_room_at(r as u64, dirty_now()), memledger::LOAD_IN_FLIGHT.bytes()))
+        .map(|r| {
+            mempolicy::load::load_parts(
+                load_room_at(r as u64, dirty_now()),
+                memledger::LOAD_IN_FLIGHT.bytes(),
+            )
+        })
         .filter(|&r| r != u64::MAX);
-    [avail.map(|kb| kb * 1024 / 2), governed, room].into_iter().flatten().min()
+    [avail.map(|kb| kb * 1024 / 2), governed, room]
+        .into_iter()
+        .flatten()
+        .min()
 }
 
 /// D3808: the bytes a load may still take in flight with `resident` bytes
@@ -283,7 +303,12 @@ fn machine_headroom_bytes() -> Option<u64> {
 /// (`mempolicy::load::load_room` over the limit and bar the governor last
 /// published; `u64::MAX` with neither known).
 fn load_room_at(resident: u64, dirty: u64) -> u64 {
-    mempolicy::load::load_room(mcx::governor::limit() as u64, mcx::governor::bar() as u64, resident, dirty)
+    mempolicy::load::load_room(
+        mcx::governor::limit() as u64,
+        mcx::governor::bar() as u64,
+        resident,
+        dirty,
+    )
 }
 
 /// D3808: the dirty + writeback page-cache bytes the resident probe counts,
@@ -310,7 +335,10 @@ fn memory_refused() -> bool {
 /// parses positive, else [`parts_in_flight_for`] over the machine's cores and
 /// headroom (the legacy constant where the machine gives no headroom signal).
 pub fn machine_parts_in_flight(policy: &crate::writer::PartCutPolicy) -> usize {
-    if let Some(n) = std::env::var(PARTS_IN_FLIGHT_ENV).ok().and_then(|v| v.trim().parse::<usize>().ok()) {
+    if let Some(n) = std::env::var(PARTS_IN_FLIGHT_ENV)
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+    {
         if n > 0 {
             return n;
         }
@@ -326,7 +354,10 @@ impl ParIngestOpts {
     /// The default bounds with the open-parts bound derived from the machine
     /// at engine construction ([`PARTS_IN_FLIGHT_AUTO`]).
     pub fn auto() -> ParIngestOpts {
-        ParIngestOpts { max_parts_in_flight: PARTS_IN_FLIGHT_AUTO, ..ParIngestOpts::default() }
+        ParIngestOpts {
+            max_parts_in_flight: PARTS_IN_FLIGHT_AUTO,
+            ..ParIngestOpts::default()
+        }
     }
 
     /// [`PARTS_IN_FLIGHT_AUTO`] replaced by the machine's bound; every other
@@ -691,7 +722,8 @@ impl RowChunk {
         let s = lane.source_idx(source);
         pgrc_format::try_reserve_more(&mut lane.rows, codes.len(), "par")?; // alloc: Exec charged self.charge
         for &c in codes {
-            lane.rows.push(if c == u32::MAX { // alloc: Exec charged self.charge
+            lane.rows.push(if c == u32::MAX {
+                // alloc: Exec charged self.charge
                 DICT_ROW_PLAIN
             } else {
                 (u64::from(s) << 32) | u64::from(c)
@@ -718,7 +750,10 @@ impl RowChunk {
     /// D3343: the heap bytes this chunk holds (its cell and arena capacity).
     pub fn held_bytes(&self) -> u64 {
         let lanes: usize = self.dict_lanes.iter().map(|l| l.rows.capacity() * 8).sum();
-        (self.cells.capacity() * core::mem::size_of::<Cell>() + self.arena.capacity() + self.col_heap.capacity() * 8 + lanes) as u64
+        (self.cells.capacity() * core::mem::size_of::<Cell>()
+            + self.arena.capacity()
+            + self.col_heap.capacity() * 8
+            + lanes) as u64
     }
 
     /// Content digest over the captured rows, row-major, with byte cells
@@ -764,7 +799,12 @@ impl RowChunk {
     /// `row` < rows() + the reserved rows, `col` < ncols.
     #[inline(always)]
     pub unsafe fn fill_word(&mut self, row: u32, col: usize, w: u64) {
-        unsafe { self.cells.as_mut_ptr().add(row as usize * self.ncols + col).write(Cell::Word(w)) }
+        unsafe {
+            self.cells
+                .as_mut_ptr()
+                .add(row as usize * self.ncols + col)
+                .write(Cell::Word(w))
+        }
     }
 
     /// Point a cell at `arena[off..off + len]` (several cells may share one
@@ -787,7 +827,12 @@ impl RowChunk {
     /// As [`Self::fill_word`].
     #[inline(always)]
     pub unsafe fn fill_null(&mut self, row: u32, col: usize) {
-        unsafe { self.cells.as_mut_ptr().add(row as usize * self.ncols + col).write(Cell::Null) }
+        unsafe {
+            self.cells
+                .as_mut_ptr()
+                .add(row as usize * self.ncols + col)
+                .write(Cell::Null)
+        }
     }
 
     /// Publish `n` filled rows.
@@ -822,7 +867,8 @@ impl RowChunk {
                     let off = self.arena.len() as u64;
                     self.arena.extend_from_slice(b); // alloc: Exec charged self.charge
                     self.col_heap[c] += b.len() as u64 + 11;
-                    self.cells.push(Cell::Bytes { // alloc: Exec charged self.charge
+                    self.cells.push(Cell::Bytes {
+                        // alloc: Exec charged self.charge
                         off,
                         len: b.len() as u64,
                     });
@@ -835,9 +881,21 @@ impl RowChunk {
     }
 
     /// Column `c` of every captured row into `col`, by the appends [`RowChunk::normalize`] runs (F1 L6).
-    pub fn append_column(&self, c: usize, col: &mut ColBuffer, ext: &mut dyn ExternalDetoast, scratch: &mut Vec<u8>) -> WriteResult<()> {
+    pub fn append_column(
+        &self,
+        c: usize,
+        col: &mut ColBuffer,
+        ext: &mut dyn ExternalDetoast,
+        scratch: &mut Vec<u8>,
+    ) -> WriteResult<()> {
         for r in 0..self.rows as usize {
-            append_cell(self.cells[r * self.ncols + c], &self.arena, col, ext, scratch)?;
+            append_cell(
+                self.cells[r * self.ncols + c],
+                &self.arena,
+                col,
+                ext,
+                scratch,
+            )?;
         }
         Ok(())
     }
@@ -857,12 +915,20 @@ impl RowChunk {
     ) -> WriteResult<Vec<ColBuffer>> {
         // CONVERT W3-2b: the chunk's columns are its owner's (each syncs at its reserve and its appends' end below)
         let owner = self.owner();
-        let mut cols: Vec<ColBuffer> = schema.iter().map(|s| ColBuffer::with_owner(*s, owner)).collect();
+        let mut cols: Vec<ColBuffer> = schema
+            .iter()
+            .map(|s| ColBuffer::with_owner(*s, owner))
+            .collect();
         // PGRC-WRITER-FAST `alloc`: size every chunk buffer once (payload
         // bytes per column from one pass over the cells) — no regrowth.
         // Capacity only: bytes cannot move.
-        let mut bytes: memledger::ChargedVec<usize> = memledger::ChargedVec::new(self.owner(), memledger::Kind::Region);
-        bytes.resize(self.ncols, 0usize).map_err(|_| WriteError::Format(pgrc_format::FormatError::OutOfMemory { bytes: self.ncols * core::mem::size_of::<usize>() }))?;
+        let mut bytes: memledger::ChargedVec<usize> =
+            memledger::ChargedVec::new(self.owner(), memledger::Kind::Region);
+        bytes.resize(self.ncols, 0usize).map_err(|_| {
+            WriteError::Format(pgrc_format::FormatError::OutOfMemory {
+                bytes: self.ncols * core::mem::size_of::<usize>(),
+            })
+        })?;
         for r in 0..self.rows as usize {
             for (c, b) in bytes.iter_mut().enumerate() {
                 if let Cell::Bytes { len, .. } = self.cells[r * self.ncols + c] {
@@ -876,7 +942,13 @@ impl RowChunk {
         let mut scratch: Vec<u8> = Vec::new();
         for r in 0..self.rows as usize {
             for (c, col) in cols.iter_mut().enumerate() {
-                append_cell(self.cells[r * self.ncols + c], &self.arena, col, ext, &mut scratch)?;
+                append_cell(
+                    self.cells[r * self.ncols + c],
+                    &self.arena,
+                    col,
+                    ext,
+                    &mut scratch,
+                )?;
             }
         }
         // D2: hand covered side channels to the chunk buffers (the coverage
@@ -894,16 +966,25 @@ impl RowChunk {
     }
 }
 
-fn append_cell(cell: Cell, arena: &[u8], col: &mut ColBuffer, ext: &mut dyn ExternalDetoast, scratch: &mut Vec<u8>) -> WriteResult<()> {
+fn append_cell(
+    cell: Cell,
+    arena: &[u8],
+    col: &mut ColBuffer,
+    ext: &mut dyn ExternalDetoast,
+    scratch: &mut Vec<u8>,
+) -> WriteResult<()> {
     match (cell, col.schema.class) {
         (Cell::Null, _) => col.append_null(),
         (Cell::Word(w), StorageClass::ByvalWord { .. })
         | (Cell::Word(w), StorageClass::F32)
         | (Cell::Word(w), StorageClass::F64)
         | (Cell::Word(w), StorageClass::Bool) => col.append_word(w)?,
-        (Cell::Bytes { off, len }, StorageClass::Fixed { .. }) => col.append_fixed(&arena[off as usize..(off + len) as usize])?,
+        (Cell::Bytes { off, len }, StorageClass::Fixed { .. }) => {
+            col.append_fixed(&arena[off as usize..(off + len) as usize])?
+        }
         (Cell::Bytes { off, len }, StorageClass::VarlenaVerbatim) => {
-            let (payload, _) = normalize_varlena(&arena[off as usize..(off + len) as usize], ext, scratch)?;
+            let (payload, _) =
+                normalize_varlena(&arena[off as usize..(off + len) as usize], ext, scratch)?;
             col.append_varlena_payload(payload)?;
         }
         _ => {
@@ -931,7 +1012,10 @@ impl ColChunk {
                 detail: "column chunk with ragged columns",
             });
         }
-        Ok(ColChunk { cols, rows: rows as u32 })
+        Ok(ColChunk {
+            cols,
+            rows: rows as u32,
+        })
     }
 
     pub fn rows(&self) -> u32 {
@@ -1196,9 +1280,17 @@ impl Seat {
     /// (this one's own exclusion included) fits under the ladder's line at `read`. When it fits, `admit` joins the
     /// process-wide reserve and this load's exclusion ends; when not, its exclusion becomes `excludable` and the ask is
     /// returned (the climb's and hand-off's size).
-    fn try_pass(&mut self, read: Option<u64>, own: u64, admit: u64, excludable: u64) -> Result<(), u64> {
+    fn try_pass(
+        &mut self,
+        read: Option<u64>,
+        own: u64,
+        admit: u64,
+        excludable: u64,
+    ) -> Result<(), u64> {
         let _g = pgsync::lock(&GATE_MU);
-        let shared = SEAL_AHEAD_ALL.load(Ordering::Relaxed).saturating_sub(WAITING_EXCL.load(Ordering::Relaxed));
+        let shared = SEAL_AHEAD_ALL
+            .load(Ordering::Relaxed)
+            .saturating_sub(WAITING_EXCL.load(Ordering::Relaxed));
         let ask = own.saturating_add(shared).saturating_add(self.excl);
         if mcx::ladder::need_at(read, ask) == 0 {
             self.pass_locked(admit);
@@ -1253,7 +1345,8 @@ impl LadderWait {
 /// D4365: the refusal of a parallel load whose seal does not fit under the memory ladder's line after its climb and
 /// waits: SPILL-DEBT's `LoadSealPastLine` (a COPY into pgrcolumnar cannot spill yet, D4370). `pgrc_am::write_error`
 /// raises it as the 53200 [`MEMORY_REFUSED`] raises and names the row in the server log only.
-pub const LOAD_PAST_LINE: &str = "parallel load whose seal does not fit under the memory ladder's line";
+pub const LOAD_PAST_LINE: &str =
+    "parallel load whose seal does not fit under the memory ladder's line";
 
 /// D4365: SPILL-DEBT `LoadSealPastLine`'s user sentence (its row's field 8, lint/SPILL-DEBT/LoadSealPastLine, and
 /// gravity_program's `NoSpill::limitation`: tests/d4365_ladder_gate.rs holds this to the row), for the server-only line
@@ -1265,13 +1358,21 @@ pub const LOAD_SEAL_PAST_LINE: &str = "A COPY into a pgrcolumnar table seals eac
 /// the ladder thread after a spent wait, and a refusal after a second.
 /// D4387: the ask is this load's `own` plus every load's seal reserve but what blocked loads leave out ([`Seat`]); a
 /// pass adds `admit` to the reserve; a wait leaves `excludable` of this load's reserve out of the others' asks.
-pub(crate) fn ladder_step(own: u64, admit: u64, excludable: u64, seat: &mut Seat, lw: &mut Option<LadderWait>) -> LadderStep {
+pub(crate) fn ladder_step(
+    own: u64,
+    admit: u64,
+    excludable: u64,
+    seat: &mut Seat,
+    lw: &mut Option<LadderWait>,
+) -> LadderStep {
     let read = mcx::ladder::read_now();
     let ask = match seat.try_pass(read, own, admit, excludable) {
         Ok(()) => return LadderStep::Fits,
         Err(ask) => ask,
     };
-    let Some(w) = lw else { return LadderStep::Climb(ask) };
+    let Some(w) = lw else {
+        return LadderStep::Climb(ask);
+    };
     let e = wait_epoch();
     if e != w.seen {
         (w.seen, w.since) = (e, w.polls);
@@ -1305,18 +1406,33 @@ pub(crate) fn ladder_wait(own: u64, admit: u64, excludable: u64) -> WriteResult<
     let mut seat = Seat::default();
     let out = loop {
         if memory_refused() {
-            if let Some(w) = &lw { w.ep.canceled(); }
-            break Err(WriteError::Refused { what: MEMORY_REFUSED });
+            if let Some(w) = &lw {
+                w.ep.canceled();
+            }
+            break Err(WriteError::Refused {
+                what: MEMORY_REFUSED,
+            });
         }
         match ladder_step(own, admit, excludable, &mut seat, &mut lw) {
             LadderStep::Fits => break Ok(()),
             LadderStep::Climb(a) => {
                 let ep = mcx::ladder_stats::Wait::begin(mcx::ladder_stats::Site::Load, a);
                 let w = mcx::ladder::wait_begin(&mcx::ladder::climb(a));
-                lw = Some(LadderWait { polls: 0, since: 0, seen: wait_epoch(), handed: None, wait: w, ep });
+                lw = Some(LadderWait {
+                    polls: 0,
+                    since: 0,
+                    seen: wait_epoch(),
+                    handed: None,
+                    wait: w,
+                    ep,
+                });
             }
             LadderStep::Wait => waiter::sleep(MEMORY_GATE_POLL),
-            LadderStep::Refuse => break Err(WriteError::Refused { what: LOAD_PAST_LINE }),
+            LadderStep::Refuse => {
+                break Err(WriteError::Refused {
+                    what: LOAD_PAST_LINE,
+                })
+            }
         }
     };
     if let Some(w) = lw {
@@ -1373,11 +1489,17 @@ impl ParEngine {
     /// and its R5 polls (one per [`AheadGate::POLL`]: an earlier ask is a Wait, uncounted), its hand-off and its refusal.
     pub fn ahead_step(&self, g: &mut AheadGate, bytes: u64) -> AheadStep {
         if memory_refused() {
-            if let Some(w) = &g.lw { w.ep.canceled(); }
-            return AheadStep::Refused(WriteError::Refused { what: MEMORY_REFUSED });
+            if let Some(w) = &g.lw {
+                w.ep.canceled();
+            }
+            return AheadStep::Refused(WriteError::Refused {
+                what: MEMORY_REFUSED,
+            });
         }
         let now = waiter::now_ms();
-        if g.last.is_some_and(|t| now.saturating_sub(t) < MEMORY_GATE_POLL.as_millis() as i64) {
+        if g.last
+            .is_some_and(|t| now.saturating_sub(t) < MEMORY_GATE_POLL.as_millis() as i64)
+        {
             return AheadStep::Wait;
         }
         if !self.memory_room(bytes) {
@@ -1400,7 +1522,14 @@ impl ParEngine {
             LadderStep::Climb(ask) => {
                 let ep = mcx::ladder_stats::Wait::begin(mcx::ladder_stats::Site::Load, ask);
                 let w = mcx::ladder::wait_begin(&mcx::ladder::climb(ask));
-                g.lw = Some(LadderWait { polls: 0, since: 0, seen: wait_epoch(), handed: None, wait: w, ep });
+                g.lw = Some(LadderWait {
+                    polls: 0,
+                    since: 0,
+                    seen: wait_epoch(),
+                    handed: None,
+                    wait: w,
+                    ep,
+                });
                 g.last = Some(now);
                 AheadStep::Wait
             }
@@ -1408,7 +1537,9 @@ impl ParEngine {
                 g.last = Some(now);
                 AheadStep::Wait
             }
-            LadderStep::Refuse => AheadStep::Refused(WriteError::Refused { what: LOAD_PAST_LINE }),
+            LadderStep::Refuse => AheadStep::Refused(WriteError::Refused {
+                what: LOAD_PAST_LINE,
+            }),
         }
     }
 }
@@ -1556,7 +1687,8 @@ impl ParEngine {
 
     fn hold(&self, n: u64) {
         let now = self.held.fetch_add(n as i64, Ordering::Relaxed) + n as i64;
-        self.peak_held.fetch_max(now.max(0) as u64, Ordering::Relaxed);
+        self.peak_held
+            .fetch_max(now.max(0) as u64, Ordering::Relaxed);
     }
 
     fn unhold(&self, n: u64) {
@@ -1575,7 +1707,9 @@ impl ParEngine {
         if need > self.load_room() {
             return false;
         }
-        mcx::governor::current().is_none_or(|l| l.limit() == 0 || l.bytes().saturating_add(need as isize) <= l.limit() as isize)
+        mcx::governor::current().is_none_or(|l| {
+            l.limit() == 0 || l.bytes().saturating_add(need as isize) <= l.limit() as isize
+        })
     }
 
     /// D4365 (ladder on): this chunk's step at the gate. The ask is what the chunk will hold through its part's seal
@@ -1583,9 +1717,23 @@ impl ParEngine {
     /// [`seal_ahead_all`], this load's among them) and this load's parquet decode window; under the ladder's line it fits. Past it: one climb (R1-R4b), then the wait (R5) re-reading the line each
     /// poll; a wait spent with the need still there hands R2b / R6 to the ladder thread once (whose cancel of the largest
     /// holder reaches this leader as `memory_refused`), and a second spent wait refuses the load (53200).
-    fn ladder_gate(&self, bytes: u64, excludable: u64, seat: &mut Seat, lw: &mut Option<LadderWait>) -> LadderStep {
-        let own = bytes.saturating_mul(self.seal_x).saturating_add(self.ahead.load(Ordering::Relaxed));
-        ladder_step(own, bytes.saturating_mul(self.seal_x - 1), excludable, seat, lw)
+    fn ladder_gate(
+        &self,
+        bytes: u64,
+        excludable: u64,
+        seat: &mut Seat,
+        lw: &mut Option<LadderWait>,
+    ) -> LadderStep {
+        let own = bytes
+            .saturating_mul(self.seal_x)
+            .saturating_add(self.ahead.load(Ordering::Relaxed));
+        ladder_step(
+            own,
+            bytes.saturating_mul(self.seal_x - 1),
+            excludable,
+            seat,
+            lw,
+        )
     }
 
     /// D4387: the seal reserve of the open part a leader blocked before chunk `id` cannot close while it stays blocked:
@@ -1595,7 +1743,11 @@ impl ParEngine {
         if c.cut_cursor != id {
             return 0;
         }
-        let open: u64 = c.normalized.range(c.part_start_chunk..c.cut_cursor).map(|(_, n)| n.bytes).sum();
+        let open: u64 = c
+            .normalized
+            .range(c.part_start_chunk..c.cut_cursor)
+            .map(|(_, n)| n.bytes)
+            .sum();
         open.saturating_mul(self.seal_x - 1)
     }
 
@@ -1607,7 +1759,9 @@ impl ParEngine {
     /// `u64::MAX` with no probe.
     fn load_room(&self) -> u64 {
         let ahead = self.ahead.load(Ordering::Relaxed);
-        mcx::governor::probe_resident().map_or(u64::MAX, |r| load_room_at((r as u64).saturating_add(ahead), dirty_now()))
+        mcx::governor::probe_resident().map_or(u64::MAX, |r| {
+            load_room_at((r as u64).saturating_add(ahead), dirty_now())
+        })
     }
 
     /// D3808: the bytes the load has planned but not yet made resident
@@ -1720,8 +1874,12 @@ impl ParEngine {
                 break Err(e.clone());
             }
             if memory_refused() {
-                if let Some(w) = &lw { w.ep.canceled(); }
-                break Err(WriteError::Refused { what: MEMORY_REFUSED });
+                if let Some(w) = &lw {
+                    w.ep.canceled();
+                }
+                break Err(WriteError::Refused {
+                    what: MEMORY_REFUSED,
+                });
             }
             if !c.forwarded.is_empty() {
                 drop(c);
@@ -1737,33 +1895,57 @@ impl ParEngine {
                     // D4365: the floor is no exemption from the ladder's line: one part's seal is ~3x its bytes.
                     // D4387: the load's own room (D3808) first, then the ladder's gate, whose pass admits the chunk's
                     // seal reserve into the process-wide one at once
-                    if c.parts_open == 0 || (within && self.memory_room(bytes.saturating_mul(self.seal_x))) {
+                    if c.parts_open == 0
+                        || (within && self.memory_room(bytes.saturating_mul(self.seal_x)))
+                    {
                         let excludable = self.open_part_reserve(&c, id);
                         match self.ladder_gate(bytes, excludable, &mut seat, &mut lw) {
                             LadderStep::Fits => {
-                                self.seal_ahead.fetch_add(bytes.saturating_mul(self.seal_x - 1), Ordering::Relaxed);
+                                self.seal_ahead.fetch_add(
+                                    bytes.saturating_mul(self.seal_x - 1),
+                                    Ordering::Relaxed,
+                                );
                                 break Ok(());
                             }
                             LadderStep::Climb(ask) => {
                                 // the climb's rungs run off the engine's lock (the workers seal under it)
                                 drop(c);
-                                let ep = mcx::ladder_stats::Wait::begin(mcx::ladder_stats::Site::Load, ask);
+                                let ep = mcx::ladder_stats::Wait::begin(
+                                    mcx::ladder_stats::Site::Load,
+                                    ask,
+                                );
                                 let w = mcx::ladder::wait_begin(&mcx::ladder::climb(ask));
-                                lw = Some(LadderWait { polls: 0, since: 0, seen: wait_epoch(), handed: None, wait: w, ep });
+                                lw = Some(LadderWait {
+                                    polls: 0,
+                                    since: 0,
+                                    seen: wait_epoch(),
+                                    handed: None,
+                                    wait: w,
+                                    ep,
+                                });
                                 c = lock(&self.mu);
                                 continue;
                             }
                             LadderStep::Wait => {}
-                            LadderStep::Refuse => break Err(WriteError::Refused { what: LOAD_PAST_LINE }),
+                            LadderStep::Refuse => {
+                                break Err(WriteError::Refused {
+                                    what: LOAD_PAST_LINE,
+                                })
+                            }
                         }
                     }
-                } else if c.parts_open == 0 || (within && self.memory_room(bytes.saturating_mul(2))) {
+                } else if c.parts_open == 0 || (within && self.memory_room(bytes.saturating_mul(2)))
+                {
                     break Ok(());
                 }
                 polls += 1;
                 // counted as it happens: a reader of `memory_report` sees a wait in progress
                 self.gate_polls.fetch_add(1, Ordering::Relaxed);
-                c = self.cv.wait_timeout(c, MEMORY_GATE_POLL).map(|(g, _)| g).unwrap_or_else(|e| e.into_inner().0);
+                c = self
+                    .cv
+                    .wait_timeout(c, MEMORY_GATE_POLL)
+                    .map(|(g, _)| g)
+                    .unwrap_or_else(|e| e.into_inner().0);
                 self.sync_charge();
                 continue;
             }
@@ -2010,7 +2192,8 @@ impl ParEngine {
                     self.unhold(raw);
                     if self.ladder {
                         // D4387: the chunk's reserve, admitted at its gate by its raw bytes, leaves with it
-                        self.seal_ahead.fetch_sub(raw.saturating_mul(self.seal_x - 1), Ordering::Relaxed);
+                        self.seal_ahead
+                            .fetch_sub(raw.saturating_mul(self.seal_x - 1), Ordering::Relaxed);
                         seal_ahead_shrink(raw.saturating_mul(self.seal_x - 1));
                     }
                     // Error parity: normalize errors carry their INPUT
@@ -2025,7 +2208,10 @@ impl ParEngine {
                     self.hold(bytes.saturating_mul(self.seal_x));
                     if self.ladder {
                         // D4387: the reserve admitted at the gate by the chunk's raw bytes becomes its normalized bytes'
-                        let (now, was) = (bytes.saturating_mul(self.seal_x - 1), raw.saturating_mul(self.seal_x - 1));
+                        let (now, was) = (
+                            bytes.saturating_mul(self.seal_x - 1),
+                            raw.saturating_mul(self.seal_x - 1),
+                        );
                         self.seal_ahead.fetch_add(now, Ordering::Relaxed);
                         self.seal_ahead.fetch_sub(was, Ordering::Relaxed);
                         seal_ahead_grow(now);
@@ -2127,7 +2313,8 @@ impl ParEngine {
             seqs.push(job.seq);
             let held = job.bytes.saturating_mul(self.seal_x);
             if self.ladder {
-                self.seal_ahead.fetch_sub(job.bytes.saturating_mul(self.seal_x - 1), Ordering::Relaxed);
+                self.seal_ahead
+                    .fetch_sub(job.bytes.saturating_mul(self.seal_x - 1), Ordering::Relaxed);
                 seal_ahead_shrink(job.bytes.saturating_mul(self.seal_x - 1));
             }
             if self.cancelled.load(Ordering::SeqCst) {
@@ -2176,17 +2363,27 @@ impl ParEngine {
 
     /// Assemble one part from its chunks (seam replay, input order) and run
     /// the FROZEN seal face. Mirrors `TableWriter::cut_part` exactly.
-    fn seal_one(&self, mut job: PartJob) -> WriteResult<(u32, (SealedPart, SealReport), Vec<Forwarded>)> {
-        let mut cols: memledger::ChargedVec<ColBuffer> = memledger::ChargedVec::new(self.owner(), memledger::Kind::Region);
-        cols.with_vec(|v| v.extend(self.schema.iter().map(|s| ColBuffer::with_owner(*s, self.owner)))); // alloc: Exec charged self.owner()
-        // Consume-and-drop per chunk: after a chunk is spliced its buffers
-        // are dead — freeing them here keeps the open part's footprint at
-        // ONE whole-part image through encode instead of two (the FIX-A
-        // budget's 2 × max_bytes per-part operand covers the splice-window
-        // pair; this keeps the measured footprint under it with margin).
-        // Same chunks, same input order — bytes cannot move.
-        // PGRC-WRITER-FAST `alloc`: reserve each part accumulator for the
-        // whole splice up front (capacity only).
+    fn seal_one(
+        &self,
+        mut job: PartJob,
+    ) -> WriteResult<(u32, (SealedPart, SealReport), Vec<Forwarded>)> {
+        let mut cols: memledger::ChargedVec<ColBuffer> =
+            memledger::ChargedVec::new(self.owner(), memledger::Kind::Region);
+        cols.with_vec(|v| {
+            v.extend(
+                self.schema
+                    .iter()
+                    .map(|s| ColBuffer::with_owner(*s, self.owner)),
+            )
+        }); // alloc: Exec charged self.owner()
+            // Consume-and-drop per chunk: after a chunk is spliced its buffers
+            // are dead — freeing them here keeps the open part's footprint at
+            // ONE whole-part image through encode instead of two (the FIX-A
+            // budget's 2 × max_bytes per-part operand covers the splice-window
+            // pair; this keeps the measured footprint under it with margin).
+            // Same chunks, same input order — bytes cannot move.
+            // PGRC-WRITER-FAST `alloc`: reserve each part accumulator for the
+            // whole splice up front (capacity only).
         for (i, col) in cols.iter_mut().enumerate() {
             col.reserve_splice(job.chunks.iter().map(|c| &c.cols[i]))?;
         }
@@ -2196,7 +2393,8 @@ impl ParEngine {
             }
         }
         let mut shred = self.providers.shred.make();
-        let mut lanes: memledger::ChargedVec<ShredLane> = memledger::ChargedVec::new(self.owner(), memledger::Kind::Region);
+        let mut lanes: memledger::ChargedVec<ShredLane> =
+            memledger::ChargedVec::new(self.owner(), memledger::Kind::Region);
         for col in &cols[..] {
             if col.schema.class == StorageClass::VarlenaVerbatim {
                 let derived = shred.shred(col, &self.providers.shred_opts)?;
@@ -2211,8 +2409,16 @@ impl ParEngine {
         // serial and parallel ingest keep producing byte-identical parts).
         let mut builders: Vec<Box<dyn ColumnMetaBuilder>> =
             crate::meta_wire::builders_for_streams(&cols, &lanes, &octet);
-        let mut sources: memledger::ChargedVec<&dyn CandidateSource> = memledger::ChargedVec::new(self.owner(), memledger::Kind::Region);
-        sources.with_vec(|v| v.extend(self.providers.sources.iter().map(|s| s.as_ref() as &dyn CandidateSource))); // alloc: Exec charged self.owner()
+        let mut sources: memledger::ChargedVec<&dyn CandidateSource> =
+            memledger::ChargedVec::new(self.owner(), memledger::Kind::Region);
+        sources.with_vec(|v| {
+            v.extend(
+                self.providers
+                    .sources
+                    .iter()
+                    .map(|s| s.as_ref() as &dyn CandidateSource),
+            )
+        }); // alloc: Exec charged self.owner()
         let mut vfs = self.providers.vfs.make();
         let mut fwd = ForwardSink::with_ref_min(self.ref_min);
         let mut lvfs;
@@ -2291,8 +2497,15 @@ impl ParEngine {
         if assigned == 0 {
             return Ok(());
         }
-        let names = (0..assigned).map(|i| temp_file_name(self.fxid, self.base_seq + i)).collect();
-        let rec = ReclaimRec { dir: dir_loc(&self.spec), xid: self.fxid as u32, retire_below: None, names };
+        let names = (0..assigned)
+            .map(|i| temp_file_name(self.fxid, self.base_seq + i))
+            .collect();
+        let rec = ReclaimRec {
+            dir: dir_loc(&self.spec),
+            xid: self.fxid as u32,
+            retire_below: None,
+            names,
+        };
         let mut vfs = self.providers.vfs.make();
         let dir = self.table_dir.as_str();
         match lock(&self.leader_sink).reclaim(&rec, &mut || apply_reclaim(&mut *vfs, dir, &rec)) {

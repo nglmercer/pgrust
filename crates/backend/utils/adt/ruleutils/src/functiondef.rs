@@ -137,6 +137,7 @@ fn pg_proc_row(funcid: Oid) -> PgResult<Option<PgProcRow>> {
         prosqlbody: getattr_null(&t, PROCOID, ANUM_PG_PROC_PROSQLBODY).map(text_at),
         proconfig: getattr_null(&t, PROCOID, ANUM_PG_PROC_PROCONFIG).map(text_array_at),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(ht);
     Ok(Some(row))
@@ -223,6 +224,7 @@ fn print_function_arguments(
         let aggkind = getattr(&t, AGGFNOID, ANUM_PG_AGGREGATE_AGGKIND).as_i8() as u8;
         let aggnumdirectargs =
             getattr(&t, AGGFNOID, ANUM_PG_AGGREGATE_AGGNUMDIRECTARGS).as_i16();
+        #[allow(clippy::drop_non_drop)]
         drop(t);
         ReleaseSysCache(ht);
         if aggkind != AGGKIND_NORMAL {

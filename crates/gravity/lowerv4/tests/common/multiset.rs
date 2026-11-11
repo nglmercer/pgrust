@@ -75,10 +75,12 @@ fn lex(sql: &str) -> Vec<T> {
         } else if x == '\'' || ("eEbBxXnN".contains(x) && at(i + 1, "'")) || at(i, "U&'") || at(i, "u&'") {
             let bs = "eE".contains(x);
             i += c[i..].iter().position(|&y| y == '\'').unwrap_or(0) + 1;
+            #[allow(clippy::nonminimal_bool)]
             while i < c.len() && !(c[i] == '\'' && !at(i + 1, "'")) { i += 1 + ((bs && c[i] == '\\') || c[i] == '\'') as usize }
             i += 1;
         } else if x == '"' {
             i += 1;
+            #[allow(clippy::nonminimal_bool)]
             while i < c.len() && !(c[i] == '"' && !at(i + 1, "\"")) { i += 1 + (c[i] == '"') as usize }
             i += 1;
             out.push((Tok::Word(span(s + 1, i - 1).replace("\"\"", "\""), true), d));
@@ -383,6 +385,7 @@ fn agg_kind(mut it: &[T], declared: Option<&str>) -> Option<F> {
     let close = (2..it.len()).find(|&i| it[i] == (Tok::P(')'), d))?;
     let rest = &it[close + 1..];
     let alias = rest.len() == 1 && matches!(&rest[0].0, Tok::Word(x, _) if x != "over" && x != "filter");
+    #[allow(clippy::nonminimal_bool)]
     if !rest.is_empty() && !alias && !(is(rest.first(), "filter", d) && rest[rest.len() - 1].0 == Tok::P(')') && !rest.iter().any(|x| is(Some(x), "over", d))) { return None }
     if let Some(t) = declared { return float_type(&lex(t), 0).0 }
     if outer.is_some() { return outer }

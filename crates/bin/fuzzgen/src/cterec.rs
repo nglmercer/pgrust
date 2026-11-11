@@ -4,9 +4,9 @@
 //!
 //!   * the SEARCH BREADTH/DEPTH FIRST BY ... SET clause rewrite (parse_cte.c
 //!     + rewrite/rewriteSearchCycle) — the injected search-order column and
-//!     the ordering it induces (validated as ORDERED-compare: the SET column
-//!     is projected and the outer query ORDERs BY it, so a wrong preorder /
-//!     breadth-order on either engine is a real divergence);
+//!       the ordering it induces (validated as ORDERED-compare: the SET column
+//!       is projected and the outer query ORDERs BY it, so a wrong preorder /
+//!       breadth-order on either engine is a real divergence);
 //!   * the CYCLE col SET markcol [TO 'Y' DEFAULT 'N'] USING pathcol rewrite —
 //!     both the boolean default-mark form and the explicit TO/DEFAULT text-
 //!     mark form, over deterministic small graphs that DO contain cycles so

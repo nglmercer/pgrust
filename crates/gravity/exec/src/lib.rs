@@ -879,6 +879,7 @@ mod d1789_slot_owners {
 
     /// stmtoh F6: a static level parks as many Nodes as it keeps plans, never fewer than `PARK_NODES`; off, `PARK_NODES`.
     #[test]
+    #[allow(clippy::assertions_on_constants, unused_attributes)]
     fn a_static_level_parks_as_many_nodes_as_it_keeps_plans() {
         assert_eq!(park_nodes(MAX_PLANS, true), MAX_PLANS);
         assert_eq!(park_nodes(4, true), PARK_NODES, "an e2e's small memo keeps the old park");

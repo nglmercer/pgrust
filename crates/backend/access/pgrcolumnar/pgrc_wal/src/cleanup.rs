@@ -3,8 +3,8 @@
 
 use pgsync::Mutex;
 
-use pgrc_am::{catalog, dirpath};
 use pgrc_am::probe::{ClogTxnProbe, StandbyTempProbe};
+use pgrc_am::{catalog, dirpath};
 use pgrc_format::dirlayout::parse_table_dir_name;
 use pgrc_format::wal::{DirLoc, InstallRec, PublishRec, ReclaimRec};
 use pgrc_write::cleanup::{cleanup_dir_keeping, forget_swept, note_swept, parse_temp_fxid};
@@ -26,16 +26,33 @@ pub struct TableDir {
 fn listed(vfs: &mut RealVfs, dir: &str) -> PgResult<Vec<String>> {
     match vfs.list_dir(dir) {
         Ok(v) => Ok(v),
-        Err(WriteError::Io { errno: libc::ENOENT, .. }) => Ok(Vec::new()),
+        Err(WriteError::Io {
+            errno: libc::ENOENT,
+            ..
+        }) => Ok(Vec::new()),
         Err(e) => Err(pgrc_am::write_error(e)),
     }
 }
 
-fn scan_db(vfs: &mut RealVfs, spc: u32, db_path: &str, db: u32, out: &mut Vec<TableDir>) -> PgResult<()> {
+fn scan_db(
+    vfs: &mut RealVfs,
+    spc: u32,
+    db_path: &str,
+    db: u32,
+    out: &mut Vec<TableDir>,
+) -> PgResult<()> {
     for name in listed(vfs, db_path)? {
-        let Some((temp, relnumber)) = parse_table_dir_name(&name) else { continue };
-        let Ok(relnumber) = u32::try_from(relnumber) else { continue };
-        out.push(TableDir { loc: DirLoc { spc, db, relnumber }, path: format!("{db_path}/{name}"), temp: temp.is_some() });
+        let Some((temp, relnumber)) = parse_table_dir_name(&name) else {
+            continue;
+        };
+        let Ok(relnumber) = u32::try_from(relnumber) else {
+            continue;
+        };
+        out.push(TableDir {
+            loc: DirLoc { spc, db, relnumber },
+            path: format!("{db_path}/{name}"),
+            temp: temp.is_some(),
+        });
     }
     Ok(())
 }
@@ -45,11 +62,19 @@ pub fn table_dirs() -> PgResult<Vec<TableDir>> {
     let mut out = Vec::new();
     for db in listed(&mut vfs, "base")? {
         if let Ok(oid) = db.parse::<u32>() {
-            scan_db(&mut vfs, DEFAULTTABLESPACE_OID, &format!("base/{db}"), oid, &mut out)?;
+            scan_db(
+                &mut vfs,
+                DEFAULTTABLESPACE_OID,
+                &format!("base/{db}"),
+                oid,
+                &mut out,
+            )?;
         }
     }
     for spc in listed(&mut vfs, PG_TBLSPC_DIR)? {
-        let Ok(spc_oid) = spc.parse::<u32>() else { continue };
+        let Ok(spc_oid) = spc.parse::<u32>() else {
+            continue;
+        };
         let spc_dir = format!("{PG_TBLSPC_DIR}/{spc}/{TABLESPACE_VERSION_DIRECTORY}");
         for db in listed(&mut vfs, &spc_dir)? {
             if let Ok(oid) = db.parse::<u32>() {
@@ -66,7 +91,9 @@ struct RegisterSink {
 }
 
 fn not_logged<T>() -> WriteResult<T> {
-    Err(WriteError::Contract { detail: "end-of-recovery cleanup logs nothing" })
+    Err(WriteError::Contract {
+        detail: "end-of-recovery cleanup logs nothing",
+    })
 }
 
 impl WalSink for RegisterSink {
@@ -109,7 +136,11 @@ fn clean(d: &TableDir, probe: &ClogTxnProbe) -> PgResult<()> {
     let slot = (d.loc.spc, d.loc.db, d.loc.relnumber as u64);
     // a promoted hot standby's sessions keep reading the committed generations its catalog holds; a crash recovery
     // primes the catalog after this pass, so it keeps none
-    let held = if catalog::is_live() { catalog::committed_parts(slot, probe) } else { Default::default() };
+    let held = if catalog::is_live() {
+        catalog::committed_parts(slot, probe)
+    } else {
+        Default::default()
+    };
     probe.take_error()?;
     let r = cleanup_dir_keeping(&mut RealVfs, &mut sink, &d.path, probe, &held);
     probe.take_error()?;
@@ -122,7 +153,13 @@ fn clean(d: &TableDir, probe: &ClogTxnProbe) -> PgResult<()> {
 }
 
 fn warn(what: &str, e: &PgError) {
-    let _ = elog::elog(WARNING, format!("pgrcolumnar: end-of-recovery cleanup of {what} failed: {}", e.message()));
+    let _ = elog::elog(
+        WARNING,
+        format!(
+            "pgrcolumnar: end-of-recovery cleanup of {what} failed: {}",
+            e.message()
+        ),
+    );
 }
 
 /// The restartpoint sweep and the end-of-recovery cleanup never run at once, since the cleanup's unlinks expect no
@@ -162,7 +199,8 @@ pub fn pgrc_cleanup() {
 /// as missing PANICs instead, since its writer was alive.
 pub fn restartpoint_temps() {
     let ended = pgsync::lock(&RECOVERY_ENDED);
-    let hot = xlogrecovery_seams::hot_standby_active::is_installed() && xlogrecovery_seams::hot_standby_active::call();
+    let hot = xlogrecovery_seams::hot_standby_active::is_installed()
+        && xlogrecovery_seams::hot_standby_active::call();
     if *ended || !hot || !transam_xlog::RecoveryInProgress() {
         return;
     }
@@ -176,7 +214,9 @@ pub fn restartpoint_temps() {
         match sweep_dir(&d.path, &key, &|fxid| probe.removable(fxid)) {
             Ok((removed, kept)) => {
                 for (name, fxid) in removed {
-                    let msg = format!("pgrcolumnar: restartpoint removed {key}/{name} (writer fxid {fxid})");
+                    let msg = format!(
+                        "pgrcolumnar: restartpoint removed {key}/{name} (writer fxid {fxid})"
+                    );
                     let _ = elog::elog(LOG, msg);
                 }
                 kept.iter().for_each(|(path, e)| warn_sweep(path, e));
@@ -187,18 +227,27 @@ pub fn restartpoint_temps() {
 }
 
 fn warn_sweep(what: &str, e: &PgError) {
-    let msg = format!("pgrcolumnar: restartpoint removal of dead temps in {what} failed: {}", e.message());
+    let msg = format!(
+        "pgrcolumnar: restartpoint removal of dead temps in {what} failed: {}",
+        e.message()
+    );
     let _ = elog::elog(WARNING, msg);
 }
 
 pub(crate) type Swept = (Vec<(String, u64)>, Vec<(String, Box<PgError>)>);
 
 /// Each temp is noted as swept under `key` before its unlink, so no redo skip of it can slip between the two.
-pub(crate) fn sweep_dir(dir: &str, key: &str, removable: &dyn Fn(u64) -> PgResult<bool>) -> PgResult<Swept> {
+pub(crate) fn sweep_dir(
+    dir: &str,
+    key: &str,
+    removable: &dyn Fn(u64) -> PgResult<bool>,
+) -> PgResult<Swept> {
     let mut vfs = RealVfs;
     let (mut removed, mut kept) = (Vec::new(), Vec::new());
     for name in listed(&mut vfs, dir)? {
-        let Some(fxid) = parse_temp_fxid(&name) else { continue };
+        let Some(fxid) = parse_temp_fxid(&name) else {
+            continue;
+        };
         let path = format!("{dir}/{name}");
         match removable(fxid) {
             Ok(true) => {}
@@ -211,7 +260,10 @@ pub(crate) fn sweep_dir(dir: &str, key: &str, removable: &dyn Fn(u64) -> PgResul
         note_swept(format!("{key}/{name}"), fxid);
         match vfs.unlink_path(&path) {
             Ok(()) => removed.push((name, fxid)),
-            Err(WriteError::Io { errno: libc::ENOENT, .. }) => {}
+            Err(WriteError::Io {
+                errno: libc::ENOENT,
+                ..
+            }) => {}
             Err(e) => return Err(pgrc_am::write_error(e)),
         }
     }

@@ -186,6 +186,7 @@ fn keys_match<K: ProbeKeys>(
     ct: &crate::CatCTup,
     keys: &K,
 ) -> bool {
+    #[allow(clippy::needless_range_loop)]
     for i in 0..nkeys as usize {
         if !eq_stored(kinds[i], ct.keys[i], ct.payload, &keys.slot(i)) {
             return false;

@@ -8,6 +8,7 @@
 //! stored value). DESC and NULLS fold in the caller (rep/word/order.rs `fold`). Owner M6-TYPES.
 use gravity_decompose::catalog::typefacts::{KeyColl, TypeFacts};
 use gravity_program::{Rep, Until};
+#[allow(unused_imports)]
 use types_core::catalog::NUMERICOID;
 
 use crate::face::kinds::KindId;

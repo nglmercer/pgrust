@@ -2682,6 +2682,7 @@ fn get_json_table_columns<'mcx>(
         };
         let colexpr = colexpr.as_json_expr().expect("JsonExpr");
         ctx.buf.push_str(&format_type_with_typemod(typid, typmod)?);
+        #[allow(clippy::needless_late_init)]
         let default_behavior;
         if colexpr.op == JsonExprOp::JSON_EXISTS_OP {
             ctx.buf.push_str(" EXISTS");
@@ -2965,6 +2966,7 @@ pub(crate) fn get_name_for_var_field<'mcx>(
     } else {
         let ps = dpns.plan.borrow();
         if varno == types_nodes::primnodes::OUTER_VAR && ps.outer_tlist.is_some() {
+            #[allow(clippy::unnecessary_unwrap)]
             let tle = crate::plan::get_tle_by_resno(ps.outer_tlist.unwrap(), varattno)
                 .unwrap_or_else(|| panic!("bogus varattno for OUTER_VAR var: {varattno}"));
             debug_assert!(netlevelsup == 0);
@@ -2976,6 +2978,7 @@ pub(crate) fn get_name_for_var_field<'mcx>(
             return result;
         }
         if varno == types_nodes::primnodes::INNER_VAR && ps.inner_tlist.is_some() {
+            #[allow(clippy::unnecessary_unwrap)]
             let tle = crate::plan::get_tle_by_resno(ps.inner_tlist.unwrap(), varattno)
                 .unwrap_or_else(|| panic!("bogus varattno for INNER_VAR var: {varattno}"));
             debug_assert!(netlevelsup == 0);
@@ -2987,6 +2990,7 @@ pub(crate) fn get_name_for_var_field<'mcx>(
             return result;
         }
         if varno == types_nodes::primnodes::INDEX_VAR && ps.index_tlist.is_some() {
+            #[allow(clippy::unnecessary_unwrap)]
             let tle = crate::plan::get_tle_by_resno(ps.index_tlist.unwrap(), varattno)
                 .unwrap_or_else(|| panic!("bogus varattno for INDEX_VAR var: {varattno}"));
             debug_assert!(netlevelsup == 0);

@@ -15,18 +15,29 @@ pagepool::by_arch_default!();
 
 const PROBE: &str = "PPHATCH_PROBE";
 /// What serves with `PGRUST_ALLOCATOR` naming no allocator, on this architecture.
-const DEFAULT: &str = if pagepool::HEARTH_BY_ARCH { "pagepool" } else { "mimalloc" };
+const DEFAULT: &str = if pagepool::HEARTH_BY_ARCH {
+    "pagepool"
+} else {
+    "mimalloc"
+};
 
 fn run_probe(allocator: Option<&str>, want: &str) {
     let mut c = std::process::Command::new(std::env::current_exe().expect("this test binary"));
-    c.args(["--exact", "probe", "--nocapture", "--test-threads=1"]).env(PROBE, want).env("PGRUST_POOL_MCX", "1").env("PGRUST_POOL_RESERVE", "1");
+    c.args(["--exact", "probe", "--nocapture", "--test-threads=1"])
+        .env(PROBE, want)
+        .env("PGRUST_POOL_MCX", "1")
+        .env("PGRUST_POOL_RESERVE", "1");
     match allocator {
         Some(v) => c.env("PGRUST_ALLOCATOR", v),
         None => c.env_remove("PGRUST_ALLOCATOR"),
     };
     let out = c.output().expect("the probe child");
-    let text = String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
-    assert!(out.status.success() && text.contains("probe ok"), "PGRUST_ALLOCATOR={allocator:?}:\n{text}");
+    let text =
+        String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success() && text.contains("probe ok"),
+        "PGRUST_ALLOCATOR={allocator:?}:\n{text}"
+    );
 }
 
 #[test]
@@ -52,17 +63,48 @@ fn without_the_hatch_the_pool_serves() {
 #[test]
 fn the_default_is_the_architectures() {
     for (hearth, arch) in [(true, "Linux aarch64, x86_64"), (false, "macOS")] {
-        assert_eq!(pagepool::hearth_chosen(None, hearth), hearth, "{arch}: unset = the default");
-        assert_eq!(pagepool::hearth_chosen(Some("jemalloc"), hearth), hearth, "{arch}: naming no allocator = the default");
-        assert_eq!(pagepool::hearth_chosen(Some(""), hearth), hearth, "{arch}: empty = the default");
+        assert_eq!(
+            pagepool::hearth_chosen(None, hearth),
+            hearth,
+            "{arch}: unset = the default"
+        );
+        assert_eq!(
+            pagepool::hearth_chosen(Some("jemalloc"), hearth),
+            hearth,
+            "{arch}: naming no allocator = the default"
+        );
+        assert_eq!(
+            pagepool::hearth_chosen(Some(""), hearth),
+            hearth,
+            "{arch}: empty = the default"
+        );
         for v in ["hearth", "Hearth", "pagepool"] {
-            assert!(pagepool::hearth_chosen(Some(v), hearth), "{arch}: {v} = Hearth");
+            assert!(
+                pagepool::hearth_chosen(Some(v), hearth),
+                "{arch}: {v} = Hearth"
+            );
         }
-        assert!(!pagepool::hearth_chosen(Some("MiMalloc"), hearth), "{arch}: mimalloc = mimalloc");
+        assert!(
+            !pagepool::hearth_chosen(Some("MiMalloc"), hearth),
+            "{arch}: mimalloc = mimalloc"
+        );
     }
-    assert_eq!(pagepool::HEARTH_BY_ARCH, cfg!(all(target_os = "linux", any(target_arch = "aarch64", target_arch = "x86_64"))));
-    assert!(pagepool::by_arch() && !pagepool::by_arch_late(), "by_arch_default!'s constructor ran before the first allocation");
-    assert_eq!(pagepool::hearth_default(), pagepool::HEARTH_BY_ARCH, "this binary takes the server's default");
+    assert_eq!(
+        pagepool::HEARTH_BY_ARCH,
+        cfg!(all(
+            target_os = "linux",
+            any(target_arch = "aarch64", target_arch = "x86_64")
+        ))
+    );
+    assert!(
+        pagepool::by_arch() && !pagepool::by_arch_late(),
+        "by_arch_default!'s constructor ran before the first allocation"
+    );
+    assert_eq!(
+        pagepool::hearth_default(),
+        pagepool::HEARTH_BY_ARCH,
+        "this binary takes the server's default"
+    );
 }
 
 /// D4872 (the user, "Yes, after one x86 check": x86_64 Linux with SPAN_FIT off bulk-loads ~5.5 % faster than
@@ -71,21 +113,32 @@ fn the_default_is_the_architectures() {
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
 fn x86_64_linux_defaults_to_hearth_and_the_hatch_still_wins() {
-    assert!(pagepool::HEARTH_BY_ARCH && pagepool::hearth_default(), "x86_64 Linux: the server's default is Hearth");
+    assert!(
+        pagepool::HEARTH_BY_ARCH && pagepool::hearth_default(),
+        "x86_64 Linux: the server's default is Hearth"
+    );
     run_probe(None, "pagepool");
     run_probe(Some("mimalloc"), "mimalloc");
 }
 
 /// The blocks of every road (small tier, buckets, runs, a span), zeroed, grown across roads: whose they are.
 fn blocks_are(hatch: bool) {
-    let sized: Vec<Vec<u8>> = [8usize, 100, 1000, 4096, 70_000, 3 << 20].iter().map(|&n| vec![1u8; n]).collect();
+    let sized: Vec<Vec<u8>> = [8usize, 100, 1000, 4096, 70_000, 3 << 20]
+        .iter()
+        .map(|&n| vec![1u8; n])
+        .collect();
     let zeroed = vec![0u64; 1 << 18];
     assert!(zeroed.iter().all(|&x| x == 0));
     let mut grown = Vec::<u8>::with_capacity(16);
     for i in 0..300_000u32 {
         grown.push(i as u8);
     }
-    let big = [sized[4].as_ptr(), sized[5].as_ptr(), zeroed.as_ptr().cast(), grown.as_ptr()];
+    let big = [
+        sized[4].as_ptr(),
+        sized[5].as_ptr(),
+        zeroed.as_ptr().cast(),
+        grown.as_ptr(),
+    ];
     if hatch {
         for p in sized.iter().map(|b| b.as_ptr()).chain(big) {
             assert!(hatch_block(p) && !pagepool::owns(p), "{p:?}: mimalloc's");
@@ -112,23 +165,41 @@ fn hatch_block(_: *const u8) -> bool {
 
 #[test]
 fn probe() {
-    let Ok(want) = std::env::var(PROBE) else { return };
+    let Ok(want) = std::env::var(PROBE) else {
+        return;
+    };
     let hatch = want == "mimalloc";
     assert_eq!(pagepool::hatch_on(), hatch);
     assert_eq!(pagepool::pool_allocates(), !hatch);
     assert_eq!(pagepool::allocator_decides(), 1, "read once");
     blocks_are(hatch);
-    assert_eq!(pagepool::switches().mcx, !hatch, "PGRUST_POOL_MCX=1 inert under the hatch");
+    assert_eq!(
+        pagepool::switches().mcx,
+        !hatch,
+        "PGRUST_POOL_MCX=1 inert under the hatch"
+    );
     assert_eq!(pagepool::reserve_on(), !hatch, "PGRUST_POOL_RESERVE=1 too");
     assert_eq!(pagepool::global_on(), !hatch);
     assert_eq!(pagepool::on(), !hatch);
     let c = pagepool::small_counts();
-    assert_eq!(c.fresh == 0, hatch, "the small tier made runs only for the pool: {}", c.fresh);
+    assert_eq!(
+        c.fresh == 0,
+        hatch,
+        "the small tier made runs only for the pool: {}",
+        c.fresh
+    );
     if hatch {
-        assert_eq!((c.adopted, c.spare, c.retired, c.abandoned), (0, 0, 0, 0), "and no run went through its stacks");
+        assert_eq!(
+            (c.adopted, c.spare, c.retired, c.abandoned),
+            (0, 0, 0, 0),
+            "and no run went through its stacks"
+        );
         assert_eq!(pagepool::thread_retained(), 0);
         assert_eq!(pagepool::range(), (0, 0), "no reservation");
-        assert!(!pagepool::init(&pagepool::Config::from_policy()), "init refuses");
+        assert!(
+            !pagepool::init(&pagepool::Config::from_policy()),
+            "init refuses"
+        );
         assert!(!pagepool::start(), "no pool thread");
         assert_eq!(pagepool::stats().claimed, 0);
     } else {
@@ -139,7 +210,11 @@ fn probe() {
     let pid = unsafe { libc::fork() };
     if pid == 0 {
         let ok = std::panic::catch_unwind(move || {
-            assert_eq!(pagepool::allocator_decides(), 1, "inherited, not read again");
+            assert_eq!(
+                pagepool::allocator_decides(),
+                1,
+                "inherited, not read again"
+            );
             assert_eq!(pagepool::hatch_on(), hatch);
             assert!(inherited.iter().all(|&b| b == 7));
             drop(inherited);
@@ -154,7 +229,10 @@ fn probe() {
     let mut status = 0;
     // SAFETY: our own child.
     assert_eq!(unsafe { libc::waitpid(pid, &mut status, 0) }, pid);
-    assert!(libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0, "the forked child: {status:#x}");
+    assert!(
+        libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0,
+        "the forked child: {status:#x}"
+    );
     assert_eq!(pagepool::allocator_decides(), 1);
     println!("probe ok");
 }

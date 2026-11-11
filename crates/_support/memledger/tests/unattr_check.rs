@@ -4,7 +4,9 @@
 //! One test in its own binary: the switch is process-wide. No counting allocator: the account moves only by `door_heap`
 //! (door 1, as the server's allocator calls it) and the charges.
 use memledger::charge::{context, Door};
-use memledger::{bind_backend, door_heap, statement_begin, statement_end, unattr, unbind_backend, Charge, Kind};
+use memledger::{
+    bind_backend, door_heap, statement_begin, statement_end, unattr, unbind_backend, Charge, Kind,
+};
 
 const MIB: isize = 1 << 20;
 
@@ -52,16 +54,31 @@ fn the_check_reports_unattributed_bytes_past_the_bound_at_the_end_and_at_a_rise(
         statement_end();
         let r = unattr::end_report().expect("over at the rises");
         let (pu, pb, level) = r.peak.expect("a sustained rise past its bound");
-        assert_eq!((pu, pb, level), (100 << 20, unattr::FLOOR, 300 << 20), "{r:?}");
-        assert!(r.end.is_some_and(|(u, b)| u <= b), "the end within the bound: {r:?}");
-        assert_eq!((r.checks, r.skips), (4, 0), "three rises and the end: {r:?}");
+        assert_eq!(
+            (pu, pb, level),
+            (100 << 20, unattr::FLOOR, 300 << 20),
+            "{r:?}"
+        );
+        assert!(
+            r.end.is_some_and(|(u, b)| u <= b),
+            "the end within the bound: {r:?}"
+        );
+        assert_eq!(
+            (r.checks, r.skips),
+            (4, 0),
+            "three rises and the end: {r:?}"
+        );
 
         // one uncharged 100 MiB rise, then freed: never sustained, no report
         statement_begin();
         door_heap(100 * MIB);
         door_heap(-100 * MIB);
         statement_end();
-        assert_eq!(unattr::end_report(), None, "a transient rise is not sustained");
+        assert_eq!(
+            unattr::end_report(),
+            None,
+            "a transient rise is not sustained"
+        );
 
         // a large statement's 1.5 GiB in two blocks, each charged right after its allocation (as ChargedVec does): its
         // rises are checked inside the allocation-to-commit window, and none is over

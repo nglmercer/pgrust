@@ -19,8 +19,17 @@ fn door(d: i64) {
 /// or of this thread with None. None where it is unreadable (no /proc; a kernel without sched_info reads 0, so the clock
 /// is judged there as before).
 fn run_delay(comm: Option<&str>) -> Option<u64> {
-    let field = |p: &std::path::Path| std::fs::read_to_string(p).ok()?.split_whitespace().nth(1)?.parse::<u64>().ok();
-    let Some(c) = comm else { return field(std::path::Path::new("/proc/thread-self/schedstat")) };
+    let field = |p: &std::path::Path| {
+        std::fs::read_to_string(p)
+            .ok()?
+            .split_whitespace()
+            .nth(1)?
+            .parse::<u64>()
+            .ok()
+    };
+    let Some(c) = comm else {
+        return field(std::path::Path::new("/proc/thread-self/schedstat"));
+    };
     let mut sum = None;
     for t in std::fs::read_dir("/proc/self/task").ok()?.flatten() {
         if std::fs::read_to_string(t.path().join("comm")).is_ok_and(|n| n.trim_end() == c) {
@@ -37,7 +46,9 @@ fn purger() {
     assert!(start(), "the pool's threads started");
     let size = if big() { 2usize << 30 } else { 256 * MIB };
     let h = Hint::new(Class::Process, Tag::BUFFER);
-    let spans: Vec<_> = (0..size / (16 * MIB)).map(|_| span(16 * MIB, h).expect("span")).collect();
+    let spans: Vec<_> = (0..size / (16 * MIB))
+        .map(|_| span(16 * MIB, h).expect("span"))
+        .collect();
     for s in &spans {
         touch(s.as_ptr() as usize, s.len());
     }
@@ -48,11 +59,18 @@ fn purger() {
     }
     let r0 = stats().released_bytes;
     std::thread::sleep(Duration::from_millis(300));
-    assert_eq!(stats().released_bytes, r0, "nothing released without pressure");
+    assert_eq!(
+        stats().released_bytes,
+        r0,
+        "nothing released without pressure"
+    );
     let waits = || Some(run_delay(Some("pg:poolpurge"))? + run_delay(None)?);
     let w0 = waits();
     let t0 = Instant::now();
-    set_pressure(Pressure::Release { bytes: size, class: None });
+    set_pressure(Pressure::Release {
+        bytes: size,
+        class: None,
+    });
     let goal = (size / 10 * 9) as u64;
     // D4842: bounded at 30 s, not 5, so a starved purger reaches the goal and the clock below says why it is late
     while stats().released_bytes - r0 < goal && t0.elapsed() < Duration::from_secs(30) {
@@ -60,9 +78,15 @@ fn purger() {
     }
     let ms = t0.elapsed().as_secs_f64() * 1e3;
     // the purger's and this thread's waits for a cpu meanwhile (they may overlap: an upper bound on the time lost)
-    let waited = w0.zip(waits()).map(|(a, b)| b.saturating_sub(a) as f64 / 1e6);
+    let waited = w0
+        .zip(waits())
+        .map(|(a, b)| b.saturating_sub(a) as f64 / 1e6);
     let got = stats().released_bytes - r0;
-    eprintln!("MEASURED purge clock: {} MiB released in {ms:.1} ms ({:.1} ms/GiB) on pg:poolpurge", got >> 20, ms / (got as f64 / (1u64 << 30) as f64));
+    eprintln!(
+        "MEASURED purge clock: {} MiB released in {ms:.1} ms ({:.1} ms/GiB) on pg:poolpurge",
+        got >> 20,
+        ms / (got as f64 / (1u64 << 30) as f64)
+    );
     assert!(got >= goal, "released {got} of {size}");
     match waited {
         _ if ms <= 100.0 => {}
@@ -75,16 +99,27 @@ fn purger() {
                 "SKIP (D4842, a starved purger): >= 90 % took {ms:.1} ms, {w:.1} ms of it waiting for a cpu (the purger's and this thread's run delay): the clock not judged here"
             );
         }
-        _ => panic!(">= 90 % took {ms:.1} ms ({} ms of it waiting for a cpu)", waited.map_or("unknown".to_string(), |w| format!("{w:.1}"))),
+        _ => panic!(
+            ">= 90 % took {ms:.1} ms ({} ms of it waiting for a cpu)",
+            waited.map_or("unknown".to_string(), |w| format!("{w:.1}"))
+        ),
     }
     while stats().released_bytes - r0 < size as u64 && t0.elapsed() < Duration::from_secs(30) {
         std::thread::sleep(Duration::from_millis(1));
     }
-    assert_eq!(stats().released_bytes - r0, size as u64, "the whole ask was released");
+    assert_eq!(
+        stats().released_bytes - r0,
+        size as u64,
+        "the whole ask was released"
+    );
     assert_eq!(resident(first, 16 * MIB), 0);
     let s = stats();
     assert!(s.purge_ns > 0 && s.releases > 0);
-    assert_eq!(DOOR.load(Relaxed), s.claimed as i64, "the door saw every claim and release");
+    assert_eq!(
+        DOOR.load(Relaxed),
+        s.claimed as i64,
+        "the door saw every claim and release"
+    );
     stop();
     balanced();
 }

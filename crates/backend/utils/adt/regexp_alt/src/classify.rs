@@ -19,22 +19,22 @@
 //! - inline option/director groups (`(?i)`, `***:`);
 //! - non-UTF8 databases and patterns that are not valid UTF-8 or contain
 //!   NUL (Spencer's pattern view stops at the first NUL);
-//! Additionally, capture POSITIONS are only trusted ("capture-safe") when
-//! the parse of every leftmost-longest match is forced to agree. Spencer
-//! (regcomp.c parseqatom: concat(prefix, concat(capture, rest)); regexec.c
-//! ccondissect) resolves captures by giving each segment between capture
-//! boundaries, left to right, its LONGEST extent consistent with the whole
-//! match; RE2 and the program tier keep the highest Perl-priority parse,
-//! which maximizes quantifier iteration counts left to right. The two
-//! orders coincide when each segment (every one but the last, after the
-//! final capture) has at most one quantifier whose count is not forced by
-//! the input, and no other variable-count quantifier after it: then the
-//! segment's length is strictly increasing in that single count (see
-//! `captures_determined`). Anything else — quantified captures, nested
-//! captures or captures inside groups, alternation alongside captures,
-//! multi-quantifier segments such as `a?(?:ab)?(b?)` — still dispatches for
-//! whole-match-only uses (leftmost-longest spans are uniquely defined and
-//! agree), but every submatch-consuming call falls to Spencer.
+//!   Additionally, capture POSITIONS are only trusted ("capture-safe") when
+//!   the parse of every leftmost-longest match is forced to agree. Spencer
+//!   (regcomp.c parseqatom: concat(prefix, concat(capture, rest)); regexec.c
+//!   ccondissect) resolves captures by giving each segment between capture
+//!   boundaries, left to right, its LONGEST extent consistent with the whole
+//!   match; RE2 and the program tier keep the highest Perl-priority parse,
+//!   which maximizes quantifier iteration counts left to right. The two
+//!   orders coincide when each segment (every one but the last, after the
+//!   final capture) has at most one quantifier whose count is not forced by
+//!   the input, and no other variable-count quantifier after it: then the
+//!   segment's length is strictly increasing in that single count (see
+//!   `captures_determined`). Anything else — quantified captures, nested
+//!   captures or captures inside groups, alternation alongside captures,
+//!   multi-quantifier segments such as `a?(?:ab)?(b?)` — still dispatches for
+//!   whole-match-only uses (leftmost-longest spans are uniquely defined and
+//!   agree), but every submatch-consuming call falls to Spencer.
 //!
 //! D3121: three escapes are admitted as exact translations, under a per-call
 //! guard. `\s` becomes `[\x09-\x0D\x20]` (RE2's own `\s` lacks `\v`), and

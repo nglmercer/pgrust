@@ -41,7 +41,10 @@ pub(crate) fn setup(stats: &mut VacAttrStats<'_>) -> PgResult<bool> {
         ComputeStats::Distinct => StdCompute::Distinct,
         _ => StdCompute::Trivial,
     };
-    stats.compute = ComputeStats::Array { std, elem_typeid: element_typeid };
+    stats.compute = ComputeStats::Array {
+        std,
+        elem_typeid: element_typeid,
+    };
     Ok(true)
 }
 
@@ -221,17 +224,14 @@ pub(crate) fn compute_array_stats<'mcx>(
         slot_idx += 1;
     }
     if slot_idx > STATISTIC_NUM_SLOTS - 2 {
-        return Err(
-            PgError::error("insufficient pg_statistic slots for array stats").into(),
-        );
+        return Err(PgError::error("insufficient pg_statistic slots for array stats").into());
     }
 
     if analyzed_rows > 0 {
         let nonnull_cnt = analyzed_rows;
         let cutoff_freq = 9 * element_no / bucket_width as i64;
 
-        let mut sort_idx: PgVec<'_, u32> =
-            mcx::vec_with_capacity_in(col_mcx, elements_tab.len())?;
+        let mut sort_idx: PgVec<'_, u32> = mcx::vec_with_capacity_in(col_mcx, elements_tab.len())?;
         let mut minfreq = element_no;
         let mut maxfreq = 0i64;
         for id in elements_tab.seq() {
@@ -255,7 +255,11 @@ pub(crate) fn compute_array_stats<'mcx>(
                 elements_tab.len(),
                 track_len
             ))
-            .finish(types_error::ErrorLocation::new(file!(), line!() as i32, "compute_array_stats"))?;
+            .finish(types_error::ErrorLocation::new(
+                file!(),
+                line!() as i32,
+                "compute_array_stats",
+            ))?;
 
         let mut num_mcelem = num_mcelem_target;
         if num_mcelem < track_len {

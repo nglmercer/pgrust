@@ -10,15 +10,13 @@ use cache_syscache::{
 };
 use datum::Datum;
 use mcx::{Mcx, PgVec};
+use parser_small1::ParseState;
 use types_core::{AttrNumber, InvalidOid, Oid, NAMESPACE_RELATION_ID};
 use types_error::{
     PgError, PgResult, ERRCODE_INSUFFICIENT_PRIVILEGE, ERRCODE_INVALID_GRANT_OPERATION,
 };
-use types_nodes::parsenodes::{
-    AlterDefaultPrivilegesStmt, DropBehavior, ObjectType, RoleSpecType,
-};
+use types_nodes::parsenodes::{AlterDefaultPrivilegesStmt, DropBehavior, ObjectType, RoleSpecType};
 use types_rel::RowExclusiveLock;
-use parser_small1::ParseState;
 
 use crate::grant::{
     get_rolespec_oid, merge_acl_with_grant, privilege_to_string, string_to_privilege,

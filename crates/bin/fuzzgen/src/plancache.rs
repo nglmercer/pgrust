@@ -27,11 +27,11 @@
 //!     its cases.
 //!   - plancache INVALIDATION (PlanCacheRelCallback + RevalidateCachedQuery
 //!     + replan): PREPARE, warm to a generic plan, then inside a
-//!     BEGIN..ROLLBACK bracket run DDL that invalidates the cached plan
-//!     (CREATE INDEX, ALTER TABLE ADD COLUMN) and re-EXECUTE — the plan is
-//!     rebuilt and must return the same rows; the ROLLBACK itself
-//!     invalidates again, and the post-rollback EXECUTE must replan against
-//!     the original relation.
+//!       BEGIN..ROLLBACK bracket run DDL that invalidates the cached plan
+//!       (CREATE INDEX, ALTER TABLE ADD COLUMN) and re-EXECUTE — the plan is
+//!       rebuilt and must return the same rows; the ROLLBACK itself
+//!       invalidates again, and the post-rollback EXECUTE must replan against
+//!       the original relation.
 //!   - pg_prepared_statements introspection (prepare.c
 //!     pg_prepared_statement SRF): name / statement / parameter_types /
 //!     result_types / from_sql plus the generic_plans / custom_plans

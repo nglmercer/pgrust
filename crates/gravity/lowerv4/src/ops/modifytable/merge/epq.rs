@@ -63,15 +63,15 @@
 //!   redo takes the newest version's cells for the target's carried columns and its ctid (BUILT's), and the join
 //!   condition over them and the step's own source columns decides as under PROBED; a drained (BY SOURCE) row's own
 //!   RECHECK runs the BY SOURCE actions again over the newest version.
-//! BEFORE ROW: a target that fires BEFORE ROW triggers rechecks the same way. Its action's prologue
-//! (ExecBRUpdateTriggers / ExecBRDeleteTriggers with is_merge_update / is_merge_delete) locks the newest version
-//! (GetTupleForTrigger, FIND_LAST_VERSION, no EvalPlanQual of its own) and hands TM_Updated to ExecMergeMatched before any
-//! trigger runs; the host's prologue lock is that (hosts trigger_before.rs `lock_old`: a traversed lock answers RECHECK
-//! with the newest version locked, TM_Deleted NOT_MATCHED). The redo then runs as above, and the action's second prologue
-//! takes the held lock (TM_Ok, not traversed) and fires the triggers once, OLD the newest version.
-//! Every other MATCHED-acting MERGE in a data-modifying CTE keeps ROWC_MERGE's refusal. D1687 (`beside`): a writing CTE's
-//! MERGE one of the forms admits may sit beside another write plan (rowop.rs `two_plans_served`): it stops for no
-//! runner's EvalPlanQual.
+//!   BEFORE ROW: a target that fires BEFORE ROW triggers rechecks the same way. Its action's prologue
+//!   (ExecBRUpdateTriggers / ExecBRDeleteTriggers with is_merge_update / is_merge_delete) locks the newest version
+//!   (GetTupleForTrigger, FIND_LAST_VERSION, no EvalPlanQual of its own) and hands TM_Updated to ExecMergeMatched before any
+//!   trigger runs; the host's prologue lock is that (hosts trigger_before.rs `lock_old`: a traversed lock answers RECHECK
+//!   with the newest version locked, TM_Deleted NOT_MATCHED). The redo then runs as above, and the action's second prologue
+//!   takes the held lock (TM_Ok, not traversed) and fires the triggers once, OLD the newest version.
+//!   Every other MATCHED-acting MERGE in a data-modifying CTE keeps ROWC_MERGE's refusal. D1687 (`beside`): a writing CTE's
+//!   MERGE one of the forms admits may sit beside another write plan (rowop.rs `two_plans_served`): it stops for no
+//!   runner's EvalPlanQual.
 use gravity_abi::ctx::site_off;
 use gravity_abi::program::WRITE_EPQ_ROW;
 use gravity_abi::site::site;
@@ -342,7 +342,7 @@ fn built_right<'g, 'p>(gx: &Gx<'g, 'p>, k: usize, j: usize, w: &WriteDesc<'_>, (
     let plain = |l: &types_nodes::list::NodeList<'_>| l.iter().all(|e| e.as_target_entry().is_some_and(|te| te.expr.as_var().is_some_and(|v| v.varlevelsup == 0)));
     let (Some(Op::Join(JoinDesc::Build { .. })), rest) = pq.ops.split_last().map_or((None, &[][..]), |(l, r)| (Some(l), r)) else { return None };
     let marks = w.mark_descs.iter().all(|x| x.rti == w.rti || x.rti == srti && x.relid == srel);
-    if pq.desc.produces() != Some(*slot) || !target || !rest.iter().all(|o| matches!(o, Op::Project(l) if plain(*l))) || srti == w.rti || !marks || w.targets[0].junk_col <= 0 {
+    if pq.desc.produces() != Some(*slot) || !target || !rest.iter().all(|o| matches!(o, Op::Project(l) if plain(l))) || srti == w.rti || !marks || w.targets[0].junk_col <= 0 {
         return None;
     }
     let mut out: PgVec<'g, Node<'p>> = PgVec::new_in(gx.mcx);
@@ -385,7 +385,7 @@ fn sorted<'g, 'p>(gx: &Gx<'g, 'p>, k: usize, j: usize, w: &WriteDesc<'_>, nm: bo
     let (q, tops) = sorted_by(*slot)?;
     let target = matches!(&ps[q].source, Source::Range { am: Am::Heap, scanrelid, relid, .. } if u32::from(*scanrelid) == w.rti && *relid == w.plan.target_rel);
     let plain = |l: &types_nodes::list::NodeList<'_>| l.iter().all(|e| e.as_target_entry().is_some_and(|te| te.expr.as_var().is_some_and(|v| v.varlevelsup == 0)));
-    if !sops.iter().all(calm) || !target || !tops.iter().all(|o| matches!(o, Op::Project(l) if plain(*l))) {
+    if !sops.iter().all(calm) || !target || !tops.iter().all(|o| matches!(o, Op::Project(l) if plain(l))) {
         return None;
     }
     let mut proj = None;
@@ -463,7 +463,7 @@ fn built<'g, 'p>(gx: &Gx<'g, 'p>, k: usize, j: usize, w: &WriteDesc<'_>, nm: boo
     let target = matches!(&pq.source, Source::Range { am: Am::Heap, scanrelid, relid, .. } if u32::from(*scanrelid) == w.rti && *relid == w.plan.target_rel);
     let (Some(Op::Join(JoinDesc::Build { keys, .. })), rest) = pq.ops.split_last().map_or((None, &[][..]), |(l, r)| (Some(l), r)) else { return None };
     let plain = |l: &types_nodes::list::NodeList<'_>| l.iter().all(|e| e.as_target_entry().is_some_and(|te| te.expr.as_var().is_some_and(|v| v.varlevelsup == 0)));
-    if pq.desc.produces() != Some(*slot) || !target || !rest.iter().all(|o| matches!(o, Op::Project(l) if plain(*l))) {
+    if pq.desc.produces() != Some(*slot) || !target || !rest.iter().all(|o| matches!(o, Op::Project(l) if plain(l))) {
         return None;
     }
     let quiet = |x: Node<'_>| !crate::effects::volatile(gx, x);

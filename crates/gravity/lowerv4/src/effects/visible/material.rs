@@ -59,7 +59,7 @@ fn quiet_in(gx: &Gx<'_, '_>, p: &PipelineNode<'_>, ops: &[Op<'_>]) -> bool {
             Op::Filter(q) => !exec_param(*q) && !ops_can_raise(gx, core::slice::from_ref(op)),
             Op::Project(l) => !l.iter().any(exec_param) && !ops_can_raise(gx, core::slice::from_ref(op)),
             Op::Join(JoinDesc::Nest { jointype: JoinType::JOIN_INNER, params, inner, qual, .. }) => {
-                params.is_nil() && !qual.iter().any(exec_param) && !ops_can_raise(gx, &[Op::Project(*qual)]) && quiet_in(gx, inner, &inner.ops)
+                params.is_nil() && !qual.iter().any(exec_param) && !ops_can_raise(gx, &[Op::Project(qual)]) && quiet_in(gx, inner, &inner.ops)
             }
             _ => false,
         })

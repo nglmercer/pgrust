@@ -5,7 +5,9 @@
 
 use memledger::charge::{context, enter_portal, pins_of, portal_begin, portal_end};
 use memledger::pins::PinSet;
-use memledger::{account_row, bind_backend, statement_begin, statement_end, unbind_backend, Acct, Owner};
+use memledger::{
+    account_row, bind_backend, statement_begin, statement_end, unbind_backend, Acct, Owner,
+};
 
 const ENTRY: u64 = 1000;
 
@@ -34,17 +36,26 @@ fn pins_follow_their_owner_and_count_an_evicted_entry_once() {
         let on_cursor = entry.pin_as(cursor);
         assert_eq!((pins_of(cursor), pins_of(stmt)), ((1000, 0, 0), (0, 0, 0)));
         let on_stmt = entry.pin_as(stmt);
-        assert_eq!((pins_of(cursor), pins_of(stmt)), ((1000, 0, 0), (1000, 0, 0)));
+        assert_eq!(
+            (pins_of(cursor), pins_of(stmt)),
+            ((1000, 0, 0), (1000, 0, 0))
+        );
         assert_eq!(sum(), (2000, 0, 0));
 
         // the cache evicts it: both holders move into evicted; the shares sum to the entry's bytes (no double count)
         entry.evict();
-        assert_eq!((pins_of(cursor), pins_of(stmt)), ((1000, 1000, 500), (1000, 1000, 500)));
+        assert_eq!(
+            (pins_of(cursor), pins_of(stmt)),
+            ((1000, 1000, 500), (1000, 1000, 500))
+        );
         assert_eq!(sum(), (2000, 2000, 1000));
 
         // the statement's scan drops it: the cursor alone holds the entry, its share is the whole
         drop(on_stmt);
-        assert_eq!((pins_of(cursor), pins_of(stmt)), ((1000, 1000, 1000), (0, 0, 0)));
+        assert_eq!(
+            (pins_of(cursor), pins_of(stmt)),
+            ((1000, 1000, 1000), (0, 0, 0))
+        );
         assert_eq!(sum(), (1000, 1000, 1000));
 
         // between two FETCHes another statement runs and ends on the backend: the cursor's pins stay on its row and the

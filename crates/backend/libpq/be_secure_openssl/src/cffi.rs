@@ -316,12 +316,8 @@ pub fn read_dh_params(
         let dh = if bio.is_null() {
             std::ptr::null_mut()
         } else {
-            let dh = ossl::PEM_read_bio_DHparams(
-                bio,
-                std::ptr::null_mut(),
-                None,
-                std::ptr::null_mut(),
-            );
+            let dh =
+                ossl::PEM_read_bio_DHparams(bio, std::ptr::null_mut(), None, std::ptr::null_mut());
             ossl::BIO_free_all(bio);
             dh
         };

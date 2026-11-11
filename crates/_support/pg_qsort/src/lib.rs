@@ -137,7 +137,12 @@ unsafe fn swapn<T: Copy>(mut a: *mut T, mut b: *mut T, n: usize) {
     }
 }
 
-unsafe fn qsort_rec<T, E, C, K>(mut a: *mut T, mut n: usize, cmp: &mut C, chk: &mut K) -> Result<(), E>
+unsafe fn qsort_rec<T, E, C, K>(
+    mut a: *mut T,
+    mut n: usize,
+    cmp: &mut C,
+    chk: &mut K,
+) -> Result<(), E>
 where
     T: Copy,
     C: FnMut(&T, &T) -> Result<i32, E>,
@@ -257,7 +262,9 @@ mod tests {
     use super::*;
 
     fn lcg(state: &mut u64) -> u64 {
-        *state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        *state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         *state >> 33
     }
 
@@ -266,7 +273,9 @@ mod tests {
     fn cases() -> Vec<Vec<(i32, u32)>> {
         let mut out = Vec::new();
         let mut rng = 0x5eed_1234_u64;
-        for n in [0usize, 1, 2, 5, 6, 7, 8, 13, 39, 40, 41, 64, 100, 500, 1000, 4096] {
+        for n in [
+            0usize, 1, 2, 5, 6, 7, 8, 13, 39, 40, 41, 64, 100, 500, 1000, 4096,
+        ] {
             for &kmod in &[2u64, 7, 16, 1000] {
                 out.push(
                     (0..n)
@@ -346,7 +355,11 @@ mod tests {
             |a, b| a.0 - b.0,
             || {
                 checks += 1;
-                if checks > 10 { Err("interrupted") } else { Ok(()) }
+                if checks > 10 {
+                    Err("interrupted")
+                } else {
+                    Ok(())
+                }
             },
         );
         assert_eq!(r, Err("interrupted"));
@@ -358,13 +371,20 @@ mod tests {
     fn intransitive_comparator_is_safe() {
         let mut rng = 0xabcdef_u64;
         for n in [7usize, 41, 100, 1000] {
-            let orig: Vec<(i32, u32)> =
-                (0..n).map(|i| ((lcg(&mut rng) % 4) as i32, i as u32)).collect();
+            let orig: Vec<(i32, u32)> = (0..n)
+                .map(|i| ((lcg(&mut rng) % 4) as i32, i as u32))
+                .collect();
             let mut v = orig.clone();
             // Rock-paper-scissors on key % 3: cyclic, intransitive.
             pg_qsort(&mut v, |a, b| {
                 let (x, y) = (a.0.rem_euclid(3), b.0.rem_euclid(3));
-                if x == y { 0 } else if (x + 1) % 3 == y { -1 } else { 1 }
+                if x == y {
+                    0
+                } else if (x + 1) % 3 == y {
+                    -1
+                } else {
+                    1
+                }
             });
             let mut seen: Vec<u32> = v.iter().map(|e| e.1).collect();
             seen.sort_unstable();

@@ -21,6 +21,7 @@ use crate::face::strategy::NUM_WINDOW;
 use crate::frame::env::Env;
 use crate::frame::px::Px;
 use crate::frame::row::RowVals;
+#[allow(unused_imports)]
 use crate::admit::refusal::{Reason, Variant};
 
 use crate::ops::agg::numeric::strategies::memo_num::Memo;
@@ -320,7 +321,7 @@ mod tests {
         let big = |m: i128, scale| bx(Tree::PastWord { m: Some(m), scale, digits: 36 });
         let k = |m: i64, scale| bx(Tree::Const { m, scale, digits: 18 });
         let run = |t: &Tree| -> [u64; 4] {
-            let mut word = |i: usize| {
+            let word = |i: usize| {
                 crate::frame::stop::tests::run1(&[], &mut |b, env| {
                     let row = RowVals { row: crate::cell::Row::new_in(env.mcx), vals: mcx::PgVec::new_in(env.mcx), cols: mcx::PgVec::new_in(env.mcx), carry: crate::frame::row::Carry::new(env.zero, env.mcx), next: env.zero, at: env.zero };
                     let mut memo = Memo::new(false, env.mcx);

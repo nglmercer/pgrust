@@ -34,10 +34,8 @@ pub struct ForeignScanState<'mcx> {
 pub struct FdwExecRoutine {
     pub begin:
         for<'mcx> fn(&mut ForeignScanState<'mcx>, &mut EStateData<'mcx>, i32) -> PgResult<()>,
-    pub iterate:
-        for<'mcx> fn(&mut ForeignScanState<'mcx>, &mut EStateData<'mcx>) -> PgResult<bool>,
-    pub rescan:
-        for<'mcx> fn(&mut ForeignScanState<'mcx>, &mut EStateData<'mcx>) -> PgResult<()>,
+    pub iterate: for<'mcx> fn(&mut ForeignScanState<'mcx>, &mut EStateData<'mcx>) -> PgResult<bool>,
+    pub rescan: for<'mcx> fn(&mut ForeignScanState<'mcx>, &mut EStateData<'mcx>) -> PgResult<()>,
     pub end: for<'mcx> fn(&mut ForeignScanState<'mcx>, &mut EStateData<'mcx>) -> PgResult<()>,
     /// Emits FdwExplainProp, not ExplainState; FdwExplainFlags carries the
     /// ExplainState bits C's hooks read (es->costs, es->verbose,
@@ -56,12 +54,10 @@ pub struct FdwExecRoutine {
     pub begin_direct: Option<
         for<'mcx> fn(&mut ForeignScanState<'mcx>, &mut EStateData<'mcx>, i32) -> PgResult<()>,
     >,
-    pub iterate_direct: Option<
-        for<'mcx> fn(&mut ForeignScanState<'mcx>, &mut EStateData<'mcx>) -> PgResult<bool>,
-    >,
-    pub end_direct: Option<
-        for<'mcx> fn(&mut ForeignScanState<'mcx>, &mut EStateData<'mcx>) -> PgResult<()>,
-    >,
+    pub iterate_direct:
+        Option<for<'mcx> fn(&mut ForeignScanState<'mcx>, &mut EStateData<'mcx>) -> PgResult<bool>>,
+    pub end_direct:
+        Option<for<'mcx> fn(&mut ForeignScanState<'mcx>, &mut EStateData<'mcx>) -> PgResult<()>>,
     /// ForeignAsyncRequest / ForeignAsyncConfigureWait / ForeignAsyncNotify
     /// (fdwapi.h); None = provider is never async-capable.
     pub async_request: Option<
@@ -175,8 +171,10 @@ static FDW_EXEC_ROUTINES: [AtomicPtr<FdwExecRoutine>; NUM_FDW_KINDS] =
     [const { AtomicPtr::new(core::ptr::null_mut()) }; NUM_FDW_KINDS];
 
 pub fn install_fdw_exec_routine(kind: FdwKind, routine: &'static FdwExecRoutine) {
-    FDW_EXEC_ROUTINES[kind.index()]
-        .store(routine as *const FdwExecRoutine as *mut FdwExecRoutine, Ordering::Release);
+    FDW_EXEC_ROUTINES[kind.index()].store(
+        routine as *const FdwExecRoutine as *mut FdwExecRoutine,
+        Ordering::Release,
+    );
 }
 
 fn fdw_exec_routine(kind: FdwKind) -> &'static FdwExecRoutine {
@@ -197,11 +195,7 @@ impl<'a, 'mcx, C: ForeignScanOuter<'mcx>> ScanNode<'mcx> for ForeignScanDrive<'a
     }
 
     /// `ForeignRecheck` (nodeForeignscan.c).
-    fn epq_recheck(
-        &mut self,
-        estate: &mut EStateData<'mcx>,
-        slot: ExecSlotId,
-    ) -> PgResult<bool> {
+    fn epq_recheck(&mut self, estate: &mut EStateData<'mcx>, slot: ExecSlotId) -> PgResult<bool> {
         let ForeignScanDrive { fs, outer } = self;
         let ecxt = fs.ss.ps_ExprContext;
         // Does the tuple meet the remote qual condition?
@@ -241,7 +235,10 @@ impl<'a, 'mcx, C: ForeignScanOuter<'mcx>> ScanNode<'mcx> for ForeignScanDrive<'a
             (routine.iterate)(fs, estate)?
         };
         if found && fs.table_oid != InvalidOid {
-            estate.slot_mut(fs.ss.ss_ScanTupleSlot).base_mut().tts_tableOid = fs.table_oid;
+            estate
+                .slot_mut(fs.ss.ss_ScanTupleSlot)
+                .base_mut()
+                .tts_tableOid = fs.table_oid;
         }
         Ok(found)
     }
@@ -286,7 +283,11 @@ pub fn exec_init_foreign_scan<'mcx>(
         fdwroutine = foreigncmds_seams::get_fdw_routine_by_rel_id::call(mcx, r.rd_id)?;
         // C copies the descriptor: FDW rows need not satisfy NOT NULL.
         scan_tupdesc = alloc::rc::Rc::new(tupdesc::CreateTupleDescCopy(mcx, &r.rd_att)?);
-        table_oid = if node.fsSystemCol { r.rd_id } else { InvalidOid };
+        table_oid = if node.fsSystemCol {
+            r.rd_id
+        } else {
+            InvalidOid
+        };
         rel = Some(r);
     } else {
         // Foreign join/upper: tuple shape comes from fdw_scan_tlist; no base
@@ -299,7 +300,11 @@ pub fn exec_init_foreign_scan<'mcx>(
     }
     // C: TTSOpsHeapTuple. Only a system-column read needs the heap shape
     // (the provider then stores a formed tuple); otherwise stay virtual.
-    let kind = if node.fsSystemCol { TupleSlotKind::HeapTuple } else { TupleSlotKind::Virtual };
+    let kind = if node.fsSystemCol {
+        TupleSlotKind::HeapTuple
+    } else {
+        TupleSlotKind::Virtual
+    };
     let ss_ScanTupleSlot = estate.exec_init_extra_tuple_slot(Some(scan_tupdesc), kind);
 
     let mut ss = ScanState {
@@ -314,7 +319,10 @@ pub fn exec_init_foreign_scan<'mcx>(
     };
     if node.scan.scanrelid > 0 {
         execscan::exec_assign_scan_projection_info(
-            mcx, estate, &mut ss, &node.scan.plan.targetlist,
+            mcx,
+            estate,
+            &mut ss,
+            &node.scan.plan.targetlist,
         )?;
     } else {
         // ExecAssignScanProjectionInfoWithVarno(..., INDEX_VAR): the plan
@@ -364,9 +372,9 @@ pub fn exec_begin_foreign_scan<'mcx>(
 ) -> PgResult<()> {
     let fdwroutine = state.fdwroutine;
     if state.plan.operation != CmdType::CMD_SELECT {
-        (fdw_exec_routine(fdwroutine).begin_direct.expect("direct-modify provider"))(
-            state, estate, eflags,
-        )?;
+        (fdw_exec_routine(fdwroutine)
+            .begin_direct
+            .expect("direct-modify provider"))(state, estate, eflags)?;
     } else {
         (fdw_exec_routine(fdwroutine).begin)(state, estate, eflags)?;
     }

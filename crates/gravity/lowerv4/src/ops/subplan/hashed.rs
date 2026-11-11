@@ -120,7 +120,7 @@ fn handle(px: &mut Px<'_, '_>, kb: usize, (widths, lazy, no_nulls): (&[u8], bool
         if p.arg != arg {
             shape(node, "a hashed SubPlan whose probe and set disagree on the key's width");
         }
-        return p.words.base as u16;
+        return p.words.base;
     }
     let h = px.proto_words(1);
     let proto = Proto::new(ProtoKind::SubHash, kb as u16).words(h, 1).arg(arg);
@@ -133,7 +133,7 @@ fn handle(px: &mut Px<'_, '_>, kb: usize, (widths, lazy, no_nulls): (&[u8], bool
 /// beside the SubHash set of `kb`, whose LAZY build runs that set's members into it (subplan hash.rs `SubHashEpq`).
 fn twin_handle(px: &mut Px<'_, '_>, kb: usize) -> u16 {
     if let Some(p) = px.protos.iter().find(|p| p.kind == ProtoKind::SubHashEpq && p.pipeline as usize == kb) {
-        return p.words.base as u16;
+        return p.words.base;
     }
     let arg = px.protos.iter().find(|p| p.kind == ProtoKind::SubHash && p.pipeline as usize == kb).map_or(0, |p| p.arg);
     let t = px.proto_words(1);

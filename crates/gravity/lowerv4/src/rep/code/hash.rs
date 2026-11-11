@@ -7,8 +7,8 @@
 //! - Same-dictionary scope (`Scope::SameDict`, an operator inside one part of one site: a run collapse, a per-part front):
 //!   the code itself, exact, because a part's dictionary holds each value once. Codes are never translated between
 //!   dictionaries.
-//! Equality is PG's for a deterministic collation (bytewise); a non-deterministic one never reaches this arm (the census
-//! routes it to `key.coll`). The window's table words come from the source (`Frame::tables`, 24 bytes per table).
+//!   Equality is PG's for a deterministic collation (bytewise); a non-deterministic one never reaches this arm (the census
+//!   routes it to `key.coll`). The window's table words come from the source (`Frame::tables`, 24 bytes per table).
 use gravity_decompose::catalog::typefacts::TypeFacts;
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{ConvOp, IntBinOp, IntCond, Type, Value};

@@ -1,8 +1,8 @@
 //! selfuncs.c slice: eqsel/scalarineqsel over Var-op-Const with pg_statistic
 //! consumption (MCV + histogram), plus btcostestimate/genericcostestimate.
 
-use fp_contract::fmadd;
 use datum::Datum;
+use fp_contract::fmadd;
 use syscache_seams::{PgStatisticBundle, PgStatisticSlotData};
 use types_core::Oid;
 use types_error::PgResult;
@@ -48,7 +48,10 @@ pub const STATISTIC_KIND_CORRELATION: i16 = 3;
 fn stats_memo_disabled() -> bool {
     static DISABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *DISABLED.get_or_init(|| {
-        matches!(std::env::var("PGRUST_PLANNER_STATS_MEMO").as_deref(), Ok("0") | Ok("off"))
+        matches!(
+            std::env::var("PGRUST_PLANNER_STATS_MEMO").as_deref(),
+            Ok("0") | Ok("off")
+        )
     })
 }
 
@@ -69,9 +72,8 @@ pub(crate) fn get_att_stats<'mcx>(
     inh: bool,
 ) -> PgResult<Option<&'mcx PgStatisticBundle<'mcx>>> {
     if stats_memo_disabled() {
-        return match syscache_seams::lookup_pg_statistic_bundle::call(
-            run.mcx, relid, attnum, inh,
-        )? {
+        return match syscache_seams::lookup_pg_statistic_bundle::call(run.mcx, relid, attnum, inh)?
+        {
             Some(b) => Ok(Some(leak_bundle(run.mcx, b)?)),
             None => Ok(None),
         };
@@ -84,12 +86,11 @@ pub(crate) fn get_att_stats<'mcx>(
         // arena outlives the run, and planning is single-threaded.
         return Ok(v.map(|p| unsafe { p.cast::<PgStatisticBundle<'mcx>>().as_ref() }));
     }
-    let fetched = match syscache_seams::lookup_pg_statistic_bundle::call(
-        run.mcx, relid, attnum, inh,
-    )? {
-        Some(b) => Some(leak_bundle(run.mcx, b)?),
-        None => None,
-    };
+    let fetched =
+        match syscache_seams::lookup_pg_statistic_bundle::call(run.mcx, relid, attnum, inh)? {
+            Some(b) => Some(leak_bundle(run.mcx, b)?),
+            None => None,
+        };
     run.att_stats_memo
         .borrow_mut()
         .insert(key, fetched.map(|r| core::ptr::NonNull::from(r).cast()));
@@ -148,7 +149,11 @@ pub(crate) fn op_test(
     constval: Datum,
     varonleft: bool,
 ) -> PgResult<bool> {
-    let (a0, a1) = if varonleft { (slot_value, constval) } else { (constval, slot_value) };
+    let (a0, a1) = if varonleft {
+        (slot_value, constval)
+    } else {
+        (constval, slot_value)
+    };
     Ok(types_fmgr::function_call2_coll_in(opproc, collation, mcx, a0, a1)?.as_bool())
 }
 
@@ -163,7 +168,11 @@ pub(crate) fn op_test_raw(
     constval: Datum,
     varonleft: bool,
 ) -> PgResult<bool> {
-    let (a0, a1) = if varonleft { (slot_value, constval) } else { (constval, slot_value) };
+    let (a0, a1) = if varonleft {
+        (slot_value, constval)
+    } else {
+        (constval, slot_value)
+    };
     let mut fcinfo = types_fmgr::LocalFcinfo::<2>::fresh(collation);
     // SAFETY: `mcx` outlives this single call.
     unsafe { fcinfo.set_result_mcx(mcx) };
@@ -192,10 +201,12 @@ pub fn nulltestsel<'mcx>(
         } else {
             1.0 - freq_null
         }
-    } else if vardata
-        .var
-        .is_some_and(|id| run.root.expr_node(id).as_var().is_some_and(|v| v.varattno < 0))
-    {
+    } else if vardata.var.is_some_and(|id| {
+        run.root
+            .expr_node(id)
+            .as_var()
+            .is_some_and(|v| v.varattno < 0)
+    }) {
         // System attributes are never NULL (selfuncs.c:1746, varattno < 0).
         // The test runs on vardata.var -- the Var examine_variable exposed
         // under any binary-compatible RelabelType (tableoid::regclass IS
@@ -258,8 +269,11 @@ pub fn booltestsel<'mcx>(
             Some((values.first()?.as_bool(), first_num))
         });
         if let Some((first_is_true, first_num)) = mcv {
-            let freq_true =
-                if first_is_true { first_num } else { 1.0 - first_num - freq_null };
+            let freq_true = if first_is_true {
+                first_num
+            } else {
+                1.0 - first_num - freq_null
+            };
             let freq_false = 1.0 - freq_true - freq_null;
             match booltesttype {
                 BoolTestType::IS_UNKNOWN => freq_null,
@@ -274,9 +288,7 @@ pub fn booltestsel<'mcx>(
                 BoolTestType::IS_UNKNOWN => freq_null,
                 BoolTestType::IS_NOT_UNKNOWN => 1.0 - freq_null,
                 BoolTestType::IS_TRUE | BoolTestType::IS_FALSE => (1.0 - freq_null) / 2.0,
-                BoolTestType::IS_NOT_TRUE | BoolTestType::IS_NOT_FALSE => {
-                    (freq_null + 1.0) / 2.0
-                }
+                BoolTestType::IS_NOT_TRUE | BoolTestType::IS_NOT_FALSE => (freq_null + 1.0) / 2.0,
             }
         }
     } else {
@@ -309,8 +321,7 @@ pub fn scalarineqsel_wrapper<'mcx>(
 ) -> PgResult<f64> {
     let mut operator = operator;
     let mut isgt = isgt;
-    let Some((vardata, other, varonleft)) = get_restriction_variable(run, args, varrelid)?
-    else {
+    let Some((vardata, other, varonleft)) = get_restriction_variable(run, args, varrelid)? else {
         return Ok(DEFAULT_INEQ_SEL);
     };
     let Some(c) = other.as_const() else {
@@ -366,8 +377,7 @@ fn scalarineqsel<'mcx>(
             // SAFETY: non-null tid datum points at an ItemPointerData.
             let itemptr =
                 unsafe { *(constval.as_usize() as *const types_tuple::itemptr::ItemPointerData) };
-            let mut block =
-                types_tuple::itemptr::ItemPointerGetBlockNumberNoCheck(&itemptr) as f64;
+            let mut block = types_tuple::itemptr::ItemPointerGetBlockNumberNoCheck(&itemptr) as f64;
             // The last page averages half full: half density there, half a
             // page's weight in the fractions below.
             let mut density = tuples / (pages - 0.5);
@@ -397,7 +407,15 @@ fn scalarineqsel<'mcx>(
     let (mcv_selec, sumcommon) =
         mcv_selectivity(run, vardata, &mut opproc, collation, constval, true)?;
     let hist_selec = ineq_histogram_selectivity(
-        run, vardata, operator, &mut opproc, isgt, iseq, collation, constval, consttype,
+        run,
+        vardata,
+        operator,
+        &mut opproc,
+        isgt,
+        iseq,
+        collation,
+        constval,
+        consttype,
     )?;
 
     let mut selec = 1.0 - stanullfrac - sumcommon;
@@ -453,11 +471,15 @@ fn get_actual_variable_range<'mcx>(
 ) -> PgResult<(bool, Option<Datum>, Option<Datum>)> {
     const BT_LESS: i32 = 1;
     const BT_GREATER: i32 = 5;
-    let Some(rel) = vardata.rel else { return Ok((false, None, None)) };
+    let Some(rel) = vardata.rel else {
+        return Ok((false, None, None));
+    };
     if run.root.rel(rel).indexlist.is_empty() {
         return Ok((false, None, None));
     }
-    let Some(var_id) = vardata.var else { return Ok((false, None, None)) };
+    let Some(var_id) = vardata.var else {
+        return Ok((false, None, None));
+    };
     let var_node = *run.root.expr_node(var_id);
 
     let nindexes = run.root.rel(rel).indexlist.len();
@@ -473,18 +495,24 @@ fn get_actual_variable_range<'mcx>(
             continue;
         }
         // IndexAmTranslateStrategy, btree arm (non-btree loud in plancat).
-        let indexscandir = match lsyscache::amop::get_op_opfamily_strategy(
-            sortop,
-            index.sortopfamily[0],
-        )? {
-            BT_LESS => {
-                if index.reverse_sort[0] { -1 } else { 1 }
-            }
-            BT_GREATER => {
-                if index.reverse_sort[0] { 1 } else { -1 }
-            }
-            _ => continue,
-        };
+        let indexscandir =
+            match lsyscache::amop::get_op_opfamily_strategy(sortop, index.sortopfamily[0])? {
+                BT_LESS => {
+                    if index.reverse_sort[0] {
+                        -1
+                    } else {
+                        1
+                    }
+                }
+                BT_GREATER => {
+                    if index.reverse_sort[0] {
+                        1
+                    } else {
+                        -1
+                    }
+                }
+                _ => continue,
+            };
 
         let mcx = run.mcx;
         let relid = run.root.rel(rel).relid;
@@ -495,8 +523,7 @@ fn get_actual_variable_range<'mcx>(
         let (typlen, typbyval) = lsyscache::typ::get_typlenbyval(vardata.vartype)?;
 
         let mut scankey = types_scan::scankey::ScanKeyData::empty();
-        scankey.sk_flags = types_scan::scankey::SK_ISNULL
-            | types_scan::scankey::SK_SEARCHNOTNULL;
+        scankey.sk_flags = types_scan::scankey::SK_ISNULL | types_scan::scankey::SK_SEARCHNOTNULL;
         scankey.sk_attno = 1;
 
         let mut min = None;
@@ -504,13 +531,27 @@ fn get_actual_variable_range<'mcx>(
         let mut have_data = true;
         if want_min {
             min = get_actual_variable_endpoint(
-                run, &heap_rel, &index_rel, indexscandir, &scankey, typlen, typbyval, &mut slot,
+                run,
+                &heap_rel,
+                &index_rel,
+                indexscandir,
+                &scankey,
+                typlen,
+                typbyval,
+                &mut slot,
             )?;
             have_data = min.is_some();
         }
         if want_max && have_data {
             max = get_actual_variable_endpoint(
-                run, &heap_rel, &index_rel, -indexscandir, &scankey, typlen, typbyval, &mut slot,
+                run,
+                &heap_rel,
+                &index_rel,
+                -indexscandir,
+                &scankey,
+                typlen,
+                typbyval,
+                &mut slot,
             )?;
             have_data = max.is_some();
         }
@@ -578,13 +619,14 @@ fn get_actual_variable_endpoint<'mcx>(
         if scan.xs_recheck {
             break;
         }
-        let itupdesc =
-            scan.xs_itupdesc.as_deref().expect("amgettuple published xs_itup without xs_itupdesc");
+        let itupdesc = scan
+            .xs_itupdesc
+            .as_deref()
+            .expect("amgettuple published xs_itup without xs_itupdesc");
         let mut isnull = false;
         // SAFETY: xs_itup points at the AM's page-copy buffer, live until the
         // next amgettuple/amendscan on this descriptor.
-        let value =
-            unsafe { nbtree::itup::index_getattr(itup.as_ptr(), 1, itupdesc, &mut isnull) };
+        let value = unsafe { nbtree::itup::index_getattr(itup.as_ptr(), 1, itupdesc, &mut isnull) };
         assert!(!isnull, "found unexpected null value in index");
         // The probed by-ref datum points into the AM's BLCKSZ page-copy buffer
         // (nbtree currTuples, which xs_itup indexes into: xs_itup =
@@ -604,7 +646,13 @@ fn get_actual_variable_endpoint<'mcx>(
             } else {
                 None
             };
-        result = Some(endpoint_datum_copy_bounded(mcx, value, typbyval, typlen, page_bounds)?);
+        result = Some(endpoint_datum_copy_bounded(
+            mcx,
+            value,
+            typbyval,
+            typlen,
+            page_bounds,
+        )?);
         break;
     }
     indexam::index_endscan(scan)?;
@@ -631,6 +679,7 @@ fn endpoint_page_overrun() -> Box<types_error::PgError> {
 //
 // Unbounded lane, retained for callers that already own the datum's extent
 // (unit tests). The scan probe uses the page-bounded lane below.
+#[allow(dead_code)]
 pub(crate) fn endpoint_datum_copy<'mcx>(
     mcx: mcx::Mcx<'mcx>,
     value: Datum,
@@ -807,19 +856,18 @@ pub(crate) fn ineq_histogram_selectivity<'mcx>(
         while lobound < hibound {
             let probe = (lobound + hibound) / 2;
             if probe == 0 && nvalues > 2 {
-                let (ok, min, _) = get_actual_variable_range(
-                    run, vardata, sslot.staop, collation, true, false,
-                )?;
+                let (ok, min, _) =
+                    get_actual_variable_range(run, vardata, sslot.staop, collation, true, false)?;
                 have_end = ok;
                 min_override = min;
             } else if probe == nvalues - 1 && nvalues > 2 {
-                let (ok, _, max) = get_actual_variable_range(
-                    run, vardata, sslot.staop, collation, false, true,
-                )?;
+                let (ok, _, max) =
+                    get_actual_variable_range(run, vardata, sslot.staop, collation, false, true)?;
                 have_end = ok;
                 max_override = max;
             }
             let probe_val = if probe == 0 && min_override.is_some() {
+                #[allow(clippy::unnecessary_unwrap)]
                 min_override.unwrap()
             } else if probe == nvalues - 1 && max_override.is_some() {
                 max_override.unwrap()
@@ -857,9 +905,11 @@ pub(crate) fn ineq_histogram_selectivity<'mcx>(
 
             let bin_val = |idx: i32| -> PgResult<Datum> {
                 if idx == 0 && min_override.is_some() {
+                    #[allow(clippy::unnecessary_unwrap)]
                     return Ok(min_override.unwrap());
                 }
                 if idx == nvalues - 1 && max_override.is_some() {
+                    #[allow(clippy::unnecessary_unwrap)]
                     return Ok(max_override.unwrap());
                 }
                 Ok(sslot.values()?[idx as usize])
@@ -882,7 +932,11 @@ pub(crate) fn ineq_histogram_selectivity<'mcx>(
                         1.0
                     } else {
                         let b = (val - low) / (high - low);
-                        if b.is_nan() || !(0.0..=1.0).contains(&b) { 0.5 } else { b }
+                        if b.is_nan() || !(0.0..=1.0).contains(&b) {
+                            0.5
+                        } else {
+                            b
+                        }
                     }
                 }
                 None => 0.5,
@@ -1049,7 +1103,10 @@ fn convert_timevalue_to_scalar(value: Datum, typid: Oid) -> Option<f64> {
             let p = value.as_usize() as *const u8;
             // SAFETY: by-ref 12-byte timetz datum {time i64, zone i32}.
             let (time, zone) = unsafe {
-                (p.cast::<i64>().read_unaligned(), p.add(8).cast::<i32>().read_unaligned())
+                (
+                    p.cast::<i64>().read_unaligned(),
+                    p.add(8).cast::<i32>().read_unaligned(),
+                )
             };
             Some(time as f64 + zone as f64 * 1_000_000.0)
         }
@@ -1082,15 +1139,19 @@ fn convert_network_to_scalar(value: Datum, typid: Oid) -> Option<f64> {
         let mut res =
             ((m[0] as u32) << 24 | (m[1] as u32) << 16 | (m[2] as u32) << 8 | m[3] as u32) as f64;
         res *= 256.0 * 256.0 * 256.0 * 256.0;
-        res += ((m[4] as u32) << 24 | (m[5] as u32) << 16 | (m[6] as u32) << 8 | m[7] as u32)
-            as f64;
+        res +=
+            ((m[4] as u32) << 24 | (m[5] as u32) << 16 | (m[6] as u32) << 8 | m[7] as u32) as f64;
         return Some(res);
     }
     if typid != INETOID && typid != CIDROID {
         return None;
     }
     let ip = crate::network_selfuncs::inet_ref(value);
-    let len = if ip.family == adt_network::PGSQL_AF_INET { 4 } else { 16 };
+    let len = if ip.family == adt_network::PGSQL_AF_INET {
+        4
+    } else {
+        16
+    };
     let mut res = ip.family as f64;
     for i in 0..len {
         res *= 256.0;
@@ -1290,9 +1351,9 @@ pub(crate) fn convert_numeric_to_scalar(value: Datum, typid: Oid) -> Option<f64>
         OIDOID | REGPROCOID | REGPROCEDUREOID | REGOPEROID | REGOPERATOROID | REGCLASSOID
         | REGTYPEOID | REGCOLLATIONOID | REGCONFIGOID | REGDICTIONARYOID | REGROLEOID
         | REGNAMESPACEOID => Some(value.as_u32() as f64),
-        NUMERICOID => {
-            Some(adt_numeric::numeric_float8_no_overflow_any(varlena_datum_payload(value)))
-        }
+        NUMERICOID => Some(adt_numeric::numeric_float8_no_overflow_any(
+            varlena_datum_payload(value),
+        )),
         _ => None,
     }
 }
@@ -1333,7 +1394,11 @@ fn eqsel_internal<'mcx>(
         }
     }
     let Some((vardata, other, varonleft)) = get_restriction_variable(run, args, varrelid)? else {
-        return Ok(if negate { 1.0 - DEFAULT_EQ_SEL } else { DEFAULT_EQ_SEL });
+        return Ok(if negate {
+            1.0 - DEFAULT_EQ_SEL
+        } else {
+            DEFAULT_EQ_SEL
+        });
     };
     let selec = match other.as_const() {
         Some(c) => var_eq_const(
@@ -1354,9 +1419,7 @@ fn eqsel_internal<'mcx>(
 // var_eq_non_const (selfuncs.c).
 fn var_eq_non_const(run: &PlannerRun<'_>, vardata: &VariableStatData<'_>, negate: bool) -> f64 {
     let nullfrac = vardata.nullfrac();
-    let selec = if vardata.isunique
-        && vardata.rel.is_some_and(|r| run.root.rel(r).tuples >= 1.0)
-    {
+    let selec = if vardata.isunique && vardata.rel.is_some_and(|r| run.root.rel(r).tuples >= 1.0) {
         1.0 / run.root.rel(vardata.rel.unwrap()).tuples
     } else if vardata.stats.is_some() {
         let mut selec = 1.0 - nullfrac;
@@ -1375,7 +1438,11 @@ fn var_eq_non_const(run: &PlannerRun<'_>, vardata: &VariableStatData<'_>, negate
     } else {
         1.0 / get_variable_numdistinct(run, vardata).0
     };
-    let selec = if negate { 1.0 - selec - nullfrac } else { selec };
+    let selec = if negate {
+        1.0 - selec - nullfrac
+    } else {
+        selec
+    };
     clamp_probability(selec)
 }
 pub(crate) fn get_restriction_variable<'mcx>(
@@ -1434,7 +1501,11 @@ pub fn examine_variable<'mcx>(
         while let Some(r) = b.as_relabel_type() {
             b = r.arg;
         }
-        if b.ptr_eq(node) { (node, node_id) } else { (b, run.intern_expr(b)) }
+        if b.ptr_eq(node) {
+            (node, node_id)
+        } else {
+            (b, run.intern_expr(b))
+        }
     };
     let node = basenode;
 
@@ -1478,8 +1549,7 @@ pub fn examine_variable<'mcx>(
             use types_pathnodes::relids;
             let mcx = run.mcx;
             let varnos = crate::initsplan::pull_varnos_relids(run, node)?;
-            let basevarnos =
-                relids::relids_difference(mcx, &varnos, &run.root.outer_join_rels);
+            let basevarnos = relids::relids_difference(mcx, &varnos, &run.root.outer_join_rels);
             vardata.var = Some(node_id);
             if relids::relids_is_empty(&basevarnos) {
                 // pseudo-constant clause
@@ -1489,26 +1559,18 @@ pub fn examine_variable<'mcx>(
                     vardata.rel = Some(onerel);
                     // Nullingrel bits inside the expression would prevent
                     // matching index/extended-stats expressions; strip first.
-                    let matchnode =
-                        if relids::relids_overlap(&varnos, &run.root.outer_join_rels) {
-                            crate::relnode::strip_nulling_relids(
-                                mcx,
-                                node,
-                                &run.root.outer_join_rels,
-                            )?
-                        } else {
-                            node
-                        };
-                    examine_expression_index_stats(
-                        run,
-                        &mut vardata,
-                        onerel,
-                        relid,
-                        matchnode,
-                    )?;
+                    let matchnode = if relids::relids_overlap(&varnos, &run.root.outer_join_rels) {
+                        crate::relnode::strip_nulling_relids(mcx, node, &run.root.outer_join_rels)?
+                    } else {
+                        node
+                    };
+                    examine_expression_index_stats(run, &mut vardata, onerel, relid, matchnode)?;
                     if vardata.stats.is_none() && crate::jsonb_stats::enabled() {
                         crate::jsonb_stats::examine_jsonb_path_stats(
-                            run, &mut vardata, relid, matchnode,
+                            run,
+                            &mut vardata,
+                            relid,
+                            matchnode,
                         )?;
                     }
                 }
@@ -1532,7 +1594,11 @@ struct SimpleVarStats<'mcx> {
 impl SimpleVarStats<'_> {
     fn none() -> Self {
         // C leaves acl_ok false on every non-relation exit.
-        SimpleVarStats { stats: None, acl_ok: false, force_unique: false }
+        SimpleVarStats {
+            stats: None,
+            acl_ok: false,
+            force_unique: false,
+        }
     }
 }
 
@@ -1542,8 +1608,7 @@ pub(crate) fn rte_at<'mcx>(
     varno: usize,
 ) -> &'mcx types_nodes::parsenodes::RangeTblEntry<'mcx> {
     match root.simple_rte_array[varno] {
-        types_pathnodes::RangeTblEntryId::Parse { query, index } => run.queries
-            [query.0 as usize]
+        types_pathnodes::RangeTblEntryId::Parse { query, index } => run.queries[query.0 as usize]
             .rtable
             .nth(index as usize)
             .as_range_tbl_entry()
@@ -1553,11 +1618,17 @@ pub(crate) fn rte_at<'mcx>(
 }
 
 // C targetIsInSortList with sortop == InvalidOid: pure sortgroupref match.
-fn tle_in_sortlist(tle: &types_nodes::primnodes::TargetEntry<'_>, sortlist: &types_nodes::NodeList<'_>) -> bool {
+fn tle_in_sortlist(
+    tle: &types_nodes::primnodes::TargetEntry<'_>,
+    sortlist: &types_nodes::NodeList<'_>,
+) -> bool {
     let tle_ref = tle.ressortgroupref;
     tle_ref != 0
         && sortlist.iter().any(|n| {
-            n.as_sort_group_clause().expect("sortlist cell").tleSortGroupRef == tle_ref
+            n.as_sort_group_clause()
+                .expect("sortlist cell")
+                .tleSortGroupRef
+                == tle_ref
         })
 }
 
@@ -1582,7 +1653,10 @@ fn examine_expression_index_stats<'mcx>(
             if index.indexkeys[pos] != 0 {
                 continue;
             }
-            assert!(indexpr_item < index.indexprs.len(), "too few entries in indexprs list");
+            assert!(
+                indexpr_item < index.indexprs.len(),
+                "too few entries in indexprs list"
+            );
             let mut indexkey = *run.root.expr_node(index.indexprs[indexpr_item]);
             indexpr_item += 1;
             if let Some(r) = indexkey.as_relabel_type() {
@@ -1638,10 +1712,7 @@ fn examine_expression_index_stats<'mcx>(
                     // Keyed by statistics object, not (rel, att): not memoized
                     // (rare path); arena-leaked so the ref shape is uniform.
                     vardata.stats = match syscache_seams::statext_expressions_load::call(
-                        run.mcx,
-                        stat_oid,
-                        inh,
-                        pos as i32,
+                        run.mcx, stat_oid, inh, pos as i32,
                     )? {
                         Some(bundle) => Some(leak_bundle(run.mcx, bundle)?),
                         None => None,
@@ -1684,13 +1755,20 @@ impl<'a, 'mcx> RootAncestors<'a, 'mcx> {
     fn ancestor(
         &self,
         lvl: usize,
-    ) -> Option<(&'a types_pathnodes::PlannerInfo<'mcx>, RootAncestors<'a, 'mcx>)> {
+    ) -> Option<(
+        &'a types_pathnodes::PlannerInfo<'mcx>,
+        RootAncestors<'a, 'mcx>,
+    )> {
         debug_assert!(lvl >= 1);
         match *self {
             RootAncestors::Swapped { at, run } => {
                 let slot = &run.rel_subroots[at];
                 let up = RootAncestors::swapped(run, slot.swapped_up);
-                if lvl == 1 { Some((&slot.root, up)) } else { up.ancestor(lvl - 1) }
+                if lvl == 1 {
+                    Some((&slot.root, up))
+                } else {
+                    up.ancestor(lvl - 1)
+                }
             }
             RootAncestors::Suspended(s) => {
                 if lvl <= s.len() {
@@ -1731,7 +1809,11 @@ fn examine_simple_variable<'mcx>(
             } else {
                 true
             };
-            Ok(SimpleVarStats { stats, acl_ok, force_unique: false })
+            Ok(SimpleVarStats {
+                stats,
+                acl_ok,
+                force_unique: false,
+            })
         }
         RTEKind::RTE_SUBQUERY if !rte.inh => {
             if varattno == 0 {
@@ -1741,7 +1823,10 @@ fn examine_simple_variable<'mcx>(
             let Some(idx) = root.rel(rel).subroot_idx else {
                 return Ok(SimpleVarStats::none());
             };
-            let sub_up = RootAncestors::Link { parent: root, up: &up };
+            let sub_up = RootAncestors::Link {
+                parent: root,
+                up: &up,
+            };
             examine_subroot_output(run, sub_up, rte, &run.rel_subroots[idx].root, varattno)
         }
         RTEKind::RTE_CTE if !rte.self_reference => {
@@ -1771,7 +1856,10 @@ fn examine_simple_variable<'mcx>(
             );
             let plan_id = cteroot.cte_plan_ids[ndx];
             assert!(plan_id > 0, "no plan was made for CTE \"{ctename}\"");
-            let sub_up = RootAncestors::Link { parent: cteroot, up: &cte_up };
+            let sub_up = RootAncestors::Link {
+                parent: cteroot,
+                up: &cte_up,
+            };
             examine_subroot_output(
                 run,
                 sub_up,
@@ -1814,28 +1902,42 @@ fn examine_subroot_output<'mcx>(
     } else {
         &subquery.targetList
     };
-    let aliasname =
-        || rte.eref.and_then(|e| e.aliasname).unwrap_or("(unnamed)");
+    let aliasname = || rte.eref.and_then(|e| e.aliasname).unwrap_or("(unnamed)");
     let ste_node = subtlist
         .iter()
         .find(|n| n.as_target_entry().expect("tlist cell").resno == varattno)
         .unwrap_or_else(|| {
-            panic!("subquery {} does not have attribute {varattno}", aliasname())
+            panic!(
+                "subquery {} does not have attribute {varattno}",
+                aliasname()
+            )
         });
     let ste = ste_node.as_target_entry().unwrap();
-    assert!(!ste.resjunk, "subquery {} does not have attribute {varattno}", aliasname());
+    assert!(
+        !ste.resjunk,
+        "subquery {} does not have attribute {varattno}",
+        aliasname()
+    );
 
     // A single-column DISTINCT (or DISTINCT ON) / GROUP BY makes the output
     // unique, but its stats are no longer usable.
     if !subquery.distinctClause.is_nil() {
-        let force_unique = subquery.distinctClause.len() == 1
-            && tle_in_sortlist(ste, &subquery.distinctClause);
-        return Ok(SimpleVarStats { stats: None, acl_ok: false, force_unique });
+        let force_unique =
+            subquery.distinctClause.len() == 1 && tle_in_sortlist(ste, &subquery.distinctClause);
+        return Ok(SimpleVarStats {
+            stats: None,
+            acl_ok: false,
+            force_unique,
+        });
     }
     if !subquery.groupClause.is_nil() {
         let force_unique =
             subquery.groupClause.len() == 1 && tle_in_sortlist(ste, &subquery.groupClause);
-        return Ok(SimpleVarStats { stats: None, acl_ok: false, force_unique });
+        return Ok(SimpleVarStats {
+            stats: None,
+            acl_ok: false,
+            force_unique,
+        });
     }
     if rte.security_barrier {
         return Ok(SimpleVarStats::none());
@@ -1886,7 +1988,10 @@ pub fn all_rows_selectable<'mcx>(
         v
     });
     if !root.append_rel_array.is_empty() {
-        let mut appinfo = root.append_rel_array.get(varno as usize).and_then(|a| a.as_ref());
+        let mut appinfo = root
+            .append_rel_array
+            .get(varno as usize)
+            .and_then(|a| a.as_ref());
         while let Some(ai) = appinfo {
             if rte_at(run, root, ai.parent_relid as usize).rtekind != RTEKind::RTE_RELATION {
                 break;
@@ -1919,7 +2024,10 @@ pub fn all_rows_selectable<'mcx>(
                 cur_attnos = Some(parent_attnos);
             }
             varno = ai.parent_relid as i32;
-            appinfo = root.append_rel_array.get(varno as usize).and_then(|a| a.as_ref());
+            appinfo = root
+                .append_rel_array
+                .get(varno as usize)
+                .and_then(|a| a.as_ref());
         }
         rte = rte_at(run, root, varno as usize);
         debug_assert!(rte.rtekind == RTEKind::RTE_RELATION);
@@ -1929,8 +2037,7 @@ pub fn all_rows_selectable<'mcx>(
         return Ok(false);
     }
 
-    if crate::syscache_memo::class_aclmask(run, rte.relid, userid, adt_acl::ACL_SELECT, false)?
-        != 0
+    if crate::syscache_memo::class_aclmask(run, rte.relid, userid, adt_acl::ACL_SELECT, false)? != 0
     {
         return Ok(true);
     }
@@ -1978,9 +2085,10 @@ pub(crate) fn statistic_proc_security_check(
     // get_func_name(func_oid))). get_func_name is NULL for an unknown
     // function, which C's %s prints as "(null)".
     let name = syscache_seams::pg_proc_proname::call(func_oid)?;
-    let name = name
-        .as_ref()
-        .map_or_else(|| "(null)".to_string(), |n| String::from_utf8_lossy(n.name_str()).into_owned());
+    let name = name.as_ref().map_or_else(
+        || "(null)".to_string(),
+        |n| String::from_utf8_lossy(n.name_str()).into_owned(),
+    );
     elog_seams::ereport_msg::call(
         types_error::DEBUG2,
         format!("not using statistics because function \"{name}\" is not leakproof"),
@@ -2001,7 +2109,10 @@ pub fn get_variable_numdistinct(
         stanullfrac = stats.stanullfrac as f64;
     } else if vardata.vartype == BOOLOID {
         stadistinct = 2.0;
-    } else if vardata.rel.is_some_and(|r| run.root.rel(r).rtekind == types_pathnodes::RTE_VALUES) {
+    } else if vardata
+        .rel
+        .is_some_and(|r| run.root.rel(r).rtekind == types_pathnodes::RTE_VALUES)
+    {
         // selfuncs.c:6316: a column of a VALUES RTE is assumed unique (and
         // all non-null).
         stadistinct = -1.0;
@@ -2029,7 +2140,10 @@ pub fn get_variable_numdistinct(
         return (DEFAULT_NUM_DISTINCT, true);
     }
     if stadistinct < 0.0 {
-        return (crate::costsize::clamp_row_est(-stadistinct * ntuples), false);
+        return (
+            crate::costsize::clamp_row_est(-stadistinct * ntuples),
+            false,
+        );
     }
     if ntuples < DEFAULT_NUM_DISTINCT {
         return (crate::costsize::clamp_row_est(ntuples), false);
@@ -2054,15 +2168,10 @@ pub(crate) fn var_eq_const<'mcx>(
     }
     let nullfrac = vardata.nullfrac();
 
-    let selec = if vardata.isunique
-        && vardata.rel.is_some_and(|r| run.root.rel(r).tuples >= 1.0)
-    {
+    let selec = if vardata.isunique && vardata.rel.is_some_and(|r| run.root.rel(r).tuples >= 1.0) {
         1.0 / run.root.rel(vardata.rel.unwrap()).tuples
     } else if vardata.stats.is_some()
-        && statistic_proc_security_check(
-            vardata,
-            crate::syscache_memo::get_opcode(run, oproid)?,
-        )?
+        && statistic_proc_security_check(vardata, crate::syscache_memo::get_opcode(run, oproid)?)?
     {
         match vardata.slot(STATISTIC_KIND_MCV, 0) {
             Some(sslot) => {
@@ -2082,10 +2191,8 @@ pub(crate) fn var_eq_const<'mcx>(
                 match matched {
                     Some(n) => n as f64,
                     None => {
-                        let sumcommon: f64 =
-                            sslot.numbers()?.iter().map(|&n| n as f64).sum();
-                        let mut selec =
-                            clamp_probability(1.0 - sumcommon - nullfrac);
+                        let sumcommon: f64 = sslot.numbers()?.iter().map(|&n| n as f64).sum();
+                        let mut selec = clamp_probability(1.0 - sumcommon - nullfrac);
                         let otherdistinct = get_variable_numdistinct(run, vardata).0
                             - sslot.numbers()?.len() as f64;
                         if otherdistinct > 1.0 {
@@ -2113,7 +2220,11 @@ pub(crate) fn var_eq_const<'mcx>(
     } else {
         1.0 / get_variable_numdistinct(run, vardata).0
     };
-    let selec = if negate { 1.0 - selec - nullfrac } else { selec };
+    let selec = if negate {
+        1.0 - selec - nullfrac
+    } else {
+        selec
+    };
     Ok(clamp_probability(selec))
 }
 
@@ -2310,14 +2421,19 @@ fn gistcostestimate(
     if index_tuples > 1.0 {
         let descent_cost = index_tuples.ln().ceil() * cpu_operator_cost;
         costs.index_startup_cost += descent_cost;
-        costs.index_total_cost =
-            crate::fma_sites::sa_descent_total(costs.index_total_cost, costs.num_sa_scans, descent_cost);
+        costs.index_total_cost = crate::fma_sites::sa_descent_total(
+            costs.index_total_cost,
+            costs.num_sa_scans,
+            descent_cost,
+        );
     }
-    let descent_cost =
-        (tree_height as f64 + 1.0) * DEFAULT_PAGE_CPU_MULTIPLIER * cpu_operator_cost;
+    let descent_cost = (tree_height as f64 + 1.0) * DEFAULT_PAGE_CPU_MULTIPLIER * cpu_operator_cost;
     costs.index_startup_cost += descent_cost;
-    costs.index_total_cost =
-            crate::fma_sites::sa_descent_total(costs.index_total_cost, costs.num_sa_scans, descent_cost);
+    costs.index_total_cost = crate::fma_sites::sa_descent_total(
+        costs.index_total_cost,
+        costs.num_sa_scans,
+        descent_cost,
+    );
 
     Ok(AmCostEstimate {
         index_startup_cost: costs.index_startup_cost,
@@ -2368,14 +2484,19 @@ fn spgcostestimate(
     if index_tuples > 1.0 {
         let descent_cost = index_tuples.ln().ceil() * cpu_operator_cost;
         costs.index_startup_cost += descent_cost;
-        costs.index_total_cost =
-            crate::fma_sites::sa_descent_total(costs.index_total_cost, costs.num_sa_scans, descent_cost);
+        costs.index_total_cost = crate::fma_sites::sa_descent_total(
+            costs.index_total_cost,
+            costs.num_sa_scans,
+            descent_cost,
+        );
     }
-    let descent_cost =
-        (tree_height as f64 + 1.0) * DEFAULT_PAGE_CPU_MULTIPLIER * cpu_operator_cost;
+    let descent_cost = (tree_height as f64 + 1.0) * DEFAULT_PAGE_CPU_MULTIPLIER * cpu_operator_cost;
     costs.index_startup_cost += descent_cost;
-    costs.index_total_cost =
-            crate::fma_sites::sa_descent_total(costs.index_total_cost, costs.num_sa_scans, descent_cost);
+    costs.index_total_cost = crate::fma_sites::sa_descent_total(
+        costs.index_total_cost,
+        costs.num_sa_scans,
+        descent_cost,
+    );
 
     Ok(AmCostEstimate {
         index_startup_cost: costs.index_startup_cost,
@@ -2406,7 +2527,9 @@ fn add_predicate_to_index_quals<'mcx>(
 ) -> PgResult<mcx::PgVec<'mcx, RinfoId>> {
     let mcx = run.mcx;
     let indpred = {
-        let PathNode::IndexPath(ip) = run.root.path(path_id) else { unreachable!() };
+        let PathNode::IndexPath(ip) = run.root.path(path_id) else {
+            unreachable!()
+        };
         ip.indexinfo.as_ref().expect("indexinfo set").indpred
     };
     let mut result: mcx::PgVec<'mcx, RinfoId> = mcx::PgVec::new_in(mcx);
@@ -2419,7 +2542,16 @@ fn add_predicate_to_index_quals<'mcx>(
             let pred = *run.root.expr_node(pid);
             if !crate::predtest::predicate_implied_by(mcx, &[pred], &qual_nodes, false)? {
                 result.push(crate::initsplan::make_restrictinfo(
-                    run, pred, true, false, false, false, 0, crate::relnode::relids_empty(), crate::relnode::relids_empty(), crate::relnode::relids_empty(),
+                    run,
+                    pred,
+                    true,
+                    false,
+                    false,
+                    false,
+                    0,
+                    crate::relnode::relids_empty(),
+                    crate::relnode::relids_empty(),
+                    crate::relnode::relids_empty(),
                 )?);
             }
         }
@@ -2435,7 +2567,9 @@ fn genericcostestimate(
     costs: &mut GenericCosts,
 ) -> PgResult<()> {
     let (index_quals, index_orderbys, index_pages, index_tuples, index_rel, reltablespace) = {
-        let PathNode::IndexPath(ip) = run.root.path(path_id) else { unreachable!() };
+        let PathNode::IndexPath(ip) = run.root.path(path_id) else {
+            unreachable!()
+        };
         let index = ip.indexinfo.as_ref().expect("indexinfo set");
         let mut orderbys: mcx::PgVec<'_, types_pathnodes::NodeId> = mcx::PgVec::new_in(run.mcx);
         orderbys.extend(ip.indexorderbys.iter().copied());
@@ -2481,7 +2615,8 @@ fn genericcostestimate(
         1.0
     };
 
-    let (spc_random_page_cost, _) = crate::costsize::get_tablespace_page_costs(run.mcx, reltablespace)?;
+    let (spc_random_page_cost, _) =
+        crate::costsize::get_tablespace_page_costs(run.mcx, reltablespace)?;
 
     let num_scans = num_sa_scans * loop_count;
     let mut index_total_cost = if num_scans > 1.0 {
@@ -2526,7 +2661,9 @@ fn get_quals_from_indexclauses<'mcx>(
     run: &PlannerRun<'mcx>,
     path_id: types_pathnodes::PathId,
 ) -> mcx::PgVec<'mcx, RinfoId> {
-    let PathNode::IndexPath(ip) = run.root.path(path_id) else { unreachable!() };
+    let PathNode::IndexPath(ip) = run.root.path(path_id) else {
+        unreachable!()
+    };
     let mut out = mcx::PgVec::new_in(run.mcx);
     for ic in ip.indexclauses.iter() {
         for &r in ic.indexquals.iter() {
@@ -2676,8 +2813,10 @@ fn brincostestimate(
             (indexoid, (indexcol + 1), false)
         };
         if let Some(bundle) = get_att_stats(run, stat_relid, stat_attnum, stat_inh)? {
-            if let Some(slot) =
-                bundle.slots.iter().find(|sl| sl.kind == STATISTIC_KIND_CORRELATION)
+            if let Some(slot) = bundle
+                .slots
+                .iter()
+                .find(|sl| sl.kind == STATISTIC_KIND_CORRELATION)
             {
                 let numbers = slot.numbers()?;
                 let var_correlation = if !numbers.is_empty() {
@@ -2741,7 +2880,9 @@ fn brincostestimate(
 // opfamily / indexkeys / opcintype arrays (four allocations + copies per index path, and their inlined clone and drop code).
 macro_rules! bt_ip {
     ($run:expr, $path_id:expr) => {{
-        let PathNode::IndexPath(ip) = $run.root.path($path_id) else { unreachable!() };
+        let PathNode::IndexPath(ip) = $run.root.path($path_id) else {
+            unreachable!()
+        };
         ip
     }};
 }
@@ -2751,7 +2892,14 @@ fn btcostestimate(
     path_id: types_pathnodes::PathId,
     loop_count: f64,
 ) -> PgResult<AmCostEstimate> {
-    let (index_unique, index_nkeycolumns, index_tuples, index_tree_height, index_rel, index_indexoid) = {
+    let (
+        index_unique,
+        index_nkeycolumns,
+        index_tuples,
+        index_tree_height,
+        index_rel,
+        index_indexoid,
+    ) = {
         let PathNode::IndexPath(ip) = run.root.path(path_id) else {
             panic!("btcostestimate: not an IndexPath")
         };
@@ -2768,7 +2916,9 @@ fn btcostestimate(
     let index_rel_relid = run.root.rel(index_rel).relid as i32;
     let index_rel_tuples = run.root.rel(index_rel).tuples;
     let index_pages = {
-        let PathNode::IndexPath(ip) = run.root.path(path_id) else { unreachable!() };
+        let PathNode::IndexPath(ip) = run.root.path(path_id) else {
+            unreachable!()
+        };
         ip.indexinfo.as_ref().unwrap().pages
     };
 
@@ -2800,7 +2950,8 @@ fn btcostestimate(
             eq_qual_here = false;
             while indexcol < iclause_indexcol {
                 found_array = true;
-                let attno = bt_ip!(run, path_id).indexinfo.as_ref().unwrap().indexkeys[indexcol as usize];
+                let attno =
+                    bt_ip!(run, path_id).indexinfo.as_ref().unwrap().indexkeys[indexcol as usize];
                 // examine_indexcol_variable (selfuncs.c): simple columns read
                 // the table's stats; expression columns read the index's own
                 // pg_statistic row (colnum = indexcol+1, inh false).
@@ -2816,7 +2967,8 @@ fn btcostestimate(
                 let vardata = VariableStatData {
                     var: None,
                     rel: Some(index_rel),
-                    vartype: bt_ip!(run, path_id).indexinfo.as_ref().unwrap().opcintype[indexcol as usize],
+                    vartype: bt_ip!(run, path_id).indexinfo.as_ref().unwrap().opcintype
+                        [indexcol as usize],
                     isunique: false,
                     stats,
                     acl_ok: false,
@@ -2838,7 +2990,8 @@ fn btcostestimate(
                         JOIN_INNER,
                         None,
                     )?;
-                    if ndistinctfrac < 0.005 {  // DEFAULT_RANGE_INEQ_SEL
+                    if ndistinctfrac < 0.005 {
+                        // DEFAULT_RANGE_INEQ_SEL
                         num_sa_scans = num_sa_scans_prev_cols;
                         break 'buildquals;
                     }
@@ -2890,8 +3043,10 @@ fn btcostestimate(
                 other => panic!("btcostestimate (selfuncs.c): indexqual {other:?}; M2 lane"),
             };
             if clause_op != 0 {
-                let opfamily = bt_ip!(run, path_id).indexinfo.as_ref().unwrap().opfamily[indexcol as usize];
-                let op_strategy = crate::syscache_memo::get_op_opfamily_strategy(run, clause_op, opfamily)?;
+                let opfamily =
+                    bt_ip!(run, path_id).indexinfo.as_ref().unwrap().opfamily[indexcol as usize];
+                let op_strategy =
+                    crate::syscache_memo::get_op_opfamily_strategy(run, clause_op, opfamily)?;
                 debug_assert!(op_strategy != 0);
                 if op_strategy == lsyscache::BTEqualStrategyNumber as i32 {
                     eq_qual_here = true;
@@ -2921,7 +3076,9 @@ fn btcostestimate(
             None,
         )?;
         let nit = btree_selectivity * index_rel_tuples;
-        num_sa_scans = num_sa_scans.min((index_pages as f64 * 0.3333333).ceil()).max(1.0);
+        num_sa_scans = num_sa_scans
+            .min((index_pages as f64 * 0.3333333).ceil())
+            .max(1.0);
         (nit / num_sa_scans).round_ties_even()
     };
 
@@ -2940,20 +3097,28 @@ fn btcostestimate(
     if index_tuples > 1.0 {
         let descent_cost = (index_tuples.ln() / 2.0f64.ln()).ceil() * cpu_operator_cost;
         costs.index_startup_cost += descent_cost;
-        costs.index_total_cost =
-            crate::fma_sites::sa_descent_total(costs.index_total_cost, costs.num_sa_scans, descent_cost);
+        costs.index_total_cost = crate::fma_sites::sa_descent_total(
+            costs.index_total_cost,
+            costs.num_sa_scans,
+            descent_cost,
+        );
     }
     let descent_cost =
         (index_tree_height as f64 + 1.0) * DEFAULT_PAGE_CPU_MULTIPLIER * cpu_operator_cost;
     costs.index_startup_cost += descent_cost;
-    costs.index_total_cost =
-            crate::fma_sites::sa_descent_total(costs.index_total_cost, costs.num_sa_scans, descent_cost);
+    costs.index_total_cost = crate::fma_sites::sa_descent_total(
+        costs.index_total_cost,
+        costs.num_sa_scans,
+        descent_cost,
+    );
 
     // btcost_correlation over the leading column; expression columns read the
     // index's own pg_statistic row (colnum 1, inh false), as C.
     {
         let (attno, indexoid, opfamily0, opcintype0, reverse0, nkeycols) = {
-            let PathNode::IndexPath(ip) = run.root.path(path_id) else { unreachable!() };
+            let PathNode::IndexPath(ip) = run.root.path(path_id) else {
+                unreachable!()
+            };
             let index = ip.indexinfo.as_ref().unwrap();
             (
                 index.indexkeys[0] as i16,
@@ -3063,13 +3228,17 @@ struct GroupVarInfo<'mcx> {
     isdefault: bool,
 }
 
-
 // The functions by their built-in names (pg_proc.dat `prosrc`, resolved through fmgr_core's generated table), not
 // OID literals: `extract` / `date_part` over date, timestamp and timestamptz; `date_trunc(unit, ts[tz])`; `length` /
 // `char_length` of text and bpchar. Any other expression of one Var (regexp_replace(x, ..) included) takes PostgreSQL's
 // own reading: the Var's ndistinct, and nothing more beside the Var itself (PL-11: no unbounded name list).
-const EXTRACT_FUNCS: [&str; 5] =
-    ["extract_date", "extract_timestamp", "extract_timestamptz", "timestamptz_part", "timestamp_part"];
+const EXTRACT_FUNCS: [&str; 5] = [
+    "extract_date",
+    "extract_timestamp",
+    "extract_timestamptz",
+    "timestamptz_part",
+    "timestamp_part",
+];
 const DATE_TRUNC_FUNCS: [&str; 2] = ["timestamp_trunc", "timestamptz_trunc"];
 const LENGTH_FUNCS: [&str; 2] = ["textlen", "bpcharlen"];
 const USECS_PER_DAY_F: f64 = 86_400_000_000.0;
@@ -3171,10 +3340,13 @@ fn time_column_range<'mcx>(
         None => (None, None),
     };
     if let Some(rel) = vardata.rel {
-        let rinfos = crate::relnode::pgvec_clone_shallow(run.mcx, &run.root.rel(rel).baserestrictinfo);
+        let rinfos =
+            crate::relnode::pgvec_clone_shallow(run.mcx, &run.root.rel(rel).baserestrictinfo);
         for rid in rinfos.iter() {
             let clause = *run.root.expr_node(run.root.rinfo(*rid).clause);
-            let Some(op) = clause.as_op_expr() else { continue };
+            let Some(op) = clause.as_op_expr() else {
+                continue;
+            };
             if op.args.len() != 2 {
                 continue;
             }
@@ -3198,7 +3370,9 @@ fn time_column_range<'mcx>(
             if bound.constisnull || bound.consttype != v.vartype {
                 continue;
             }
-            let Some(x) = convert_timevalue_to_scalar(bound.constvalue, bound.consttype) else { continue };
+            let Some(x) = convert_timevalue_to_scalar(bound.constvalue, bound.consttype) else {
+                continue;
+            };
             if opno == ops[0] || opno == ops[1] || opno == ops[4] {
                 range.1 = Some(range.1.map_or(x, |h| h.min(x)));
             }
@@ -3233,18 +3407,35 @@ fn expr_group_image_on() -> bool {
 /// `D = n d / (n - f1 + f1 n / nd(x))`, within `[d, nd(x)]`. `None` (PostgreSQL's reading: `nd(x)`) when `f` maps the
 /// sample one to one, when `x` has no statistics or under 10 sampled values, or when an evaluation raises or folds to no
 /// constant. Returns `(D, x)`.
-fn expression_group_image<'mcx>(run: &mut PlannerRun<'mcx>, node: Node<'mcx>) -> PgResult<Option<(f64, Node<'mcx>)>> {
+fn expression_group_image<'mcx>(
+    run: &mut PlannerRun<'mcx>,
+    node: Node<'mcx>,
+) -> PgResult<Option<(f64, Node<'mcx>)>> {
     const MIN_SAMPLE: usize = 10;
     let mcx = run.mcx;
-    if node.as_var().is_some() || node.as_relabel_type().is_some() || clauses::contain_mutable_functions(node)? {
+    if node.as_var().is_some()
+        || node.as_relabel_type().is_some()
+        || clauses::contain_mutable_functions(node)?
+    {
         return Ok(None);
     }
-    let vars_here = vars::pull_var_clause(mcx, node, vars::PVC_RECURSE_AGGREGATES | vars::PVC_RECURSE_WINDOWFUNCS | vars::PVC_RECURSE_PLACEHOLDERS)?;
+    let vars_here = vars::pull_var_clause(
+        mcx,
+        node,
+        vars::PVC_RECURSE_AGGREGATES
+            | vars::PVC_RECURSE_WINDOWFUNCS
+            | vars::PVC_RECURSE_PLACEHOLDERS,
+    )?;
     if vars_here.len() != 1 {
         return Ok(None);
     }
     let var = vars_here.nth(0);
-    let Some(v) = var.as_var().filter(|v| v.varlevelsup == 0 && v.varattno > 0) else { return Ok(None) };
+    let Some(v) = var
+        .as_var()
+        .filter(|v| v.varlevelsup == 0 && v.varattno > 0)
+    else {
+        return Ok(None);
+    };
     let vid = run.intern_expr(var);
     let vardata = examine_variable(run, vid, var, 0)?;
     if vardata.stats.is_none() {
@@ -3261,20 +3452,35 @@ fn expression_group_image<'mcx>(run: &mut PlannerRun<'mcx>, node: Node<'mcx>) ->
     }
     let (nd, _) = get_variable_numdistinct(run, &vardata);
     let (typlen, byval) = lsyscache::get_typlenbyval(v.vartype)?;
-    let (vno, vatt, vtype, vtypmod, vcoll) = (v.varno, v.varattno, v.vartype, v.vartypmod, v.varcollid);
+    let (vno, vatt, vtype, vtypmod, vcoll) =
+        (v.varno, v.varattno, v.vartype, v.vartypmod, v.varcollid);
     let mut images: Vec<Option<Vec<u8>>> = ::mcx::stdvec::try_vec(sample.len(), "selfuncs")?;
     for &d in &sample {
         let c = Node::mk(
             mcx,
-            types_nodes::primnodes::Const { consttype: vtype, consttypmod: vtypmod, constcollid: vcoll, constlen: i32::from(typlen), constvalue: d, constisnull: false, constbyval: byval, location: -1 },
+            types_nodes::primnodes::Const {
+                consttype: vtype,
+                consttypmod: vtypmod,
+                constcollid: vcoll,
+                constlen: i32::from(typlen),
+                constvalue: d,
+                constisnull: false,
+                constbyval: byval,
+                location: -1,
+            },
         )?;
         let bound = replace_var(mcx, node, vno, vatt, c)?;
-        let Ok(folded) = clauses::eval_const_expressions(mcx, bound) else { return Ok(None) };
-        let Some(k) = folded.as_const() else { return Ok(None) };
+        let Ok(folded) = clauses::eval_const_expressions(mcx, bound) else {
+            return Ok(None);
+        };
+        let Some(k) = folded.as_const() else {
+            return Ok(None);
+        };
         images.push(const_image(k));
     }
     let n = images.len() as f64;
-    let mut counts: std::collections::HashMap<Option<Vec<u8>>, u32> = std::collections::HashMap::new();
+    let mut counts: std::collections::HashMap<Option<Vec<u8>>, u32> =
+        std::collections::HashMap::new();
     for i in images {
         *counts.entry(i).or_insert(0) += 1;
     }
@@ -3288,8 +3494,19 @@ fn expression_group_image<'mcx>(run: &mut PlannerRun<'mcx>, node: Node<'mcx>) ->
     Ok(Some((est.clamp(d, big_n), var)))
 }
 
-fn replace_var<'mcx>(mcx: mcx::Mcx<'mcx>, node: Node<'mcx>, varno: i32, varattno: i16, c: Node<'mcx>) -> PgResult<Node<'mcx>> {
-    fn mutate<'mcx>(mcx: mcx::Mcx<'mcx>, n: Node<'mcx>, at: (i32, i16), c: Node<'mcx>) -> PgResult<Option<Node<'mcx>>> {
+fn replace_var<'mcx>(
+    mcx: mcx::Mcx<'mcx>,
+    node: Node<'mcx>,
+    varno: i32,
+    varattno: i16,
+    c: Node<'mcx>,
+) -> PgResult<Node<'mcx>> {
+    fn mutate<'mcx>(
+        mcx: mcx::Mcx<'mcx>,
+        n: Node<'mcx>,
+        at: (i32, i16),
+        c: Node<'mcx>,
+    ) -> PgResult<Option<Node<'mcx>>> {
         if let Some(v) = n.as_var() {
             return Ok((v.varlevelsup == 0 && v.varno == at.0 && v.varattno == at.1).then_some(c));
         }
@@ -3311,7 +3528,9 @@ fn const_image(k: &types_nodes::primnodes::Const) -> Option<Vec<u8>> {
         match k.constlen {
             n if n > 0 => n as usize,
             -1 => types_tuple::varatt::varsize_any(p),
-            _ => std::ffi::CStr::from_ptr(p as *const std::ffi::c_char).to_bytes().len(),
+            _ => std::ffi::CStr::from_ptr(p as *const std::ffi::c_char)
+                .to_bytes()
+                .len(),
         }
     };
     // SAFETY: as above, `len` bytes from `p`.
@@ -3326,28 +3545,43 @@ fn expression_group_bound<'mcx>(
         return Ok(None);
     };
     let args: Vec<Node<'mcx>> = f.args.iter().map(strip_relabel).collect();
-    let var_at = |i: usize| args.get(i).copied().filter(|n| n.as_var().is_some_and(|v| v.varlevelsup == 0 && v.varattno > 0));
+    let var_at = |i: usize| {
+        args.get(i).copied().filter(|n| {
+            n.as_var()
+                .is_some_and(|v| v.varlevelsup == 0 && v.varattno > 0)
+        })
+    };
     let Some(src) = crate::groupkey_trim::builtin_src(f.funcid) else {
         return Ok(None);
     };
     if EXTRACT_FUNCS.contains(&src) {
-        let (Some(field), Some(var)) = (args.first().copied().and_then(const_text), var_at(1)) else {
+        let (Some(field), Some(var)) = (args.first().copied().and_then(const_text), var_at(1))
+        else {
             return Ok(None);
         };
         return Ok(extract_field_domain(&field).map(|b| (b, var)));
     }
     if DATE_TRUNC_FUNCS.contains(&src) {
-        let (Some(unit), Some(var)) = (args.first().copied().and_then(const_text), var_at(1)) else {
+        let (Some(unit), Some(var)) = (args.first().copied().and_then(const_text), var_at(1))
+        else {
             return Ok(None);
         };
         let range = time_column_range(run, var)?;
         return Ok(date_trunc_groups(&unit, range).map(|b| (b, var)));
     }
     if LENGTH_FUNCS.contains(&src) {
-        let Some(var) = var_at(0) else { return Ok(None) };
+        let Some(var) = var_at(0) else {
+            return Ok(None);
+        };
         let v = var.as_var().expect("Var");
         let footer_max_len = crate::relnode::find_base_rel_noerr(&run.root, v.varno)
-            .and_then(|rel| run.root.rel(rel).pgrcolumnar_col_max_len.get(v.varattno as usize - 1).copied())
+            .and_then(|rel| {
+                run.root
+                    .rel(rel)
+                    .pgrcolumnar_col_max_len
+                    .get(v.varattno as usize - 1)
+                    .copied()
+            })
             .unwrap_or(0);
         return Ok(length_groups(v.vartypmod, footer_max_len).map(|b| (b, var)));
     }
@@ -3367,14 +3601,21 @@ fn expr_group_bound_on() -> bool {
     !guc_seams::get_config_option_missing_ok::call("pgrust.gravity_expr_group_bound")
         .ok()
         .flatten()
-        .is_some_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "off" | "false" | "0"))
+        .is_some_and(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "off" | "false" | "0"
+            )
+        })
 }
 
 #[cfg(test)]
-pub(crate) static EXPR_GROUP_BOUND_OFF_FOR_TESTS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub(crate) static EXPR_GROUP_BOUND_OFF_FOR_TESTS: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 const FIRST_NORMAL_OBJECT_ID: Oid = 16384;
-const EXTRACT_TIME_FUNCS: [&str; 4] = ["extract_time", "time_part", "extract_timetz", "timetz_part"];
+const EXTRACT_TIME_FUNCS: [&str; 4] =
+    ["extract_time", "time_part", "extract_timetz", "timetz_part"];
 const INT_MOD_FUNCS: [&str; 3] = ["int2mod", "int4mod", "int8mod"];
 const WIDTH_BUCKET_FUNCS: [&str; 2] = ["width_bucket_float8", "width_bucket_numeric"];
 
@@ -3436,8 +3677,12 @@ fn provably_non_null(run: &PlannerRun<'_>, node: Node<'_>) -> bool {
         return v.varlevelsup == 0
             && v.varattno > 0
             && v.varnullingrels.is_empty()
-            && crate::relnode::find_base_rel_noerr(&run.root, v.varno)
-                .is_some_and(|r| crate::relnode::relids_is_member(i32::from(v.varattno), &run.root.rel(r).notnullattnums));
+            && crate::relnode::find_base_rel_noerr(&run.root, v.varno).is_some_and(|r| {
+                crate::relnode::relids_is_member(
+                    i32::from(v.varattno),
+                    &run.root.rel(r).notnullattnums,
+                )
+            });
     }
     if node.as_null_test().is_some() || node.as_boolean_test().is_some() {
         return true;
@@ -3459,7 +3704,17 @@ fn provably_nonneg(node: Node<'_>) -> bool {
         _ => return false,
     };
     crate::groupkey_trim::builtin_src(f).is_some_and(|s| {
-        matches!(s, "int2abs" | "int4abs" | "int8abs" | "textlen" | "bpcharlen" | "textoctetlen" | "byteaoctetlen" | "bpcharoctetlen")
+        matches!(
+            s,
+            "int2abs"
+                | "int4abs"
+                | "int8abs"
+                | "textlen"
+                | "bpcharlen"
+                | "textoctetlen"
+                | "byteaoctetlen"
+                | "bpcharoctetlen"
+        )
     })
 }
 
@@ -3473,7 +3728,9 @@ fn var_distinct_bound<'mcx>(run: &mut PlannerRun<'mcx>, var: Node<'mcx>) -> PgRe
     if isdefault {
         let facts = vardata.rel.and_then(|rel| {
             let r = run.root.rel(rel);
-            (r.amflags & types_pathnodes::AMFLAG_PGRCOLUMNAR != 0 && varno == r.relid as i32 && varattno >= 1)
+            (r.amflags & types_pathnodes::AMFLAG_PGRCOLUMNAR != 0
+                && varno == r.relid as i32
+                && varattno >= 1)
                 .then(|| r.pgrcolumnar_col_ndv.get(varattno as usize - 1).copied())
                 .flatten()
                 .and_then(|d| columnar_group_ndistinct(Some(d), r.tuples))
@@ -3483,7 +3740,13 @@ fn var_distinct_bound<'mcx>(run: &mut PlannerRun<'mcx>, var: Node<'mcx>) -> PgRe
             None => return Ok(None),
         }
     }
-    Ok(Some(nd + if provably_non_null(run, var) { 0.0 } else { 1.0 }))
+    Ok(Some(
+        nd + if provably_non_null(run, var) {
+            0.0
+        } else {
+            1.0
+        },
+    ))
 }
 
 /// D3142-B: a provable UPPER BOUND on the distinct values `node` takes in one statement (NULL counted as a value), or
@@ -3494,8 +3757,13 @@ fn var_distinct_bound<'mcx>(run: &mut PlannerRun<'mcx>, var: Node<'mcx>) -> PgRe
 /// integer `%` by a constant, width_bucket's buckets, an enum's labels (+1 each for NULL unless provably non-null). CASE,
 /// COALESCE, GREATEST / LEAST: the sum of their results' bounds (a missing ELSE adds its NULL); NULLIF: its first
 /// argument's + 1.
-pub(crate) fn expr_distinct_bound<'mcx>(run: &mut PlannerRun<'mcx>, node: Node<'mcx>) -> PgResult<Option<f64>> {
-    if clauses::contain_volatile_functions(node)? || crate::costsize::expression_returns_set_rows(run, node)? > 1.0 {
+pub(crate) fn expr_distinct_bound<'mcx>(
+    run: &mut PlannerRun<'mcx>,
+    node: Node<'mcx>,
+) -> PgResult<Option<f64>> {
+    if clauses::contain_volatile_functions(node)?
+        || crate::costsize::expression_returns_set_rows(run, node)? > 1.0
+    {
         return Ok(None);
     }
     bound_walk(run, node)
@@ -3515,7 +3783,11 @@ fn bound_walk<'mcx>(run: &mut PlannerRun<'mcx>, node: Node<'mcx>) -> PgResult<Op
         }
         return var_distinct_bound(run, node);
     }
-    let null = if provably_non_null(run, node) { 0.0 } else { 1.0 };
+    let null = if provably_non_null(run, node) {
+        0.0
+    } else {
+        1.0
+    };
     let ty = crate::costsize::expr_type_typmod(node).0;
     if ty == BOOLOID {
         return Ok(Some(2.0 + null));
@@ -3596,7 +3868,9 @@ fn bound_walk<'mcx>(run: &mut PlannerRun<'mcx>, node: Node<'mcx>) -> PgResult<Op
 fn sum_bound<'mcx>(run: &mut PlannerRun<'mcx>, args: Vec<Node<'mcx>>) -> PgResult<Option<f64>> {
     let mut sum = 0.0;
     for a in args {
-        let Some(b) = bound_walk(run, a)? else { return Ok(None) };
+        let Some(b) = bound_walk(run, a)? else {
+            return Ok(None);
+        };
         sum += b;
     }
     Ok(Some(sum))
@@ -3613,19 +3887,32 @@ fn product_bound<'mcx>(run: &mut PlannerRun<'mcx>, args: Vec<Node<'mcx>>) -> PgR
     Ok(prod)
 }
 
-fn call_bound<'mcx>(run: &mut PlannerRun<'mcx>, funcid: Oid, args: &[Node<'mcx>], null: f64) -> PgResult<Option<f64>> {
+fn call_bound<'mcx>(
+    run: &mut PlannerRun<'mcx>,
+    funcid: Oid,
+    args: &[Node<'mcx>],
+    null: f64,
+) -> PgResult<Option<f64>> {
     let src = crate::groupkey_trim::builtin_src(funcid);
     let rule = match src {
-        Some(s) if EXTRACT_FUNCS.contains(&s) => args.first().copied().and_then(const_text).and_then(|f| extract_field_domain(&f)).map(|d| d + 1.0),
-        Some(s) if EXTRACT_TIME_FUNCS.contains(&s) => {
-            args.first().copied().and_then(const_text).and_then(|f| extract_time_field_domain(&f)).map(|d| d + 1.0)
-        }
-        Some(s) if INT_MOD_FUNCS.contains(&s) && args.len() == 2 => {
-            const_int(args[1]).and_then(|n| int_mod_domain(n, provably_nonneg(args[0]))).map(|d| d + null)
-        }
-        Some(s) if WIDTH_BUCKET_FUNCS.contains(&s) && args.len() == 4 => {
-            const_int(args[3]).and_then(width_bucket_domain).map(|d| d + null)
-        }
+        Some(s) if EXTRACT_FUNCS.contains(&s) => args
+            .first()
+            .copied()
+            .and_then(const_text)
+            .and_then(|f| extract_field_domain(&f))
+            .map(|d| d + 1.0),
+        Some(s) if EXTRACT_TIME_FUNCS.contains(&s) => args
+            .first()
+            .copied()
+            .and_then(const_text)
+            .and_then(|f| extract_time_field_domain(&f))
+            .map(|d| d + 1.0),
+        Some(s) if INT_MOD_FUNCS.contains(&s) && args.len() == 2 => const_int(args[1])
+            .and_then(|n| int_mod_domain(n, provably_nonneg(args[0])))
+            .map(|d| d + null),
+        Some(s) if WIDTH_BUCKET_FUNCS.contains(&s) && args.len() == 4 => const_int(args[3])
+            .and_then(width_bucket_domain)
+            .map(|d| d + null),
         _ => None,
     };
     let composed = product_bound(run, ::mcx::stdvec::try_to_vec(args, "selfuncs")?)?;
@@ -3634,14 +3921,29 @@ fn call_bound<'mcx>(run: &mut PlannerRun<'mcx>, funcid: Oid, args: &[Node<'mcx>]
 
 /// D3142-B's key reading: a group key that is a function of exactly one level-0 Var, with its bound when that is below
 /// the Var's own distinct count (else PostgreSQL's reading stands: the Var).
-fn one_var_expr_bound<'mcx>(run: &mut PlannerRun<'mcx>, node: Node<'mcx>) -> PgResult<Option<(f64, Node<'mcx>)>> {
+fn one_var_expr_bound<'mcx>(
+    run: &mut PlannerRun<'mcx>,
+    node: Node<'mcx>,
+) -> PgResult<Option<(f64, Node<'mcx>)>> {
     if strip_relabel(node).as_var().is_some() {
         return Ok(None);
     }
-    let vars_here = vars::pull_var_clause(run.mcx, node, vars::PVC_RECURSE_AGGREGATES | vars::PVC_RECURSE_WINDOWFUNCS | vars::PVC_RECURSE_PLACEHOLDERS)?;
+    let vars_here = vars::pull_var_clause(
+        run.mcx,
+        node,
+        vars::PVC_RECURSE_AGGREGATES
+            | vars::PVC_RECURSE_WINDOWFUNCS
+            | vars::PVC_RECURSE_PLACEHOLDERS,
+    )?;
     let mut var: Option<(Node<'mcx>, (i32, i16))> = None;
     for v in vars_here.iter() {
-        let Some(at) = v.as_var().filter(|x| x.varlevelsup == 0 && x.varattno > 0).map(|x| (x.varno, x.varattno)) else { return Ok(None) };
+        let Some(at) = v
+            .as_var()
+            .filter(|x| x.varlevelsup == 0 && x.varattno > 0)
+            .map(|x| (x.varno, x.varattno))
+        else {
+            return Ok(None);
+        };
         match var {
             Some((_, w)) if w != at => return Ok(None),
             Some(_) => {}
@@ -3649,7 +3951,9 @@ fn one_var_expr_bound<'mcx>(run: &mut PlannerRun<'mcx>, node: Node<'mcx>) -> PgR
         }
     }
     let Some((var, _)) = var else { return Ok(None) };
-    let Some(bound) = expr_distinct_bound(run, node)? else { return Ok(None) };
+    let Some(bound) = expr_distinct_bound(run, node)? else {
+        return Ok(None);
+    };
     let vid = run.intern_expr(var);
     let vardata = examine_variable(run, vid, var, 0)?;
     let (nd, isdefault) = get_variable_numdistinct(run, &vardata);
@@ -3730,7 +4034,12 @@ fn add_unique_group_var<'mcx>(
         }
         i += 1;
     }
-    varinfos.push(GroupVarInfo { node, rel, ndistinct, isdefault });
+    varinfos.push(GroupVarInfo {
+        node,
+        rel,
+        ndistinct,
+        isdefault,
+    });
     Ok(())
 }
 
@@ -3752,8 +4061,11 @@ fn estimate_num_groups_core<'mcx>(
     let mut srf_multiplier = 1.0f64;
     // D3142-B: the product of every key's provable bound caps the estimate (none when a key is unbounded). Keys that are
     // all bare Vars skip it: their bounds' product (each Var's ndistinct, + 1 for NULL) is never below the estimate.
-    let mut cap: Option<f64> =
-        (expr_group_bound_on() && group_exprs.iter().any(|&(_, n)| strip_relabel(n).as_var().is_none())).then_some(1.0);
+    let mut cap: Option<f64> = (expr_group_bound_on()
+        && group_exprs
+            .iter()
+            .any(|&(_, n)| strip_relabel(n).as_var().is_none()))
+    .then_some(1.0);
     for (listidx, &(id, node)) in group_exprs.iter().enumerate() {
         if pgset.is_some_and(|s| !s.contains(&(listidx as i32))) {
             continue;
@@ -3778,7 +4090,11 @@ fn estimate_num_groups_core<'mcx>(
             add_unique_group_var(run, &mut varinfos, node, &vardata)?;
             continue;
         }
-        let mut bounded = if expr_group_image_on() { expression_group_image(run, node)? } else { expression_group_bound(run, node)? };
+        let mut bounded = if expr_group_image_on() {
+            expression_group_image(run, node)?
+        } else {
+            expression_group_bound(run, node)?
+        };
         if expr_group_bound_on() {
             if let Some((b, var)) = one_var_expr_bound(run, node)? {
                 bounded = Some(match bounded {
@@ -3805,7 +4121,9 @@ fn estimate_num_groups_core<'mcx>(
         let vars_here = vars::pull_var_clause(
             mcx,
             node,
-            vars::PVC_RECURSE_AGGREGATES | vars::PVC_RECURSE_WINDOWFUNCS | vars::PVC_RECURSE_PLACEHOLDERS,
+            vars::PVC_RECURSE_AGGREGATES
+                | vars::PVC_RECURSE_WINDOWFUNCS
+                | vars::PVC_RECURSE_PLACEHOLDERS,
         )?;
         if vars_here.is_nil() {
             // A Var-free item is a constant (ignorable) or volatile (every
@@ -3933,15 +4251,7 @@ pub fn eqjoinsel<'mcx>(
     let have_mcvs2 = get_mcv_stats && statistic_proc_security_check(&vardata2, opfuncoid)?;
 
     let selec_inner = eqjoinsel_inner(
-        run,
-        opfuncoid,
-        collation,
-        &vardata1,
-        &vardata2,
-        nd1,
-        nd2,
-        have_mcvs1,
-        have_mcvs2,
+        run, opfuncoid, collation, &vardata1, &vardata2, nd1, nd2, have_mcvs1, have_mcvs2,
     )?;
     let selec = match sj_jointype {
         JOIN_INNER | types_pathnodes::JOIN_LEFT | types_pathnodes::JOIN_FULL => selec_inner,
@@ -3951,9 +4261,7 @@ pub fn eqjoinsel<'mcx>(
             let inner_rows = run.root.rel(inner_rel).rows;
             // get_join_variables (selfuncs.c) reversal test.
             let rel_subset = |rel: Option<RelId>, side: &types_pathnodes::Relids<'mcx>| {
-                rel.is_some_and(|r| {
-                    crate::relnode::relids_is_subset(&run.root.rel(r).relids, side)
-                })
+                rel.is_some_and(|r| crate::relnode::relids_is_subset(&run.root.rel(r).relids, side))
             };
             let join_is_reversed = rel_subset(vardata1.rel, &sjinfo.syn_righthand)
                 || rel_subset(vardata2.rel, &sjinfo.syn_lefthand);
@@ -3964,11 +4272,24 @@ pub fn eqjoinsel<'mcx>(
                 )?
             } else {
                 let commop = lsyscache::get_commutator(operator)?;
-                let commopfuncoid =
-                    if commop != 0 { lsyscache::get_opcode(commop)? } else { 0 };
+                let commopfuncoid = if commop != 0 {
+                    lsyscache::get_opcode(commop)?
+                } else {
+                    0
+                };
                 eqjoinsel_semi(
-                    run, commopfuncoid, collation, &vardata2, &vardata1, nd2, nd1, isdefault2,
-                    isdefault1, have_mcvs2, have_mcvs1, inner_rel,
+                    run,
+                    commopfuncoid,
+                    collation,
+                    &vardata2,
+                    &vardata1,
+                    nd2,
+                    nd1,
+                    isdefault2,
+                    isdefault1,
+                    have_mcvs2,
+                    have_mcvs1,
+                    inner_rel,
                 )?
             };
             semi.min(inner_rows * selec_inner)
@@ -4077,7 +4398,11 @@ fn eqjoinsel_inner(
             totalsel2 += otherfreq2 * (otherfreq1 + unmatchfreq1) / (nd1 - nmatches as f64);
         }
 
-        Ok(if totalsel1 < totalsel2 { totalsel1 } else { totalsel2 })
+        Ok(if totalsel1 < totalsel2 {
+            totalsel1
+        } else {
+            totalsel2
+        })
     } else {
         let nullfrac1 = vardata1.nullfrac();
         let nullfrac2 = vardata2.nullfrac();
@@ -4103,8 +4428,11 @@ pub fn neqjoinsel<'mcx>(
     if jointype == types_pathnodes::JOIN_SEMI || jointype == types_pathnodes::JOIN_ANTI {
         let sjinfo = sjinfo.expect("SEMI/ANTI neqjoinsel has an sjinfo");
         let (vardata1, vardata2, reversed) = get_join_variables(run, args, sjinfo)?;
-        let nullfrac =
-            if reversed { vardata2.nullfrac() } else { vardata1.nullfrac() };
+        let nullfrac = if reversed {
+            vardata2.nullfrac()
+        } else {
+            vardata1.nullfrac()
+        };
         return Ok(1.0 - nullfrac);
     }
     let eqop = lsyscache::get_negator(operator)?;
@@ -4122,7 +4450,10 @@ pub(crate) fn get_join_variables<'mcx>(
     args: &[NodeId],
     sjinfo: &SpecialJoinInfo<'mcx>,
 ) -> PgResult<(VariableStatData<'mcx>, VariableStatData<'mcx>, bool)> {
-    assert!(args.len() == 2, "get_join_variables (selfuncs.c): non-binary clause");
+    assert!(
+        args.len() == 2,
+        "get_join_variables (selfuncs.c): non-binary clause"
+    );
     let left = *run.root.expr_node(args[0]);
     let right = *run.root.expr_node(args[1]);
     let vardata1 = examine_variable(run, args[0], left, 0)?;
@@ -4287,8 +4618,11 @@ pub fn estimate_multivariate_bucketsize<'mcx>(
         for &rid in cur.iter() {
             let (outer_is_left, clause_id, relid_opt) = {
                 let ri = run.root.rinfo(rid);
-                let relids =
-                    if ri.outer_is_left { &ri.right_relids } else { &ri.left_relids };
+                let relids = if ri.outer_is_left {
+                    &ri.right_relids
+                } else {
+                    &ri.left_relids
+                };
                 (
                     ri.outer_is_left,
                     ri.clause,
@@ -4379,8 +4713,8 @@ pub fn estimate_multivariate_bucketsize<'mcx>(
                 nodes.push(vi);
                 node_idx.push(i);
             }
-            let Some((mvndistinct, consumed)) = crate::extended_stats::
-                estimate_multivariate_ndistinct(run, group_rel, &nodes)?
+            let Some((mvndistinct, consumed)) =
+                crate::extended_stats::estimate_multivariate_ndistinct(run, group_rel, &nodes)?
             else {
                 break;
             };
@@ -4446,6 +4780,7 @@ pub fn estimate_hash_bucket_stats<'mcx>(
         estfract *= mcv_freq / avgfreq;
     }
 
+    #[allow(clippy::manual_clamp)]
     if estfract < 1.0e-6 {
         estfract = 1.0e-6;
     } else if estfract > 1.0 {
@@ -4487,7 +4822,9 @@ pub fn mergejoinscansel<'mcx>(
         lsyscache::get_op_opfamily_properties(opno, opfamily, false)?;
     debug_assert!(op_strategy == types_pathnodes::COMPARE_EQ);
 
-    let member = |lt: Oid, rt: Oid, cmp: i32| lsyscache::get_opfamily_member_for_cmptype(opfamily, lt, rt, cmp);
+    let member = |lt: Oid, rt: Oid, cmp: i32| {
+        lsyscache::get_opfamily_member_for_cmptype(opfamily, lt, rt, cmp)
+    };
 
     let (isgt, lsortop, rsortop, lstatop, rstatop, ltop, leop, revltop, revleop);
     match cmptype {
@@ -4560,11 +4897,29 @@ pub fn mergejoinscansel<'mcx>(
         core::mem::swap(&mut rightmin, &mut rightmax);
     }
 
-    let selec = scalarineqsel(run, leop, isgt, true, collation, &leftvar, rightmax, op_righttype)?;
+    let selec = scalarineqsel(
+        run,
+        leop,
+        isgt,
+        true,
+        collation,
+        &leftvar,
+        rightmax,
+        op_righttype,
+    )?;
     if selec != DEFAULT_INEQ_SEL {
         leftend = selec;
     }
-    let selec = scalarineqsel(run, revleop, isgt, true, collation, &rightvar, leftmax, op_lefttype)?;
+    let selec = scalarineqsel(
+        run,
+        revleop,
+        isgt,
+        true,
+        collation,
+        &rightvar,
+        leftmax,
+        op_lefttype,
+    )?;
     if selec != DEFAULT_INEQ_SEL {
         rightend = selec;
     }
@@ -4577,12 +4932,29 @@ pub fn mergejoinscansel<'mcx>(
         rightend = 1.0;
     }
 
-    let selec = scalarineqsel(run, ltop, isgt, false, collation, &leftvar, rightmin, op_righttype)?;
+    let selec = scalarineqsel(
+        run,
+        ltop,
+        isgt,
+        false,
+        collation,
+        &leftvar,
+        rightmin,
+        op_righttype,
+    )?;
     if selec != DEFAULT_INEQ_SEL {
         leftstart = selec;
     }
-    let selec =
-        scalarineqsel(run, revltop, isgt, false, collation, &rightvar, leftmin, op_lefttype)?;
+    let selec = scalarineqsel(
+        run,
+        revltop,
+        isgt,
+        false,
+        collation,
+        &rightvar,
+        leftmin,
+        op_lefttype,
+    )?;
     if selec != DEFAULT_INEQ_SEL {
         rightstart = selec;
     }
@@ -4641,12 +5013,21 @@ fn get_variable_range<'mcx>(
 
     if let Some(sslot) = vardata.slot(STATISTIC_KIND_HISTOGRAM, sortop) {
         if sslot.stacoll == collation && !sslot.values()?.is_empty() {
-            range = Some((sslot.values()?[0], sslot.values()?[sslot.values()?.len() - 1]));
+            range = Some((
+                sslot.values()?[0],
+                sslot.values()?[sslot.values()?.len() - 1],
+            ));
         }
     }
     if range.is_none() {
         if let Some(sslot) = vardata.slot(STATISTIC_KIND_HISTOGRAM, 0) {
-            get_stats_slot_range(sslot.values()?, opfuncoid, &mut opproc, collation, &mut range)?;
+            get_stats_slot_range(
+                sslot.values()?,
+                opfuncoid,
+                &mut opproc,
+                collation,
+                &mut range,
+            )?;
         }
     }
     if let Some(sslot) = vardata.slot(STATISTIC_KIND_MCV, 0) {
@@ -4657,7 +5038,13 @@ fn get_variable_range<'mcx>(
             sumcommon + stats.stanullfrac as f64 > 0.99999
         };
         if use_mcvs {
-            get_stats_slot_range(sslot.values()?, opfuncoid, &mut opproc, collation, &mut range)?;
+            get_stats_slot_range(
+                sslot.values()?,
+                opfuncoid,
+                &mut opproc,
+                collation,
+                &mut range,
+            )?;
         }
     }
     Ok(range)
@@ -4676,7 +5063,6 @@ pub const DEFAULT_MATCH_SEL: f64 = 0.005;
 
 #[allow(dead_code)] // C-parity: patternsel prefix machinery, wired in a later lane
 const PARTIAL_WILDCARD_SEL: f64 = 2.0;
-
 
 #[allow(dead_code)] // C-parity: patternsel prefix machinery, wired in a later lane
 struct PrefixConst {
@@ -4731,7 +5117,9 @@ fn flat_numeric_datum<'a>(mcx: mcx::Mcx<'a>, value: Datum, typid: Oid) -> PgResu
     // SAFETY: by-ref varlena datum, readable for its first header byte.
     let b0 = unsafe { *(value.as_usize() as *const u8) };
     if b0 == 0x01 || b0 & 0x03 == 0x02 {
-        return Ok(Datum::from_usize(varlena_image_any(mcx, value)?.as_ptr() as usize));
+        return Ok(Datum::from_usize(
+            varlena_image_any(mcx, value)?.as_ptr() as usize
+        ));
     }
     Ok(value)
 }
@@ -4764,7 +5152,6 @@ pub(crate) fn varlena_image_any<'a>(mcx: mcx::Mcx<'a>, value: Datum) -> PgResult
         Ok(detoast::detoast_attr(mcx, img)?.leak())
     }
 }
-
 
 // scalararraysel (selfuncs.c). The typcache eq_opr probe gates the
 // scalararraysel_containment try; below that, isEquality/isInequality are
@@ -4901,7 +5288,12 @@ pub fn scalararraysel<'mcx>(
         let elemtype = arrayfuncs::arr_elemtype(img);
         let (elmlen, elmbyval, elmalign) = lsyscache::get_typlenbyvalalign(elemtype)?;
         let (values, nulls) = arrayfuncs::deconstruct_array(
-            run.mcx, img, elmlen as i32, elmbyval, elmalign as u8, true,
+            run.mcx,
+            img,
+            elmlen as i32,
+            elmbyval,
+            elmalign as u8,
+            true,
         )?;
 
         s1 = if use_or { 0.0 } else { 1.0 };
@@ -4920,14 +5312,10 @@ pub fn scalararraysel<'mcx>(
                 }
             }
         }
-        if (if use_or { is_equality } else { is_inequality })
-            && (0.0..=1.0).contains(&s1disjoint)
-        {
+        if (if use_or { is_equality } else { is_inequality }) && (0.0..=1.0).contains(&s1disjoint) {
             s1 = s1disjoint;
         }
-    } else if let Some(arrayexpr) =
-        rightop.as_array_expr().filter(|a| !a.multidims)
-    {
+    } else if let Some(arrayexpr) = rightop.as_array_expr().filter(|a| !a.multidims) {
         s1 = if use_or { 0.0 } else { 1.0 };
         s1disjoint = s1;
         for elem in arrayexpr.elements.iter() {
@@ -4963,9 +5351,7 @@ pub fn scalararraysel<'mcx>(
                 }
             }
         }
-        if (if use_or { is_equality } else { is_inequality })
-            && (0.0..=1.0).contains(&s1disjoint)
-        {
+        if (if use_or { is_equality } else { is_inequality }) && (0.0..=1.0).contains(&s1disjoint) {
             s1 = s1disjoint;
         }
     } else {
@@ -5072,7 +5458,6 @@ fn get_stats_slot_range(
     Ok(())
 }
 
-
 fn expr_collation(node: Node<'_>) -> Oid {
     match node.node_tag() {
         NodeTag::T_Const => node.as_const().unwrap().constcollid,
@@ -5081,7 +5466,6 @@ fn expr_collation(node: Node<'_>) -> Oid {
         _ => 0,
     }
 }
-
 
 // estimate_array_length (selfuncs.c); run=None mirrors C's NULL root and
 // skips the stats arm.
@@ -5130,8 +5514,7 @@ pub fn estimate_array_length<'mcx>(
             if let Some(slot) = vardata.slot(STATISTIC_KIND_DECHIST, 0) {
                 let numbers = slot.numbers()?;
                 if !numbers.is_empty() {
-                    let nelem =
-                        crate::costsize::clamp_row_est(numbers[numbers.len() - 1] as f64);
+                    let nelem = crate::costsize::clamp_row_est(numbers[numbers.len() - 1] as f64);
                     if nelem > 0.0 {
                         return Ok(nelem);
                     }
@@ -5171,7 +5554,11 @@ pub(crate) fn generic_restriction_selectivity<'mcx>(
         // C evaluates via raw fcinfo: a NULL result counts as no-match
         // (jsonb @@ can return NULL), never an error.
         let armed_test = |opproc: &mut FmgrInfo, v: Datum| -> PgResult<bool> {
-            let (a0, a1) = if varonleft { (v, constval) } else { (constval, v) };
+            let (a0, a1) = if varonleft {
+                (v, constval)
+            } else {
+                (constval, v)
+            };
             let mut fcinfo = types_fmgr::LocalFcinfo::<2>::fresh(collation);
             // SAFETY: smcx outlives this single call.
             unsafe { fcinfo.set_result_mcx(smcx) };
@@ -5205,7 +5592,9 @@ pub(crate) fn generic_restriction_selectivity<'mcx>(
             let mut n = 0usize;
             let hist_usable =
                 vardata.stats.is_some() && statistic_proc_security_check(&vardata, opcode)?;
-            if let Some(sslot) = vardata.slot(STATISTIC_KIND_HISTOGRAM, 0).filter(|_| hist_usable)
+            if let Some(sslot) = vardata
+                .slot(STATISTIC_KIND_HISTOGRAM, 0)
+                .filter(|_| hist_usable)
             {
                 let values = sslot.values()?;
                 n = values.len();
@@ -5249,7 +5638,14 @@ pub fn matchingsel<'mcx>(
     varrelid: i32,
     collation: Oid,
 ) -> PgResult<f64> {
-    generic_restriction_selectivity(run, operator, collation, args, varrelid, DEFAULT_MATCHING_SEL)
+    generic_restriction_selectivity(
+        run,
+        operator,
+        collation,
+        args,
+        varrelid,
+        DEFAULT_MATCHING_SEL,
+    )
 }
 
 const INDEX_MAX_KEYS: usize = types_core::fmgr::INDEX_MAX_KEYS as usize;
@@ -5393,8 +5789,22 @@ fn gincostestimate(
     path_id: types_pathnodes::PathId,
     loop_count: f64,
 ) -> PgResult<AmCostEstimate> {
-    let (index_quals, index_pages, index_tuples, index_rel, reltablespace, hypothetical, opfamilies, opcintypes, indexcollations, nkeycolumns, index_oid) = {
-        let PathNode::IndexPath(ip) = run.root.path(path_id) else { unreachable!() };
+    let (
+        index_quals,
+        index_pages,
+        index_tuples,
+        index_rel,
+        reltablespace,
+        hypothetical,
+        opfamilies,
+        opcintypes,
+        indexcollations,
+        nkeycolumns,
+        index_oid,
+    ) = {
+        let PathNode::IndexPath(ip) = run.root.path(path_id) else {
+            unreachable!()
+        };
         let index = ip.indexinfo.as_ref().expect("indexinfo set");
         (
             get_quals_from_indexclauses(run, path_id),
@@ -5473,7 +5883,8 @@ fn gincostestimate(
         None,
     )?;
 
-    let (spc_random_page_cost, _) = crate::costsize::get_tablespace_page_costs(run.mcx, reltablespace)?;
+    let (spc_random_page_cost, _) =
+        crate::costsize::get_tablespace_page_costs(run.mcx, reltablespace)?;
 
     // Examine quals: search-entry and partial-match counts.
     let mut counts = GinQualCounts {
@@ -5483,7 +5894,9 @@ fn gincostestimate(
     let mut match_possible = true;
     {
         let iclauses = {
-            let PathNode::IndexPath(ip) = run.root.path(path_id) else { unreachable!() };
+            let PathNode::IndexPath(ip) = run.root.path(path_id) else {
+                unreachable!()
+            };
             ip.indexclauses.clone()
         };
         let mcx = run.mcx;
@@ -5510,8 +5923,7 @@ fn gincostestimate(
                         // reduced to a constant and stripped of relabeling.
                         let op = clause.as_op_expr().unwrap();
                         let opno = op.opno;
-                        let mut operand =
-                            clauses::estimate_expression_value(mcx, op.args.nth(1))?;
+                        let mut operand = clauses::estimate_expression_value(mcx, op.args.nth(1))?;
                         if let Some(r) = operand.as_relabel_type() {
                             operand = r.arg;
                         }
@@ -5652,10 +6064,8 @@ fn gincostestimate(
         spc_random_page_cost,
     );
 
-    let mut data_pages_fetched =
-        (num_data_pages * counts.exact_entries / num_entries).ceil();
-    let data_pages_fetched_by_sel =
-        (index_selectivity * (num_tuples / (8192.0 / 3.0))).ceil();
+    let mut data_pages_fetched = (num_data_pages * counts.exact_entries / num_entries).ceil();
+    let data_pages_fetched_by_sel = (index_selectivity * (num_tuples / (8192.0 / 3.0))).ceil();
     if data_pages_fetched_by_sel > data_pages_fetched {
         data_pages_fetched = data_pages_fetched_by_sel;
     }
@@ -5773,8 +6183,11 @@ mod d400_fma_tests {
         buf[12..].copy_from_slice(&74_936_300i32.to_ne_bytes());
         let d = datum::Datum::from_usize(buf.as_ptr() as usize);
         let got = super::convert_timevalue_to_scalar(d, super::INTERVALOID).unwrap();
-        let want: u64 =
-            if cfg!(target_arch = "aarch64") { 0x43E7_5AD0_226E_515F } else { 0x43E7_5AD0_226E_5170 };
+        let want: u64 = if cfg!(target_arch = "aarch64") {
+            0x43E7_5AD0_226E_515F
+        } else {
+            0x43E7_5AD0_226E_5170
+        };
         assert_eq!(got.to_bits(), want);
     }
 }
@@ -5786,12 +6199,22 @@ mod group_bound_name_tests {
     #[test]
     fn group_bound_names_are_the_builtin_functions() {
         let oids = |names: &[&str]| -> Vec<u32> {
-            let mut v: Vec<u32> = fmgr_core::CANONICAL.iter().filter(|e| names.contains(&e.1)).map(|e| e.0).collect();
+            let mut v: Vec<u32> = fmgr_core::CANONICAL
+                .iter()
+                .filter(|e| names.contains(&e.1))
+                .map(|e| e.0)
+                .collect();
             v.sort_unstable();
             v
         };
-        assert_eq!(oids(&super::EXTRACT_FUNCS), vec![1171, 2021, 6199, 6202, 6203]);
+        assert_eq!(
+            oids(&super::EXTRACT_FUNCS),
+            vec![1171, 2021, 6199, 6202, 6203]
+        );
         assert_eq!(oids(&super::DATE_TRUNC_FUNCS), vec![1217, 2020]);
-        assert_eq!(oids(&super::LENGTH_FUNCS), vec![1257, 1317, 1318, 1367, 1369, 1372, 1381]);
+        assert_eq!(
+            oids(&super::LENGTH_FUNCS),
+            vec![1257, 1317, 1318, 1367, 1369, 1372, 1381]
+        );
     }
 }

@@ -413,6 +413,7 @@ pub fn picksplit(
 
     let mut cache: Vec<Option<CacheSign>> = ::mcx::std_vec_with_capacity("pg_trgm", maxoff + 1)?;
     cache.push(None);
+    #[allow(clippy::needless_range_loop)]
     for k in 1..=maxoff {
         let key = keys[k]
             .as_ref()
@@ -500,6 +501,7 @@ pub fn picksplit(
                     union_l.fill(0xff);
                 }
             } else {
+                #[allow(clippy::needless_range_loop)]
                 for i in 0..siglen {
                     union_l[i] |= cj.sign[i];
                 }
@@ -511,6 +513,7 @@ pub fn picksplit(
                     union_r.fill(0xff);
                 }
             } else {
+                #[allow(clippy::needless_range_loop)]
                 for i in 0..siglen {
                     union_r[i] |= cj.sign[i];
                 }

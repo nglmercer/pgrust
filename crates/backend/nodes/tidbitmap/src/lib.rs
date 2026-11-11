@@ -55,7 +55,12 @@ const _: () = assert!(core::mem::size_of::<PagetableEntry>() <= 48);
 impl PagetableEntry {
     #[inline]
     fn zeroed(blockno: BlockNumber) -> Self {
-        PagetableEntry { blockno, ischunk: false, recheck: false, words: [0; TBM_WORDS] }
+        PagetableEntry {
+            blockno,
+            ischunk: false,
+            recheck: false,
+            words: [0; TBM_WORDS],
+        }
     }
 }
 
@@ -96,7 +101,16 @@ impl TbmSharedIterState {
 
     /// The heap pages the entries expand to (an exact page one, a lossy chunk its set bits).
     pub fn expanded_pages(&self) -> u64 {
-        let lossy: u64 = self.ptchunks.iter().map(|&i| self.ptbase[i as usize].words[..WORDS_PER_CHUNK].iter().map(|w| w.count_ones() as u64).sum::<u64>()).sum();
+        let lossy: u64 = self
+            .ptchunks
+            .iter()
+            .map(|&i| {
+                self.ptbase[i as usize].words[..WORDS_PER_CHUNK]
+                    .iter()
+                    .map(|w| w.count_ones() as u64)
+                    .sum::<u64>()
+            })
+            .sum();
         self.npages.max(0) as u64 + lossy
     }
 }
@@ -180,7 +194,10 @@ impl<'mcx> Pagetable<'mcx> {
     fn alloc_slots(
         mcx: Mcx<'mcx>,
         size: u64,
-    ) -> PgResult<(Slots<'mcx, bool>, Slots<'mcx, core::mem::MaybeUninit<PagetableEntry>>)> {
+    ) -> PgResult<(
+        Slots<'mcx, bool>,
+        Slots<'mcx, core::mem::MaybeUninit<PagetableEntry>>,
+    )> {
         let n = size as usize;
         let oom = || mcx.oom(n.saturating_mul(core::mem::size_of::<PagetableEntry>() + 1));
         let mut used = Slots::new_in(McxHuge(mcx));
@@ -198,7 +215,14 @@ impl<'mcx> Pagetable<'mcx> {
         let size = (nelements as f64 / SH_FILLFACTOR).min(SH_MAX_SIZE as f64) as u64;
         let size = sh_compute_size(size)?;
         let (used, data) = Self::alloc_slots(mcx, size)?;
-        let mut tb = Pagetable { used, data, size: 0, sizemask: 0, members: 0, grow_threshold: 0 };
+        let mut tb = Pagetable {
+            used,
+            data,
+            size: 0,
+            sizemask: 0,
+            members: 0,
+            grow_threshold: 0,
+        };
         tb.update_parameters(size)?;
         Ok(tb)
     }
@@ -213,7 +237,11 @@ impl<'mcx> Pagetable<'mcx> {
         let size = sh_compute_size(newsize)?;
         self.size = size;
         self.sizemask = (size - 1) as u32;
-        let fill = if size == SH_MAX_SIZE { SH_MAX_FILLFACTOR } else { SH_FILLFACTOR };
+        let fill = if size == SH_MAX_SIZE {
+            SH_MAX_FILLFACTOR
+        } else {
+            SH_FILLFACTOR
+        };
         self.grow_threshold = (size as f64 * fill) as u32;
         Ok(())
     }
@@ -401,13 +429,25 @@ impl<'mcx> Pagetable<'mcx> {
     }
 
     fn start_iterate(&self) -> PagetableIter {
-        let startelem = self.used.iter().position(|&u| !u).expect("pagetable has no empty bucket");
-        PagetableIter { cur: startelem as u32, end: startelem as u32, done: false }
+        let startelem = self
+            .used
+            .iter()
+            .position(|&u| !u)
+            .expect("pagetable has no empty bucket");
+        PagetableIter {
+            cur: startelem as u32,
+            end: startelem as u32,
+            done: false,
+        }
     }
 
     fn start_iterate_at(&self, at: u32) -> PagetableIter {
         let cur = at & self.sizemask;
-        PagetableIter { cur, end: cur, done: false }
+        PagetableIter {
+            cur,
+            end: cur,
+            done: false,
+        }
     }
 
     /// C `pagetable_iterate`: backwards, over the live sizemask (the table
@@ -491,7 +531,12 @@ impl TbmIterateResult<'_> {
         if let Some(page) = self.page {
             words.copy_from_slice(&page.words[..WORDS_PER_PAGE]);
         }
-        TbmPageResult { blockno: self.blockno, lossy: self.lossy, recheck: self.recheck, words }
+        TbmPageResult {
+            blockno: self.blockno,
+            lossy: self.lossy,
+            recheck: self.recheck,
+            words,
+        }
     }
 }
 
@@ -535,8 +580,8 @@ fn extract_words(words: &[bitmapword], offsets: &mut [OffsetNumber]) -> usize {
 /// [16, INT_MAX - 1] only. There is no MaxAllocSize ceiling: the pagetable is
 /// allocated MCXT_ALLOC_HUGE (see [`McxHuge`]).
 pub fn tbm_calculate_entries(maxbytes: usize) -> i32 {
-    let nbuckets = maxbytes
-        / (core::mem::size_of::<PagetableEntry>() + 2 * core::mem::size_of::<*const u8>());
+    let nbuckets =
+        maxbytes / (core::mem::size_of::<PagetableEntry>() + 2 * core::mem::size_of::<*const u8>());
     let nbuckets = nbuckets.min((i32::MAX - 1) as usize); /* safety limit */
     let nbuckets = nbuckets.max(16); /* sanity limit */
     nbuckets as i32
@@ -577,10 +622,10 @@ impl<'mcx> TIDBitmap<'mcx> {
     /// size is dropped, so the reused bitmap's bucket layout — and with it
     /// the iteration and lossify order — is a fresh bitmap's.
     pub fn recycle(&mut self, maxbytes: usize) {
-        let keep = self
-            .pagetable
-            .as_ref()
-            .is_some_and(|t| sh_compute_size((PAGETABLE_INITIAL as f64 / SH_FILLFACTOR) as u64).is_ok_and(|s| s == t.size));
+        let keep = self.pagetable.as_ref().is_some_and(|t| {
+            sh_compute_size((PAGETABLE_INITIAL as f64 / SH_FILLFACTOR) as u64)
+                .is_ok_and(|s| s == t.size)
+        });
         if keep {
             self.pagetable.as_mut().expect("just checked").clear();
         } else {
@@ -788,7 +833,11 @@ impl<'mcx> TIDBitmap<'mcx> {
             debug_assert!(!self.entry1.ischunk);
             return Some(&self.entry1);
         }
-        let page = self.pagetable.as_ref().expect("TBM_HASH without pagetable").lookup(pageno)?;
+        let page = self
+            .pagetable
+            .as_ref()
+            .expect("TBM_HASH without pagetable")
+            .lookup(pageno)?;
         if page.ischunk {
             return None;
         }
@@ -832,7 +881,12 @@ impl<'mcx> TIDBitmap<'mcx> {
         debug_assert!(self.status == TbmStatus::Hash);
         let bitno = pageno as usize % PAGES_PER_CHUNK;
         let chunk_pageno = pageno - bitno as BlockNumber;
-        match self.pagetable.as_ref().expect("TBM_HASH without pagetable").lookup(chunk_pageno) {
+        match self
+            .pagetable
+            .as_ref()
+            .expect("TBM_HASH without pagetable")
+            .lookup(chunk_pageno)
+        {
             Some(page) if page.ischunk => {
                 page.words[wordnum(bitno)] & ((1 as bitmapword) << bitnum(bitno)) != 0
             }
@@ -885,7 +939,9 @@ impl<'mcx> TIDBitmap<'mcx> {
             .start_iterate_at(self.lossify_start);
         loop {
             let table = self.pagetable.as_ref().expect("TBM_HASH without pagetable");
-            let Some(i) = table.iterate(&mut it) else { break };
+            let Some(i) = table.iterate(&mut it) else {
+                break;
+            };
             let page = table.entry(i);
             if page.ischunk || (page.blockno as usize).is_multiple_of(PAGES_PER_CHUNK) {
                 continue;
@@ -916,7 +972,10 @@ impl<'mcx> TIDBitmap<'mcx> {
     /// The entry behind a readout bucket index (spages/schunks).
     #[inline]
     fn readout_entry(&self, idx: usize) -> &PagetableEntry {
-        self.pagetable.as_ref().expect("TBM_HASH without pagetable").entry(idx as u32)
+        self.pagetable
+            .as_ref()
+            .expect("TBM_HASH without pagetable")
+            .entry(idx as u32)
     }
 
     /// `tbm_begin_private_iterate`; the bitmap is read-only afterwards.
@@ -951,7 +1010,11 @@ impl<'mcx> TIDBitmap<'mcx> {
             self.schunks = Some(schunks);
         }
         self.iterating = TbmIterating::Private;
-        Ok(TbmPrivateIterator { spageptr: 0, schunkptr: 0, schunkbit: 0 })
+        Ok(TbmPrivateIterator {
+            spageptr: 0,
+            schunkptr: 0,
+            schunkbit: 0,
+        })
     }
 
     /// `tbm_prepare_shared_iterate`: freezes the pagetable into a flat entry
@@ -961,11 +1024,17 @@ impl<'mcx> TIDBitmap<'mcx> {
         debug_assert!(self.iterating != TbmIterating::Private);
         let oom = |n: usize| self.mcx.oom(n * core::mem::size_of::<PagetableEntry>());
         let mut ptbase: Vec<PagetableEntry> = Vec::new();
-        ptbase.try_reserve_exact(self.nentries.max(0) as usize).map_err(|_| oom(self.nentries.max(0) as usize))?;
+        ptbase
+            .try_reserve_exact(self.nentries.max(0) as usize)
+            .map_err(|_| oom(self.nentries.max(0) as usize))?;
         let mut ptpages: Vec<i32> = Vec::new();
-        ptpages.try_reserve_exact(self.npages.max(0) as usize).map_err(|_| oom(1))?;
+        ptpages
+            .try_reserve_exact(self.npages.max(0) as usize)
+            .map_err(|_| oom(1))?;
         let mut ptchunks: Vec<i32> = Vec::new();
-        ptchunks.try_reserve_exact(self.nchunks.max(0) as usize).map_err(|_| oom(1))?;
+        ptchunks
+            .try_reserve_exact(self.nchunks.max(0) as usize)
+            .map_err(|_| oom(1))?;
         match self.status {
             TbmStatus::Hash => {
                 let table = self.pagetable.as_ref().expect("TBM_HASH without pagetable");
@@ -996,7 +1065,11 @@ impl<'mcx> TIDBitmap<'mcx> {
             ptbase,
             ptpages,
             ptchunks,
-            cursor: Mutex::new(TbmSharedCursor { spageptr: 0, schunkptr: 0, schunkbit: 0 }),
+            cursor: Mutex::new(TbmSharedCursor {
+                spageptr: 0,
+                schunkptr: 0,
+                schunkbit: 0,
+            }),
         }))
     }
 }
@@ -1103,7 +1176,9 @@ impl TbmPrivateIterator {
             let page = if tbm.status == TbmStatus::OnePage {
                 &tbm.entry1
             } else {
-                tbm.readout_entry(tbm.spages.as_deref().expect("iterating without spages")[self.spageptr])
+                tbm.readout_entry(
+                    tbm.spages.as_deref().expect("iterating without spages")[self.spageptr],
+                )
             };
             self.spageptr += 1;
             return Some(TbmIterateResult {
@@ -1129,6 +1204,7 @@ impl TbmSharedIterator {
     }
 
     /// `tbm_shared_iterate`; cursor advance under the mutex (C: istate->lock).
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<TbmIterateResult<'_>> {
         let st = &*self.state;
         let ptbase: &[PagetableEntry] = &st.ptbase;
@@ -1203,12 +1279,17 @@ impl TbmRangeIterator {
     /// end <= npages + nchunks (the morsel source's granule count).
     pub fn new(state: Arc<TbmSharedIterState>, start: u64, end: u64) -> Self {
         debug_assert!(
-            end <= (state.npages.max(0) as u64 + state.nchunks.max(0) as u64)
-                && start <= end
+            end <= (state.npages.max(0) as u64 + state.nchunks.max(0) as u64) && start <= end
         );
-        TbmRangeIterator { state, pos: start, end, schunkbit: 0 }
+        TbmRangeIterator {
+            state,
+            pos: start,
+            end,
+            schunkbit: 0,
+        }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<TbmIterateResult<'_>> {
         let st = &*self.state;
         let npages = st.npages.max(0) as u64;
@@ -1256,20 +1337,36 @@ pub struct TbmIterator {
 
 impl TbmIterator {
     pub fn empty() -> Self {
-        TbmIterator { private: None, shared: None, range: None }
+        TbmIterator {
+            private: None,
+            shared: None,
+            range: None,
+        }
     }
 
     pub fn private(iter: TbmPrivateIterator) -> Self {
-        TbmIterator { private: Some(iter), shared: None, range: None }
+        TbmIterator {
+            private: Some(iter),
+            shared: None,
+            range: None,
+        }
     }
 
     pub fn shared(iter: TbmSharedIterator) -> Self {
-        TbmIterator { private: None, shared: Some(iter), range: None }
+        TbmIterator {
+            private: None,
+            shared: Some(iter),
+            range: None,
+        }
     }
 
     /// bitmap-morsels: a claimed-window iterator (self-contained, lock-free).
     pub fn range(iter: TbmRangeIterator) -> Self {
-        TbmIterator { private: None, shared: None, range: Some(iter) }
+        TbmIterator {
+            private: None,
+            shared: None,
+            range: Some(iter),
+        }
     }
 
     pub fn exhausted(&self) -> bool {
@@ -1291,7 +1388,10 @@ impl TbmIterator {
         if let Some(r) = self.range.as_mut() {
             return r.next();
         }
-        self.shared.as_mut().expect("tbm_iterate on an exhausted TBMIterator").next()
+        self.shared
+            .as_mut()
+            .expect("tbm_iterate on an exhausted TBMIterator")
+            .next()
     }
 }
 

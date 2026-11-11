@@ -775,6 +775,7 @@ pub fn array_get_element_expanded(
     if ndim as usize != indx.len() || ndim <= 0 || ndim as usize > MAXDIM {
         return Ok((Datum::null(), true));
     }
+    #[allow(clippy::needless_range_loop)]
     for i in 0..ndim as usize {
         if indx[i] < eah.lbound[i] || indx[i] >= eah.dims[i] + eah.lbound[i] {
             return Ok((Datum::null(), true));

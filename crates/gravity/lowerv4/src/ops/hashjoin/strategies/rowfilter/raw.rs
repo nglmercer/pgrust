@@ -100,10 +100,10 @@ mod tests {
         let d = buf.as_mut_ptr() as *mut u8;
         // SAFETY: `buf` is the region, `len` bytes, the records within it.
         unsafe {
-            (wr::<u8>(d, 15, KIND), wr::<u8>(d, PHASE, 1), wr::<u8>(d, WORDS, 1), wr::<u32>(d, REC, 16), wr::<u8>(d, ALLOW, allow), wr::<u8>(d, FLAGS, F_RANGE));
+            wr::<u8>(d, 15, KIND); wr::<u8>(d, PHASE, 1); wr::<u8>(d, WORDS, 1); wr::<u32>(d, REC, 16); wr::<u8>(d, ALLOW, allow); wr::<u8>(d, FLAGS, F_RANGE);
             crate::ops::hashjoin::layout::set_pay(d, 0);
-            (wr::<u64>(d, N, keys.len() as u64), wr::<u64>(d, TOP, len as u64), wr::<u64>(d, END, len as u64));
-            (wr::<i64>(d, LO, keys.iter().copied().min().unwrap_or(0)), wr::<i64>(d, HI, keys.iter().copied().max().unwrap_or(0)));
+            wr::<u64>(d, N, keys.len() as u64); wr::<u64>(d, TOP, len as u64); wr::<u64>(d, END, len as u64);
+            wr::<i64>(d, LO, keys.iter().copied().min().unwrap_or(0)); wr::<i64>(d, HI, keys.iter().copied().max().unwrap_or(0));
             wr::<u8>(d, RF_BITS, 0xAA); // garbage, as a worker's header carries past the 64 bytes the driver zeroes
             keys.iter().enumerate().for_each(|(i, &k)| wr::<i64>(d, HDR + 16 * i, k));
         }

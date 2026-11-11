@@ -5,7 +5,8 @@
 
 use crate::dict::{
     dict_frame_records, expand_front_coded_frame, expand_packed_dict_index, front_code_frame,
-    pack_dict_index, utf8_char_count, DictIndexEntry, DICT_FC_RESTART, DICT_INDEX_ANCHOR, DICT_INDEX_ENTRY_LEN,
+    pack_dict_index, utf8_char_count, DictIndexEntry, DICT_FC_RESTART, DICT_INDEX_ANCHOR,
+    DICT_INDEX_ENTRY_LEN,
 };
 use crate::geom::{DICT_FRAME_ENTRIES, OVERSIZE_THRESHOLD};
 use crate::wire::{pad_to, put_varlena_entry};
@@ -23,8 +24,12 @@ fn v1_images(entries: &[Vec<u8>]) -> (Vec<u8>, Vec<u8>, Vec<u32>) {
             frames.push(payload.len() as u32);
         }
         let off = put_varlena_entry(&mut payload, e) as u32;
-        DictIndexEntry { payload_off: off, byte_len: e.len() as u32, char_field: utf8_char_count(e) }
-            .encode_into(&mut index);
+        DictIndexEntry {
+            payload_off: off,
+            byte_len: e.len() as u32,
+            char_field: utf8_char_count(e),
+        }
+        .encode_into(&mut index);
     }
     (payload, index, frames)
 }
@@ -43,29 +48,49 @@ fn roundtrip(entries: &[Vec<u8>]) {
     let mut fc_total = 0usize;
     for f in 0..nf {
         let lo = frames[f] as usize;
-        let hi = if f + 1 < nf { frames[f + 1] as usize } else { payload.len() };
+        let hi = if f + 1 < nf {
+            frames[f + 1] as usize
+        } else {
+            payload.len()
+        };
         let recs = dict_frame_records(&index, f as u32).expect("frame records");
         let mut fc = Vec::new();
         front_code_frame(&payload[lo..hi], recs, &mut fc).expect("front code");
         fc_total += fc.len();
         expand_front_coded_frame(&fc, recs, &mut rebuilt[lo..hi]).expect("expand");
     }
-    assert!(rebuilt == payload, "front-coded expand must be byte-identical ({} entries)", entries.len());
+    assert!(
+        rebuilt == payload,
+        "front-coded expand must be byte-identical ({} entries)",
+        entries.len()
+    );
     if entries.len() > 1 {
-        assert!(fc_total <= payload.len(), "front coding never grows the frame");
+        assert!(
+            fc_total <= payload.len(),
+            "front coding never grows the frame"
+        );
     }
     let mut packed = Vec::new();
     pack_dict_index(&index, &mut packed).expect("pack");
     let mut out = vec![0xAAu8; index.len()];
     expand_packed_dict_index(&packed, &mut out).expect("expand index");
-    assert!(out == index, "packed index expand must be byte-identical ({} entries)", entries.len());
+    assert!(
+        out == index,
+        "packed index expand must be byte-identical ({} entries)",
+        entries.len()
+    );
     if entries.len() >= 64 {
-        assert!(packed.len() < index.len(), "packed index is smaller than 12 B records");
+        assert!(
+            packed.len() < index.len(),
+            "packed index is smaller than 12 B records"
+        );
     }
 }
 
 fn numbered(n: usize, prefix: &str) -> Vec<Vec<u8>> {
-    (0..n).map(|i| format!("{prefix}{i:06}").into_bytes()).collect()
+    (0..n)
+        .map(|i| format!("{prefix}{i:06}").into_bytes())
+        .collect()
 }
 
 #[test]
@@ -91,7 +116,9 @@ fn synthetic_dictionaries_expand_byte_identically() {
     // and one differing only in the last byte.
     let long = "p".repeat(200);
     roundtrip(&numbered(1024, &long));
-    let mut tail: Vec<Vec<u8>> = (0..1100u32).map(|i| format!("{long}{}", (b'a' + (i % 26) as u8) as char).into_bytes()).collect();
+    let mut tail: Vec<Vec<u8>> = (0..1100u32)
+        .map(|i| format!("{long}{}", (b'a' + (i % 26) as u8) as char).into_bytes())
+        .collect();
     tail.sort();
     tail.dedup();
     roundtrip(&tail);
@@ -99,7 +126,11 @@ fn synthetic_dictionaries_expand_byte_identically() {
     // shared prefix exceeds one varint byte.
     let big = vec![b'x'; OVERSIZE_THRESHOLD as usize + 17];
     let mut near = vec![big.clone(), vec![b'x'; OVERSIZE_THRESHOLD as usize - 1]];
-    near.push({ let mut b = big.clone(); b.push(b'y'); b });
+    near.push({
+        let mut b = big.clone();
+        b.push(b'y');
+        b
+    });
     near.extend(numbered(40, "y"));
     roundtrip(&near);
 }
@@ -112,11 +143,17 @@ fn packed_index_refuses_unpackable_records_typed() {
     pack_dict_index(&index, &mut ok).expect("packable");
     // A char count above the byte length (the Absolute-form law) refuses.
     index[8..12].copy_from_slice(&u32::MAX.to_le_bytes());
-    assert!(matches!(pack_dict_index(&index, &mut Vec::new()), Err(FormatError::EncodeContract { .. })));
+    assert!(matches!(
+        pack_dict_index(&index, &mut Vec::new()),
+        Err(FormatError::EncodeContract { .. })
+    ));
     // An offset off the prefix sum refuses (the expand could not reproduce it).
     let (_p, mut index, _) = v1_images(&entries);
     index[12..16].copy_from_slice(&1u32.to_le_bytes());
-    assert!(matches!(pack_dict_index(&index, &mut Vec::new()), Err(FormatError::EncodeContract { .. })));
+    assert!(matches!(
+        pack_dict_index(&index, &mut Vec::new()),
+        Err(FormatError::EncodeContract { .. })
+    ));
     // The expand refuses a wrong record count and a truncated image.
     let mut short = vec![0u8; index.len() - DICT_INDEX_ENTRY_LEN];
     assert!(expand_packed_dict_index(&ok, &mut short).is_err());
@@ -154,13 +191,30 @@ fn fc_resident_roundtrip(entries: &[Vec<u8>]) {
     let mut fcs = Vec::new();
     for f in 0..nf {
         let lo = frames[f] as usize;
-        let hi = if f + 1 < nf { frames[f + 1] as usize } else { payload.len() };
+        let hi = if f + 1 < nf {
+            frames[f + 1] as usize
+        } else {
+            payload.len()
+        };
         let mut fc = Vec::new();
-        front_code_frame(&payload[lo..hi], dict_frame_records(&index, f as u32).expect("records"), &mut fc).expect("front code");
+        front_code_frame(
+            &payload[lo..hi],
+            dict_frame_records(&index, f as u32).expect("records"),
+            &mut fc,
+        )
+        .expect("front code");
         fcs.push(fc);
     }
     let mut res = Vec::new();
-    fc_resident_build(&index, &mut |f, out| { out.extend_from_slice(&fcs[f as usize]); Ok(()) }, &mut res).expect("build");
+    fc_resident_build(
+        &index,
+        &mut |f, out| {
+            out.extend_from_slice(&fcs[f as usize]);
+            Ok(())
+        },
+        &mut res,
+    )
+    .expect("build");
     let r = FcResident::parse(&res).expect("parse");
     assert_eq!(r.nentries as usize, entries.len());
     let mut buf = vec![0u8; 4 + entries.iter().map(Vec::len).max().unwrap_or(0)];
@@ -168,7 +222,10 @@ fn fc_resident_roundtrip(entries: &[Vec<u8>]) {
         let len = fc_entry_into(&r, &index, c as u32, &mut buf).expect("entry");
         assert_eq!(len, e.len());
         assert_eq!(&buf[4..4 + len], &e[..], "entry {c}");
-        assert_eq!(u32::from_le_bytes(buf[..4].try_into().unwrap()), crate::wire::varlena_header_4b_u(len as u32));
+        assert_eq!(
+            u32::from_le_bytes(buf[..4].try_into().unwrap()),
+            crate::wire::varlena_header_4b_u(len as u32)
+        );
     }
     let mut out = Vec::new();
     let mut w = FcWalk::new(r, &index, 0, entries.len() as u32).expect("walk");
@@ -204,7 +261,9 @@ fn fc_resident_form_decodes_byte_identically() {
     mixed.push("🚀🚀🚀".as_bytes().to_vec());
     mixed.push(vec![b'x'; OVERSIZE_THRESHOLD as usize + 17]);
     fc_resident_roundtrip(&mixed);
-    let shared: Vec<Vec<u8>> = (0..1024).map(|i| format!("{}{}", "p".repeat(200), i).into_bytes()).collect();
+    let shared: Vec<Vec<u8>> = (0..1024)
+        .map(|i| format!("{}{}", "p".repeat(200), i).into_bytes())
+        .collect();
     fc_resident_roundtrip(&shared);
 }
 
@@ -214,7 +273,11 @@ fn fc_resident_form_decodes_byte_identically() {
 /// restart and an anchor).
 #[test]
 fn dict_wrapper_intervals_are_the_specs_format_facts() {
-    assert_eq!((DICT_FC_RESTART, DICT_INDEX_ANCHOR), (32, 64), "spec docs/design/sqe/pgrc-format.md §7.1");
+    assert_eq!(
+        (DICT_FC_RESTART, DICT_INDEX_ANCHOR),
+        (32, 64),
+        "spec docs/design/sqe/pgrc-format.md §7.1"
+    );
     assert_eq!(DICT_FRAME_ENTRIES % DICT_FC_RESTART, 0);
     assert_eq!(DICT_FRAME_ENTRIES % DICT_INDEX_ANCHOR, 0);
     // a packed index over 3 frames and a tail carries entry 64a's raw payload_off as anchor a, a = 0 .. ceil(n / 64),
@@ -223,12 +286,18 @@ fn dict_wrapper_intervals_are_the_specs_format_facts() {
     let (_payload, index, _frames) = v1_images(&numbered(n, "p524-"));
     let mut packed = Vec::new();
     pack_dict_index(&index, &mut packed).expect("pack");
-    assert_eq!(u32::from_le_bytes(packed[..4].try_into().expect("len 4")) as usize, n);
+    assert_eq!(
+        u32::from_le_bytes(packed[..4].try_into().expect("len 4")) as usize,
+        n
+    );
     for a in 0..n.div_ceil(DICT_INDEX_ANCHOR as usize) {
         let e = a * DICT_INDEX_ANCHOR as usize * DICT_INDEX_ENTRY_LEN;
         assert_eq!(packed[4 + 4 * a..8 + 4 * a], index[e..e + 4], "anchor {a}");
     }
     let mut out = vec![0xAAu8; index.len()];
     expand_packed_dict_index(&packed, &mut out).expect("expand index");
-    assert!(out == index, "the packed index expands byte-identically under the spec's intervals");
+    assert!(
+        out == index,
+        "the packed index expands byte-identically under the spec's intervals"
+    );
 }

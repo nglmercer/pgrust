@@ -6,7 +6,11 @@ use types_core::xact::{TransactionIdIsValid, TransactionIdPrecedes};
 use types_core::{Oid, TransactionId, BLCKSZ};
 use types_error::PgResult;
 use types_storage::bufpage::{PageRef, SizeofHeapTupleHeader};
-use types_tuple::{HeapTupleData, ItemPointerData, ItemPointerSet, HEAP_XMAX_COMMITTED, HEAP_XMAX_INVALID, HEAP_XMAX_IS_LOCKED_ONLY, HEAP_XMAX_IS_MULTI, HEAP_XMIN_COMMITTED, HEAP_XMIN_FROZEN, HEAP_XMIN_INVALID};
+use types_tuple::{
+    HeapTupleData, ItemPointerData, ItemPointerSet, HEAP_XMAX_COMMITTED, HEAP_XMAX_INVALID,
+    HEAP_XMAX_IS_LOCKED_ONLY, HEAP_XMAX_IS_MULTI, HEAP_XMIN_COMMITTED, HEAP_XMIN_FROZEN,
+    HEAP_XMIN_INVALID,
+};
 
 use crate::pagesrc::TxnOracle;
 
@@ -42,7 +46,10 @@ pub struct Ctx<'a> {
 
 impl<'a> Ctx<'a> {
     pub fn new(txn: &'a dyn TxnOracle) -> Ctx<'a> {
-        Ctx { txn, horizon: Cell::new(None) }
+        Ctx {
+            txn,
+            horizon: Cell::new(None),
+        }
     }
 
     pub fn horizon(&self) -> PgResult<TransactionId> {
@@ -106,7 +113,9 @@ pub fn fingerprint(h: &Hdr, len: u32, tuple: &[u8]) -> u64 {
 /// A LOCK row has `succ` = `SUCC_LOCK`, its second int8 column; a short or odd-shaped tuple is not, and `tomb::tombstone` refuses it later.
 fn is_lock_row(t: &[u8]) -> bool {
     let hoff = t[22] as usize;
-    t.len() >= hoff + 16 && u64::from_ne_bytes(t[hoff + 8..hoff + 16].try_into().expect("8 bytes")) == pgrc_format::rowid::SUCC_LOCK
+    t.len() >= hoff + 16
+        && u64::from_ne_bytes(t[hoff + 8..hoff + 16].try_into().expect("8 bytes"))
+            == pgrc_format::rowid::SUCC_LOCK
 }
 
 pub fn header(tuple: &[u8], off: u16, tomb: bool) -> Hdr {
@@ -139,10 +148,21 @@ fn classify(h: &mut Hdr, tomb: bool, cx: &Ctx<'_>) -> PgResult<Result<St, Unimag
         return Ok(Ok(St::Dead));
     }
     if !tomb {
-        return Ok(Ok(if xmin_settled { St::Settled } else { St::Recent }));
+        return Ok(Ok(if xmin_settled {
+            St::Settled
+        } else {
+            St::Recent
+        }));
     }
-    if h.infomask & HEAP_XMAX_INVALID != 0 || !TransactionIdIsValid(h.xmax) || HEAP_XMAX_IS_LOCKED_ONLY(h.infomask) {
-        return Ok(Ok(if xmin_settled { St::Settled } else { St::Recent }));
+    if h.infomask & HEAP_XMAX_INVALID != 0
+        || !TransactionIdIsValid(h.xmax)
+        || HEAP_XMAX_IS_LOCKED_ONLY(h.infomask)
+    {
+        return Ok(Ok(if xmin_settled {
+            St::Settled
+        } else {
+            St::Recent
+        }));
     }
     if h.infomask & HEAP_XMAX_IS_MULTI != 0 {
         return Ok(Err(Unimageable::Multixact));
@@ -159,7 +179,11 @@ fn classify(h: &mut Hdr, tomb: bool, cx: &Ctx<'_>) -> PgResult<Result<St, Unimag
         false
     };
     if !committed {
-        return Ok(Ok(if xmin_settled { St::Settled } else { St::Recent }));
+        return Ok(Ok(if xmin_settled {
+            St::Settled
+        } else {
+            St::Recent
+        }));
     }
     // A deleted row whose xmin is not settled yet is recent: some snapshot may predate both.
     if xmin_settled && TransactionIdPrecedes(h.xmax, cx.horizon()?) {
@@ -170,11 +194,21 @@ fn classify(h: &mut Hdr, tomb: bool, cx: &Ctx<'_>) -> PgResult<Result<St, Unimag
 
 impl BlockImage {
     /// Decode a share-locked page. LP_NORMAL items only; `Ok(Err(_))` = this block cannot be imaged.
-    pub fn decode(block: u32, page: &[u8], kind: Kind, cx: &Ctx<'_>) -> PgResult<Result<BlockImage, Unimageable>> {
-        assert!(page.len() >= BLCKSZ && (page.as_ptr() as usize).is_multiple_of(8), "a MAXALIGNed BLCKSZ page");
+    pub fn decode(
+        block: u32,
+        page: &[u8],
+        kind: Kind,
+        cx: &Ctx<'_>,
+    ) -> PgResult<Result<BlockImage, Unimageable>> {
+        assert!(
+            page.len() >= BLCKSZ && (page.as_ptr() as usize).is_multiple_of(8),
+            "a MAXALIGNed BLCKSZ page"
+        );
         let tomb = kind == Kind::Tomb;
         // SAFETY: a live, 8-aligned BLCKSZ page for this call (asserted above).
-        let pr = unsafe { PageRef::from_raw(std::ptr::NonNull::new(page.as_ptr() as *mut u8).expect("page")) };
+        let pr = unsafe {
+            PageRef::from_raw(std::ptr::NonNull::new(page.as_ptr() as *mut u8).expect("page"))
+        };
         let lsn = pr.lsn();
         let mut hdr = Vec::new();
         let mut at = Vec::new();
@@ -208,10 +242,18 @@ impl BlockImage {
                 }
                 let base = arena.len() * 8;
                 let words = (len as usize).div_ceil(8);
-                arena.try_reserve(words).map_err(|_| ::mcx::oom_named("pgrc block image", words * 8))?;
+                arena
+                    .try_reserve(words)
+                    .map_err(|_| ::mcx::oom_named("pgrc block image", words * 8))?;
                 arena.resize(arena.len() + words, 0);
                 // SAFETY: the arena has `words * 8 >= len` bytes past `base`.
-                unsafe { std::ptr::copy_nonoverlapping(p, (arena.as_mut_ptr() as *mut u8).add(base), len as usize) };
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        p,
+                        (arena.as_mut_ptr() as *mut u8).add(base),
+                        len as usize,
+                    )
+                };
                 if st == St::Settled {
                     settled_rows.push(hdr.len());
                 }
@@ -220,7 +262,8 @@ impl BlockImage {
                 at.push((base as u32, len));
             }
         }
-        let mut settled = ::mcx::stdvec::try_filled(hdr.len().div_ceil(64), 0u64, "pgrc block image")?;
+        let mut settled =
+            ::mcx::stdvec::try_filled(hdr.len().div_ceil(64), 0u64, "pgrc block image")?;
         for &i in &settled_rows {
             settled[i / 64] |= 1 << (i % 64);
         }
@@ -251,7 +294,12 @@ impl BlockImage {
     pub fn tuple_bytes(&self, i: usize) -> &[u8] {
         let (base, len) = self.at[i];
         // SAFETY: `at` indexes the arena this image owns.
-        unsafe { std::slice::from_raw_parts((self.tuples.as_ptr() as *const u8).add(base as usize), len as usize) }
+        unsafe {
+            std::slice::from_raw_parts(
+                (self.tuples.as_ptr() as *const u8).add(base as usize),
+                len as usize,
+            )
+        }
     }
 
     pub fn tuple(&self, i: usize, table_oid: Oid) -> HeapTupleData<'_> {

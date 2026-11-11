@@ -5,9 +5,9 @@
 //! - Cross-part: the order image is the render's first 8 bytes, big-endian, zero-padded, with the top bit flipped so the
 //!   words compare as signed `I64` (the order-image convention, as the float order words); a tie on the prefix is not a tie of
 //!   the values, so the image is inexact and the consumer's exact compare (the full renders) decides a tie.
-//! Byte order is PG's order only under a collation that orders by bytes ("C" / POSIX). Under any other collation the order
-//! image is the render's, taken by rep.varlena.order (its collated prefix and tail, M6 L0-d1); a rank has no collated form
-//! and refuses the `key.coll` road.
+//!   Byte order is PG's order only under a collation that orders by bytes ("C" / POSIX). Under any other collation the order
+//!   image is the render's, taken by rep.varlena.order (its collated prefix and tail, M6 L0-d1); a rank has no collated form
+//!   and refuses the `key.coll` road.
 use gravity_decompose::catalog::typefacts::{KeyColl, TypeFacts};
 use gravity_ir::{HostFlags, Type, Value};
 use gravity_program::Rep;

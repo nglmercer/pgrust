@@ -7,6 +7,7 @@
 //! - Modules: each `registry/m<k>.rs` declares its milestone's files by `#[path]`; a file of milestone k never names
 //!   `registry::m<j>` for j != k (CORE files name none); every source file is declared exactly once; no per-directory
 //!   `mod.rs` hub beyond the plan's two.
+#[allow(unused_imports)]
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
@@ -141,6 +142,7 @@ fn hash_names(body: &str, module: &str) -> Vec<(usize, String)> {
 
 /// The 64-bit values of the two hash files' module-level `const` items (PHI64 and any tunable beside it): a v4 file writing
 /// one copies the key hash past KeyHash, and a retune of hash.rs would miss it.
+#[allow(dropping_copy_types)]
 fn hash_literals() -> BTreeSet<u64> {
     let mut lits = BTreeSet::new();
     for f in ["crates/gravity/abi/src/hash.rs", "crates/gravity/expr/src/emit/hash.rs"] {

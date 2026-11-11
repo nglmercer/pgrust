@@ -131,7 +131,10 @@ pub const OCTET_LENGTH_PATH: &str = "\0octet_length";
 pub const fn octet_length_schema(attno: u32) -> ColSchema {
     ColSchema {
         attno,
-        class: StorageClass::ByvalWord { width: 4, signed: true },
+        class: StorageClass::ByvalWord {
+            width: 4,
+            signed: true,
+        },
         typlen: 4,
         typbyval: true,
         typalign: b'i',
@@ -229,7 +232,10 @@ mod tests {
     fn numeric_lane_scale_adjudication() {
         use crate::part::STREAMF_LANE_SCALE;
         assert!(numeric_lane_scale(0, 0).is_err(), "flag-absent refuses");
-        assert!(numeric_lane_scale(0, 2).is_err(), "flag-absent refuses at any aux32");
+        assert!(
+            numeric_lane_scale(0, 2).is_err(),
+            "flag-absent refuses at any aux32"
+        );
         assert_eq!(numeric_lane_scale(STREAMF_LANE_SCALE, 0), Ok(0));
         assert_eq!(numeric_lane_scale(STREAMF_LANE_SCALE, 2), Ok(2));
     }
@@ -255,7 +261,10 @@ mod tests {
         // The escape byte itself is escaped, keeping the map injective
         // even for keys that contain a backslash.
         assert_eq!(encode_shred_path(["a\\.b"]), "a\\\\\\.b");
-        assert_ne!(encode_shred_path(["a\\", "b"]), encode_shred_path(["a", "b"]));
+        assert_ne!(
+            encode_shred_path(["a\\", "b"]),
+            encode_shred_path(["a", "b"])
+        );
 
         // Incremental (prefix + key) building matches the whole-chain form.
         let mut inc = encode_shred_path(["a"]);

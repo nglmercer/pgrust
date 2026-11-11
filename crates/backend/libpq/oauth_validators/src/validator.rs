@@ -51,11 +51,15 @@ fn config() -> Config {
         client_secret: g::jwt_validator_introspection_client_secret().unwrap_or_default(),
         require_scopes: g::jwt_validator_require_scopes(),
         clock_skew: i64::from(g::jwt_validator_clock_skew()),
-        jwks_cache_ttl: Duration::from_secs(u64::try_from(g::jwt_validator_jwks_cache_ttl()).unwrap_or(0)),
+        jwks_cache_ttl: Duration::from_secs(
+            u64::try_from(g::jwt_validator_jwks_cache_ttl()).unwrap_or(0),
+        ),
         http: HttpOptions {
             allow_insecure_http: g::jwt_validator_allow_insecure_http(),
             ca_file: Some(s(g::jwt_validator_ca_file())).filter(|f| !f.is_empty()),
-            timeout: Duration::from_secs(u64::try_from(g::jwt_validator_http_timeout()).unwrap_or(10)),
+            timeout: Duration::from_secs(
+                u64::try_from(g::jwt_validator_http_timeout()).unwrap_or(10),
+            ),
         },
     }
 }
@@ -92,7 +96,8 @@ fn fetch_json(uri: &str, opts: &HttpOptions) -> Result<Json, String> {
     if resp.status != 200 {
         return Err(format!("GET {uri} returned HTTP {}", resp.status));
     }
-    let text = std::str::from_utf8(&resp.body).map_err(|_| format!("GET {uri}: body is not UTF-8"))?;
+    let text =
+        std::str::from_utf8(&resp.body).map_err(|_| format!("GET {uri}: body is not UTF-8"))?;
     json::parse(text).map_err(|e| format!("GET {uri}: {e}"))
 }
 
@@ -117,7 +122,11 @@ fn resolve_jwks_uri(hba_issuer: &str, cfg: &Config) -> Result<String, String> {
         .to_string();
     let mut cache = DISCOVERY_CACHE.lock().unwrap();
     cache.retain(|e| e.issuer != hba_issuer);
-    cache.push(CachedDiscovery { issuer: hba_issuer.to_string(), fetched_at: MonoStamp::now(), jwks_uri: jwks_uri.clone() });
+    cache.push(CachedDiscovery {
+        issuer: hba_issuer.to_string(),
+        fetched_at: MonoStamp::now(),
+        jwks_uri: jwks_uri.clone(),
+    });
     Ok(jwks_uri)
 }
 
@@ -127,11 +136,14 @@ fn refresh_jwks(uri: &str, opts: &HttpOptions) -> Result<(), String> {
     if resp.status != 200 {
         return Err(format!("GET {uri} returned HTTP {}", resp.status));
     }
-    let text = std::str::from_utf8(&resp.body).map_err(|_| format!("GET {uri}: body is not UTF-8"))?;
+    let text =
+        std::str::from_utf8(&resp.body).map_err(|_| format!("GET {uri}: body is not UTF-8"))?;
     let (keys, skipped) = jwt::parse_jwks(text).map_err(|e| format!("GET {uri}: {e}"))?;
     for why in skipped {
         let _ = ereport(LOG)
-            .errmsg(format!("jwt_validator: skipping unusable key in JWKS {uri}"))
+            .errmsg(format!(
+                "jwt_validator: skipping unusable key in JWKS {uri}"
+            ))
             .errdetail_log(why)
             .finish(ErrorLocation::new(file!(), line!() as i32, "refresh_jwks"));
     }
@@ -140,7 +152,11 @@ fn refresh_jwks(uri: &str, opts: &HttpOptions) -> Result<(), String> {
     }
     let mut cache = JWKS_CACHE.lock().unwrap();
     cache.retain(|e| e.uri != uri);
-    cache.push(CachedJwks { uri: uri.to_string(), fetched_at: MonoStamp::now(), keys });
+    cache.push(CachedJwks {
+        uri: uri.to_string(),
+        fetched_at: MonoStamp::now(),
+        keys,
+    });
     Ok(())
 }
 
@@ -148,7 +164,10 @@ fn refresh_jwks(uri: &str, opts: &HttpOptions) -> Result<(), String> {
 fn candidate_keys(uri: &str, jws: &jwt::Jws<'_>) -> Option<(Vec<PKey<Public>>, Duration)> {
     let cache = JWKS_CACHE.lock().unwrap();
     let entry = cache.iter().find(|e| e.uri == uri)?;
-    let keys = jwt::candidate_keys(jws, &entry.keys).into_iter().map(|k| k.key.clone()).collect();
+    let keys = jwt::candidate_keys(jws, &entry.keys)
+        .into_iter()
+        .map(|k| k.key.clone())
+        .collect();
     Some((keys, Duration::from_nanos(entry.fetched_at.elapsed_ns())))
 }
 
@@ -159,7 +178,12 @@ fn policy_scopes<'a>(env: ValidatorEnv<'a>, cfg: &Config) -> Vec<&'a str> {
     env.scope.unwrap_or("").split_ascii_whitespace().collect()
 }
 
-fn validate_jws(env: ValidatorEnv<'_>, hba_issuer: &str, token: &str, cfg: &Config) -> Result<String, Failure> {
+fn validate_jws(
+    env: ValidatorEnv<'_>,
+    hba_issuer: &str,
+    token: &str,
+    cfg: &Config,
+) -> Result<String, Failure> {
     let jws = jwt::parse_jws(token).map_err(Failure::Reject)?;
     let uri = resolve_jwks_uri(hba_issuer, cfg).map_err(Failure::Internal)?;
 
@@ -167,7 +191,9 @@ fn validate_jws(env: ValidatorEnv<'_>, hba_issuer: &str, token: &str, cfg: &Conf
         Some((keys, age)) if age < cfg.jwks_cache_ttl => keys,
         _ => {
             refresh_jwks(&uri, &cfg.http).map_err(Failure::Internal)?;
-            candidate_keys(&uri, &jws).map(|(k, _)| k).unwrap_or_default()
+            candidate_keys(&uri, &jws)
+                .map(|(k, _)| k)
+                .unwrap_or_default()
         }
     };
     if keys.is_empty() {
@@ -175,7 +201,9 @@ fn validate_jws(env: ValidatorEnv<'_>, hba_issuer: &str, token: &str, cfg: &Conf
         let stale = candidate_keys(&uri, &jws).is_some_and(|(_, age)| age >= MIN_REFRESH_INTERVAL);
         if stale {
             refresh_jwks(&uri, &cfg.http).map_err(Failure::Internal)?;
-            keys = candidate_keys(&uri, &jws).map(|(k, _)| k).unwrap_or_default();
+            keys = candidate_keys(&uri, &jws)
+                .map(|(k, _)| k)
+                .unwrap_or_default();
         }
     }
     if keys.is_empty() {
@@ -192,7 +220,10 @@ fn validate_jws(env: ValidatorEnv<'_>, hba_issuer: &str, token: &str, cfg: &Conf
         }
     }
     if !verified {
-        return Err(Failure::Reject(format!("{} signature verification failed", jws.alg.name())));
+        return Err(Failure::Reject(format!(
+            "{} signature verification failed",
+            jws.alg.name()
+        )));
     }
     let scopes = policy_scopes(env, cfg);
     let policy = Policy {
@@ -211,14 +242,21 @@ fn form_encode(s: &str) -> String {
     let _ = out.try_reserve(s.len());
     for b in s.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => out.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(b as char)
+            }
             _ => out.push_str(&format!("%{b:02X}")),
         }
     }
     out
 }
 
-fn introspect(env: ValidatorEnv<'_>, hba_issuer: &str, token: &str, cfg: &Config) -> Result<String, Failure> {
+fn introspect(
+    env: ValidatorEnv<'_>,
+    hba_issuer: &str,
+    token: &str,
+    cfg: &Config,
+) -> Result<String, Failure> {
     if cfg.introspection_uri.is_empty() {
         return Err(Failure::Reject(
             "token is not a JWT and jwt_validator.introspection_uri is not set".into(),
@@ -226,9 +264,18 @@ fn introspect(env: ValidatorEnv<'_>, hba_issuer: &str, token: &str, cfg: &Config
     }
     let url = http::parse_url(&cfg.introspection_uri).map_err(Failure::Internal)?;
     let body = format!("token={}&token_type_hint=access_token", form_encode(token));
-    let auth = (!cfg.client_id.is_empty())
-        .then(|| b64_std_encode(format!("{}:{}", form_encode(&cfg.client_id), form_encode(&cfg.client_secret)).as_bytes()));
-    let resp = http::post_form(&url, &body, auth.as_deref(), &cfg.http).map_err(Failure::Internal)?;
+    let auth = (!cfg.client_id.is_empty()).then(|| {
+        b64_std_encode(
+            format!(
+                "{}:{}",
+                form_encode(&cfg.client_id),
+                form_encode(&cfg.client_secret)
+            )
+            .as_bytes(),
+        )
+    });
+    let resp =
+        http::post_form(&url, &body, auth.as_deref(), &cfg.http).map_err(Failure::Internal)?;
     if resp.status != 200 {
         return Err(Failure::Internal(format!(
             "introspection endpoint {} returned HTTP {}",
@@ -237,12 +284,17 @@ fn introspect(env: ValidatorEnv<'_>, hba_issuer: &str, token: &str, cfg: &Config
     }
     let text = std::str::from_utf8(&resp.body)
         .map_err(|_| Failure::Internal("introspection response is not UTF-8".into()))?;
-    let doc = json::parse(text).map_err(|e| Failure::Internal(format!("introspection response: {e}")))?;
+    let doc =
+        json::parse(text).map_err(|e| Failure::Internal(format!("introspection response: {e}")))?;
     if !doc.is_obj() {
-        return Err(Failure::Internal("introspection response is not a JSON object".into()));
+        return Err(Failure::Internal(
+            "introspection response is not a JSON object".into(),
+        ));
     }
     if doc.get("active").and_then(Json::as_bool) != Some(true) {
-        return Err(Failure::Reject("introspection reports the token as not active".into()));
+        return Err(Failure::Reject(
+            "introspection reports the token as not active".into(),
+        ));
     }
     let scopes = policy_scopes(env, cfg);
     let policy = Policy {
@@ -259,12 +311,18 @@ fn introspect(env: ValidatorEnv<'_>, hba_issuer: &str, token: &str, cfg: &Config
 pub fn validate_token(env: ValidatorEnv<'_>, token: &str) -> Result<String, Failure> {
     let cfg = config();
     if cfg.audiences.is_empty() {
-        return Err(Failure::Internal("jwt_validator.audience is not set".into()));
+        return Err(Failure::Internal(
+            "jwt_validator.audience is not set".into(),
+        ));
     }
     if cfg.identity_claim.is_empty() {
-        return Err(Failure::Internal("jwt_validator.identity_claim is empty".into()));
+        return Err(Failure::Internal(
+            "jwt_validator.identity_claim is empty".into(),
+        ));
     }
-    let hba_issuer = env.issuer.ok_or_else(|| Failure::Internal("HBA line has no issuer".into()))?;
+    let hba_issuer = env
+        .issuer
+        .ok_or_else(|| Failure::Internal("HBA line has no issuer".into()))?;
     if jwt::looks_like_jws(token) {
         validate_jws(env, hba_issuer, token, &cfg)
     } else {
@@ -296,7 +354,9 @@ impl OAuthValidator for JwtValidator {
             }
             Err(Failure::Reject(reason)) => {
                 ereport(LOG)
-                    .errmsg(format!("jwt_validator: rejected bearer token for role \"{role}\""))
+                    .errmsg(format!(
+                        "jwt_validator: rejected bearer token for role \"{role}\""
+                    ))
                     .errdetail_log(reason)
                     .finish(ErrorLocation::new(file!(), line!() as i32, "validate"))?;
                 result.authorized = false;
@@ -305,7 +365,9 @@ impl OAuthValidator for JwtValidator {
             }
             Err(Failure::Internal(what)) => {
                 ereport(LOG)
-                    .errmsg(format!("jwt_validator: could not validate bearer token for role \"{role}\""))
+                    .errmsg(format!(
+                        "jwt_validator: could not validate bearer token for role \"{role}\""
+                    ))
                     .errdetail_log(what)
                     .finish(ErrorLocation::new(file!(), line!() as i32, "validate"))?;
                 Ok(false)

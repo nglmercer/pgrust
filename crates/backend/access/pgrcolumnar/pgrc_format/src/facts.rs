@@ -96,12 +96,24 @@ pub struct FactsImage {
 
 impl FactsImage {
     pub fn encode(&self) -> FormatResult<Vec<u8>> {
-        let body: usize = self.cols.iter().map(|c| FACTS_COL_LEN + c.ndv_body.len() + c.zones.bytes().len()).sum();
+        let body: usize = self
+            .cols
+            .iter()
+            .map(|c| FACTS_COL_LEN + c.ndv_body.len() + c.zones.bytes().len())
+            .sum();
         let mut out = crate::try_vec(FACTS_HEADER_LEN + body + 4, "facts")?;
         let h = &self.header;
         put_u32(&mut out, FACTS_MAGIC);
         put_u32(&mut out, FACTS_VERSION);
-        for v in [h.gen, h.publisher_fxid, h.schema_fingerprint, h.rows, h.bytes, h.granules, h.parts] {
+        for v in [
+            h.gen,
+            h.publisher_fxid,
+            h.schema_fingerprint,
+            h.rows,
+            h.bytes,
+            h.granules,
+            h.parts,
+        ] {
             put_u64(&mut out, v);
         }
         put_u32(&mut out, self.cols.len() as u32);
@@ -114,7 +126,13 @@ impl FactsImage {
             put_u64(&mut out, c.nonnull);
             put_u32(&mut out, c.char_len_max);
             put_u32(&mut out, c.ndv_body.len() as u32);
-            for v in [c.disk_bytes, c.rows_zone, c.rows_bloom, c.rows_dict, c.ncodes] {
+            for v in [
+                c.disk_bytes,
+                c.rows_zone,
+                c.rows_bloom,
+                c.rows_dict,
+                c.ncodes,
+            ] {
                 put_u64(&mut out, v);
             }
             put_u32(&mut out, c.zones.granules());
@@ -143,7 +161,9 @@ impl FactsImage {
             return Err(FormatError::Corrupt { at: "facts magic" });
         }
         if c.u32(at)? != FACTS_VERSION {
-            return Err(FormatError::Corrupt { at: "facts version" });
+            return Err(FormatError::Corrupt {
+                at: "facts version",
+            });
         }
         let header = FactsHeader {
             gen: c.u64(at)?,
@@ -157,7 +177,9 @@ impl FactsImage {
         let ncols = c.u32(at)? as usize;
         c.u32(at)?;
         if c.remaining() < ncols.saturating_mul(FACTS_COL_LEN) {
-            return Err(FormatError::Truncated { at: "facts columns" });
+            return Err(FormatError::Truncated {
+                at: "facts columns",
+            });
         }
         let ca = "facts column";
         let mut cols = crate::try_vec(ncols, "facts")?;
@@ -165,14 +187,20 @@ impl FactsImage {
         for _ in 0..ncols {
             let attno = c.u32(ca)?;
             if attno == 0 || attno <= prev_attno {
-                return Err(FormatError::Corrupt { at: "facts column order" });
+                return Err(FormatError::Corrupt {
+                    at: "facts column order",
+                });
             }
             prev_attno = attno;
             let class = c.u8(ca)?;
             let signed = match c.u8(ca)? {
                 0 => false,
                 1 => true,
-                _ => return Err(FormatError::Corrupt { at: "facts column signed" }),
+                _ => {
+                    return Err(FormatError::Corrupt {
+                        at: "facts column signed",
+                    })
+                }
             };
             let width = c.u8(ca)?;
             let flags = c.u8(ca)?;
@@ -188,12 +216,16 @@ impl FactsImage {
             let nzones = c.u32(ca)?;
             let zone_len = c.u32(ca)? as usize;
             if c.remaining() < ndv_len.saturating_add(zone_len) {
-                return Err(FormatError::Truncated { at: "facts column body" });
+                return Err(FormatError::Truncated {
+                    at: "facts column body",
+                });
             }
             let ndv_body = crate::try_to_vec(c.take(ndv_len, ca)?, "facts")?;
             let zones = ZoneMap::from_bytes(c.take(zone_len, ca)?, nzones)?;
             if flags & COLF_ZONES != 0 && u64::from(nzones) != header.granules {
-                return Err(FormatError::Corrupt { at: "facts zones vs granules" });
+                return Err(FormatError::Corrupt {
+                    at: "facts zones vs granules",
+                });
             }
             cols.push(ColFacts {
                 attno,
@@ -214,7 +246,9 @@ impl FactsImage {
             });
         }
         if c.remaining() != 0 {
-            return Err(FormatError::Corrupt { at: "facts trailing bytes" });
+            return Err(FormatError::Corrupt {
+                at: "facts trailing bytes",
+            });
         }
         Ok(FactsImage { header, cols })
     }
@@ -226,7 +260,15 @@ mod tests {
 
     fn image() -> FactsImage {
         FactsImage {
-            header: FactsHeader { gen: 3, publisher_fxid: 77, schema_fingerprint: 0xfeed, rows: 30, bytes: 4096, granules: 2, parts: 2 },
+            header: FactsHeader {
+                gen: 3,
+                publisher_fxid: 77,
+                schema_fingerprint: 0xfeed,
+                rows: 30,
+                bytes: 4096,
+                granules: 2,
+                parts: 2,
+            },
             cols: vec![
                 ColFacts {
                     attno: 1,
@@ -271,36 +313,69 @@ mod tests {
         let img = image();
         let bytes = img.encode().unwrap();
         let zmap = img.cols[0].zones.bytes().len() + img.cols[1].zones.bytes().len();
-        assert_eq!(bytes.len(), FACTS_HEADER_LEN + 2 * FACTS_COL_LEN + 12 + zmap + 4);
+        assert_eq!(
+            bytes.len(),
+            FACTS_HEADER_LEN + 2 * FACTS_COL_LEN + 12 + zmap + 4
+        );
         let back = FactsImage::decode(&bytes).expect("decode");
         assert_eq!(back, img);
-        assert_eq!(back.cols[0].zones.decode().unwrap(), vec![(1, 10), (i64::MAX, i64::MIN)]);
+        assert_eq!(
+            back.cols[0].zones.decode().unwrap(),
+            vec![(1, 10), (i64::MAX, i64::MIN)]
+        );
     }
 
     #[test]
     fn refusals_are_typed() {
         let bytes = image().encode().unwrap();
-        assert!(matches!(FactsImage::decode(&bytes[..FACTS_HEADER_LEN]), Err(FormatError::Truncated { .. })));
+        assert!(matches!(
+            FactsImage::decode(&bytes[..FACTS_HEADER_LEN]),
+            Err(FormatError::Truncated { .. })
+        ));
         let mut flipped = bytes.clone();
         flipped[FACTS_HEADER_LEN + 9] ^= 0x40;
-        assert!(matches!(FactsImage::decode(&flipped), Err(FormatError::CrcMismatch { .. })));
+        assert!(matches!(
+            FactsImage::decode(&flipped),
+            Err(FormatError::CrcMismatch { .. })
+        ));
         let mut magic = bytes.clone();
         magic[0] ^= 1;
         let n = magic.len();
         let crc = crc32c(&magic[..n - 4]).to_le_bytes();
         magic[n - 4..].copy_from_slice(&crc);
-        assert!(matches!(FactsImage::decode(&magic), Err(FormatError::Corrupt { at: "facts magic" })));
+        assert!(matches!(
+            FactsImage::decode(&magic),
+            Err(FormatError::Corrupt { at: "facts magic" })
+        ));
         let mut out_of_order = image();
         out_of_order.cols.swap(0, 1);
-        assert!(matches!(FactsImage::decode(&out_of_order.encode().unwrap()), Err(FormatError::Corrupt { at: "facts column order" })));
+        assert!(matches!(
+            FactsImage::decode(&out_of_order.encode().unwrap()),
+            Err(FormatError::Corrupt {
+                at: "facts column order"
+            })
+        ));
         let mut short_zones = image();
         short_zones.cols[0].zones = ZoneMap::encode(&[(1, 10)]).unwrap();
-        assert!(matches!(FactsImage::decode(&short_zones.encode().unwrap()), Err(FormatError::Corrupt { at: "facts zones vs granules" })));
+        assert!(matches!(
+            FactsImage::decode(&short_zones.encode().unwrap()),
+            Err(FormatError::Corrupt {
+                at: "facts zones vs granules"
+            })
+        ));
         let mut v1 = bytes.clone();
         v1[4..8].copy_from_slice(&1u32.to_le_bytes());
         let n = v1.len();
         let crc = crc32c(&v1[..n - 4]).to_le_bytes();
         v1[n - 4..].copy_from_slice(&crc);
-        assert!(matches!(FactsImage::decode(&v1), Err(FormatError::Corrupt { at: "facts version" })), "a version-1 image is refused, never half-read");
+        assert!(
+            matches!(
+                FactsImage::decode(&v1),
+                Err(FormatError::Corrupt {
+                    at: "facts version"
+                })
+            ),
+            "a version-1 image is refused, never half-read"
+        );
     }
 }

@@ -16,6 +16,7 @@ pub(crate) const PAY_HI: usize = 55;
 /// The words of a per-payload-column bit set (build_side.rs `Rel`).
 pub(crate) const REL_WORDS: usize = MAX_PAY.div_ceil(64);
 
+#[allow(unused_imports)]
 pub(crate) use crate::ops::hashjoin::raw::{pay_of, set_pay};
 /// The payload columns whose NULL bits fit in the link word's high half.
 pub(crate) const LINK_NULLS: usize = 32;

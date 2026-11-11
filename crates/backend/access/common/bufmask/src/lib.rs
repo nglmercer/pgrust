@@ -24,7 +24,12 @@ pub fn mask_page_lsn_and_checksum(page: &mut [u8]) {
     pm.set_lsn(MASK_MARKER as u64);
     let off = core::mem::offset_of!(PageHeaderData, pd_checksum);
     // SAFETY: in-bounds, 2-aligned (header is MAXALIGNed).
-    unsafe { pm.as_mut_ptr().add(off).cast::<uint16>().write(MASK_MARKER as uint16) };
+    unsafe {
+        pm.as_mut_ptr()
+            .add(off)
+            .cast::<uint16>()
+            .write(MASK_MARKER as uint16)
+    };
 }
 
 pub fn mask_page_hint_bits(page: &mut [u8]) {
@@ -57,7 +62,11 @@ pub fn mask_unused_space(page: &mut [u8]) -> PgResult<()> {
     }
     // SAFETY: [pd_lower, pd_upper) validated within the page above.
     unsafe {
-        core::ptr::write_bytes(pm.as_mut_ptr().add(pd_lower), MASK_MARKER, pd_upper - pd_lower)
+        core::ptr::write_bytes(
+            pm.as_mut_ptr().add(pd_lower),
+            MASK_MARKER,
+            pd_upper - pd_lower,
+        )
     };
     Ok(())
 }
@@ -87,8 +96,14 @@ pub fn mask_page_content(page: &mut [u8]) {
     let upper_off = core::mem::offset_of!(PageHeaderData, pd_upper);
     // SAFETY: header fields, 2-aligned, in-bounds.
     unsafe {
-        pm.as_mut_ptr().add(lower_off).cast::<uint16>().write(MASK_MARKER as uint16);
-        pm.as_mut_ptr().add(upper_off).cast::<uint16>().write(MASK_MARKER as uint16);
+        pm.as_mut_ptr()
+            .add(lower_off)
+            .cast::<uint16>()
+            .write(MASK_MARKER as uint16);
+        pm.as_mut_ptr()
+            .add(upper_off)
+            .cast::<uint16>()
+            .write(MASK_MARKER as uint16);
     }
 }
 
@@ -119,6 +134,7 @@ mod tests {
         let off = core::mem::offset_of!(PageHeaderData, pd_checksum);
         // SAFETY: in-bounds header write for test setup.
         unsafe { pm.as_mut_ptr().add(off).cast::<uint16>().write(0xBEEF) };
+        #[allow(clippy::drop_non_drop)]
         drop(pm);
 
         mask_page_lsn_and_checksum(&mut t.0);
@@ -139,6 +155,7 @@ mod tests {
         pm.set_full();
         pm.set_has_free_line_pointers();
         pm.set_all_visible();
+        #[allow(clippy::drop_non_drop)]
         drop(pm);
 
         mask_page_hint_bits(&mut t.0);
@@ -158,10 +175,14 @@ mod tests {
         pm.init(0);
         let item = [0xAAu8; 32];
         pm.add_item(&item, 0, PAI_IS_HEAP).unwrap();
-        let (pd_lower, pd_upper) = (pm.as_ref().pd_lower() as usize, pm.as_ref().pd_upper() as usize);
+        let (pd_lower, pd_upper) = (
+            pm.as_ref().pd_lower() as usize,
+            pm.as_ref().pd_upper() as usize,
+        );
         // Poison the free region so the test can see it get masked.
         // SAFETY: [pd_lower, pd_upper) is free space within the page.
         unsafe { core::ptr::write_bytes(pm.as_mut_ptr().add(pd_lower), 0xFF, pd_upper - pd_lower) };
+        #[allow(clippy::drop_non_drop)]
         drop(pm);
 
         mask_unused_space(&mut t.0).unwrap();
@@ -181,11 +202,15 @@ mod tests {
         let mut pm = page_mut_of(&mut t);
         pm.init(0);
         pm.set_pd_lower(pm.as_ref().pd_upper() + 1); // pd_lower > pd_upper
+        #[allow(clippy::drop_non_drop)]
         drop(pm);
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _ = mask_unused_space(&mut t.0);
         }));
-        assert!(outcome.is_ok(), "mask_unused_space must raise an error, not panic");
+        assert!(
+            outcome.is_ok(),
+            "mask_unused_space must raise an error, not panic"
+        );
     }
 
     #[test]
@@ -195,6 +220,7 @@ mod tests {
         pm.init(0);
         let upper = pm.as_ref().pd_upper();
         pm.set_pd_lower(upper + 1); // pd_lower > pd_upper
+        #[allow(clippy::drop_non_drop)]
         drop(pm);
         let err = mask_unused_space(&mut t.0).unwrap_err();
         assert_eq!(
@@ -221,6 +247,7 @@ mod tests {
         dead.mark_dead();
         pm.set_item_id(2, dead);
         let (id1_before, id2_before) = (pm.as_ref().item_id(1), pm.as_ref().item_id(2));
+        #[allow(clippy::drop_non_drop)]
         drop(pm);
 
         mask_lp_flags(&mut t.0);
@@ -243,6 +270,7 @@ mod tests {
         pm.set_lsn(0x1122_3344_5566_7788);
         let item = [0x77u8; 32];
         pm.add_item(&item, 0, PAI_IS_HEAP).unwrap();
+        #[allow(clippy::drop_non_drop)]
         drop(pm);
 
         mask_page_content(&mut t.0);

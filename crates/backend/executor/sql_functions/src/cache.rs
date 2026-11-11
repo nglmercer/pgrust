@@ -4,11 +4,11 @@ use core::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 
 use datum::Datum;
+use elog::ereport;
 use mcx::{bind, Mcx, McxOwned, MemoryContext, PgString, PgVec};
 use rustc_hash::FxHashMap;
 use types_core::catalog::VOIDOID;
 use types_core::Oid;
-use elog::ereport;
 use types_error::{PgError, PgResult, ERRCODE_FEATURE_NOT_SUPPORTED, ERROR};
 use types_nodes::nodes_enums::CmdType;
 use types_nodes::parsenodes::Query;
@@ -75,7 +75,11 @@ pub(crate) fn pg_rewrite_query<'mcx>(
     // postgres.c:803/:870: the debug_print_* dumps bracket the rewrite here
     // for every path that reaches pg_rewrite_query, nested bodies included.
     if guc_tables::backing::Debug_print_parse() {
-        debug_print_tree(mcx, "parse tree", outfuncs::queryToStringWithLocations(mcx, &query))?;
+        debug_print_tree(
+            mcx,
+            "parse tree",
+            outfuncs::queryToStringWithLocations(mcx, &query),
+        )?;
     }
     usage_reset();
     let querytree_list = if query.commandType == CmdType::CMD_UTILITY {
@@ -195,7 +199,10 @@ impl RowTypeKey {
                 }
             })
             .collect();
-        RowTypeKey { tdtypeid: d.tdtypeid, atts }
+        RowTypeKey {
+            tdtypeid: d.tdtypeid,
+            atts,
+        }
     }
 }
 
@@ -286,6 +293,7 @@ fn proc_row_stamp(fn_oid: Oid) -> PgResult<(u32, (u32, u16))> {
         ((t.t_self.ip_blkid.bi_hi as u32) << 16) | t.t_self.ip_blkid.bi_lo as u32,
         t.t_self.ip_posid,
     );
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tup);
     Ok((xmin, tid))
@@ -331,7 +339,9 @@ pub(crate) fn read_input_argnames<'mcx>(
         None
     } else {
         let mimg = varlena_bytes(smcx, modes_d)?;
-        Some(datum::array_build::deconstruct_array_image(smcx, &mimg, 1, true, b'c')?)
+        Some(datum::array_build::deconstruct_array_image(
+            smcx, &mimg, 1, true, b'c',
+        )?)
     };
     for (i, &e) in elems.iter().enumerate() {
         if let Some(m) = &modes {
@@ -361,7 +371,9 @@ fn read_proc_row<'mcx>(mcx: Mcx<'mcx>, fn_oid: Oid) -> PgResult<ProcRow<'mcx>> {
     if prolang.as_oid() != fmgr_core::SQL_LANGUAGE_ID {
         let lang = prolang.as_oid();
         ReleaseSysCache(tup);
-        return Err(Box::new(PgError::error(format!("fmgr_sql: function {fn_oid} is not a SQL-language function (prolang {lang})"))));
+        return Err(Box::new(PgError::error(format!(
+            "fmgr_sql: function {fn_oid} is not a SQL-language function (prolang {lang})"
+        ))));
     }
     let (proname_d, _) = SysCacheGetAttr(PROCOID, &tup, ANUM_PG_PROC_PRONAME)?;
     let proname = name_str(mcx, proname_d)?;
@@ -372,13 +384,23 @@ fn read_proc_row<'mcx>(mcx: Mcx<'mcx>, fn_oid: Oid) -> PgResult<ProcRow<'mcx>> {
     let argtypes = read_oidvector_attr(mcx, argv)?;
     let (names_d, names_null) = SysCacheGetAttr(PROCOID, &tup, ANUM_PG_PROC_PROARGNAMES)?;
     let (modes_d, modes_null) = SysCacheGetAttr(PROCOID, &tup, ANUM_PG_PROC_PROARGMODES)?;
-    let argnames =
-        read_input_argnames(mcx, names_d, names_null, modes_d, modes_null, argtypes.len())?;
+    let argnames = read_input_argnames(
+        mcx,
+        names_d,
+        names_null,
+        modes_d,
+        modes_null,
+        argtypes.len(),
+    )?;
     let (prosrc_d, prosrc_null) = SysCacheGetAttr(PROCOID, &tup, ANUM_PG_PROC_PROSRC)?;
     assert!(!prosrc_null, "null prosrc for function {fn_oid}");
     let prosrc = varlena_str(mcx, prosrc_d)?;
     let (sqlbody_d, sqlbody_null) = SysCacheGetAttr(PROCOID, &tup, ANUM_PG_PROC_PROSQLBODY)?;
-    let prosqlbody = if sqlbody_null { None } else { Some(varlena_str(mcx, sqlbody_d)?) };
+    let prosqlbody = if sqlbody_null {
+        None
+    } else {
+        Some(varlena_str(mcx, sqlbody_d)?)
+    };
     ReleaseSysCache(tup);
     Ok(ProcRow {
         proname,
@@ -456,7 +478,9 @@ pub(crate) fn cached_sql_function(
         if n > MAX_SQL_FN_ARGS {
             return Err(ereport(ERROR)
                 .errcode(types_error::ERRCODE_TOO_MANY_ARGUMENTS)
-                .errmsg(format!("cannot pass more than {MAX_SQL_FN_ARGS} arguments to a function"))
+                .errmsg(format!(
+                    "cannot pass more than {MAX_SQL_FN_ARGS} arguments to a function"
+                ))
                 .into_error()
                 .into());
         }
@@ -481,9 +505,10 @@ pub(crate) fn cached_sql_function(
     let result_rowtype = {
         let resolved = funcapi::get_call_result_type(scratch.mcx(), flinfo, expected_desc)?;
         match resolved.class {
-            funcapi::TypeFuncClass::Composite | funcapi::TypeFuncClass::CompositeDomain => {
-                resolved.result_tuple_desc.as_ref().map(RowTypeKey::from_desc)
-            }
+            funcapi::TypeFuncClass::Composite | funcapi::TypeFuncClass::CompositeDomain => resolved
+                .result_tuple_desc
+                .as_ref()
+                .map(RowTypeKey::from_desc),
             _ => None,
         }
     };
@@ -549,7 +574,9 @@ fn compile_entry(
             let (num_queries, raw_source) = match row.prosqlbody.as_ref() {
                 Some(body) => {
                     let qs = sqlbody_queries(mcx, body.as_str())?;
-                    sqlbody_trees.try_reserve_exact(qs.len()).map_err(|_| mcx.oom(qs.len()))?;
+                    sqlbody_trees
+                        .try_reserve_exact(qs.len())
+                        .map_err(|_| mcx.oom(qs.len()))?;
                     sqlbody_trees.extend(qs);
                     (sqlbody_trees.len(), None)
                 }
@@ -562,10 +589,12 @@ fn compile_entry(
                 return Err(crate::retval::retval_mismatch_final_stmt(rettype));
             }
             let mut at: PgVec<'_, Oid> = PgVec::new_in(mcx);
-            at.try_reserve_exact(argtypes.len().max(1)).map_err(|_| mcx.oom(1))?;
+            at.try_reserve_exact(argtypes.len().max(1))
+                .map_err(|_| mcx.oom(1))?;
             at.extend_from_slice(argtypes);
             let mut atl: PgVec<'_, i16> = PgVec::new_in(mcx);
-            atl.try_reserve_exact(argtypes.len().max(1)).map_err(|_| mcx.oom(1))?;
+            atl.try_reserve_exact(argtypes.len().max(1))
+                .map_err(|_| mcx.oom(1))?;
             for &t in argtypes {
                 atl.push(lsyscache::typ::get_typlen(t)?);
             }
@@ -599,7 +628,11 @@ fn compile_entry(
     // functions.c:1094 MemoryContextSetIdentifier(fcontext, func->fname).
     let fname = owned.with(|s| s.fname.as_str().to_string());
     owned.context().set_ident(Some(&fname));
-    Ok(SqlFnEntry { owned, stamp, live: Cell::new(true) })
+    Ok(SqlFnEntry {
+        owned,
+        stamp,
+        live: Cell::new(true),
+    })
 }
 
 // check_sql_fn_statement (functions.c:2051): CALL runs through the generic
@@ -669,12 +702,9 @@ fn build_query_plansource(
                 let qmcx = plancache::SourceQueryMcx(psrc);
                 let query = copyfuncs::copy_query(qmcx, tagq)?;
                 if query.commandType != CmdType::CMD_UTILITY {
-                    rewrite_handler_seams::acquire_rewrite_locks::call(
-                        qmcx, &query, true, false,
-                    )?;
+                    rewrite_handler_seams::acquire_rewrite_locks::call(qmcx, &query, true, false)?;
                 }
-                let mut query_list: PgVec<'static, Query<'static>> =
-                    pg_rewrite_query(qmcx, query)?;
+                let mut query_list: PgVec<'static, Query<'static>> = pg_rewrite_query(qmcx, query)?;
                 for q in query_list.iter() {
                     check_sql_fn_statement(q)?;
                 }
@@ -706,7 +736,10 @@ fn build_query_plansource(
                 return Err(e);
             }
         } else {
-            let raw_list = s.raw_source.as_ref().expect("raw source retained at compile");
+            let raw_list = s
+                .raw_source
+                .as_ref()
+                .expect("raw source retained at compile");
             let raw = raw_list.get(qindex).expect("counted at compile");
             let stmt = raw.stmt.expect("RawStmt has a stmt");
             let tag = utility_seams::create_command_tag::call(stmt);
@@ -742,8 +775,7 @@ fn build_query_plansource(
                     )?
                 };
                 usage_show("PARSE ANALYSIS STATISTICS")?;
-                let mut query_list: PgVec<'static, Query<'static>> =
-                    pg_rewrite_query(qmcx, query)?;
+                let mut query_list: PgVec<'static, Query<'static>> = pg_rewrite_query(qmcx, query)?;
                 for q in query_list.iter() {
                     check_sql_fn_statement(q)?;
                 }
@@ -835,7 +867,9 @@ fn reanalyze_sql_fn(
     let entry = sqlfn_source_owner(h)?;
     entry.owned.with(|s| {
         let mut name_refs: PgVec<'_, &str> = PgVec::new_in(qmcx);
-        name_refs.try_reserve_exact(s.argnames.len()).map_err(|_| qmcx.oom(s.argnames.len()))?;
+        name_refs
+            .try_reserve_exact(s.argnames.len())
+            .map_err(|_| qmcx.oom(s.argnames.len()))?;
         for n in s.argnames.iter() {
             name_refs.push(n.as_str());
         }
@@ -922,13 +956,17 @@ mod tests {
         let mcx = ctx.mcx();
         let names = ["a", "sum", "b", "cols"];
         let imgs: Vec<PgVec<'_, u8>> = names.iter().map(|s| text_image(mcx, s)).collect();
-        let elems: Vec<Datum> =
-            imgs.iter().map(|i| Datum::from_usize(i.as_ptr() as usize)).collect();
+        let elems: Vec<Datum> = imgs
+            .iter()
+            .map(|i| Datum::from_usize(i.as_ptr() as usize))
+            .collect();
         let names_img =
             construct_array_image(mcx, &elems, TEXTOID, -1, false, b'i').expect("names array");
         // modes {i, o, b, t}: inputs are a (i) and b (b).
-        let modes: Vec<Datum> =
-            [b'i', b'o', b'b', b't'].iter().map(|&m| Datum::from_char(m as i8)).collect();
+        let modes: Vec<Datum> = [b'i', b'o', b'b', b't']
+            .iter()
+            .map(|&m| Datum::from_char(m as i8))
+            .collect();
         let modes_img =
             construct_array_image(mcx, &modes, CHAROID, 1, true, b'c').expect("modes array");
         let out = read_input_argnames(
@@ -975,12 +1013,16 @@ mod tests {
         let mcx = ctx.mcx();
         let names = ["fmt", "rest"];
         let imgs: Vec<PgVec<'_, u8>> = names.iter().map(|s| text_image(mcx, s)).collect();
-        let elems: Vec<Datum> =
-            imgs.iter().map(|i| Datum::from_usize(i.as_ptr() as usize)).collect();
+        let elems: Vec<Datum> = imgs
+            .iter()
+            .map(|i| Datum::from_usize(i.as_ptr() as usize))
+            .collect();
         let names_img =
             construct_array_image(mcx, &elems, TEXTOID, -1, false, b'i').expect("names array");
-        let modes: Vec<Datum> =
-            [b'i', b'v'].iter().map(|&m| Datum::from_char(m as i8)).collect();
+        let modes: Vec<Datum> = [b'i', b'v']
+            .iter()
+            .map(|&m| Datum::from_char(m as i8))
+            .collect();
         let modes_img =
             construct_array_image(mcx, &modes, CHAROID, 1, true, b'c').expect("modes array");
         let out = read_input_argnames(
@@ -1020,7 +1062,13 @@ mod fnkey_tests {
     fn key(nargs: u8, types: &[Oid]) -> FnKey {
         let mut argtypes = [types_core::InvalidOid; MAX_SQL_FN_ARGS];
         argtypes[..types.len()].copy_from_slice(types);
-        FnKey { fn_oid: 16384, collation: 100, argtypes, nargs, result_rowtype: None }
+        FnKey {
+            fn_oid: 16384,
+            collation: 100,
+            argtypes,
+            nargs,
+            result_rowtype: None,
+        }
     }
 
     fn rowtype(tdtypeid: Oid, atts: &[(&str, Oid, i32)]) -> RowTypeKey {
@@ -1098,10 +1146,15 @@ mod fnkey_tests {
 mod callstmt_tests {
     use super::*;
 
+    #[allow(clippy::field_reassign_with_default)]
     fn call_query<'m>(mcx: Mcx<'m>, outargs: types_nodes::NodeList<'m>) -> Query<'m> {
         let node = types_nodes::Node::mk(
             mcx,
-            types_nodes::rawnodes::CallStmt { funccall: None, funcexpr: None, outargs },
+            types_nodes::rawnodes::CallStmt {
+                funccall: None,
+                funcexpr: None,
+                outargs,
+            },
         )
         .unwrap();
         let mut q = Query::default();
@@ -1121,6 +1174,9 @@ mod callstmt_tests {
         outargs.lappend(mcx, dummy).unwrap();
         let err = check_sql_fn_statement(&call_query(mcx, outargs)).unwrap_err();
         let msg = format!("{err:?}");
-        assert!(msg.contains("output arguments is not supported in SQL functions"), "{msg}");
+        assert!(
+            msg.contains("output arguments is not supported in SQL functions"),
+            "{msg}"
+        );
     }
 }

@@ -48,13 +48,13 @@ impl FoldClass for DatumDs {
         let (out, sc) = (b.stack_addr(out), b.iconst(Type::I64, a.scale as i64));
         let code = b.call_host(h, &[ptr, sc, out], Some(Type::I64)).expect("returns the term's code");
         let v: PgVec<'_, Value> = core::iter::once(code).chain((0..3).map(|i| b.load(Type::I64, out, 8 * i))).collect_in(env.mcx);
-        (b.br(l_out, &v[..]), b.switch_to(l_out));
-        let v = mcx::to_vec_in(&b.block_params(l_out)[..], env.mcx);
+        b.br(l_out, &v[..]); b.switch_to(l_out);
+        let v = mcx::to_vec_in(b.block_params(l_out), env.mcx);
         // a negative code: term_ds stashed its error, raised here
         let (bad, l_bad, l_ok) = (b.icmp(IntCond::Slt, v[0], env.zero), b.create_block(&[]), b.create_block(&[]));
-        (b.mark_cold(l_bad), b.cond_br(bad, (l_bad, &[]), (l_ok, &[])), b.switch_to(l_bad));
+        b.mark_cold(l_bad); b.cond_br(bad, (l_bad, &[]), (l_ok, &[])); b.switch_to(l_bad);
         let e = b.iconst(Type::I64, gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64);
-        (b.br(env.l_raise, &[e]), b.switch_to(l_ok));
+        b.br(env.l_raise, &[e]); b.switch_to(l_ok);
         let yes = b.bconst(true);
         let ok = b.int_bin(IntBinOp::Xor, null, yes);
         crate::ops::agg::numeric::class_num::fold(b, env, a, acc, &Term { lo: v[1], hi: Some(v[2]), sp: Some(v[0]), ok, ds: Some(v[3]) }, None);
@@ -237,7 +237,7 @@ mod tests {
         let (mut moved, mut text) = (0, false);
         for (k, c) in rows.filter_map(|(k, m)| m.downcast_ref::<crate::face::fold::ClassImpl>().map(|c| (k, c.0))) {
             assert!(!c.datum_ds(), "{k:?}: a registered class is not DATUM_DS");
-            if core::mem::size_of_val(c) != 0 || at % core::mem::align_of_val(c) != 0 {
+            if core::mem::size_of_val(c) != 0 || !at.is_multiple_of(core::mem::align_of_val(c)) {
                 continue;
             }
             // SAFETY: a zero-sized value is valid at any non-null address aligned for it (no byte is read)

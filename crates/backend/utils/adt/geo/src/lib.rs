@@ -1,8 +1,7 @@
 //! geo_ops.c: the 2-D geometric types (point/lseg/line/box/path/polygon/circle)
 //! and their operators. PATH and POLYGON are varlena; the fixed-size types are
 //! by-ref native struct images.
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 pub mod boxes;
 pub mod builtins;
@@ -151,6 +150,7 @@ pub(crate) fn enlarge_ceiling_error(len: usize, needed: usize) -> Box<PgError> {
 }
 
 #[inline]
+#[allow(clippy::ptr_arg)]
 pub(crate) fn si_admit(out: &Vec<u8>, needed: usize) -> PgResult<()> {
     if needed >= ::mcx::MAX_ALLOC_SIZE - out.len() {
         return Err(enlarge_ceiling_error(out.len(), needed));

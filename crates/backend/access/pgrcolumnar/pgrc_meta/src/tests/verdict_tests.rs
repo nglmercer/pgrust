@@ -597,7 +597,8 @@ fn permuted_contents_produce_identical_verdicts() {
             if rng.chance(1, 5) {
                 None
             } else {
-                Some(TestValue::Word(((rng.next() % 30))))
+                #[allow(clippy::double_parens, unused_parens)]
+                Some(TestValue::Word((rng.next() % 30)))
             }
         })
         .collect();
@@ -825,7 +826,11 @@ fn collation_gate_end_to_end() {
     // 300 distinct values (w0000..w5980) over 8192 rows: a granule whose
     // bloom storage pays (D3070), so the collation gate alone decides.
     let corpus: Vec<Option<TestValue>> = (0..8192)
-        .map(|i| Some(TestValue::Bytes(format!("w{:04}", i % 300 * 20).into_bytes())))
+        .map(|i| {
+            Some(TestValue::Bytes(
+                format!("w{:04}", i % 300 * 20).into_bytes(),
+            ))
+        })
         .collect();
     let col = TestColumn::new(StorageClass::VarlenaVerbatim, &corpus);
     // Other-deterministic collation: no ORDER metadata (Lt stays Mixed
@@ -970,7 +975,10 @@ fn standin_record_min_max_is_the_598_trap_absence_poisons() {
     );
     let (real, _) = build_granule(profile, &col);
     assert!(
-        matches!(min_max_answer(&profile, &real), Some(MinMaxKeys::Keys { .. })),
+        matches!(
+            min_max_answer(&profile, &real),
+            Some(MinMaxKeys::Keys { .. })
+        ),
         "the real-built record answers"
     );
     // The stand-in shape: exact nonnull, zeroed aggregates, flags == 0,
@@ -993,8 +1001,8 @@ fn standin_record_min_max_is_the_598_trap_absence_poisons() {
 #[test]
 fn float_min_max_declines_exact_but_not_value_faithful() {
     use crate::verdict::min_max_answer;
-    let profile = MetaProfile::derive(StorageClass::F64, CollationClass::C, TypeSemantics::Float)
-        .unwrap();
+    let profile =
+        MetaProfile::derive(StorageClass::F64, CollationClass::C, TypeSemantics::Float).unwrap();
     assert_eq!(profile.key.kind(), KeyKind::Exact, "float keys ARE exact");
     assert!(!profile.key.value_faithful(), "…but not value-faithful");
     let col = TestColumn::new(

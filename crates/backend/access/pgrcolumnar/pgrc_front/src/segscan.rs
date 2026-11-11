@@ -28,19 +28,50 @@ pub struct SegScan<'mcx> {
 /// An index build's segment snapshot: every row a snapshot may still see, as heapam's build indexes recently dead
 /// rows and skips dead ones (an aborted insert).
 pub fn index_build_snapshot<'mcx>(mcx: Mcx<'mcx>, table: &Relation<'_>) -> Snapshot<'mcx> {
-    let mut snapshot = types_snapshot::SnapshotData::sentinel(mcx, types_snapshot::SnapshotType::SNAPSHOT_NON_VACUUMABLE);
+    let mut snapshot = types_snapshot::SnapshotData::sentinel(
+        mcx,
+        types_snapshot::SnapshotType::SNAPSHOT_NON_VACUUMABLE,
+    );
     snapshot.vistest = procarray::GlobalVisTestFor(table);
     Some(std::rc::Rc::new(snapshot))
 }
 
 impl<'mcx> SegScan<'mcx> {
     #[allow(clippy::too_many_arguments)]
-    pub fn begin(mcx: Mcx<'mcx>, table: &Relation<'_>, relid: Oid, _slot: u16, part_no: u32, snapshot: Snapshot<'mcx>, parent: Oid, deleted: Vec<u32>) -> PgResult<SegScan<'mcx>> {
+    pub fn begin(
+        mcx: Mcx<'mcx>,
+        table: &Relation<'_>,
+        relid: Oid,
+        _slot: u16,
+        part_no: u32,
+        snapshot: Snapshot<'mcx>,
+        parent: Oid,
+        deleted: Vec<u32>,
+    ) -> PgResult<SegScan<'mcx>> {
         let dir = pgrc_am::dirpath::table_dir_path(table.rd_locator.get(), table.rd_backend);
         let bases = pgrc_am::rowid_alloc::extents(&dir)?.bases(part_no);
         let rel = table::table_open(mcx, relid, AccessShareLock)?;
-        let scan = heapam::heap_beginscan(mcx, &rel, snapshot, 0, PgVec::new_in(mcx), None, SO_TYPE_SEQSCAN | SO_ALLOW_STRAT | SO_ALLOW_PAGEMODE)?;
-        Ok(SegScan { rel, scan, parent, deleted, busy: Vec::new(), bases, dir, part_no, skipped: 0, returned: 0 })
+        let scan = heapam::heap_beginscan(
+            mcx,
+            &rel,
+            snapshot,
+            0,
+            PgVec::new_in(mcx),
+            None,
+            SO_TYPE_SEQSCAN | SO_ALLOW_STRAT | SO_ALLOW_PAGEMODE,
+        )?;
+        Ok(SegScan {
+            rel,
+            scan,
+            parent,
+            deleted,
+            busy: Vec::new(),
+            bases,
+            dir,
+            part_no,
+            skipped: 0,
+            returned: 0,
+        })
     }
 
     pub fn with_busy(mut self, busy: Vec<(u32, TransactionId)>) -> SegScan<'mcx> {
@@ -65,10 +96,20 @@ impl<'mcx> SegScan<'mcx> {
 impl SegmentSource for SegScan<'_> {
     fn next(&mut self, slot: &mut SlotData<'_>) -> PgResult<bool> {
         loop {
-            let Some(tup) = heapam::heap_getnext(&mut self.scan, ScanDirection::ForwardScanDirection)? else { return Ok(false) };
-            let (block, off) = (ItemPointerGetBlockNumber(&tup.t_self), ItemPointerGetOffsetNumberNoCheck(&tup.t_self));
+            let Some(tup) =
+                heapam::heap_getnext(&mut self.scan, ScanDirection::ForwardScanDirection)?
+            else {
+                return Ok(false);
+            };
+            let (block, off) = (
+                ItemPointerGetBlockNumber(&tup.t_self),
+                ItemPointerGetOffsetNumberNoCheck(&tup.t_self),
+            );
             let Some(local) = pgrc_format::rowid::seg_local(block, off) else {
-                return Err(Box::new(PgError::error(format!("pgrcolumnar: segment {} row ({block},{off}) past the position range", self.rel.rd_id))));
+                return Err(Box::new(PgError::error(format!(
+                    "pgrcolumnar: segment {} row ({block},{off}) past the position range",
+                    self.rel.rd_id
+                ))));
             };
             if !self.deleted.is_empty() && self.deleted.binary_search(&local).is_ok() {
                 self.skipped += 1;
@@ -77,9 +118,17 @@ impl SegmentSource for SegScan<'_> {
             let base = slot.base_mut();
             let natts = self.rel.rd_att.natts as usize;
             if natts > base.tts_values.len() {
-                return Err(Box::new(PgError::error(format!("pgrcolumnar: segment {} has more columns than its table", self.rel.rd_id))));
+                return Err(Box::new(PgError::error(format!(
+                    "pgrcolumnar: segment {} has more columns than its table",
+                    self.rel.rd_id
+                ))));
             }
-            types_tuple::heap_deform_tuple(tup, &self.rel.rd_att, &mut base.tts_values[..natts], &mut base.tts_isnull[..natts]);
+            types_tuple::heap_deform_tuple(
+                tup,
+                &self.rel.rd_att,
+                &mut base.tts_values[..natts],
+                &mut base.tts_isnull[..natts],
+            );
             base.tts_isnull[natts..].fill(true);
             base.tts_nvalid = base.tts_values.len() as types_core::AttrNumber;
             let id = self.id_at(local)?;
@@ -94,7 +143,10 @@ impl SegmentSource for SegScan<'_> {
             base.tts_tableOid = self.parent;
             base.mark_not_empty();
             if !self.busy.is_empty() {
-                if let (Ok(i), Some(s)) = (self.busy.binary_search_by_key(&local, |b| b.0), self.scan.rs_base.rs_snapshot.as_deref()) {
+                if let (Ok(i), Some(s)) = (
+                    self.busy.binary_search_by_key(&local, |b| b.0),
+                    self.scan.rs_base.rs_snapshot.as_deref(),
+                ) {
                     s.dirty_xmax.set(self.busy[i].1);
                 }
             }

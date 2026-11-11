@@ -7,23 +7,23 @@
 //! - the other entries from the heap: their TIDs, up to a window's worth at a time, sorted by block and read as the heap
 //!   range source reads a probe's TIDs (tid_pages.rs: relcache-free page reads under the snapshot, the visible tuple
 //!   whose HOT chain root is the TID), with the same lanes (the columns, then the RowId lane).
-//! Rows come in no order (a seized leaf at a time, the heap's in block order per batch): the decomposition takes the form
-//! only where no reader depends on the scan's order. The image, the bound keys and the shared scan state are one run of
-//! the pipeline's (exec runner plan.rs captures them on the leader when the pipeline starts, its keys bound then, and
-//! puts them in the execution's `LeafCell`, filed in its `Resolved`, D3117), never the recipe's. Every claim joins the
-//! walk until it ends, so the claims' count does not matter: a claim after the end gets no row. When the capture does not
-//! hold, the cell stays empty and the pipeline runs on the leader, whose source (`IndexLeaves`) walks the index as the
-//! serial index source does. Each walk's pgstat counts (its primitive scans, the entries it returned, the index's block
-//! reads) land at the unbind, its heap fetches in the recipe's EXPLAIN ANALYZE counter.
-//! Dead entries (PostgreSQL's `kill_prior_tuple`, which an index-only scan sets for an entry whose HOT chain is all dead):
-//! the participant that reads an entry's heap page judges it there, under the page's share lock: a listed TID none of
-//! whose chain the snapshot sees and whose chain is all dead before the walk's horizon (`TidPages::keep_page_dead`; the
-//! horizon is `GetOldestNonRemovableTransactionId`, taken once on the leader at the capture, as a parallel index build
-//! takes its OldestXmin, since the GlobalVis state is the backend thread's). Each dead entry keeps its leaf position
-//! (block, offset, the leaf's LSN under its read lock); when a heap batch ends, the same participant reads each leaf the
-//! walk has left again by block and, when its LSN is unchanged, marks the dead entries LP_DEAD (`nbtree::bt_kill_by_block`,
-//! _bt_killitems' drop-pin path). The leaf the walk is still on waits for the next batch (a posting tuple's TIDs may span
-//! two), and a claim's end marks what is left. A leaf whose LSN moved is left as it is.
+//!   Rows come in no order (a seized leaf at a time, the heap's in block order per batch): the decomposition takes the form
+//!   only where no reader depends on the scan's order. The image, the bound keys and the shared scan state are one run of
+//!   the pipeline's (exec runner plan.rs captures them on the leader when the pipeline starts, its keys bound then, and
+//!   puts them in the execution's `LeafCell`, filed in its `Resolved`, D3117), never the recipe's. Every claim joins the
+//!   walk until it ends, so the claims' count does not matter: a claim after the end gets no row. When the capture does not
+//!   hold, the cell stays empty and the pipeline runs on the leader, whose source (`IndexLeaves`) walks the index as the
+//!   serial index source does. Each walk's pgstat counts (its primitive scans, the entries it returned, the index's block
+//!   reads) land at the unbind, its heap fetches in the recipe's EXPLAIN ANALYZE counter.
+//!   Dead entries (PostgreSQL's `kill_prior_tuple`, which an index-only scan sets for an entry whose HOT chain is all dead):
+//!   the participant that reads an entry's heap page judges it there, under the page's share lock: a listed TID none of
+//!   whose chain the snapshot sees and whose chain is all dead before the walk's horizon (`TidPages::keep_page_dead`; the
+//!   horizon is `GetOldestNonRemovableTransactionId`, taken once on the leader at the capture, as a parallel index build
+//!   takes its OldestXmin, since the GlobalVis state is the backend thread's). Each dead entry keeps its leaf position
+//!   (block, offset, the leaf's LSN under its read lock); when a heap batch ends, the same participant reads each leaf the
+//!   walk has left again by block and, when its LSN is unchanged, marks the dead entries LP_DEAD (`nbtree::bt_kill_by_block`,
+//!   _bt_killitems' drop-pin path). The leaf the walk is still on waits for the next batch (a posting tuple's TIDs may span
+//!   two), and a claim's end marks what is left. A leaf whose LSN moved is left as it is.
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 

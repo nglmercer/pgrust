@@ -116,7 +116,10 @@ fn ffor_sel_property() {
     };
     let gd = super::roundtrip_int_corpus(1, 8192, &mut seed);
     let inputs = [gd.input(class)];
-    let mut enc = FforEncoder { signed: true, carry: None };
+    let mut enc = FforEncoder {
+        signed: true,
+        carry: None,
+    };
     let built = build_stream(&mut enc, &inputs, 0, true);
     assert_sel_property(&built, 0, class, &mut seed);
 }
@@ -152,9 +155,16 @@ fn alp_exceptions_sel_property() {
         })
         .map(f64::to_bits)
         .collect();
-    let gd = GranuleData { rows, datums, validity: None };
+    let gd = GranuleData {
+        rows,
+        datums,
+        validity: None,
+    };
     let inputs = [gd.input(StorageClass::F64)];
-    let mut enc = AlpEncoder { encoding: EncodingId::Alp, carry: None };
+    let mut enc = AlpEncoder {
+        encoding: EncodingId::Alp,
+        carry: None,
+    };
     let built = build_stream(&mut enc, &inputs, 0, false);
     assert_sel_property(&built, 0, StorageClass::F64, &mut seed);
 }

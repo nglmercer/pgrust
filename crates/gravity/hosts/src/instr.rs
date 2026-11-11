@@ -52,6 +52,15 @@ pub fn derive(_: &Recipe, _: usize, _: &SiteDesc, _: ArenaRef) -> Option<SourceB
 
 pub const SIZE: usize = 0;
 
+/// PostgreSQL's standard_ExecutorEnd report of a statement's parallel workers (pg_stat_database's
+/// parallel_workers_to_launch / parallel_workers_launched): a served statement whose plan has a Gather or Gather Merge
+/// reports the workers they plan and the workers its sections ran.
+pub fn report_parallel_workers(to_launch: i64, launched: i64) {
+    if to_launch > 0 {
+        pgstat::database::pgstat_update_parallel_workers_stats(to_launch, launched);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::BitmapCounts;
@@ -65,14 +74,5 @@ mod tests {
         c.add(BitmapCounts::REMOVED, 999);
         c.add(BitmapCounts::FILTERED, 7);
         assert_eq!(c.load(), [50, 3, 0, 999, 7]);
-    }
-}
-
-/// PostgreSQL's standard_ExecutorEnd report of a statement's parallel workers (pg_stat_database's
-/// parallel_workers_to_launch / parallel_workers_launched): a served statement whose plan has a Gather or Gather Merge
-/// reports the workers they plan and the workers its sections ran.
-pub fn report_parallel_workers(to_launch: i64, launched: i64) {
-    if to_launch > 0 {
-        pgstat::database::pgstat_update_parallel_workers_stats(to_launch, launched);
     }
 }

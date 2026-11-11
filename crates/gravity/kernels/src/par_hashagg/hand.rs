@@ -144,6 +144,7 @@ pub(crate) struct Fold {
     lo: i64,
     dn: u32,
     nn_live: bool,
+    #[allow(dead_code)]
     n: u32,
     bound: i64,
     pbits: u8,

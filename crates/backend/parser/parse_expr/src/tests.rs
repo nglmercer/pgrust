@@ -42,8 +42,13 @@ fn already_transformed_var_passes_through() {
     let mut pstate = make_parsestate(mcx, None);
     let var = Node::mk_var(mcx, 1, 1, INT4OID, -1, InvalidOid, 0).unwrap();
 
-    let out =
-        transformExpr(mcx, &mut pstate, var, ParseExprKind::EXPR_KIND_SELECT_TARGET).unwrap();
+    let out = transformExpr(
+        mcx,
+        &mut pstate,
+        var,
+        ParseExprKind::EXPR_KIND_SELECT_TARGET,
+    )
+    .unwrap();
     assert_eq!(expr_type(out), INT4OID);
     assert!(out.as_var().is_some());
 }
@@ -55,9 +60,14 @@ fn paramref_without_hook_is_42p02() {
     let mut pstate = make_parsestate(mcx, None);
     let pref = Node::mk_param_ref(mcx, 3, 7).unwrap();
 
-    let err = transformExpr(mcx, &mut pstate, pref, ParseExprKind::EXPR_KIND_SELECT_TARGET)
-        .map(|_| ())
-        .unwrap_err();
+    let err = transformExpr(
+        mcx,
+        &mut pstate,
+        pref,
+        ParseExprKind::EXPR_KIND_SELECT_TARGET,
+    )
+    .map(|_| ())
+    .unwrap_err();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_UNDEFINED_PARAMETER);
 }
 
@@ -70,22 +80,22 @@ fn install_oper_fixture() {
         // superseded insert-lane F1's star probe): the rigs feed star-free
         // sources, so per-item transformExpr + SetToDefault passthrough is
         // the exact C path these tests pin.
-        parse_func_seams::transformExpressionList::set(|mcx, pstate, exprlist, kind, allow_default| {
-            let saved = pstate.p_expr_kind;
-            pstate.p_expr_kind = kind;
-            let mut out = types_nodes::NodeList::nil();
-            for e in exprlist.iter() {
-                if allow_default
-                    && e.node_tag() == types_nodes::NodeTag::T_SetToDefault
-                {
-                    out.lappend(mcx, e)?;
-                } else {
-                    out.lappend(mcx, super::transformExprRecurse(mcx, pstate, e)?)?;
+        parse_func_seams::transformExpressionList::set(
+            |mcx, pstate, exprlist, kind, allow_default| {
+                let saved = pstate.p_expr_kind;
+                pstate.p_expr_kind = kind;
+                let mut out = types_nodes::NodeList::nil();
+                for e in exprlist.iter() {
+                    if allow_default && e.node_tag() == types_nodes::NodeTag::T_SetToDefault {
+                        out.lappend(mcx, e)?;
+                    } else {
+                        out.lappend(mcx, super::transformExprRecurse(mcx, pstate, e)?)?;
+                    }
                 }
-            }
-            pstate.p_expr_kind = saved;
-            Ok(out)
-        });
+                pstate.p_expr_kind = saved;
+                Ok(out)
+            },
+        );
         syscache_seams::lookup_pg_operator_candidates::set(|mcx, name, l, r| {
             let mut v = mcx::vec_with_capacity_in(mcx, 1)?;
             if l == INT4OID && r == INT4OID {
@@ -105,7 +115,8 @@ fn install_oper_fixture() {
             // 551 = int4pl (proc 177 -> int4); 96 = int4eq (proc 65 -> bool);
             // 518 = int4ne (proc 144 -> bool); pg_operator.dat/pg_proc.dat.
             Ok(match opno {
-                551 => Some(syscache_seams::PgOperatorShape { oprnamespace: 11,
+                551 => Some(syscache_seams::PgOperatorShape {
+                    oprnamespace: 11,
                     oprleft: INT4OID,
                     oprright: INT4OID,
                     oprresult: INT4OID,
@@ -117,7 +128,8 @@ fn install_oper_fixture() {
                     oprcanmerge: false,
                     oprcanhash: false,
                 }),
-                96 => Some(syscache_seams::PgOperatorShape { oprnamespace: 11,
+                96 => Some(syscache_seams::PgOperatorShape {
+                    oprnamespace: 11,
                     oprleft: INT4OID,
                     oprright: INT4OID,
                     oprresult: types_core::catalog::BOOLOID,
@@ -129,7 +141,8 @@ fn install_oper_fixture() {
                     oprcanmerge: true,
                     oprcanhash: true,
                 }),
-                518 => Some(syscache_seams::PgOperatorShape { oprnamespace: 11,
+                518 => Some(syscache_seams::PgOperatorShape {
+                    oprnamespace: 11,
                     oprleft: INT4OID,
                     oprright: INT4OID,
                     oprresult: types_core::catalog::BOOLOID,
@@ -141,7 +154,8 @@ fn install_oper_fixture() {
                     oprcanmerge: false,
                     oprcanhash: false,
                 }),
-                9901 => Some(syscache_seams::PgOperatorShape { oprnamespace: 11,
+                9901 => Some(syscache_seams::PgOperatorShape {
+                    oprnamespace: 11,
                     oprleft: INT4OID,
                     oprright: INT4OID,
                     oprresult: types_core::catalog::BOOLOID,
@@ -160,22 +174,28 @@ fn install_oper_fixture() {
             Ok(name == "+" || name == "=" || name == "<>" || name == "~=")
         });
         syscache_seams::lookup_pg_proc_shape::set(|funcid| {
-            Ok(matches!(funcid, 177 | 65 | 144 | 9902).then_some(syscache_seams::PgProcShape {
-                prolang: 12,
-                prosecdef: false,
-                proconfig_isnull: true,
-                pronamespace: 11,
-                prorettype: if funcid == 177 { INT4OID } else { types_core::catalog::BOOLOID },
-                provariadic: InvalidOid,
-                prosupport: InvalidOid,
-                pronargs: 2,
-                prokind: b'f' as i8,
-                provolatile: b'i' as i8,
-                proparallel: b's' as i8,
-                proretset: funcid == 9902,
-                proisstrict: true,
-                proleakproof: false,
-            }))
+            Ok(
+                matches!(funcid, 177 | 65 | 144 | 9902).then_some(syscache_seams::PgProcShape {
+                    prolang: 12,
+                    prosecdef: false,
+                    proconfig_isnull: true,
+                    pronamespace: 11,
+                    prorettype: if funcid == 177 {
+                        INT4OID
+                    } else {
+                        types_core::catalog::BOOLOID
+                    },
+                    provariadic: InvalidOid,
+                    prosupport: InvalidOid,
+                    pronargs: 2,
+                    prokind: b'f' as i8,
+                    provolatile: b'i' as i8,
+                    proparallel: b's' as i8,
+                    proretset: funcid == 9902,
+                    proisstrict: true,
+                    proleakproof: false,
+                }),
+            )
         });
         // 1007 = _int4.
         syscache_seams::pg_type_typarray::set(|typid| Ok((typid == INT4OID).then_some(1007)));
@@ -209,8 +229,13 @@ fn a_expr_in_transforms_to_scalar_array_op_expr() {
         .unwrap()
     };
 
-    let out = transformExpr(mcx, &mut pstate, in_aexpr("="), ParseExprKind::EXPR_KIND_SELECT_TARGET)
-        .unwrap();
+    let out = transformExpr(
+        mcx,
+        &mut pstate,
+        in_aexpr("="),
+        ParseExprKind::EXPR_KIND_SELECT_TARGET,
+    )
+    .unwrap();
     let saop = out.as_scalar_array_op_expr().unwrap();
     assert!(saop.useOr);
     assert_eq!((saop.opno, saop.opfuncid), (96, 65));
@@ -225,9 +250,13 @@ fn a_expr_in_transforms_to_scalar_array_op_expr() {
     assert_eq!(arr.elements.len(), 2);
     assert_eq!(expr_type(out), types_core::catalog::BOOLOID);
 
-    let out =
-        transformExpr(mcx, &mut pstate, in_aexpr("<>"), ParseExprKind::EXPR_KIND_SELECT_TARGET)
-            .unwrap();
+    let out = transformExpr(
+        mcx,
+        &mut pstate,
+        in_aexpr("<>"),
+        ParseExprKind::EXPR_KIND_SELECT_TARGET,
+    )
+    .unwrap();
     let saop = out.as_scalar_array_op_expr().unwrap();
     assert!(!saop.useOr);
     assert_eq!((saop.opno, saop.opfuncid), (518, 144));
@@ -250,8 +279,13 @@ fn a_expr_op_transforms_to_op_expr() {
     )
     .unwrap();
 
-    let out = transformExpr(mcx, &mut pstate, aexpr, ParseExprKind::EXPR_KIND_SELECT_TARGET)
-        .unwrap();
+    let out = transformExpr(
+        mcx,
+        &mut pstate,
+        aexpr,
+        ParseExprKind::EXPR_KIND_SELECT_TARGET,
+    )
+    .unwrap();
 
     let op = out.as_op_expr().unwrap();
     assert_eq!((op.opno, op.opfuncid, op.opresulttype), (551, 177, INT4OID));
@@ -280,8 +314,13 @@ fn a_expr_nullif_transforms_to_null_if_expr() {
     )
     .unwrap();
 
-    let out = transformExpr(mcx, &mut pstate, aexpr, ParseExprKind::EXPR_KIND_SELECT_TARGET)
-        .unwrap();
+    let out = transformExpr(
+        mcx,
+        &mut pstate,
+        aexpr,
+        ParseExprKind::EXPR_KIND_SELECT_TARGET,
+    )
+    .unwrap();
 
     assert_eq!(out.node_tag(), types_nodes::NodeTag::T_NullIfExpr);
     let n = out.as_null_if_expr().unwrap();
@@ -313,9 +352,14 @@ fn a_expr_distinct_set_returning_op_errors() {
     )
     .unwrap();
 
-    let err = transformExpr(mcx, &mut pstate, aexpr, ParseExprKind::EXPR_KIND_SELECT_TARGET)
-        .map(|_| ())
-        .unwrap_err();
+    let err = transformExpr(
+        mcx,
+        &mut pstate,
+        aexpr,
+        ParseExprKind::EXPR_KIND_SELECT_TARGET,
+    )
+    .map(|_| ())
+    .unwrap_err();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_DATATYPE_MISMATCH);
     assert_eq!(err.message(), "IS DISTINCT FROM must not return a set");
     assert_eq!(err.cursor_position(), Some(10));
@@ -332,9 +376,14 @@ fn a_expr_distinct_set_returning_op_errors() {
         9,
     )
     .unwrap();
-    let err = transformExpr(mcx, &mut pstate, aexpr, ParseExprKind::EXPR_KIND_SELECT_TARGET)
-        .map(|_| ())
-        .unwrap_err();
+    let err = transformExpr(
+        mcx,
+        &mut pstate,
+        aexpr,
+        ParseExprKind::EXPR_KIND_SELECT_TARGET,
+    )
+    .map(|_| ())
+    .unwrap_err();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_DATATYPE_MISMATCH);
     assert_eq!(err.message(), "IS DISTINCT FROM must not return a set");
 }
@@ -358,9 +407,14 @@ fn a_expr_nullif_non_boolean_op_errors() {
     )
     .unwrap();
 
-    let err = transformExpr(mcx, &mut pstate, aexpr, ParseExprKind::EXPR_KIND_SELECT_TARGET)
-        .map(|_| ())
-        .unwrap_err();
+    let err = transformExpr(
+        mcx,
+        &mut pstate,
+        aexpr,
+        ParseExprKind::EXPR_KIND_SELECT_TARGET,
+    )
+    .map(|_| ())
+    .unwrap_err();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_DATATYPE_MISMATCH);
     assert_eq!(err.message(), "NULLIF requires = operator to yield boolean");
 }
@@ -424,13 +478,29 @@ fn bool_expr_transforms_and_or_not() {
         for i in 0..nargs {
             args.lappend(mcx, bool_const(mcx, i == 0, 7 + i)).unwrap();
         }
-        let raw = Node::mk(mcx, types_nodes::BoolExpr { boolop: op, args, location: 3 }).unwrap();
-        let out =
-            transformExpr(mcx, &mut pstate, raw, ParseExprKind::EXPR_KIND_SELECT_TARGET).unwrap();
+        let raw = Node::mk(
+            mcx,
+            types_nodes::BoolExpr {
+                boolop: op,
+                args,
+                location: 3,
+            },
+        )
+        .unwrap();
+        let out = transformExpr(
+            mcx,
+            &mut pstate,
+            raw,
+            ParseExprKind::EXPR_KIND_SELECT_TARGET,
+        )
+        .unwrap();
         let b = out.as_bool_expr().unwrap();
         assert_eq!(b.boolop, op);
         assert_eq!(b.args.len(), nargs as usize);
-        assert_eq!(b.args.nth(0).as_const().unwrap().consttype, types_core::catalog::BOOLOID);
+        assert_eq!(
+            b.args.nth(0).as_const().unwrap().consttype,
+            types_core::catalog::BOOLOID
+        );
         assert_eq!(b.location, 3);
         assert_eq!(expr_type(out), types_core::catalog::BOOLOID);
         assert_eq!(expr_collation(out), InvalidOid);
@@ -444,11 +514,19 @@ fn install_typecast_fixture() {
     install_oper_fixture();
     ONCE.call_once(|| {
         syscache_seams::lookup_pg_namespace_oid_by_name::set(|nspname| {
-            Ok(if nspname == "pg_catalog" { 11 } else { InvalidOid })
+            Ok(if nspname == "pg_catalog" {
+                11
+            } else {
+                InvalidOid
+            })
         });
         aclchk_seams::object_aclcheck::set(|_, _, _, _| Ok(0));
         syscache_seams::lookup_pg_type_oid_by_name::set(|typname, nsp| {
-            Ok(if typname == "int4" && nsp == 11 { INT4OID } else { InvalidOid })
+            Ok(if typname == "int4" && nsp == 11 {
+                INT4OID
+            } else {
+                InvalidOid
+            })
         });
         syscache_seams::pg_type_isdefined::set(|_| Ok(Some(true)));
         syscache_seams::pg_type_typtype::set(|_| Ok(Some(b'b' as i8)));
@@ -519,8 +597,12 @@ fn install_typecast_fixture() {
 
 fn typecast_int4<'mcx>(mcx: Mcx<'mcx>, s: &'mcx str, arg_loc: i32, cast_loc: i32) -> Node<'mcx> {
     let mut names = NodeList::nil();
-    names.lappend(mcx, Node::mk(mcx, PgStr { sval: "pg_catalog" }).unwrap()).unwrap();
-    names.lappend(mcx, Node::mk(mcx, PgStr { sval: "int4" }).unwrap()).unwrap();
+    names
+        .lappend(mcx, Node::mk(mcx, PgStr { sval: "pg_catalog" }).unwrap())
+        .unwrap();
+    names
+        .lappend(mcx, Node::mk(mcx, PgStr { sval: "int4" }).unwrap())
+        .unwrap();
     let tn = Node::mk(
         mcx,
         types_nodes::TypeName {
@@ -531,15 +613,14 @@ fn typecast_int4<'mcx>(mcx: Mcx<'mcx>, s: &'mcx str, arg_loc: i32, cast_loc: i32
         },
     )
     .unwrap();
-    let arg = Node::mk_a_const(
-        mcx,
-        Some(ValUnion::String(PgStr { sval: s })),
-        arg_loc,
-    )
-    .unwrap();
+    let arg = Node::mk_a_const(mcx, Some(ValUnion::String(PgStr { sval: s })), arg_loc).unwrap();
     Node::mk(
         mcx,
-        types_nodes::TypeCast { arg: Some(arg), typeName: Some(tn), location: cast_loc },
+        types_nodes::TypeCast {
+            arg: Some(arg),
+            typeName: Some(tn),
+            location: cast_loc,
+        },
     )
     .unwrap()
 }
@@ -553,8 +634,7 @@ fn type_cast_of_string_literal_runs_input_function() {
     pstate.p_sourcetext = Some(b"SELECT '42'::int4");
 
     let tc = typecast_int4(mcx, "42", 7, 11);
-    let out =
-        transformExpr(mcx, &mut pstate, tc, ParseExprKind::EXPR_KIND_SELECT_TARGET).unwrap();
+    let out = transformExpr(mcx, &mut pstate, tc, ParseExprKind::EXPR_KIND_SELECT_TARGET).unwrap();
     let c = out.as_const().unwrap();
     assert_eq!(c.consttype, INT4OID);
     assert!(!c.constisnull);
@@ -574,7 +654,10 @@ fn type_cast_bad_literal_is_22p02_with_cursor() {
     let err = transformExpr(mcx, &mut pstate, tc, ParseExprKind::EXPR_KIND_SELECT_TARGET)
         .map(|_| ())
         .unwrap_err();
-    assert_eq!(err.sqlstate(), types_error::ERRCODE_INVALID_TEXT_REPRESENTATION);
+    assert_eq!(
+        err.sqlstate(),
+        types_error::ERRCODE_INVALID_TEXT_REPRESENTATION
+    );
     // C: errposition at the literal (location 7 -> 1-based char 8).
     assert_eq!(err.cursor_position(), Some(8));
 }
@@ -587,7 +670,8 @@ fn coalesce_selects_common_type_and_coerces_unknown() {
     let mut pstate = make_parsestate(mcx, None);
 
     let mut args = NodeList::nil();
-    args.lappend(mcx, Node::mk_a_const(mcx, None, 16).unwrap()).unwrap();
+    args.lappend(mcx, Node::mk_a_const(mcx, None, 16).unwrap())
+        .unwrap();
     args.lappend(mcx, int_const(mcx, 42, 22)).unwrap();
     let raw = Node::mk(
         mcx,
@@ -600,8 +684,13 @@ fn coalesce_selects_common_type_and_coerces_unknown() {
     )
     .unwrap();
 
-    let out =
-        transformExpr(mcx, &mut pstate, raw, ParseExprKind::EXPR_KIND_SELECT_TARGET).unwrap();
+    let out = transformExpr(
+        mcx,
+        &mut pstate,
+        raw,
+        ParseExprKind::EXPR_KIND_SELECT_TARGET,
+    )
+    .unwrap();
     let c = out.as_coalesce_expr().unwrap();
     assert_eq!(c.coalescetype, INT4OID);
     assert_eq!(c.args.len(), 2);
@@ -624,7 +713,8 @@ fn minmax_greatest_over_int4() {
 
     let mut args = NodeList::nil();
     for (i, v) in [1, 2, 3].iter().enumerate() {
-        args.lappend(mcx, int_const(mcx, *v, 16 + 3 * i as i32)).unwrap();
+        args.lappend(mcx, int_const(mcx, *v, 16 + 3 * i as i32))
+            .unwrap();
     }
     let raw = Node::mk(
         mcx,
@@ -639,8 +729,13 @@ fn minmax_greatest_over_int4() {
     )
     .unwrap();
 
-    let out =
-        transformExpr(mcx, &mut pstate, raw, ParseExprKind::EXPR_KIND_SELECT_TARGET).unwrap();
+    let out = transformExpr(
+        mcx,
+        &mut pstate,
+        raw,
+        ParseExprKind::EXPR_KIND_SELECT_TARGET,
+    )
+    .unwrap();
     let m = out.as_min_max_expr().unwrap();
     assert_eq!(m.minmaxtype, INT4OID);
     assert_eq!(m.op, MinMaxOp::IS_GREATEST);
@@ -665,7 +760,11 @@ fn case_when_common_type_text_with_default_else() {
     let result = Node::mk_a_const(mcx, Some(ValUnion::String(PgStr { sval: "lt" })), 22).unwrap();
     let when = Node::mk(
         mcx,
-        CaseWhen { expr: Some(cond), result: Some(result), location: 12 },
+        CaseWhen {
+            expr: Some(cond),
+            result: Some(result),
+            location: 12,
+        },
     )
     .unwrap();
     let raw = Node::mk(
@@ -681,13 +780,21 @@ fn case_when_common_type_text_with_default_else() {
     )
     .unwrap();
 
-    let out =
-        transformExpr(mcx, &mut pstate, raw, ParseExprKind::EXPR_KIND_SELECT_TARGET).unwrap();
+    let out = transformExpr(
+        mcx,
+        &mut pstate,
+        raw,
+        ParseExprKind::EXPR_KIND_SELECT_TARGET,
+    )
+    .unwrap();
     let c = out.as_case_expr().unwrap();
     assert_eq!(c.casetype, types_core::catalog::TEXTOID);
     assert!(c.arg.is_none());
     let w = c.args.nth(0).as_case_when().unwrap();
-    assert_eq!(w.expr.unwrap().as_const().unwrap().consttype, types_core::catalog::BOOLOID);
+    assert_eq!(
+        w.expr.unwrap().as_const().unwrap().consttype,
+        types_core::catalog::BOOLOID
+    );
     let r = w.result.unwrap().as_const().unwrap();
     assert_eq!(r.consttype, types_core::catalog::TEXTOID);
     assert_eq!(r.constcollid, 100);
@@ -719,11 +826,23 @@ fn sql_value_function_transform_assigns_type() {
         (Op::SVFOP_LOCALTIMESTAMP, -1, TIMESTAMPOID, -1),
         (Op::SVFOP_LOCALTIMESTAMP_N, 0, TIMESTAMPOID, 0),
     ] {
-        let raw =
-            Node::mk(mcx, SQLValueFunction { op, r#type: 0, typmod, location: 7 }).unwrap();
-        let out =
-            transformExpr(mcx, &mut pstate, raw, ParseExprKind::EXPR_KIND_SELECT_TARGET)
-                .unwrap();
+        let raw = Node::mk(
+            mcx,
+            SQLValueFunction {
+                op,
+                r#type: 0,
+                typmod,
+                location: 7,
+            },
+        )
+        .unwrap();
+        let out = transformExpr(
+            mcx,
+            &mut pstate,
+            raw,
+            ParseExprKind::EXPR_KIND_SELECT_TARGET,
+        )
+        .unwrap();
         let svf = out.as_sql_value_function().unwrap();
         assert_eq!(svf.op, op);
         assert_eq!(svf.r#type, typ);
@@ -745,12 +864,22 @@ fn sql_value_function_negative_precision_is_22023() {
     let mut pstate = make_parsestate(mcx, None);
     let raw = Node::mk(
         mcx,
-        SQLValueFunction { op: Op::SVFOP_CURRENT_TIMESTAMP_N, r#type: 0, typmod: -2, location: 7 },
+        SQLValueFunction {
+            op: Op::SVFOP_CURRENT_TIMESTAMP_N,
+            r#type: 0,
+            typmod: -2,
+            location: 7,
+        },
     )
     .unwrap();
-    let err = transformExpr(mcx, &mut pstate, raw, ParseExprKind::EXPR_KIND_SELECT_TARGET)
-        .map(|_| ())
-        .unwrap_err();
+    let err = transformExpr(
+        mcx,
+        &mut pstate,
+        raw,
+        ParseExprKind::EXPR_KIND_SELECT_TARGET,
+    )
+    .map(|_| ())
+    .unwrap_err();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INVALID_PARAMETER_VALUE);
     assert!(err.message().contains("precision must not be negative"));
 }
@@ -772,8 +901,13 @@ fn nullif_transforms_to_null_if_expr_with_first_operand_type() {
     )
     .unwrap();
 
-    let out = transformExpr(mcx, &mut pstate, aexpr, ParseExprKind::EXPR_KIND_SELECT_TARGET)
-        .unwrap();
+    let out = transformExpr(
+        mcx,
+        &mut pstate,
+        aexpr,
+        ParseExprKind::EXPR_KIND_SELECT_TARGET,
+    )
+    .unwrap();
     let n = out.as_null_if_expr().unwrap();
     assert_eq!((n.opno, n.opfuncid), (96, 65));
     // C retags the boolean OpExpr; the result type becomes the first operand's.
@@ -801,9 +935,14 @@ fn nullif_with_nonboolean_operator_is_42804() {
     )
     .unwrap();
 
-    let err = transformExpr(mcx, &mut pstate, aexpr, ParseExprKind::EXPR_KIND_SELECT_TARGET)
-        .map(|_| ())
-        .unwrap_err();
+    let err = transformExpr(
+        mcx,
+        &mut pstate,
+        aexpr,
+        ParseExprKind::EXPR_KIND_SELECT_TARGET,
+    )
+    .map(|_| ())
+    .unwrap_err();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_DATATYPE_MISMATCH);
     assert_eq!(err.message(), "NULLIF requires = operator to yield boolean");
 }
@@ -830,7 +969,11 @@ fn multi_assign_ref<'mcx>(
 ) -> Node<'mcx> {
     Node::mk(
         mcx,
-        types_nodes::rawnodes::MultiAssignRef { source: Some(source), colno, ncolumns },
+        types_nodes::rawnodes::MultiAssignRef {
+            source: Some(source),
+            colno,
+            ncolumns,
+        },
     )
     .unwrap()
 }
@@ -883,7 +1026,11 @@ fn multi_assign_ref_row_keeps_set_to_default_untransformed() {
     let mut pstate = make_parsestate(mcx, None);
 
     let mut args = NodeList::nil();
-    args.lappend(mcx, Node::mk(mcx, types_nodes::SetToDefault::default()).unwrap()).unwrap();
+    args.lappend(
+        mcx,
+        Node::mk(mcx, types_nodes::SetToDefault::default()).unwrap(),
+    )
+    .unwrap();
     args.lappend(mcx, int_const(mcx, 5, 24)).unwrap();
     let row = row_expr(mcx, args, 18);
 
@@ -918,7 +1065,10 @@ fn multi_assign_ref_column_count_mismatch_is_42601() {
     .map(|_| ())
     .unwrap_err();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_SYNTAX_ERROR);
-    assert_eq!(err.message(), "number of columns does not match number of values");
+    assert_eq!(
+        err.message(),
+        "number of columns does not match number of values"
+    );
 }
 
 #[test]
@@ -949,8 +1099,7 @@ fn install_sub_analyze_fixture() {
         analyze_seams::parse_sub_analyze::set(|mcx, _tree, _pstate, _cte, _locked, _resolve| {
             let mut tl = NodeList::nil();
             for resno in 1..=2i16 {
-                let var =
-                    Node::mk_var(mcx, 1, resno, INT4OID, -1, InvalidOid, 0).unwrap();
+                let var = Node::mk_var(mcx, 1, resno, INT4OID, -1, InvalidOid, 0).unwrap();
                 tl.lappend(
                     mcx,
                     Node::mk(
@@ -1059,13 +1208,18 @@ fn multi_assign_ref_sublink_column_count_mismatch_is_42601() {
     .map(|_| ())
     .unwrap_err();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_SYNTAX_ERROR);
-    assert_eq!(err.message(), "number of columns does not match number of values");
+    assert_eq!(
+        err.message(),
+        "number of columns does not match number of values"
+    );
 }
 
 fn column_ref<'mcx>(mcx: Mcx<'mcx>, names: &[&'mcx str], location: i32) -> Node<'mcx> {
     let mut fields = NodeList::nil();
     for n in names {
-        fields.lappend(mcx, Node::mk(mcx, PgStr { sval: n }).unwrap()).unwrap();
+        fields
+            .lappend(mcx, Node::mk(mcx, PgStr { sval: n }).unwrap())
+            .unwrap();
     }
     Node::mk(mcx, types_nodes::rawnodes::ColumnRef { fields, location }).unwrap()
 }
@@ -1077,11 +1231,19 @@ fn column_ref_too_many_dotted_names_is_42601() {
     let mut pstate = make_parsestate(mcx, None);
 
     let cref = column_ref(mcx, &["a", "b", "c", "d", "e"], 7);
-    let err = transformExpr(mcx, &mut pstate, cref, ParseExprKind::EXPR_KIND_SELECT_TARGET)
-        .map(|_| ())
-        .unwrap_err();
+    let err = transformExpr(
+        mcx,
+        &mut pstate,
+        cref,
+        ParseExprKind::EXPR_KIND_SELECT_TARGET,
+    )
+    .map(|_| ())
+    .unwrap_err();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_SYNTAX_ERROR);
-    assert_eq!(err.message(), "improper qualified name (too many dotted names): a.b.c.d.e");
+    assert_eq!(
+        err.message(),
+        "improper qualified name (too many dotted names): a.b.c.d.e"
+    );
 }
 
 #[test]
@@ -1098,9 +1260,14 @@ fn column_ref_wrong_catalog_is_0a000() {
     let mut pstate = make_parsestate(mcx, None);
 
     let cref = column_ref(mcx, &["otherdb", "ns", "rel", "col"], 7);
-    let err = transformExpr(mcx, &mut pstate, cref, ParseExprKind::EXPR_KIND_SELECT_TARGET)
-        .map(|_| ())
-        .unwrap_err();
+    let err = transformExpr(
+        mcx,
+        &mut pstate,
+        cref,
+        ParseExprKind::EXPR_KIND_SELECT_TARGET,
+    )
+    .map(|_| ())
+    .unwrap_err();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_FEATURE_NOT_SUPPORTED);
     assert_eq!(
         err.message(),
@@ -1109,9 +1276,14 @@ fn column_ref_wrong_catalog_is_0a000() {
 
     // Matching catalog name proceeds to (and fails) relation lookup instead.
     let cref = column_ref(mcx, &["thisdb", "ns", "rel", "col"], 7);
-    let err = transformExpr(mcx, &mut pstate, cref, ParseExprKind::EXPR_KIND_SELECT_TARGET)
-        .map(|_| ())
-        .unwrap_err();
+    let err = transformExpr(
+        mcx,
+        &mut pstate,
+        cref,
+        ParseExprKind::EXPR_KIND_SELECT_TARGET,
+    )
+    .map(|_| ())
+    .unwrap_err();
     assert_ne!(err.sqlstate(), types_error::ERRCODE_FEATURE_NOT_SUPPORTED);
 }
 
@@ -1153,7 +1325,12 @@ fn xmlelement_maps_name_then_transforms_args_default_is_42601() {
 
     let dflt = Node::mk(
         mcx,
-        SetToDefault { typeId: InvalidOid, typeMod: -1, collation: InvalidOid, location: 30 },
+        SetToDefault {
+            typeId: InvalidOid,
+            typeMod: -1,
+            collation: InvalidOid,
+            location: 30,
+        },
     )
     .unwrap();
     let mut args = NodeList::nil();
@@ -1227,8 +1404,10 @@ fn jsonb_subscript_errors_carry_jsonbsubs_c_lines() {
     let err = crate::subscripts::jsonb_no_slices(&pstate, 12);
     assert_eq!(err.message(), "jsonb subscript does not support slices");
     let loc = err.location().unwrap();
-    assert_eq!((loc.filename.as_deref(), loc.lineno, loc.funcname.as_deref()),
-        (Some("jsonbsubs.c"), 68, Some("jsonb_subscript_transform")));
+    assert_eq!(
+        (loc.filename.as_deref(), loc.lineno, loc.funcname.as_deref()),
+        (Some("jsonbsubs.c"), 68, Some("jsonb_subscript_transform"))
+    );
     let err = crate::subscripts::jsonb_bad_subscript_type_named(&pstate, "integer", "h", 12);
     assert_eq!(err.message(), "subscript type integer is not supported");
     assert_eq!(err.location().map(|l| l.lineno), Some(116));
@@ -1247,9 +1426,17 @@ fn collation_lookup_position_skips_query_cancel() {
         types_error::PgError::error("canceling statement due to user request")
             .with_sqlstate(types_error::ERRCODE_QUERY_CANCELED),
     );
-    assert_eq!(crate::collation_lookup_position(&pstate, cancel, 11).cursor_position(), None);
-    let missing = Box::new(types_error::PgError::error("collation \"nope\" does not exist"));
-    assert_eq!(crate::collation_lookup_position(&pstate, missing, 11).cursor_position(), Some(12));
+    assert_eq!(
+        crate::collation_lookup_position(&pstate, cancel, 11).cursor_position(),
+        None
+    );
+    let missing = Box::new(types_error::PgError::error(
+        "collation \"nope\" does not exist",
+    ));
+    assert_eq!(
+        crate::collation_lookup_position(&pstate, missing, 11).cursor_position(),
+        Some(12)
+    );
 }
 
 #[test]
@@ -1262,10 +1449,14 @@ fn coalesce_srf_error_has_c_source_location() {
 
     let err = crate::check_srf_in_construct(&pstate, None, "COALESCE").unwrap_err();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_FEATURE_NOT_SUPPORTED);
-    assert_eq!(err.message, "set-returning functions are not allowed in COALESCE");
-    assert_eq!(err.hint.as_deref(), Some(
-        "You might be able to move the set-returning function into a LATERAL FROM item."
-    ));
+    assert_eq!(
+        err.message,
+        "set-returning functions are not allowed in COALESCE"
+    );
+    assert_eq!(
+        err.hint.as_deref(),
+        Some("You might be able to move the set-returning function into a LATERAL FROM item.")
+    );
     assert_eq!(err.cursor_position(), Some(17));
     let location = err.location.as_ref().unwrap();
     assert_eq!(location.funcname.as_deref(), Some("transformCoalesceExpr"));

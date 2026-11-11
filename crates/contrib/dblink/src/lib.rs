@@ -176,6 +176,7 @@ fn connect_failed(msg: &str) -> Box<PgError> {
 
 // dblink_get_conn: name -> named conn (borrowed), else foreign-server or raw
 // connstr -> a fresh TRANSIENT connection the caller must terminate.
+#[allow(clippy::large_enum_variant)]
 enum ConnTarget {
     Named(String),
     Unnamed,

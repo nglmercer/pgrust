@@ -3,6 +3,7 @@
 #![cfg(feature = "upstream-oracle")]
 
 #[allow(dead_code)]
+#[rustfmt::skip]
 #[path = "../../test-support/dependencies.rs"]
 mod dependencies;
 

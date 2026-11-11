@@ -520,6 +520,7 @@ fn with_chunk_vstate<'mcx, R>(
     r
 }
 
+#[allow(clippy::unnecessary_unwrap)]
 pub(crate) fn btvacuumpage(
     vstate: &mut BTVacState<'_, '_, '_>,
     scratch: &mut MemoryContext,
@@ -657,12 +658,14 @@ pub(crate) fn btvacuumpage(
                         debug_assert!(!bt_tuple_is_pivot(itup));
                         if !bt_tuple_is_posting(itup) {
                             let tid = t_tid(itup);
+                            #[allow(clippy::unnecessary_unwrap)]
                             (vstate.collect.as_mut().expect("checked"))(&tid)?;
                             nhtidslive += 1;
                         } else {
                             let nposting = bt_tuple_get_nposting(itup);
                             for i in 0..nposting {
                                 let tid = bt_tuple_get_posting_n(itup, i);
+                                #[allow(clippy::unnecessary_unwrap)]
                                 (vstate.collect.as_mut().expect("checked"))(&tid)?;
                             }
                             nhtidslive += nposting;

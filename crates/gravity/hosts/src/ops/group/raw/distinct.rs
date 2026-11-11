@@ -210,7 +210,10 @@ impl AggArena {
     /// # Safety — `s` is DISTINCT aggregate `i`'s state slot, `out` a writable zeroed state slot; slot `k` is the caller's.
     pub(crate) unsafe fn fold_sorted(&mut self, k: usize, i: usize, aggno: u32, s: *const u8, out: *mut u8) -> PgResult<()> {
         if self.fed(i) {
-            return Ok(crate::ops::group::raw::presorted::hand_on(s, out)); // D1596: every row already advanced, in PG's order
+            return {
+                crate::ops::group::raw::presorted::hand_on(s, out);
+                Ok(())
+            }; // D1596: every row already advanced, in PG's order
         }
         // D1320: the value word is a run only once `collect` / `combine_sorted` opened it (STATE_INIT); a zeroed slot is a
         // group no row reached. Any other word (a home tag, another form's value) raises by name, never read as a run.
@@ -311,14 +314,14 @@ mod tests {
             for r in 0..rows as u64 {
                 let (at, granted) = room(&node, &mut spill, 0, sa, 2, 2).unwrap();
                 assert_eq!(granted, 2);
-                (at.write(r), at.add(1).write(r & 1));
+                at.write(r); at.add(1).write(r & 1);
             }
             assert!(chunks(sa).all(|c| c.len() <= DISTINCT_RUN_CHUNK_MAX_WORDS && c.len() % 2 == 0));
             assert!(chunks(sa).count() > 2);
             let kept: Vec<u64> = chunks(sa).flat_map(|c| c.chunks_exact(2).map(|e| e[0])).collect();
             assert_eq!(kept, (0..rows as u64).collect::<Vec<_>>());
             let (at, _) = room(&node, &mut spill, 0, sb, 2, 2).unwrap();
-            (at.write(u64::MAX), at.add(1).write(0));
+            at.write(u64::MAX); at.add(1).write(0);
             for mut words in chunks(sa) {
                 while !words.is_empty() {
                     let (at, granted) = room(&node, &mut spill, 0, sb, 2, words.len()).unwrap();

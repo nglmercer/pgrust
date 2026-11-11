@@ -168,7 +168,12 @@ impl BuiltPart {
     }
 
     /// The stream section (kind Stream) for (attno, path_ord, role).
-    pub fn find_stream_section(&self, attno: u32, path_ord: u32, role: StreamRole) -> Option<usize> {
+    pub fn find_stream_section(
+        &self,
+        attno: u32,
+        path_ord: u32,
+        role: StreamRole,
+    ) -> Option<usize> {
         self.sections.iter().position(|s| {
             s.kind == SectionKind::Stream.as_u16()
                 && s.attno == attno
@@ -205,7 +210,14 @@ pub fn build_part(spec: &PartSpec) -> BuiltPart {
     let mut expected: Vec<ColExpected> = Vec::new();
 
     for col in &spec.cols {
-        build_column(col, rows, granule_count, &mut sections, &mut streams, &mut expected);
+        build_column(
+            col,
+            rows,
+            granule_count,
+            &mut sections,
+            &mut streams,
+            &mut expected,
+        );
     }
 
     // Aux sections.
@@ -271,7 +283,11 @@ fn build_column(
     // Per-granule value counts.
     let gvalues: Vec<u32> = match &col.child_gcounts {
         Some(gc) => {
-            assert_eq!(gc.len(), granule_count as usize, "child gcounts per granule");
+            assert_eq!(
+                gc.len(),
+                granule_count as usize,
+                "child gcounts per granule"
+            );
             gc.clone()
         }
         None => (0..granule_count)
@@ -345,9 +361,9 @@ fn build_column(
         RefEncoding::Const => EncodingId::Const,
     };
     let mut vstart: usize = 0; // running dense value index
-    // ONE sink for the whole column: stored `ovf_off`s are region-relative
-    // (spec §6.8), so the sink's base must be the region start even when the
-    // value stream is cut into multiple extents.
+                               // ONE sink for the whole column: stored `ovf_off`s are region-relative
+                               // (spec §6.8), so the sink's base must be the region start even when the
+                               // value stream is cut into multiple extents.
     let mut ovf = OverflowSink::new(&mut overflow_region);
     for &(gs, gc) in &extents {
         let mut section = Vec::new();
@@ -378,7 +394,8 @@ fn build_column(
                 RefEncoding::Verbatim => &mut enc_verbatim,
                 RefEncoding::Const => &mut enc_const,
             };
-            enc.encode_granule(&input, &mut w, &mut ovf).expect("encode granule");
+            enc.encode_granule(&input, &mut w, &mut ovf)
+                .expect("encode granule");
             encode_validity_bitmap(input.validity, vals as u32, &mut vbits);
             ext_values += vals as u64;
             vstart += vals;
@@ -420,6 +437,7 @@ fn build_column(
         }
     }
 
+    #[allow(clippy::drop_non_drop)]
     drop(ovf);
     let overflow_entries = count_region_entries(&overflow_region);
 
@@ -596,7 +614,10 @@ fn build_column(
         // payload-relative as stored.
         let mut written = 0usize;
         for (fi, &mark) in frame_marks.iter().enumerate() {
-            let next = frame_marks.get(fi + 1).copied().unwrap_or(payload_region.len());
+            let next = frame_marks
+                .get(fi + 1)
+                .copied()
+                .unwrap_or(payload_region.len());
             pw.begin_frame();
             pw.payload().extend_from_slice(&payload_region[mark..next]);
             written += next - mark;
@@ -969,7 +990,10 @@ fn count_region_entries(region: &[u8]) -> u64 {
         let hdr = u32::from_le_bytes(region[pos..pos + 4].try_into().expect("len 4"));
         assert_eq!(hdr & 0b11, 0, "overflow entry header must be 4B-U");
         let total = (hdr >> 2) as usize;
-        assert!(total >= 4 && pos + total <= region.len(), "overflow entry bounds");
+        assert!(
+            total >= 4 && pos + total <= region.len(),
+            "overflow entry bounds"
+        );
         n += 1;
         pos = (pos + total).div_ceil(8) * 8;
     }
@@ -998,21 +1022,24 @@ pub struct ManifestSpec {
 }
 
 pub fn build_manifest(spec: &ManifestSpec) -> Vec<u8> {
-    let m = Manifest::new(ManifestHeader {
-        gen: spec.gen,
-        prev_gen: spec.prev_gen,
-        publisher_fxid: spec.publisher_fxid,
-        relfilenumber: spec.relfilenumber,
-        spc: spec.spc,
-        db: spec.db,
-        magic: pgrc_format::manifest::MANIFEST_MAGIC,
-        format_version: FORMAT_VERSION,
-        part_count: spec.parts.len() as u32,
-        next_part_no: spec.next_part_no,
-        flags: 0,
-        reserved: 0,
-        schema_fingerprint: spec.schema_fingerprint,
-    }, spec.parts.clone());
+    let m = Manifest::new(
+        ManifestHeader {
+            gen: spec.gen,
+            prev_gen: spec.prev_gen,
+            publisher_fxid: spec.publisher_fxid,
+            relfilenumber: spec.relfilenumber,
+            spc: spec.spc,
+            db: spec.db,
+            magic: pgrc_format::manifest::MANIFEST_MAGIC,
+            format_version: FORMAT_VERSION,
+            part_count: spec.parts.len() as u32,
+            next_part_no: spec.next_part_no,
+            flags: 0,
+            reserved: 0,
+            schema_fingerprint: spec.schema_fingerprint,
+        },
+        spec.parts.clone(),
+    );
     m.encode()
 }
 

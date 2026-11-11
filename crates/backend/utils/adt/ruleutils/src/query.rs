@@ -552,6 +552,7 @@ fn set_relation_column_names<'mcx>(
 
     let noldcolumns = rte.eref.map(|e| e.colnames.len()).unwrap_or(0);
     let mut changed_any = false;
+    #[allow(clippy::needless_range_loop)]
     for i in 0..ncolumns {
         let Some(real_colname) = &real_colnames[i] else {
             debug_assert!(colinfo.colnames[i].is_none());
@@ -1975,6 +1976,7 @@ fn get_tablesample_def<'mcx>(
     )?;
     ctx.buf.push_str(&format!(" TABLESAMPLE {fname} ("));
     let mut nargs = 0;
+    #[allow(clippy::explicit_counter_loop)]
     for arg in tablesample.args.iter() {
         if nargs > 0 {
             ctx.buf.push_str(", ");
@@ -2246,6 +2248,7 @@ fn get_from_clause_item<'mcx>(
                         } else {
                             ctx.buf.push_str("ROWS FROM(");
                             let mut funcno = 0;
+                            #[allow(clippy::explicit_counter_loop)]
                             for f in rte.functions.iter() {
                                 let rtfunc =
                                     f.as_range_tbl_function().expect("functions entry");
@@ -2425,6 +2428,7 @@ fn get_rte_alias(
     ctx: &mut DeparseContext<'_>,
 ) -> PgResult<()> {
     let refname = get_rtable_name(varno, ctx);
+    #[allow(clippy::if_same_then_else)]
     let printalias = if rte.alias.is_some() {
         true
     } else if ctx.namespaces[0].rtable_columns[varno - 1].printaliases {

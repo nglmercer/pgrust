@@ -153,7 +153,10 @@ fn one_column_read_faults_only_that_columns_streams() {
         stream_faults(&faults),
         vec![(2, 0, StreamRole::Values.as_u8(), 0)]
     );
-    assert!(only_touches(&faults, &[(2, 0)]), "the gate passes a clean read");
+    assert!(
+        only_touches(&faults, &[(2, 0)]),
+        "the gate passes a clean read"
+    );
 
     // Byte accounting: the faulted total is the fixed open set + StreamDir +
     // the one values section — nothing proportional to the part.

@@ -1001,6 +1001,7 @@ mod fc_results {
             fc_numeric_in,
             0,
             ctx.mcx(),
+            #[allow(clippy::manual_c_str_literals)]
             Datum::from_usize(b"12.75\0".as_ptr() as usize),
             Datum::from_oid(0),
             Datum::from_i32(-1),

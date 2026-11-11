@@ -18,6 +18,7 @@ use gravity_driver::mem::spill_host::v4;
 use gravity_driver::Error;
 use gravity_fn::arena::OpArena;
 
+#[allow(unused_imports)]
 use crate::ops::hashjoin::build::{region, END, FLAGS, F_FP128, F_RANGE, F_RANGE0, HI, LIMIT, LO, LOW, N, NULLKEY, PHASE, REC, TOP, WORDS};
 use crate::ops::hashjoin::layout;
 use crate::ops::hashjoin::rt::{lay_out, rd, tail, wr, Rt};
@@ -192,9 +193,9 @@ unsafe fn fill_part(orig: *const u8, raw: &[u8], n: usize, d: *mut u8, len: usiz
     for off in [N, crate::ops::hashjoin::build::DIR, crate::ops::hashjoin::build::SLOTS, crate::ops::hashjoin::build::KEPT, crate::ops::hashjoin::build::MARKS] {
         wr::<u64>(d, off, 0);
     }
-    (wr::<u8>(d, PHASE, 1), wr::<u8>(d, crate::ops::hashjoin::build::FORM, 0), wr::<u32>(d, crate::ops::hashjoin::build::BITS, 0));
-    (wr::<u8>(d, FLAGS, rd::<u8>(orig, FLAGS) & (F_RANGE | F_RANGE0 | F_FP128)), wr::<u8>(d, SPILL, 0), wr::<u8>(d, PBITS, 0), wr::<u64>(d, SPILLED, (n == 0) as u64));
-    (wr::<u64>(d, TOP, len as u64), wr::<u64>(d, END, len as u64), wr::<u32>(d, LIMIT, len as u32));
+    wr::<u8>(d, PHASE, 1); wr::<u8>(d, crate::ops::hashjoin::build::FORM, 0); wr::<u32>(d, crate::ops::hashjoin::build::BITS, 0);
+    wr::<u8>(d, FLAGS, rd::<u8>(orig, FLAGS) & (F_RANGE | F_RANGE0 | F_FP128)); wr::<u8>(d, SPILL, 0); wr::<u8>(d, PBITS, 0); wr::<u64>(d, SPILLED, (n == 0) as u64);
+    wr::<u64>(d, TOP, len as u64); wr::<u64>(d, END, len as u64); wr::<u32>(d, LIMIT, len as u32);
     let (range, mut lo, mut hi) = (rd::<u8>(orig, FLAGS) & (F_RANGE | F_RANGE0) != 0, i64::MAX, i64::MIN);
     let mut o = 0;
     for k in 0..n {
@@ -205,7 +206,7 @@ unsafe fn fill_part(orig: *const u8, raw: &[u8], n: usize, d: *mut u8, len: usiz
             (lo, hi) = (lo.min(w), hi.max(w));
         }
     }
-    (wr::<i64>(d, LO, lo), wr::<i64>(d, HI, hi));
+    wr::<i64>(d, LO, lo); wr::<i64>(d, HI, hi);
 }
 
 /// A laid-out partition region of `raw`'s records under `orig`, `head` bytes into a region of its own (`take_pair`):
@@ -225,7 +226,7 @@ pub(crate) unsafe fn part_region(ctx: *mut Ctx, head: usize, orig: *const u8, ra
         let (d2, top, tl) = (m2.add(head), layout::base(layout::pay_of(orig)) + n * rd::<u32>(orig, REC) as usize, tail(d));
         core::ptr::copy_nonoverlapping(d, d2, top);
         core::ptr::copy_nonoverlapping(d.add(len - tl), d2.add(len2 - tl), tl);
-        (wr::<u64>(d2, TOP, (len2 - tl) as u64), wr::<u64>(d2, END, len2 as u64), wr::<u32>(d2, LIMIT, len2 as u32));
+        wr::<u64>(d2, TOP, (len2 - tl) as u64); wr::<u64>(d2, END, len2 as u64); wr::<u32>(d2, LIMIT, len2 as u32);
         v4::give(ctx, m);
         (m, len) = (m2, len2);
     }
@@ -393,8 +394,8 @@ mod tests {
         let d = buf.as_mut_ptr() as *mut u8;
         // SAFETY: `buf` covers the header.
         unsafe {
-            (wr::<u8>(d, PHASE, 1), wr::<u8>(d, WORDS, 1), wr::<u32>(d, REC, 24), crate::ops::hashjoin::layout::set_pay(d, 1), wr::<u8>(d, ALLOW, allow), wr::<u8>(d, FLAGS, F_RANGE));
-            (wr::<u64>(d, N, 99), wr::<u64>(d, KEPT, 7), wr::<u64>(d, MARKS, 4096), wr::<u64>(d, DIR, 4096));
+            wr::<u8>(d, PHASE, 1); wr::<u8>(d, WORDS, 1); wr::<u32>(d, REC, 24); crate::ops::hashjoin::layout::set_pay(d, 1); wr::<u8>(d, ALLOW, allow); wr::<u8>(d, FLAGS, F_RANGE);
+            wr::<u64>(d, N, 99); wr::<u64>(d, KEPT, 7); wr::<u64>(d, MARKS, 4096); wr::<u64>(d, DIR, 4096);
         }
         buf
     }
@@ -484,7 +485,7 @@ mod tests {
             let row = |i: usize| rd::<u64>(t.rec(i), 16);
             let (mut sent, mut kept): (Vec<u64>, Vec<u64>) = (Vec::new(), Vec::new());
             (0..6).for_each(|i| if i == 1 || i == 4 { kept.push(row(i)) } else { sent.push(row(i)) });
-            (sent.sort_unstable(), kept.sort_unstable());
+            sent.sort_unstable(); kept.sort_unstable();
             for (marked, want) in [(false, sent), (true, kept)] {
                 let part = drain_set(d, marked);
                 assert_eq!((&part[..4], u32::from_le_bytes(part[4..8].try_into().unwrap()) as usize), (&MAGIC_U[..], want.len()));
@@ -527,7 +528,7 @@ mod tests {
             }
             // SAFETY: the header above (payload 1 an image of `kind`) and the regions below, ours alone.
             unsafe {
-                (crate::ops::hashjoin::layout::set_pay(op, 2), wr::<u32>(op, REC, 32), wr::<u16>(op, DESC + 2, kind));
+                crate::ops::hashjoin::layout::set_pay(op, 2); wr::<u32>(op, REC, 32); wr::<u16>(op, DESC + 2, kind);
                 let lay = |raw: &[u8]| {
                     let (n, _) = records(op, raw).unwrap();
                     assert_eq!(n, 3);
@@ -596,7 +597,7 @@ mod tests {
         }
         // SAFETY: the header above (payload 1 a fixed 8-byte image, payload 2 a varlena) and the region below, ours alone.
         unsafe {
-            (crate::ops::hashjoin::layout::set_pay(op, 3), wr::<u32>(op, REC, 40), wr::<u16>(op, DESC + 2, 8), wr::<u16>(op, DESC + 4, D_VARLENA));
+            crate::ops::hashjoin::layout::set_pay(op, 3); wr::<u32>(op, REC, 40); wr::<u16>(op, DESC + 2, 8); wr::<u16>(op, DESC + 4, D_VARLENA);
             let (n, _) = records(op, &r).unwrap();
             assert_eq!(n, keys.len());
             let mut buf = vec![0u64; LEN / 8];
@@ -623,7 +624,7 @@ mod tests {
                 let d = buf.as_mut_ptr() as *mut u8;
                 let (mut got, mut puts) = (Vec::new(), Vec::new());
                 drain_pieces(d, marked, &mut |b| -> Result<(), ()> {
-                    (got.extend_from_slice(b), puts.push(b.len()));
+                    got.extend_from_slice(b); puts.push(b.len());
                     Ok(())
                 })
                 .unwrap();

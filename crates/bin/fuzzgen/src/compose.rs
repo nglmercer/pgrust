@@ -771,6 +771,7 @@ pub fn classify(sql: &str, ordered: Ordered) -> Option<Classified> {
         return Some(Classified { kind: Kind::Utility, ordered, target: None });
     }
     let ws = words(body);
+    #[allow(clippy::question_mark)]
     let Some(first) = ws.first() else { return None };
     // Main verb after a CTE prefix: the first depth-0 DML keyword not
     // followed by AS (a CTE name).

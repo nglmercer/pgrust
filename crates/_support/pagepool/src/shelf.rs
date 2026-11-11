@@ -4,9 +4,9 @@
 
 use crate::central::{self, Batch, Key, NONE, SIZES};
 use crate::reserve::zones;
+use crate::sync::{tls as thread_local, AtomicU32, AtomicU64, Ordering::*};
 use crate::{stats, CLASSES};
 use core::cell::Cell;
-use crate::sync::{tls as thread_local, AtomicU32, AtomicU64, Ordering::*};
 
 const SK: usize = CLASSES * SIZES;
 
@@ -31,7 +31,8 @@ fn here() -> &'static Shelf {
 }
 
 static CAPS: crate::Line<[AtomicU32; SIZES]> = crate::Line([const { AtomicU32::new(2) }; SIZES]);
-static SHELF_MAX: crate::Line<core::sync::atomic::AtomicUsize> = crate::Line(core::sync::atomic::AtomicUsize::new(0));
+static SHELF_MAX: crate::Line<core::sync::atomic::AtomicUsize> =
+    crate::Line(core::sync::atomic::AtomicUsize::new(0));
 
 pub(crate) fn init() {
     let max = zones().cfg.shelf_max;
@@ -141,7 +142,12 @@ fn detach(s: &Shelf, k: Key, n: u32) -> Option<Batch> {
     s.counts[i].set(s.counts[i].get() - n);
     let bytes = central::slot_bytes(k.size);
     s.bytes.set(s.bytes.get() - n as usize * bytes);
-    Some(Batch { head, n, bytes: bytes as u32, zero: false })
+    Some(Batch {
+        head,
+        n,
+        bytes: bytes as u32,
+        zero: false,
+    })
 }
 
 fn spill_half(k: Key) {
@@ -217,7 +223,12 @@ mod exit {
         let k = KEY.load(Acquire);
         if k != 0 {
             // SAFETY: a live key; any non-null value arms its destructor for this thread.
-            unsafe { libc::pthread_setspecific((k - 1) as libc::pthread_key_t, core::ptr::NonNull::<u8>::dangling().as_ptr().cast()) };
+            unsafe {
+                libc::pthread_setspecific(
+                    (k - 1) as libc::pthread_key_t,
+                    core::ptr::NonNull::<u8>::dangling().as_ptr().cast(),
+                )
+            };
         }
     }
 }

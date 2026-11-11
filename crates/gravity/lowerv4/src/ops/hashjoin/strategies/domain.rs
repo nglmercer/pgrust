@@ -67,6 +67,7 @@ pub(crate) fn admit(px: &mut Px<'_, '_>, k: usize, g: &GroupDecl<'_>, rec: &Grou
     if !crate::effects::domain_cut_free(gx, g, q, j) {
         return None;
     }
+    #[allow(clippy::manual_checked_ops)]
     let cap = if ratio > 0 { (g.groups / ratio).min(gravity_program::cost::DOMAIN_SET_MAX) } else { gravity_program::cost::DOMAIN_SET_MAX };
     let word = px.proto_words(1);
     px.declare_proto(Proto::new(ProtoKind::RtFilter, k as u16).peer(b as u16).slot(slot).words(word, 1).arg(cap.min(u32::MAX as u64)).reading(0, domain_keys));

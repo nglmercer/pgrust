@@ -616,6 +616,7 @@ fn parse_literal_data(cx: &mut Dcx, dst: &mut Vec<u8>, pkt: &mut dyn Pull) -> PR
 mod tests {
     use super::*;
 
+    #[allow(clippy::field_reassign_with_default)]
     fn dcx_run<T>(f: impl FnOnce(&mut Dcx) -> T) -> (T, Vec<String>) {
         let mut ctx = PgpContext::default();
         ctx.debug = 1;
@@ -644,6 +645,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn mbuf_growth_counts_the_reserved_varlena_header() {
         let mut ctx = PgpContext::default();
         ctx.mbuf_cap = 1073741823;

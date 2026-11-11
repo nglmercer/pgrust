@@ -36,12 +36,12 @@
 //! - A child reading its own nest's param outside the keys (D3836: PG plans it for a LATERAL union whose arm returns an
 //!   outer column, a PlaceHolderVar with its own param, beside an arm reading the column's Var): PG purges at every
 //!   rescan, so it never hits; every lookup purges (`MEMO_PURGE`), the child runs at every outer row, the calls PG makes.
-//! Fails closed by name: a key computed by a volatile call (PostgreSQL never plans one), an instrumented lowering (EXPLAIN
-//! ANALYZE's hits / misses are M12's), a Memoize over VOLATILE code inside a re-run plan with a re-opener that sets none
-//! of the child's params outside its keys (`purge_exact`: the calls would outnumber PG's),
-//! a purge word no owner declared, over a one-time gate, over a cstring; over more than one set function, or one over
-//! another source than a Result's one row.
-//! Owner M8-MEMO-CTE.
+//!   Fails closed by name: a key computed by a volatile call (PostgreSQL never plans one), an instrumented lowering (EXPLAIN
+//!   ANALYZE's hits / misses are M12's), a Memoize over VOLATILE code inside a re-run plan with a re-opener that sets none
+//!   of the child's params outside its keys (`purge_exact`: the calls would outnumber PG's),
+//!   a purge word no owner declared, over a one-time gate, over a cstring; over more than one set function, or one over
+//!   another source than a Result's one row.
+//!   Owner M8-MEMO-CTE.
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -64,6 +64,7 @@ use crate::frame::frame::StepMaker;
 use crate::frame::open::{Base, OpenWord, OpenWords};
 use crate::frame::px::{ExId, Px, WordKey};
 use crate::frame::row::{Carry, RowVals};
+#[allow(unused_imports)]
 use crate::graph::Gx;
 use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::ops::Table;

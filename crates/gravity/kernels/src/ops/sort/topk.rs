@@ -1,6 +1,7 @@
 use crate::host_abi::*;
 
 pub use super::raw::topk::{topk_cut, topk_cut_open, topk_insert, topk_insert_text, topk_open, topk_order, topk_order_text, topk_run, topk_text_word};
+#[allow(unused_imports)]
 pub(crate) use super::raw::topk::code_bytes;
 
 /// The spec words of `topk_insert_text`: `spec1 = site | key col << 8 | key lane << 24` (a text first key's code column, `TEXT_NONE` when the first key is a word), `spec2 = kind | col << 8 | lane << 24 | at << 40` for the second key (kind 0 none, 1 a word at run column `at`, 2 a pair at `at`, 3 the text of code column `col`).

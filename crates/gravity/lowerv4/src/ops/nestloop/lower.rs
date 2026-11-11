@@ -461,7 +461,7 @@ impl<'g> Loop<'g> {
         b.cond_br(unmatched, (l_fin, &c.params()), (l_out, &c.params()));
         let Some(sh) = sh else { shape(self.node, "a LEFT / ANTI nest whose inner hands on no row (its NULL-extended row's shape)") };
         b.switch_to(l_fin);
-        let fc = mcx::to_vec_in(&b.block_params(l_fin)[..], env.mcx);
+        let fc = mcx::to_vec_in(b.block_params(l_fin), env.mcx);
         let s = b.iconst(Type::I64, FINAL);
         env.store_word(b, self.offset, s);
         // a lane cell's value is its element's address, which a reader loads before it tests NULL: a zeroed word's
@@ -510,7 +510,7 @@ impl<'g> Loop<'g> {
         let l_matched = b.create_block(&ctypes);
         b.cond_br(tag, (l_out, &c.params()), (l_matched, &c.params()));
         b.switch_to(l_matched);
-        let cm = mcx::to_vec_in(&b.block_params(l_matched)[..], env.mcx);
+        let cm = mcx::to_vec_in(b.block_params(l_matched), env.mcx);
         if let Some(m) = m {
             env.memo.clear();
             env.hir.give_back(b, m);

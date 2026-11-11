@@ -121,7 +121,7 @@ fn sys_old_plan_with(w: &WriteDesc<'_>, union: bool) -> bool {
         let Some(te) = n.as_target_entry() else { continue };
         walk(te.expr, &mut |x| {
             let old = x.as_var().filter(|v| v.varreturningtype == VarReturningType::VAR_RETURNING_OLD && v.varattno < 0 && v.varlevelsup == 0 && v.varno == rti);
-            any |= old.is_some_and(|v| old_sys(&v, w).is_ok() && (v.varattno != -6 || w.cmd == Cmd::Insert || union));
+            any |= old.is_some_and(|v| old_sys(v, w).is_ok() && (v.varattno != -6 || w.cmd == Cmd::Insert || union));
             true
         });
     }
@@ -161,7 +161,7 @@ fn sys_plan_with(w: &WriteDesc<'_>, varies: bool) -> Option<bool> {
         walk(te.expr, &mut |x| {
             // a default reference, or OLD / NEW of the written row (`image`)
             if let Some(v) = x.as_var().filter(|v| v.varattno < 0 && v.varlevelsup == 0 && v.varno == rti && image(v, w).1) {
-                if varies || !sys_served(&v, w, &w.targets[0]) {
+                if varies || !sys_served(v, w, &w.targets[0]) {
                     any = true;
                     header |= (-5..=-2).contains(&v.varattno);
                 }

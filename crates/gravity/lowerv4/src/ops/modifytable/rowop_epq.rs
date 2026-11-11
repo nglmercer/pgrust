@@ -1099,6 +1099,7 @@ fn subs_form(gx: &Gx<'_, '_>, k: usize, j: usize, w: &WriteDesc<'_>) -> Option<b
         gx.graph.init_plans.iter().filter(|t| top(t)).any(|t| fed(gx, mcx::pg_vec![in gx.mcx; usize::from(t.pipeline)]).iter().any(|&q| gx.pipelines()[q].node_ops.iter().any(|n| n.node_id == i.attach)))
     };
     let top_inits = gx.graph.init_plans.iter().all(|i| matches!(i.link, gravity_decompose::ops::shared::subplan::SubLink::Cte) || top(i) || inside(i));
+    #[allow(clippy::nonminimal_bool)]
     let kept_inits = !ctes && !cond && (effects::licence(steps, Departure::Fewer).is_ok() || top_inits || crate::rerun::epq::sub_lock::write_inits_forced(gx, k, j)) && init_pipes.iter().all(|&q| q != k && !writes_or_locks(gx, q) && !(rerun(q) && !member(q))) && (crate::rerun::epq::inits::write_inits_read(gx, p, j) || crate::rerun::epq::sub_lock::write_inits_forced(gx, k, j));
     let sibling = |q: usize| several && gx.pipelines()[q].ops.iter().any(arm) && gx.pipelines()[q].ops.iter().any(|o| matches!(o, Op::Write(_)));
     // writesubplan (D1112): a RETURNING list's SubPlan steps stand after the write, and the redo hands its written row on
@@ -1253,6 +1254,7 @@ fn probed<'g, 'p>(gx: &Gx<'g, 'p>, k: usize, j: usize, w: &WriteDesc<'_>) -> Opt
             // `Redo::Probe`'s `left`); or a build of a COPY-marked breaker's rows merge-joined to a REFERENCE-markable
             // relation's own scan (`merge_built`)
             Op::Join(JoinDesc::Probe { jointype: types_nodes::jointype::JoinType::JOIN_LEFT, slot, keys, clauses, qual, .. }) if merge_built(gx, k, *slot).is_some() => {
+                #[allow(clippy::question_mark)]
                 let Some((q, sides)) = merge_built(gx, k, *slot) else { return None };
                 let new = |x: &(u32, u32)| !rels.iter().any(|r| r.0 == x.0);
                 if sub(keys) || sub(qual) || q.iter().any(|&x| rerun(x) || writes_or_locks(gx, x)) || !sides.iter().flatten().all(new) || sides[0].zip(sides[1]).is_some_and(|(a, b)| a.0 == b.0) {

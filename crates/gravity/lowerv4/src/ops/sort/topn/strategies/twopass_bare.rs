@@ -66,7 +66,7 @@ pub(crate) fn bare_n<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> Option<u32> {
     let g1 = gx.group_at(k)?;
     let q = (0..gx.pipelines().len()).find(|&q| gx.group_at(q).and_then(|h| h.two_pass).is_some_and(|t| t.pass1 as usize == k))?;
     let g2 = gx.group_at(q)?;
-    let tp = g2.two_pass?;
+    let _tp = g2.two_pass?;
     // pass 1 keys the hint's one column (keyed_twopass: more is a bug); the floor orders its image word as the type orders
     // its datum (KeySem: the word is the datum, `word_order` signed or unsigned)
     if g1.keys.len() != 1 || word_order(&g1.keys[0]).is_none() {

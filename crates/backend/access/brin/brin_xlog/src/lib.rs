@@ -1,7 +1,6 @@
 //! brin_xlog.c: BRIN rmgr redo. All six ops are live; brin_mask stays with
 //! the wal-consistency lane (loud in rmgr, as every AM's).
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use types_brin::*;
 use types_core::{BlockNumber, Buffer, InvalidBuffer};
@@ -31,7 +30,10 @@ pub mod sim_red {
 }
 
 fn main_data(record: &XLogReaderState) -> &[u8] {
-    let rec = record.record.as_ref().expect("brin redo with no decoded record");
+    let rec = record
+        .record
+        .as_ref()
+        .expect("brin redo with no decoded record");
     // SAFETY: points into the reader's decode buffer, valid for the redo
     // callback's duration.
     unsafe { rec.main_data_bytes() }
@@ -135,7 +137,9 @@ fn brin_xlog_insert_update(
         }
         let off = page.add_item(tuple, offnum, types_storage::bufpage::PAI_OVERWRITE);
         if off.is_none() {
-            return Err(panic_err("brin_xlog_insert_update: failed to add tuple".into()));
+            return Err(panic_err(
+                "brin_xlog_insert_update: failed to add tuple".into(),
+            ));
         }
         page.set_lsn(lsn);
         bufmgr_seams::mark_buffer_dirty::call(buffer)?;
@@ -292,8 +296,12 @@ fn brin_xlog_desummarize_page(record: &XLogReaderState) -> PgResult<()> {
 }
 
 pub fn brin_redo(record: &mut XLogReaderState) -> PgResult<()> {
-    let info =
-        record.record.as_ref().expect("brin_redo with no decoded record").xl_info & !XLR_INFO_MASK;
+    let info = record
+        .record
+        .as_ref()
+        .expect("brin_redo with no decoded record")
+        .xl_info
+        & !XLR_INFO_MASK;
     let init_page = info & XLOG_BRIN_INIT_PAGE != 0;
     match info & XLOG_BRIN_OPMASK {
         XLOG_BRIN_CREATE_INDEX => brin_xlog_createidx(record),
@@ -321,6 +329,7 @@ pub fn brin_mask(pagedata: &mut [u8], _blkno: types_core::BlockNumber) -> PgResu
     // set (revmap pages fill their "unused" region and must not be masked).
     let do_unused = BRIN_IS_REGULAR_PAGE(&r)
         || (BRIN_IS_META_PAGE(&r) && r.pd_lower() as usize > SizeOfPageHeaderData);
+    #[allow(clippy::drop_non_drop)]
     drop(pm);
 
     if do_unused {
@@ -370,10 +379,14 @@ mod redo_dispatch_tests {
     // unknown opcode carrying XLOG_BRIN_INIT_PAGE reports 0xE0 = 224, not the
     // XLOG_BRIN_OPMASK-stripped 96 (audit row b1-5cc21a49).
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn unknown_opcode_reports_the_unmasked_info_byte() {
         let mut rec = xlogreader_seams::DecodedXLogRecord::default();
         rec.xl_info = 0xE0;
-        let mut record = XLogReaderState { record: Some(rec), ..Default::default() };
+        let mut record = XLogReaderState {
+            record: Some(rec),
+            ..Default::default()
+        };
         let err = brin_redo(&mut record).expect_err("unknown brin opcode must not redo silently");
         assert_eq!(err.message, "brin_redo: unknown op code 224");
         assert_eq!(err.level, types_error::PANIC);

@@ -1,8 +1,7 @@
 // pqcomm.c socket half: pq_init wiring, socket_close, listen/accept,
 // TCP keepalive knobs.
 
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use std::cell::{Cell, RefCell};
 use std::ffi::CString;
@@ -569,7 +568,11 @@ pub fn ListenServerPort(
     Ok(STATUS_OK)
 }
 
-fn Lock_AF_UNIX(unix_socket_dir: &str, unix_socket_path: &str, remove_stale: bool) -> PgResult<i32> {
+fn Lock_AF_UNIX(
+    unix_socket_dir: &str,
+    unix_socket_path: &str,
+    remove_stale: bool,
+) -> PgResult<i32> {
     // No lock file for abstract sockets.
     if unix_socket_path.starts_with('@') {
         return Ok(STATUS_OK);
@@ -604,7 +607,13 @@ fn local_sockaddr(fd: pgsocket) -> Option<ip::SockAddr> {
     let mut a = ip::SockAddr::zeroed();
     let mut len = a.addr.len() as ip::sys::socklen_t;
     // SAFETY: getsockname(2) into a sockaddr_storage-sized buffer.
-    let rc = unsafe { ip::sys::getsockname(fd, a.addr.as_mut_ptr().cast::<ip::sys::sockaddr>(), &mut len) };
+    let rc = unsafe {
+        ip::sys::getsockname(
+            fd,
+            a.addr.as_mut_ptr().cast::<ip::sys::sockaddr>(),
+            &mut len,
+        )
+    };
     if rc != 0 {
         return None;
     }
@@ -625,9 +634,14 @@ fn unix_path_of(a: &ip::SockAddr) -> Option<String> {
 pub fn adopt_inherited_listen_sockets(
     listen_sockets: &mut Vec<pgsocket>,
 ) -> PgResult<(String, String)> {
-    let (rest, listen_line, socket_dir_line) = INHERITED.with(|v| std::mem::take(&mut *v.borrow_mut()));
+    let (rest, listen_line, socket_dir_line) =
+        INHERITED.with(|v| std::mem::take(&mut *v.borrow_mut()));
     for fd in rest {
-        if let Some(path) = local_sockaddr(fd).as_ref().and_then(unix_path_of).filter(|p| !p.is_empty()) {
+        if let Some(path) = local_sockaddr(fd)
+            .as_ref()
+            .and_then(unix_path_of)
+            .filter(|p| !p.is_empty())
+        {
             let dir = path.rsplit_once('/').map_or(".", |(d, _)| d).to_owned();
             if Lock_AF_UNIX(&dir, &path, false)? != STATUS_OK {
                 continue;
@@ -705,7 +719,10 @@ fn Setup_AF_UNIX(sock_path: &str) -> PgResult<i32> {
             let _ = ereport(LOG)
                 .with_saved_errno(errno())
                 .errcode_for_file_access()
-                .errmsg(format!("could not set group of file \"{}\": {PCT_M}", sock_path))
+                .errmsg(format!(
+                    "could not set group of file \"{}\": {PCT_M}",
+                    sock_path
+                ))
                 .finish(loc("Setup_AF_UNIX"));
             return Ok(STATUS_ERROR);
         }
@@ -731,7 +748,11 @@ pub fn AcceptConnection(server_fd: pgsocket, client_sock: &mut ClientSocket) -> 
     let fd = unsafe {
         ip::sys::accept(
             server_fd,
-            client_sock.raddr.addr.as_mut_ptr().cast::<ip::sys::sockaddr>(),
+            client_sock
+                .raddr
+                .addr
+                .as_mut_ptr()
+                .cast::<ip::sys::sockaddr>(),
             &mut client_sock.raddr.salen,
         )
     };
@@ -1089,8 +1110,11 @@ pub fn init_socket_seams() {
     pqcomm_seams::adopt_inherited_listen_sockets::set(adopt_inherited_listen_sockets);
     pqcomm_seams::listen_server_port::set(
         |hostname, port, unix_socket_dir, listen_sockets, max_listen| {
-            let family =
-                if unix_socket_dir.is_some() { ip::sys::AF_UNIX } else { ip::sys::AF_UNSPEC };
+            let family = if unix_socket_dir.is_some() {
+                ip::sys::AF_UNIX
+            } else {
+                ip::sys::AF_UNSPEC
+            };
             let status = ListenServerPort(
                 family,
                 hostname,
@@ -1193,25 +1217,56 @@ mod fe_be_mask_tests {
             CALLS.fetch_add(1, SeqCst);
             LAST.store(events, SeqCst);
             if FAIL_NEXT.swap(false, SeqCst) {
-                return Err(Box::new(types_error::PgError::new(types_error::ERROR, "epoll_ctl() failed".to_string())));
+                return Err(Box::new(types_error::PgError::new(
+                    types_error::ERROR,
+                    "epoll_ctl() failed".to_string(),
+                )));
             }
             Ok(())
         });
         // pq_init's state: the socket position added with WL_SOCKET_WRITEABLE
         FE_BE_WAIT_SET.set(Some((WaitEventSetHandle::new(1), WL_SOCKET_WRITEABLE)));
-        assert_eq!(modify(WL_SOCKET_READABLE), (true, 1), "the first read wait switches WRITEABLE -> READABLE");
+        assert_eq!(
+            modify(WL_SOCKET_READABLE),
+            (true, 1),
+            "the first read wait switches WRITEABLE -> READABLE"
+        );
         for _ in 0..3 {
-            assert_eq!(modify(WL_SOCKET_READABLE), (true, 1), "a read wait after a read wait changes nothing");
+            assert_eq!(
+                modify(WL_SOCKET_READABLE),
+                (true, 1),
+                "a read wait after a read wait changes nothing"
+            );
         }
-        assert_eq!(modify(WL_SOCKET_WRITEABLE), (true, 2), "a blocked send still switches to WRITEABLE");
+        assert_eq!(
+            modify(WL_SOCKET_WRITEABLE),
+            (true, 2),
+            "a blocked send still switches to WRITEABLE"
+        );
         assert_eq!(modify(WL_SOCKET_WRITEABLE), (true, 2));
-        assert_eq!(modify(WL_SOCKET_READABLE), (true, 3), "and the next read switches back");
-        assert_eq!(modify(WL_SOCKET_CLOSED), (true, 4), "pq_check_connection's CLOSED reaches the set");
+        assert_eq!(
+            modify(WL_SOCKET_READABLE),
+            (true, 3),
+            "and the next read switches back"
+        );
+        assert_eq!(
+            modify(WL_SOCKET_CLOSED),
+            (true, 4),
+            "pq_check_connection's CLOSED reaches the set"
+        );
         assert_eq!(modify(WL_SOCKET_READABLE), (true, 5));
         assert_eq!(LAST.load(SeqCst), WL_SOCKET_READABLE);
         FAIL_NEXT.store(true, SeqCst);
-        assert_eq!(modify(WL_SOCKET_WRITEABLE), (false, 6), "a failed modify is raised");
-        assert_eq!(modify(WL_SOCKET_READABLE), (true, 7), "after a failure even the old mask goes through");
+        assert_eq!(
+            modify(WL_SOCKET_WRITEABLE),
+            (false, 6),
+            "a failed modify is raised"
+        );
+        assert_eq!(
+            modify(WL_SOCKET_READABLE),
+            (true, 7),
+            "after a failure even the old mask goes through"
+        );
         assert_eq!(modify(WL_SOCKET_READABLE), (true, 7));
         FE_BE_WAIT_SET.set(None);
     }

@@ -516,6 +516,7 @@ fn shadow_heavy_too_deep() -> bool {
 }
 
 // Platform stack limit in bytes, -1 if unknown; cached after first call.
+#[allow(clippy::if_same_then_else)]
 pub fn get_stack_depth_rlimit() -> isize {
     // Miri has no getrlimit; -1 is C's "limit unknown" (accept any value).
     // wasm32: WASI has no rlimits either — the same C no-getrlimit arm.

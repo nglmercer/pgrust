@@ -103,6 +103,7 @@ fn group<'g, 'p>(gx: &Gx<'g, 'p>, q: usize) -> Option<&'g GroupDecl<'p>> {
 /// The one hoistable call over bare `outer.r` in `g`'s aggregates, when they read `outer.r` nowhere else (guard 6).
 fn the_call<'p>(g: &GroupDecl<'p>, r: i16, mcx: Mcx<'_>) -> Option<Node<'p>> {
     let mut out = PgVec::new_in(mcx);
+    #[allow(clippy::unnecessary_fold)]
     let ok = g.aggs.iter().fold(true, |ok, a| hoistable_reads(a.node, r, &mut out) && ok);
     (ok && out.len() == 1).then(|| out[0])
 }

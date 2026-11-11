@@ -193,6 +193,7 @@ pub(crate) fn cross<'s>(sa: &'s RunShape, sb: &'s RunShape, nkey: usize) -> Opti
 
 /// A put run's records from row `from` on: opened at the last fence at or before it, the rows before `from` passed (a
 /// slice's reader; part p of a cut run reads `at[p + 1] - at[p]` records from `at[p]`).
+#[allow(dead_code)]
 pub(crate) fn records_from(fences: &Fences, open: Open<'_>, from: u64) -> Result<Records> {
     if fences.is_empty() {
         return open(None);

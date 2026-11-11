@@ -1,5 +1,4 @@
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use datum::Datum;
 use elog::{elog, ereport};
@@ -226,6 +225,7 @@ fn pg_logical_slot_get_changes_guts(
     ReplicationSlotAcquire(&name, true, true)?;
 
     let mut p = DecodingOutputState {
+        #[allow(clippy::unnecessary_cast)]
         srf: &mut srf as *mut MaterializedSRF<'_> as *mut MaterializedSRF<'static>,
         mcx,
         write_context: mcx::MemoryContext::new_wholesale("LogicalOutputWrite"),
@@ -487,6 +487,7 @@ mod tests {
         )
         .unwrap();
         let mut state = DecodingOutputState {
+            #[allow(clippy::unnecessary_cast)]
             srf: &mut srf as *mut MaterializedSRF<'_> as *mut MaterializedSRF<'static>,
             // SAFETY: state is used only while ctx is alive.
             mcx: unsafe { core::mem::transmute::<Mcx<'_>, Mcx<'static>>(ctx.mcx()) },

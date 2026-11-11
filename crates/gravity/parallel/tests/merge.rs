@@ -142,6 +142,7 @@ mod record {
     use gravity_parallel::PlainAggPartial;
     use gravity_abi::breaker::{HashAgg, Rec, RecordLayout, SlotKind};
 
+    #[allow(dead_code)]
     const ALL: [SlotKind; 8] = [SlotKind::Count, SlotKind::SumI64, SlotKind::SumI128, SlotKind::MinI64, SlotKind::MaxI64, SlotKind::AvgI128, SlotKind::SumF64, SlotKind::MaxCode];
 
     fn region(layout: &RecordLayout, cap: u32) -> Vec<u64> {

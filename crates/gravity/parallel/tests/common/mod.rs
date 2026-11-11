@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![allow(clippy::duplicate_mod, dead_code)]
 
 use std::sync::atomic::{AtomicI64, AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -132,6 +132,7 @@ impl Source for FixtureSource {
         let mut n = 0usize;
         for r in 0..per {
             if let Some(row) = (self.table.gen)(self.block * self.table.per_block + r as u64) {
+                #[allow(clippy::needless_range_loop)]
                 for k in 0..self.natts {
                     self.lanes[k * per + n] = row[k] as u64;
                 }

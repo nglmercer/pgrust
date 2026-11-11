@@ -2,18 +2,16 @@
 // (BEGIN ATOMIC / RETURN), parameter defaults, TABLE parameter mode,
 // SUPPORT option, languages beyond sql+internal+C+plpgsql,
 // %TYPE / typmod TypeNames, DROP FUNCTION, DO.
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 mod cast_transform;
 pub use cast_transform::{get_transform_oid, CreateCast, CreateTransform};
 
 use mcx::Mcx;
 use pg_proc::{
-    ClanguageId, ProcedureCreateArgs, INTERNALlanguageId, PROKIND_FUNCTION, PROKIND_PROCEDURE,
-    PROKIND_WINDOW,
-    PROPARALLEL_RESTRICTED, PROPARALLEL_SAFE, PROPARALLEL_UNSAFE, PROVOLATILE_IMMUTABLE,
-    PROVOLATILE_STABLE, PROVOLATILE_VOLATILE, SQLlanguageId,
+    ClanguageId, INTERNALlanguageId, ProcedureCreateArgs, SQLlanguageId, PROKIND_FUNCTION,
+    PROKIND_PROCEDURE, PROKIND_WINDOW, PROPARALLEL_RESTRICTED, PROPARALLEL_SAFE,
+    PROPARALLEL_UNSAFE, PROVOLATILE_IMMUTABLE, PROVOLATILE_STABLE, PROVOLATILE_VOLATILE,
 };
 use types_core::{
     AttrNumber, InvalidOid, Oid, ANYARRAYOID, ANYCOMPATIBLEARRAYOID, ANYOID, FUNC_MAX_ARGS,
@@ -23,8 +21,7 @@ use types_core::{
 use types_error::{
     PgError, PgResult, ERRCODE_INSUFFICIENT_PRIVILEGE, ERRCODE_INVALID_FUNCTION_DEFINITION,
     ERRCODE_INVALID_PARAMETER_VALUE, ERRCODE_QUERY_CANCELED, ERRCODE_SYNTAX_ERROR,
-    ERRCODE_TOO_MANY_ARGUMENTS,
-    ERRCODE_UNDEFINED_OBJECT, ERROR,
+    ERRCODE_TOO_MANY_ARGUMENTS, ERRCODE_UNDEFINED_OBJECT, ERROR,
 };
 use types_nodes::parsenodes::{
     AlterFunctionStmt, CreateFunctionStmt, DefElem, FunctionParameter, FunctionParameterMode,
@@ -55,7 +52,9 @@ pub(crate) fn err(msg: String, sqlstate: types_error::SqlState) -> Box<PgError> 
 #[cold]
 #[inline(never)]
 pub(crate) fn cache_lookup_failed(what: &str, oid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!("cache lookup failed for {what} {oid}")))
+    Box::new(PgError::error(format!(
+        "cache lookup failed for {what} {oid}"
+    )))
 }
 
 #[cfg(test)]
@@ -105,7 +104,11 @@ fn err_at(
     sqlstate: types_error::SqlState,
 ) -> Box<PgError> {
     let pos = parser_small1::parser_errposition(pstate, location, mbutils::GetDatabaseEncoding());
-    Box::new(PgError::new(ERROR, msg).with_sqlstate(sqlstate).with_cursor_position(pos))
+    Box::new(
+        PgError::new(ERROR, msg)
+            .with_sqlstate(sqlstate)
+            .with_cursor_position(pos),
+    )
 }
 
 // errorConflictingDefElem (defrem.h): the same message carrying the offending
@@ -136,9 +139,12 @@ fn invalid_procedure_attribute(source_text: &str, location: types_core::ParseLoc
         mbutils::GetDatabaseEncoding(),
     );
     Box::new(
-        PgError::new(ERROR, "invalid attribute in procedure definition".to_string())
-            .with_sqlstate(ERRCODE_INVALID_FUNCTION_DEFINITION)
-            .with_cursor_position(pos),
+        PgError::new(
+            ERROR,
+            "invalid attribute in procedure definition".to_string(),
+        )
+        .with_sqlstate(ERRCODE_INVALID_FUNCTION_DEFINITION)
+        .with_cursor_position(pos),
     )
 }
 
@@ -163,7 +169,12 @@ fn defel_bool(defel: &DefElem<'_>) -> bool {
     defel
         .arg
         .and_then(|n| n.as_boolean())
-        .unwrap_or_else(|| panic!("DefElem \"{}\": expected Boolean", defel.defname.unwrap_or("")))
+        .unwrap_or_else(|| {
+            panic!(
+                "DefElem \"{}\": expected Boolean",
+                defel.defname.unwrap_or("")
+            )
+        })
         .boolval
 }
 
@@ -171,7 +182,12 @@ fn defel_str<'mcx>(defel: &DefElem<'mcx>) -> &'mcx str {
     defel
         .arg
         .and_then(|n| n.as_string())
-        .unwrap_or_else(|| panic!("DefElem \"{}\": expected String", defel.defname.unwrap_or("")))
+        .unwrap_or_else(|| {
+            panic!(
+                "DefElem \"{}\": expected String",
+                defel.defname.unwrap_or("")
+            )
+        })
         .sval
 }
 
@@ -257,9 +273,7 @@ fn update_proconfig_value(
         } else {
             let name = sstmt.name.unwrap_or("");
             a = match guc_funcs::ExtractSetVariableArgs(sstmt)? {
-                Some(value) => {
-                    Some(guc::GUCArrayAdd(a.as_deref().unwrap_or(&[]), name, &value)?)
-                }
+                Some(value) => Some(guc::GUCArrayAdd(a.as_deref().unwrap_or(&[]), name, &value)?),
                 None => guc::GUCArrayDelete(a.as_deref().unwrap_or(&[]), name)?,
             };
         }
@@ -296,13 +310,21 @@ fn compute_function_attributes<'mcx>(
 
     let is_procedure = stmt.is_procedure;
     for option in stmt.options.iter() {
-        let defel = option.as_def_elem().expect("createfunc_opt_list holds DefElems");
+        let defel = option
+            .as_def_elem()
+            .expect("createfunc_opt_list holds DefElems");
         let name = defel.defname.unwrap_or("");
         // compute_common_attribute rejects these before the conflict check.
         if is_procedure
             && matches!(
                 name,
-                "window" | "volatility" | "strict" | "leakproof" | "cost" | "rows" | "support"
+                "window"
+                    | "volatility"
+                    | "strict"
+                    | "leakproof"
+                    | "cost"
+                    | "rows"
+                    | "support"
                     | "parallel"
             )
         {
@@ -397,8 +419,10 @@ fn language_handler_is_ported(mcx: Mcx<'_>, languageOid: Oid) -> PgResult<bool> 
     if langrow.lanplcallfoid == InvalidOid {
         return Ok(false);
     }
-    Ok(syscache_seams::lookup_pg_proc_prosrc::call(mcx, langrow.lanplcallfoid)?
-        .is_some_and(|prosrc| fmgr_core::is_registered_c_lang_fn(&prosrc)))
+    Ok(
+        syscache_seams::lookup_pg_proc_prosrc::call(mcx, langrow.lanplcallfoid)?
+            .is_some_and(|prosrc| fmgr_core::is_registered_c_lang_fn(&prosrc)),
+    )
 }
 
 // LookupTypeName/typenameTypeId (parse_type.c) for function signatures:
@@ -447,11 +471,13 @@ fn resolve_type_oid<'mcx>(
         tn.typeOid
     } else {
         // DeconstructQualifiedName raises the 0 / >3 part error itself.
-        let names: Vec<&str> =
-            tn.names.iter().map(|n| n.as_string().expect("TypeName names").sval).collect();
+        let names: Vec<&str> = tn
+            .names
+            .iter()
+            .map(|n| n.as_string().expect("TypeName names").sval)
+            .collect();
         let (schemaname, typname) = catalog_namespace::DeconstructQualifiedName(&names)?;
 
-        
         match schemaname {
             Some(schemaname) => {
                 // pcb_error_callback (parse_node.c:170) spans both lookups.
@@ -465,8 +491,8 @@ fn resolve_type_oid<'mcx>(
                     }
                     _ => e,
                 };
-                let namespace_id = catalog_namespace::LookupExplicitNamespace(schemaname, false)
-                    .map_err(at_tn)?;
+                let namespace_id =
+                    catalog_namespace::LookupExplicitNamespace(schemaname, false).map_err(at_tn)?;
                 syscache_seams::lookup_pg_type_oid_by_name::call(typname, namespace_id)
                     .map_err(at_tn)?
             }
@@ -547,7 +573,11 @@ fn resolve_pct_type<'mcx>(
             catalog_objectaddress::TypeNameToString(tn),
             format_type::format_type_be(typoid)?
         ))
-        .finish(types_error::ErrorLocation::new(file!(), line!() as i32, "LookupTypeNameExtended"))?;
+        .finish(types_error::ErrorLocation::new(
+            file!(),
+            line!() as i32,
+            "LookupTypeNameExtended",
+        ))?;
     Ok(typoid)
 }
 
@@ -603,12 +633,20 @@ fn shell_type_check<'mcx>(
             .with_cursor_position(pos),
         ));
     }
-    let what = if is_return { "return type" } else { "argument type" };
+    let what = if is_return {
+        "return type"
+    } else {
+        "argument type"
+    };
     elog::ereport(types_error::NOTICE)
         .errcode(types_error::ERRCODE_WRONG_OBJECT_TYPE)
         .errmsg(format!("{what} {} is only a shell", name.as_str()))
         .errposition(pos)
-        .finish(types_error::ErrorLocation::new(file!(), line!() as i32, "CreateFunction"))
+        .finish(types_error::ErrorLocation::new(
+            file!(),
+            line!() as i32,
+            "CreateFunction",
+        ))
 }
 
 // compute_return_type (functioncmds.c) incl. shell-type creation for
@@ -653,7 +691,11 @@ fn compute_return_type<'mcx>(
             .errcode(ERRCODE_UNDEFINED_OBJECT)
             .errmsg(format!("type \"{}\" is not yet defined", typnam.as_str()))
             .errdetail("Creating a shell type definition.")
-            .finish(types_error::ErrorLocation::new(file!(), line!() as i32, "CreateFunction"))?;
+            .finish(types_error::ErrorLocation::new(
+                file!(),
+                line!() as i32,
+                "CreateFunction",
+            ))?;
         let mut buf = [""; 4];
         let nnames = returnType.names.len();
         if !(1..=3).contains(&nnames) {
@@ -740,7 +782,9 @@ pub fn interpret_function_parameter_list<'mcx>(
             m => m,
         };
         let tn_node: Node<'mcx> = fp.argType.expect("FunctionParameter.argType");
-        let tn = tn_node.as_variant::<TypeName>().expect("argType is a TypeName");
+        let tn = tn_node
+            .as_variant::<TypeName>()
+            .expect("argType is a TypeName");
         let toid = resolve_type_name(mcx, pstate, tn, languageOid, objtype)?;
         if tn.setof {
             let msg = match objtype {
@@ -756,7 +800,10 @@ pub fn interpret_function_parameter_list<'mcx>(
             ));
         }
 
-        if matches!(fpmode, FUNC_PARAM_IN | FUNC_PARAM_INOUT | FUNC_PARAM_VARIADIC) {
+        if matches!(
+            fpmode,
+            FUNC_PARAM_IN | FUNC_PARAM_INOUT | FUNC_PARAM_VARIADIC
+        ) {
             if var_count > 0 {
                 return Err(err_at(
                     pstate,
@@ -836,7 +883,10 @@ pub fn interpret_function_parameter_list<'mcx>(
 
         // functioncmds.c:409-467: cook input-parameter defaults; later
         // input (and, for procedures, OUT) parameters must keep having them.
-        let isinput = matches!(fpmode, FUNC_PARAM_IN | FUNC_PARAM_INOUT | FUNC_PARAM_VARIADIC);
+        let isinput = matches!(
+            fpmode,
+            FUNC_PARAM_IN | FUNC_PARAM_INOUT | FUNC_PARAM_VARIADIC
+        );
         if let Some(defexpr) = fp.defexpr {
             if !isinput {
                 return Err(Box::new(
@@ -978,7 +1028,11 @@ fn interpret_AS_clause<'mcx>(
         );
     }
     let as_item = as_clause.expect("checked above");
-    let items = as_item.arg.expect("AS DefElem arg").as_list().expect("func_as is a List");
+    let items = as_item
+        .arg
+        .expect("AS DefElem arg")
+        .as_list()
+        .expect("func_as is a List");
     if languageOid == ClanguageId {
         // File name in probin, link symbol in prosrc; omitted or "-" symbol
         // substitutes the function name.
@@ -999,7 +1053,11 @@ fn interpret_AS_clause<'mcx>(
                 }
             }
         };
-        return Ok(AsClause { prosrc, probin: Some(probin), sql_body: None });
+        return Ok(AsClause {
+            prosrc,
+            probin: Some(probin),
+            sql_body: None,
+        });
     }
     if items.len() != 1 {
         return Err(err(
@@ -1016,7 +1074,11 @@ fn interpret_AS_clause<'mcx>(
     if languageOid == INTERNALlanguageId && prosrc.is_empty() {
         prosrc = funcname;
     }
-    Ok(AsClause { prosrc, probin: None, sql_body: None })
+    Ok(AsClause {
+        prosrc,
+        probin: None,
+        sql_body: None,
+    })
 }
 
 // interpret_AS_clause sql_body branch (functioncmds.c:910-990): parse-analyze
@@ -1068,7 +1130,10 @@ fn interpret_sql_body<'mcx>(
 
     let sql_body = if let Some(outer) = sql_body_in.as_list() {
         // BEGIN ATOMIC: a single-item list wrapping the statement list.
-        let stmts = outer.nth(0).as_list().expect("routine body wraps a stmt List");
+        let stmts = outer
+            .nth(0)
+            .as_list()
+            .expect("routine body wraps a stmt List");
         let mut transformed = types_nodes::NodeList::nil();
         for stmt in stmts.iter() {
             transformed.lappend(mcx, Node::mk(mcx, transform(stmt)?)?)?;
@@ -1079,7 +1144,11 @@ fn interpret_sql_body<'mcx>(
         Node::mk(mcx, transform(sql_body_in)?)?
     };
 
-    Ok(AsClause { prosrc: "", probin: None, sql_body: Some(sql_body) })
+    Ok(AsClause {
+        prosrc: "",
+        probin: None,
+        sql_body: Some(sql_body),
+    })
 }
 
 // QualifiedNameGetCreationNamespace (namespace.c) via the RangeVar walk.
@@ -1089,8 +1158,10 @@ fn qualified_name_get_creation_namespace<'mcx>(
 ) -> PgResult<(Oid, &'mcx str)> {
     // C DeconstructQualifiedName's default arm raises the improper-qualified-name
     // error itself for 0 or >3 parts; collect every part so it can.
-    let names: Vec<&str> =
-        funcname.iter().map(|n| n.as_string().expect("func_name holds Strings").sval).collect();
+    let names: Vec<&str> = funcname
+        .iter()
+        .map(|n| n.as_string().expect("func_name holds Strings").sval)
+        .collect();
     let (schemaname, objname) = catalog_namespace::DeconstructQualifiedName(&names)?;
     let rv = rel_vocab::RangeVar {
         catalogname: None,
@@ -1171,8 +1242,10 @@ pub fn CreateFunction<'mcx>(
     .as_oid();
     cache_syscache::ReleaseSysCache(lang_tuple);
 
-    if languageOid != SQLlanguageId && languageOid != INTERNALlanguageId
-        && languageOid != ClanguageId && !language_handler_is_ported(mcx, languageOid)?
+    if languageOid != SQLlanguageId
+        && languageOid != INTERNALlanguageId
+        && languageOid != ClanguageId
+        && !language_handler_is_ported(mcx, languageOid)?
     {
         // Languages beyond sql, internal, c and the registered PL handlers
         // (any language whose call handler is one — CREATE LANGUAGE alias
@@ -1222,7 +1295,9 @@ pub fn CreateFunction<'mcx>(
     if let Some(transform) = attrs.transform {
         let types = transform.as_list().expect("TRANSFORM option holds a List");
         for item in types.iter() {
-            let tn = item.as_variant::<TypeName>().expect("TRANSFORM FOR TYPE holds TypeNames");
+            let tn = item
+                .as_variant::<TypeName>()
+                .expect("TRANSFORM FOR TYPE holds TypeNames");
             let mut typeid = parse_utilcmd::typenameTypeId(mcx, None, tn)?;
             let elt = lsyscache::get_base_element_type(typeid)?;
             if elt != InvalidOid {
@@ -1251,7 +1326,9 @@ pub fn CreateFunction<'mcx>(
         };
         (rt, false)
     } else if let Some(rt) = stmt.returnType {
-        let tn = rt.as_variant::<TypeName>().expect("returnType is a TypeName");
+        let tn = rt
+            .as_variant::<TypeName>()
+            .expect("returnType is a TypeName");
         let (prorettype, returnsSet) = compute_return_type(mcx, tn, languageOid)?;
         if params.required_result_type != InvalidOid && prorettype != params.required_result_type {
             return Err(err(
@@ -1356,7 +1433,11 @@ pub fn CreateFunction<'mcx>(
             } else {
                 None
             },
-            parameterNames: if params.have_names { Some(&params.names) } else { None },
+            parameterNames: if params.have_names {
+                Some(&params.names)
+            } else {
+                None
+            },
             proconfig: attrs.proconfig.as_deref(),
             procost,
             prorows,
@@ -1365,7 +1446,11 @@ pub fn CreateFunction<'mcx>(
             numDefaults: params.parameter_defaults.len() as i16,
         },
         // functioncmds.c:1221-1237: NULL protrftypes when no transforms.
-        if trftypes_list.is_empty() { None } else { Some(&trftypes_list) },
+        if trftypes_list.is_empty() {
+            None
+        } else {
+            Some(&trftypes_list)
+        },
         &trfoids_list,
     )
 }
@@ -1386,8 +1471,7 @@ fn proconfig_entries(mcx: Mcx<'_>, d: datum::Datum) -> PgResult<Vec<String>> {
     for e in elems.iter() {
         let ep = e.as_usize() as *const u8;
         // SAFETY: by-ref text element datum inside the detoasted image.
-        let text =
-            unsafe { core::slice::from_raw_parts(ep, types_tuple::varatt::varsize_any(ep)) };
+        let text = unsafe { core::slice::from_raw_parts(ep, types_tuple::varatt::varsize_any(ep)) };
         let payload = varlena::open_image(mcx, text)?;
         out.push(String::from_utf8_lossy(payload.as_bytes()).into_owned());
     }
@@ -1417,7 +1501,7 @@ pub fn AlterFunction<'mcx>(
     source_text: &str,
 ) -> PgResult<ObjectAddress> {
     use pg_proc::{
-        Anum_pg_proc_procost, Anum_pg_proc_proconfig, Anum_pg_proc_proisstrict,
+        Anum_pg_proc_proconfig, Anum_pg_proc_procost, Anum_pg_proc_proisstrict,
         Anum_pg_proc_prokind, Anum_pg_proc_proleakproof, Anum_pg_proc_proparallel,
         Anum_pg_proc_proretset, Anum_pg_proc_prorows, Anum_pg_proc_prosecdef,
         Anum_pg_proc_prosupport, Anum_pg_proc_provolatile, Natts_pg_proc, PROKIND_AGGREGATE,
@@ -1478,7 +1562,9 @@ pub fn AlterFunction<'mcx>(
     let mut set_items: Vec<&VariableSetStmt<'_>> = Vec::new();
 
     for action in stmt.actions.iter() {
-        let defel = action.as_def_elem().expect("alterfunc_opt_list holds DefElems");
+        let defel = action
+            .as_def_elem()
+            .expect("alterfunc_opt_list holds DefElems");
         let name = defel.defname.unwrap_or("");
         // compute_common_attribute rejects these before the conflict check.
         if is_procedure
@@ -1520,13 +1606,11 @@ pub fn AlterFunction<'mcx>(
     let mut values = [datum::Datum::null(); Natts_pg_proc];
     let mut repl_null = [false; Natts_pg_proc];
     let mut repl_repl = [false; Natts_pg_proc];
-    let set = |values: &mut [datum::Datum],
-               repl_repl: &mut [bool],
-               attnum: usize,
-               d: datum::Datum| {
-        values[attnum - 1] = d;
-        repl_repl[attnum - 1] = true;
-    };
+    let set =
+        |values: &mut [datum::Datum], repl_repl: &mut [bool], attnum: usize, d: datum::Datum| {
+            values[attnum - 1] = d;
+            repl_repl[attnum - 1] = true;
+        };
 
     if let Some(d) = volatility_item {
         set(
@@ -1575,7 +1659,12 @@ pub fn AlterFunction<'mcx>(
                 ERRCODE_INVALID_PARAMETER_VALUE,
             ));
         }
-        set(&mut values, &mut repl_repl, Anum_pg_proc_procost, datum::Datum::from_f32(v));
+        set(
+            &mut values,
+            &mut repl_repl,
+            Anum_pg_proc_procost,
+            datum::Datum::from_f32(v),
+        );
     }
     if let Some(d) = rows_item {
         let v = defel_numeric(d)?;
@@ -1591,7 +1680,12 @@ pub fn AlterFunction<'mcx>(
                 ERRCODE_INVALID_PARAMETER_VALUE,
             ));
         }
-        set(&mut values, &mut repl_repl, Anum_pg_proc_prorows, datum::Datum::from_f32(v));
+        set(
+            &mut values,
+            &mut repl_repl,
+            Anum_pg_proc_prorows,
+            datum::Datum::from_f32(v),
+        );
     }
     if let Some(d) = support_item {
         // interpret_func_support handles the privilege check.
@@ -1640,7 +1734,11 @@ pub fn AlterFunction<'mcx>(
     let proconfig_image;
     if !set_items.is_empty() {
         let (d, isnull) = getattr(Anum_pg_proc_proconfig);
-        let old = if isnull { None } else { Some(proconfig_entries(mcx, d)?) };
+        let old = if isnull {
+            None
+        } else {
+            Some(proconfig_entries(mcx, d)?)
+        };
         let new = update_proconfig_value(old, &set_items)?;
         repl_repl[Anum_pg_proc_proconfig - 1] = true;
         match new {
@@ -1679,8 +1777,14 @@ pub fn RemoveFunctionById<'mcx>(mcx: Mcx<'mcx>, funcOid: Oid) -> PgResult<()> {
     key.sk_func = fmgr_seams::fmgr_info::call(types_core::fmgr::F_OIDEQ)
         .unwrap_or_else(|e| panic!("fmgr_info(F_OIDEQ) failed: {e:?}"));
     key.sk_argument = datum::Datum::from_oid(funcOid);
-    let mut scan =
-        genam::systable_beginscan(mcx, &relation, pg_proc::ProcedureOidIndexId, true, None, &[key])?;
+    let mut scan = genam::systable_beginscan(
+        mcx,
+        &relation,
+        pg_proc::ProcedureOidIndexId,
+        true,
+        None,
+        &[key],
+    )?;
     let tup = genam::systable_getnext(mcx, &mut scan)?
         .ok_or_else(|| cache_lookup_failed("function", funcOid))?;
     let tid = tup.t_self;
@@ -1741,7 +1845,9 @@ pub fn ExecuteDoStmt<'mcx>(
     let mut as_item: Option<&DefElem<'mcx>> = None;
     let mut language_item: Option<&DefElem<'mcx>> = None;
     for option in stmt.args.iter() {
-        let defel = option.as_def_elem().expect("dostmt_opt_list holds DefElems");
+        let defel = option
+            .as_def_elem()
+            .expect("dostmt_opt_list holds DefElems");
         let slot = match defel.defname.unwrap_or("") {
             "as" => &mut as_item,
             "language" => &mut language_item,
@@ -1846,14 +1952,18 @@ pub fn ExecuteDoStmt<'mcx>(
 #[cold]
 #[inline(never)]
 fn func_lookup_failed(funcid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!("cache lookup failed for function {funcid}")))
+    Box::new(PgError::error(format!(
+        "cache lookup failed for function {funcid}"
+    )))
 }
 
 #[track_caller]
 #[cold]
 #[inline(never)]
 fn proc_lookup_failed(funcid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!("cache lookup failed for procedure {funcid}")))
+    Box::new(PgError::error(format!(
+        "cache lookup failed for procedure {funcid}"
+    )))
 }
 
 pub fn ExecuteCallStmt<'mcx>(
@@ -1863,7 +1973,9 @@ pub fn ExecuteCallStmt<'mcx>(
     atomic: bool,
     dest: &mut tcop_dest::DestReceiver<'mcx>,
 ) -> PgResult<()> {
-    let fexpr = stmt.funcexpr.expect("CALL: analyzed CallStmt holds a FuncExpr");
+    let fexpr = stmt
+        .funcexpr
+        .expect("CALL: analyzed CallStmt holds a FuncExpr");
 
     let aclresult = aclchk::object_aclcheck(
         PROCEDURE_RELATION_ID,
@@ -1918,7 +2030,12 @@ pub fn ExecuteCallStmt<'mcx>(
     )?;
     flinfo.fn_expr = Some(execexpr::erase_fn_expr(mcx, fexpr_node)?);
     let mut fcinfo = types_fmgr::LocalFcinfo::<FUNC_MAX_ARGS>::fresh(fexpr.inputcollid);
-    fcinfo.init(nargs as i16, fexpr.inputcollid, callcontext.fm_node_ptr(), None);
+    fcinfo.init(
+        nargs as i16,
+        fexpr.inputcollid,
+        callcontext.fm_node_ptr(),
+        None,
+    );
     // SAFETY: mcx is the portal context; it outlives the call and its result reads.
     unsafe { fcinfo.set_result_mcx(mcx) };
 
@@ -1947,9 +2064,12 @@ pub fn ExecuteCallStmt<'mcx>(
     let mut slots = execexpr::EvalSlots::default();
     // C functioncmds.c:2276: the argument estate outlives the procedure call.
     let mut arg_states = Vec::new();
-    arg_states
-        .try_reserve(nargs)
-        .map_err(|_| mcx::oom_named("ExecuteCallStmt", nargs * core::mem::size_of::<execexpr::ExprState>()))?;
+    arg_states.try_reserve(nargs).map_err(|_| {
+        mcx::oom_named(
+            "ExecuteCallStmt",
+            nargs * core::mem::size_of::<execexpr::ExprState>(),
+        )
+    })?;
     for (i, arg) in fexpr.args.iter().enumerate() {
         // ExecPrepareExpr: expression_planner before ExecInitExpr.
         let arg = clauses::eval_const_expressions(mcx, arg)?;
@@ -2030,7 +2150,9 @@ pub fn CallStmtResultDesc<'mcx>(
     mcx: Mcx<'mcx>,
     stmt: &CallStmt<'_>,
 ) -> PgResult<Option<types_tuple::TupleDescData<'mcx>>> {
-    let fexpr = stmt.funcexpr.expect("CALL: analyzed CallStmt holds a FuncExpr");
+    let fexpr = stmt
+        .funcexpr
+        .expect("CALL: analyzed CallStmt holds a FuncExpr");
 
     let shape = syscache_seams::lookup_pg_proc_shape::call(fexpr.funcid)?
         .ok_or_else(|| proc_lookup_failed(fexpr.funcid))?;
@@ -2069,13 +2191,18 @@ mod tests {
     fn resolve_type_oid_pre_resolved_lane() {
         let cx = MemoryContext::new("resolve_type_oid test");
         let mcx = cx.mcx();
-        let tn = TypeName { typeOid: 23, ..TypeName::default() };
+        let tn = TypeName {
+            typeOid: 23,
+            ..TypeName::default()
+        };
         let oid = resolve_type_oid(mcx, None, &tn).unwrap();
         assert_eq!(oid, 23);
     }
 
     fn return_stmt<'mcx>(mcx: Mcx<'mcx>) -> Node<'mcx> {
-        Node::build::<types_nodes::parsenodes::ReturnStmt>(mcx).unwrap().seal()
+        Node::build::<types_nodes::parsenodes::ReturnStmt>(mcx)
+            .unwrap()
+            .seal()
     }
 
     fn as_defel<'mcx>(mcx: Mcx<'mcx>) -> &'mcx DefElem<'mcx> {
@@ -2126,7 +2253,9 @@ mod tests {
         )
         .err()
         .unwrap();
-        assert!(e.to_string().contains("inline SQL function body only valid for language SQL"));
+        assert!(e
+            .to_string()
+            .contains("inline SQL function body only valid for language SQL"));
     }
 
     #[test]

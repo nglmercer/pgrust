@@ -117,7 +117,7 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     // free again once its life ends, so an earlier producer (a lower join's build) may hold it, and phase 2 never ran.
     let probe = gx.life_of(k, *matches).map(|l| l.0 as usize);
     let spill = probe.filter(|&q| px.pass_after.contains(&q)).map(|_| crate::ops::hashjoin::drain::part::words(px, k, consumed));
-    let reset = matches!(jointype, JoinType::JOIN_RIGHT_SEMI | JoinType::JOIN_RIGHT_ANTI) && !gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(life.0 as u16)));
+    let reset = matches!(jointype, JoinType::JOIN_RIGHT_SEMI | JoinType::JOIN_RIGHT_ANTI) && !gx.graph.reruns.iter().any(|r| r.pipelines.contains(&{ life.0 }));
     let site = if inner { None } else { wide_site(px, k, *jointype, probe) };
     // words 0-2 are phase 2's (part.rs `words`)
     let mut w = |i: u8| px.frame_word(WordKey::Open { face: Face::Join, k, j: u64::MAX, i }) as i32 * 8;
@@ -205,6 +205,7 @@ pub(crate) fn outer_vars<'m>(p: &PipelineNode<'_>, mcx: Mcx<'m>) -> Option<PgVec
         match op {
             Op::Filter(n) | Op::Gate(n) => ok &= uses(*n, &mut out),
             // A1b: a SubPlan op before the projection only in a spooled drain (nest/spool_drain.rs spool_columns)
+            #[allow(clippy::unnecessary_fold)]
             Op::SubPlan(s) => ok &= s.args.iter().fold(true, |ok, n| uses(n, &mut out) && ok) && s.test.is_none_or(|t| uses(t, &mut out)),
             Op::Project(l) => return l.iter().fold(ok, |ok, n| uses(n, &mut out) && ok).then_some(out),
             _ if crate::frame::iface::limit_bounds(op).is_some() => {}

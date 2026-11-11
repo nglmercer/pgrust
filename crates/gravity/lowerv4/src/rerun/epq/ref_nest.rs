@@ -404,7 +404,7 @@ pub(crate) fn chain_lock_form(gx: &Gx<'_, '_>, k: usize, j: usize, d: &LockDesc<
     if !limited && feed == 0 && runner {
         return None;
     }
-    let recheck = recheck_quals(&s.source).into_iter().chain(s.ops[..end].iter().flat_map(exprs)).chain(qual.iter()).chain(p.ops[jn + 1..j].iter().flat_map(exprs));
+    let recheck = recheck_quals(&s.source).chain(s.ops[..end].iter().flat_map(exprs)).chain(qual.iter()).chain(p.ops[jn + 1..j].iter().flat_map(exprs));
     recheck.into_iter().all(|x| !has_subplan(x)).then_some((m.ctid_col, jn, ik))
 }
 
@@ -448,7 +448,7 @@ pub(crate) fn copy_nest_form(gx: &Gx<'_, '_>, k: usize, j: usize, d: &LockDesc<'
     // the outer: the COPY mark's stored row entering this pipeline at or before the nest; its part is not redone (the
     // stored row passes it again, as it did), unless it calls what may answer otherwise
     let entry = gx.graph.record_rows.iter().find(|r| r.scanrelid == c.rti).and_then(|r| crate::rerun::epq::copy_row::boundary(gx, k, r));
-    if !entry.is_some_and(|at| at <= jn) || p.ops[..jn].iter().flat_map(exprs).any(|x| crate::effects::volatile(gx, x)) {
+    if entry.is_none_or(|at| at > jn) || p.ops[..jn].iter().flat_map(exprs).any(|x| crate::effects::volatile(gx, x)) {
         return None;
     }
     let ik = ps.inner_of(k, jn)?;
@@ -457,7 +457,7 @@ pub(crate) fn copy_nest_form(gx: &Gx<'_, '_>, k: usize, j: usize, d: &LockDesc<'
     if rerun(ik) || heap(&s.source) != Some((m.rti, m.relid)) || !s.ops[..end].iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_))) || !memo_tail(s) {
         return None;
     }
-    let read = recheck_quals(&s.source).into_iter().chain(s.ops[..end].iter().flat_map(exprs)).chain(qual.iter()).chain(p.ops[jn + 1..j].iter().flat_map(exprs));
+    let read = recheck_quals(&s.source).chain(s.ops[..end].iter().flat_map(exprs)).chain(qual.iter()).chain(p.ops[jn + 1..j].iter().flat_map(exprs));
     read.into_iter().all(|x| !has_subplan(x)).then_some((m.ctid_col, jn, ik))
 }
 
@@ -542,7 +542,7 @@ fn limited_merge<'p>(gx: &Gx<'_, 'p>, k: usize, j: usize, d: &LockDesc<'_>, limi
     if heap(&ps[ik].source) != Some((m.rti, m.relid)) {
         return None;
     }
-    let part = |x: usize, e: usize| recheck_quals(&ps[x].source).into_iter().chain(ps[x].ops[..e].iter().flat_map(exprs));
+    let part = |x: usize, e: usize| recheck_quals(&ps[x].source).chain(ps[x].ops[..e].iter().flat_map(exprs));
     let mut read = part(oq, oe).chain(p.ops[..j].iter().flat_map(exprs)).chain(part(ik, ie)).chain(clauses.iter()).chain(qual.iter());
     if read.any(has_subplan) {
         return None;
@@ -553,7 +553,7 @@ fn limited_merge<'p>(gx: &Gx<'_, 'p>, k: usize, j: usize, d: &LockDesc<'_>, limi
 /// D3777 (lockrows lower.rs `ref_merge` / `merge_tail`): whether pipeline `s`'s recheck quals or ops before op `end` (its
 /// filters' quals, its projections' entries) hold a SubPlan.
 pub(crate) fn part_reads_subplan(s: &PipelineNode<'_>, end: usize) -> bool {
-    recheck_quals(&s.source).into_iter().chain(s.ops[..end].iter().flat_map(exprs)).any(gravity_decompose::expr::has_subplan)
+    recheck_quals(&s.source).chain(s.ops[..end].iter().flat_map(exprs)).any(gravity_decompose::expr::has_subplan)
 }
 
 /// D3777 (`limited_merge`, lockrows lower.rs `ref_merge` / `merge_tail`): a merge join side's pipeline `s`, its relation's
@@ -604,12 +604,12 @@ fn limited_probe<'p>(gx: &Gx<'_, 'p>, k: usize, j: usize, d: &LockDesc<'_>, limi
     if jb + 1 != s.ops.len() || !s.desc.consumes.is_empty() || heap(&s.source) != Some((m.rti, m.relid)) || !s.ops[..jb].iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_))) {
         return None;
     }
-    let read = recheck_quals(&p.source).into_iter().chain(p.ops[..j].iter().flat_map(exprs)).chain(recheck_quals(&s.source)).chain(s.ops[..jb].iter().flat_map(exprs)).chain(clauses.iter()).chain(qual.iter());
+    let read = recheck_quals(&p.source).chain(p.ops[..j].iter().flat_map(exprs)).chain(recheck_quals(&s.source)).chain(s.ops[..jb].iter().flat_map(exprs)).chain(clauses.iter()).chain(qual.iter());
     if !read.into_iter().all(|x| !has_subplan(x)) {
         return None;
     }
     // D3727 PAIRHASH: PostgreSQL's Hash Join reruns its two sides in an order of its costs; both parts raise-free
-    let sides = recheck_quals(&p.source).into_iter().chain(p.ops[..jn].iter().flat_map(exprs)).chain(recheck_quals(&s.source)).chain(s.ops[..jb].iter().flat_map(exprs));
+    let sides = recheck_quals(&p.source).chain(p.ops[..jn].iter().flat_map(exprs)).chain(recheck_quals(&s.source)).chain(s.ops[..jb].iter().flat_map(exprs));
     (*catalog || sides.into_iter().all(|x| crate::effects::raise_free(gx, x))).then_some((jn, q))
 }
 
@@ -661,7 +661,7 @@ fn limited_nest<'p>(gx: &Gx<'_, 'p>, k: usize, j: usize, d: &LockDesc<'_>, limit
     if heap(&s.source) != Some((m.rti, m.relid)) || !s.ops[..end].iter().all(|o| matches!(o, Op::Filter(_) | Op::Project(_))) || !tail {
         return None;
     }
-    let read = recheck_quals(&p.source).into_iter().chain(p.ops[..j].iter().flat_map(exprs)).chain(recheck_quals(&s.source)).chain(s.ops[..end].iter().flat_map(exprs)).chain(qual.iter());
+    let read = recheck_quals(&p.source).chain(p.ops[..j].iter().flat_map(exprs)).chain(recheck_quals(&s.source)).chain(s.ops[..end].iter().flat_map(exprs)).chain(qual.iter());
     read.into_iter().all(|x| !has_subplan(x)).then_some((jn, ik))
 }
 

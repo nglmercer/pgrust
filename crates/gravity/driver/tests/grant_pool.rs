@@ -824,7 +824,9 @@ fn parked_slots_hold_images_only_and_their_regions_park_in_the_free_list() {
         entry.end(exec, true);
     };
     let s0 = gravity_driver::DEPOT.stats();
+    #[allow(clippy::unusual_byte_groupings)]
     cycle(0x5e_ac_0919);
+    #[allow(clippy::unusual_byte_groupings)]
     cycle(0x5e_ac_0920);
     let s1 = gravity_driver::DEPOT.stats();
     assert_eq!(s1.entries, s0.entries + 2, "two sets parked (unarmed pool: no pressure)");

@@ -38,6 +38,7 @@ fn convert_crlf(data: &[u8]) -> Vec<u8> {
     out
 }
 
+#[allow(clippy::vec_init_then_push)]
 pub fn encrypt_symmetric(
     ctx: &PgpContext,
     data: &[u8],
@@ -66,6 +67,7 @@ pub fn encrypt_symmetric(
 
     let mut out = Vec::new();
 
+    #[allow(clippy::vec_init_then_push)]
     let mut esk = Vec::new();
     esk.push(4); // version
     esk.push(ctx.s2k_cipher_algo as u8);

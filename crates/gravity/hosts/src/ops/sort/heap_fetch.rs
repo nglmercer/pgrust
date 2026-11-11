@@ -228,6 +228,7 @@ impl Source for HeapFetchSource {
         }
         let words = n.div_ceil(64);
         // bounded("key-columns: one lane per fetched column, at most MaxTupleAttributeNumber (1664) columns")
+        #[allow(clippy::needless_range_loop)]
         for k in 0..natts {
             let v = &self.valid[k * VALID_WORDS..][..words];
             let all = v.iter().enumerate().all(|(w, &x)| x == if w + 1 == words && n % 64 != 0 { (1u64 << (n % 64)) - 1 } else { !0 });

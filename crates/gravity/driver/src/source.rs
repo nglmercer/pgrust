@@ -320,8 +320,8 @@ pub trait Source {
     /// - at the park (`Node::release_workers`): `to` = `Owner::Cache(Holder::SlotDepot)`, `release` = `Release::Evict`;
     /// - at the take (`Node::provision` after `DEPOT.take`): `to` = the taking statement's owner and release
     ///   (`memledger::charge::context()`); a breaker that binds the source later homes it there.
-    /// The idle release and the depot's trims call nothing: the set drops with its charges, on the dropping thread. Default:
-    /// nothing held.
+    ///   The idle release and the depot's trims call nothing: the set drops with its charges, on the dropping thread. Default:
+    ///   nothing held.
     fn transfer_held(&mut self, _to: memledger::Owner, _release: memledger::Release) {}
     fn residency(&self) -> Residency {
         Residency::default()

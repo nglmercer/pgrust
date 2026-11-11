@@ -30,9 +30,12 @@
 
 pub mod own;
 
-use core::ffi::c_void;
 use core::cell::Cell;
-use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicU8, AtomicU64, AtomicUsize, Ordering::{AcqRel, Acquire, Relaxed, Release}};
+use core::ffi::c_void;
+use core::sync::atomic::{
+    AtomicBool, AtomicPtr, AtomicU64, AtomicU8, AtomicUsize,
+    Ordering::{AcqRel, Acquire, Relaxed, Release},
+};
 
 /// mimalloc v3's arena slice.
 pub const SLICE: usize = 64 << 10;
@@ -54,7 +57,11 @@ struct Arena {
 }
 
 static ARENAS: [Arena; MAX_GENERAL + 1] = [const {
-    Arena { base: AtomicUsize::new(0), id: AtomicPtr::new(core::ptr::null_mut()), committed: [const { AtomicU64::new(0) }; WORDS] }
+    Arena {
+        base: AtomicUsize::new(0),
+        id: AtomicPtr::new(core::ptr::null_mut()),
+        committed: [const { AtomicU64::new(0) }; WORDS],
+    }
 }; MAX_GENERAL + 1];
 static GENERAL: AtomicUsize = AtomicUsize::new(0);
 static CACHE_ARENA_ID: AtomicPtr<c_void> = AtomicPtr::new(core::ptr::null_mut());
@@ -81,7 +88,12 @@ unsafe extern "C" {
     fn mi_heap_new_in_arena(arena_id: *mut c_void) -> *mut c_void;
     fn mi_heap_malloc_aligned(heap: *mut c_void, size: usize, alignment: usize) -> *mut c_void;
     fn mi_heap_zalloc_aligned(heap: *mut c_void, size: usize, alignment: usize) -> *mut c_void;
-    fn mi_heap_realloc_aligned(heap: *mut c_void, p: *mut c_void, newsize: usize, alignment: usize) -> *mut c_void;
+    fn mi_heap_realloc_aligned(
+        heap: *mut c_void,
+        p: *mut c_void,
+        newsize: usize,
+        alignment: usize,
+    ) -> *mut c_void;
     fn mi_heap_collect(heap: *mut c_void, force: bool);
     // pgrust's vendored export (arena.c, C3): purge one arena's freed ranges now; a try-guard (false when another
     // thread is purging)
@@ -93,7 +105,13 @@ unsafe extern "C" {
     fn mi_arena_set_purge_owned(arena_id: *mut c_void, owned: bool);
     fn mi_arena_purge_owned_fallbacks(arena_id: *mut c_void) -> usize;
     fn mi_arena_set_reuse_donor(arena_id: *mut c_void);
-    fn mi_arena_reuse_stats(live_bytes: *mut usize, taken: *mut usize, taken_bytes: *mut usize, misses: *mut usize);
+    fn mi_arena_reuse_stats(
+        live_bytes: *mut usize,
+        taken: *mut usize,
+        taken_bytes: *mut usize,
+        misses: *mut usize,
+    );
+    #[allow(dead_code)]
     fn mi_arena_reuse_reusable() -> usize;
     fn mi_arena_free_runs(id: *mut c_void, committed: *mut usize, any: *mut usize, nb: usize);
     fn mi_arena_committed_free(id: *mut c_void) -> usize;
@@ -131,10 +149,18 @@ pub fn install() -> bool {
         return false;
     }
     // SAFETY: plain sysconf reads.
-    let phys = unsafe { (libc::sysconf(libc::_SC_PHYS_PAGES).max(0) as usize).saturating_mul(libc::sysconf(libc::_SC_PAGESIZE).max(0) as usize) };
-    let want = phys.saturating_add(phys / 4).div_ceil(ARENA_BYTES).clamp(1, MAX_GENERAL);
+    let phys = unsafe {
+        (libc::sysconf(libc::_SC_PHYS_PAGES).max(0) as usize)
+            .saturating_mul(libc::sysconf(libc::_SC_PAGESIZE).max(0) as usize)
+    };
+    let want = phys
+        .saturating_add(phys / 4)
+        .div_ceil(ARENA_BYTES)
+        .clamp(1, MAX_GENERAL);
     // SAFETY: a plain option store for the linked v3 (before mimalloc reads it: the option is read at each large alloc).
-    unsafe { libmimalloc_sys::mi_option_set(OPTION_ARENA_MAX_OBJECT_SIZE, (MAX_OBJECT >> 10) as _) };
+    unsafe {
+        libmimalloc_sys::mi_option_set(OPTION_ARENA_MAX_OBJECT_SIZE, (MAX_OBJECT >> 10) as _)
+    };
     let mut n = 0;
     while n < want && manage(n, false).is_some() {
         n += 1;
@@ -143,7 +169,9 @@ pub fn install() -> bool {
     if n == 0 {
         return false;
     }
-    let Some(id) = manage(CACHE, true) else { return false };
+    let Some(id) = manage(CACHE, true) else {
+        return false;
+    };
     CACHE_ARENA_ID.store(id, Relaxed);
     // CACHE-CHARGE: the global allocator's free inside a holder scope tells a cache block by this range
     memledger::arena::set_cache_span(ARENAS[CACHE].base.load(Relaxed), ARENA_BYTES);
@@ -182,7 +210,18 @@ fn manage(i: usize, exclusive: bool) -> Option<*mut c_void> {
     // SAFETY: `start` is SLICE-aligned and ARENA_BYTES of it are ours for the process's life; the callback's argument is
     // the arena's index into ARENAS.
     let ok = unsafe {
-        mi_manage_memory(start as *mut c_void, ARENA_BYTES, false, false, true, -1, exclusive, Some(commit), i as *mut c_void, &mut id)
+        mi_manage_memory(
+            start as *mut c_void,
+            ARENA_BYTES,
+            false,
+            false,
+            true,
+            -1,
+            exclusive,
+            Some(commit),
+            i as *mut c_void,
+            &mut id,
+        )
     };
     if !ok {
         ARENAS[i].base.store(0, Relaxed);
@@ -200,12 +239,26 @@ fn name(start: usize, len: usize) {
     const PR_SET_VMA: libc::c_int = 0x53564d41;
     const PR_SET_VMA_ANON_NAME: libc::c_ulong = 0;
     // SAFETY: names our own mapping; a kernel without the call refuses it harmlessly.
-    unsafe { libc::prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, start as libc::c_ulong, len as libc::c_ulong, c"mimalloc".as_ptr()) };
+    unsafe {
+        libc::prctl(
+            PR_SET_VMA,
+            PR_SET_VMA_ANON_NAME,
+            start as libc::c_ulong,
+            len as libc::c_ulong,
+            c"mimalloc".as_ptr(),
+        )
+    };
 }
 
 /// The arenas' commit callback (`mi_commit_fun_t`). Allocator context: see the module doc.
 #[cfg(all(target_os = "linux", not(target_family = "wasm")))]
-unsafe extern "C" fn commit(commit: bool, start: *mut c_void, size: usize, is_zero: *mut bool, arg: *mut c_void) -> bool {
+unsafe extern "C" fn commit(
+    commit: bool,
+    start: *mut c_void,
+    size: usize,
+    is_zero: *mut bool,
+    arg: *mut c_void,
+) -> bool {
     let i = arg as usize;
     let Some(a) = ARENAS.get(i) else { return true };
     let base = a.base.load(Relaxed);
@@ -245,9 +298,21 @@ fn mark(a: &Arena, s0: usize, s1: usize, set: bool) -> (usize, usize) {
         let w = s / 64;
         let end = ((w + 1) * 64).min(s1);
         let bits = end - s;
-        let mask = if bits == 64 { u64::MAX } else { ((1u64 << bits) - 1) << (s % 64) };
-        let prev = if set { a.committed[w].fetch_or(mask, Relaxed) } else { a.committed[w].fetch_and(!mask, Relaxed) };
-        changed += if set { (mask & !prev).count_ones() } else { (mask & prev).count_ones() } as usize;
+        let mask = if bits == 64 {
+            u64::MAX
+        } else {
+            ((1u64 << bits) - 1) << (s % 64)
+        };
+        let prev = if set {
+            a.committed[w].fetch_or(mask, Relaxed)
+        } else {
+            a.committed[w].fetch_and(!mask, Relaxed)
+        };
+        changed += if set {
+            (mask & !prev).count_ones()
+        } else {
+            (mask & prev).count_ones()
+        } as usize;
         s = end;
     }
     (changed, s1 - s0)
@@ -287,7 +352,11 @@ fn decommit(start: usize, size: usize) {
     let mut cur = start;
     while cur < end {
         let p = cur.next_multiple_of(PMD);
-        let stop = if p <= end && end - p >= PMD { p + PMD / 2 } else { end };
+        let stop = if p <= end && end - p >= PMD {
+            p + PMD / 2
+        } else {
+            end
+        };
         // the CVE rule's witness: a piece that covers a whole 2 MiB-aligned range (never, by the split above)
         if cur.next_multiple_of(PMD) + PMD <= stop {
             WHOLE_PMD_DONTNEEDS.fetch_add(1, Relaxed);
@@ -306,7 +375,11 @@ static WHOLE_PMD_DONTNEEDS: AtomicU64 = AtomicU64::new(0);
 
 /// `(decommits, MAP_FIXED remaps, whole-2-MiB MADV_DONTNEED pieces)` so far.
 pub fn decommit_counts() -> (u64, u64, u64) {
-    (DECOMMITS.load(Relaxed), REMAPS.load(Relaxed), WHOLE_PMD_DONTNEEDS.load(Relaxed))
+    (
+        DECOMMITS.load(Relaxed),
+        REMAPS.load(Relaxed),
+        WHOLE_PMD_DONTNEEDS.load(Relaxed),
+    )
 }
 
 std::thread_local! {
@@ -362,7 +435,13 @@ pub fn cache_alloc(size: usize, align: usize, zeroed: bool) -> *mut u8 {
             return core::ptr::null_mut();
         }
         // SAFETY: a live heap; mimalloc's contract (align a power of two, as Layout guarantees).
-        (unsafe { if zeroed { mi_heap_zalloc_aligned(heap, size, align) } else { mi_heap_malloc_aligned(heap, size, align) } }) as *mut u8
+        (unsafe {
+            if zeroed {
+                mi_heap_zalloc_aligned(heap, size, align)
+            } else {
+                mi_heap_malloc_aligned(heap, size, align)
+            }
+        }) as *mut u8
     }
     #[cfg(target_family = "wasm")]
     {
@@ -478,7 +557,9 @@ pub fn purge_cache_now(force: bool) -> bool {
         let id = CACHE_ARENA_ID.load(Relaxed);
         // H3 step (2): never an arena the give-back service owns (owner 1's entry point)
         // SAFETY: the cache arena's id from `install` (null: not installed, nothing to purge).
-        !id.is_null() && not_the_others(CACHE, OWNER_PURGER) && unsafe { mi_arena_purge_now(id, force) }
+        !id.is_null()
+            && not_the_others(CACHE, OWNER_PURGER)
+            && unsafe { mi_arena_purge_now(id, force) }
     }
     #[cfg(target_family = "wasm")]
     {
@@ -497,7 +578,13 @@ pub fn set_cache_purge_owned(on: bool) {
     #[cfg(not(target_family = "wasm"))]
     {
         let id = CACHE_ARENA_ID.load(Relaxed);
-        if !id.is_null() && (if on { take(CACHE, OWNER_PURGER) } else { give_up(CACHE, OWNER_PURGER) }) {
+        if !id.is_null()
+            && (if on {
+                take(CACHE, OWNER_PURGER)
+            } else {
+                give_up(CACHE, OWNER_PURGER)
+            })
+        {
             // SAFETY: the cache arena's id from `install`.
             unsafe { mi_arena_set_purge_owned(id, on) };
         }
@@ -514,7 +601,13 @@ pub fn set_general_purge_owned(on: bool) {
     #[cfg(not(target_family = "wasm"))]
     for (i, a) in ARENAS[..GENERAL.load(Relaxed)].iter().enumerate() {
         let id = a.id.load(Relaxed);
-        if !id.is_null() && (if on { take(i, OWNER_PURGER) } else { give_up(i, OWNER_PURGER) }) {
+        if !id.is_null()
+            && (if on {
+                take(i, OWNER_PURGER)
+            } else {
+                give_up(i, OWNER_PURGER)
+            })
+        {
             // SAFETY: a general arena's id from `manage`.
             unsafe { mi_arena_set_purge_owned(id, on) };
         }
@@ -533,7 +626,10 @@ pub fn purge_general_expired() -> u32 {
             let id = a.id.load(Relaxed);
             // H3 step (2): never an arena the give-back service owns (owner 1's entry point)
             // SAFETY: a general arena's id from `manage`.
-            if !id.is_null() && not_the_others(i, OWNER_PURGER) && unsafe { mi_arena_purge_now(id, false) } {
+            if !id.is_null()
+                && not_the_others(i, OWNER_PURGER)
+                && unsafe { mi_arena_purge_now(id, false) }
+            {
                 n += 1;
             }
         }
@@ -548,9 +644,14 @@ pub fn purge_general_expired() -> u32 {
 pub fn claims_noted() -> u64 {
     #[cfg(not(target_family = "wasm"))]
     {
-        let ids = ARENAS[..GENERAL.load(Relaxed)].iter().map(|a| a.id.load(Relaxed)).chain(core::iter::once(CACHE_ARENA_ID.load(Relaxed)));
+        let ids = ARENAS[..GENERAL.load(Relaxed)]
+            .iter()
+            .map(|a| a.id.load(Relaxed))
+            .chain(core::iter::once(CACHE_ARENA_ID.load(Relaxed)));
         // SAFETY: installed arenas' ids from `manage` (a null id is skipped); the vendored function reads one atomic.
-        ids.filter(|id| !id.is_null()).map(|id| unsafe { mi_arena_claims_noted(id) } as u64).sum()
+        ids.filter(|id| !id.is_null())
+            .map(|id| unsafe { mi_arena_claims_noted(id) } as u64)
+            .sum()
     }
     #[cfg(target_family = "wasm")]
     0
@@ -564,10 +665,16 @@ pub fn purge_after_idle(general: bool, cache: bool, idle_ms: u64) -> u32 {
     {
         let n = if general { GENERAL.load(Relaxed) } else { 0 };
         // H3 step (2): never an arena the give-back service owns (owner 1's entry point)
-        let slots = (0..n).chain(cache.then_some(CACHE)).filter(|&i| not_the_others(i, OWNER_PURGER));
+        let slots = (0..n)
+            .chain(cache.then_some(CACHE))
+            .filter(|&i| not_the_others(i, OWNER_PURGER));
         let ms = core::ffi::c_longlong::try_from(idle_ms).unwrap_or(core::ffi::c_longlong::MAX);
         // SAFETY: installed arenas' ids from `manage` (a null id is skipped); the vendored function takes the purge guard.
-        slots.map(arena_id).filter(|id| !id.is_null()).map(|id| u32::from(unsafe { mi_arena_purge_after_idle(id, ms) })).sum()
+        slots
+            .map(arena_id)
+            .filter(|id| !id.is_null())
+            .map(|id| u32::from(unsafe { mi_arena_purge_after_idle(id, ms) }))
+            .sum()
     }
     #[cfg(target_family = "wasm")]
     {
@@ -585,7 +692,9 @@ pub fn purge_unused(by_purger: bool) -> u64 {
         // H3 step (2): the purger's call (owner 1) never purges an arena the give-back service owns; the ladder's
         // (`by_purger` false) purges every arena whatever its owner, as before (memory's kill safety), its bytes from
         // owned arenas counted apart (`purged_by_pressure`: no double purge, and nothing lost)
-        let slots = (0..GENERAL.load(Relaxed)).chain(core::iter::once(CACHE)).filter(|&i| !by_purger || not_the_others(i, OWNER_PURGER));
+        let slots = (0..GENERAL.load(Relaxed))
+            .chain(core::iter::once(CACHE))
+            .filter(|&i| !by_purger || not_the_others(i, OWNER_PURGER));
         // SAFETY: thread-local stores; the purge timing books the whole call as one event.
         unsafe { mi_arena_purge_batch(true, by_purger) };
         let mut n = 0;
@@ -670,9 +779,16 @@ pub fn purge_times() -> [[u64; 4]; 5] {
 pub fn general_purge_fallbacks(i: usize) -> u64 {
     #[cfg(not(target_family = "wasm"))]
     {
-        let id = ARENAS.get(i).filter(|_| i < GENERAL.load(Relaxed)).map_or(core::ptr::null_mut(), |a| a.id.load(Relaxed));
+        let id = ARENAS
+            .get(i)
+            .filter(|_| i < GENERAL.load(Relaxed))
+            .map_or(core::ptr::null_mut(), |a| a.id.load(Relaxed));
         // SAFETY: a plain atomic read in the vendored arena.c (a null id would sum all, so it is skipped).
-        if id.is_null() { 0 } else { unsafe { mi_arena_purge_owned_fallbacks(id) as u64 } }
+        if id.is_null() {
+            0
+        } else {
+            unsafe { mi_arena_purge_owned_fallbacks(id) as u64 }
+        }
     }
     #[cfg(target_family = "wasm")]
     {
@@ -701,7 +817,11 @@ pub fn purge_owned_fallbacks() -> u64 {
 pub fn set_reuse(on: bool) {
     #[cfg(not(target_family = "wasm"))]
     {
-        let id = if on { CACHE_ARENA_ID.load(Relaxed) } else { core::ptr::null_mut() };
+        let id = if on {
+            CACHE_ARENA_ID.load(Relaxed)
+        } else {
+            core::ptr::null_mut()
+        };
         // SAFETY: the cache arena's id from `install` (or null: no donor).
         unsafe { mi_arena_set_reuse_donor(id) };
         if on && !id.is_null() {
@@ -767,9 +887,13 @@ pub fn reusable_bytes() -> u64 {
         if !reuse_on() {
             return 0;
         }
-        let ids = (0..general_arenas()).map(|i| ARENAS[i].id.load(Relaxed)).chain(core::iter::once(CACHE_ARENA_ID.load(Relaxed)));
+        let ids = (0..general_arenas())
+            .map(|i| ARENAS[i].id.load(Relaxed))
+            .chain(core::iter::once(CACHE_ARENA_ID.load(Relaxed)));
         // SAFETY: popcounts over each installed arena's free and commit bitmaps in the vendored arena.c (0 for a null id).
-        ids.filter(|id| !id.is_null()).map(|id| unsafe { mi_arena_committed_free(id) } as u64).sum()
+        ids.filter(|id| !id.is_null())
+            .map(|id| unsafe { mi_arena_committed_free(id) } as u64)
+            .sum()
     }
     #[cfg(target_family = "wasm")]
     0
@@ -787,7 +911,13 @@ pub fn alloc_sources() -> (u64, u64, u64, u64, u64) {
             mi_arena_reuse_self_stats(&mut n, &mut bytes);
             mi_arena_reuse_cache_self_stats(&mut cn, &mut cbytes);
         }
-        (bytes as u64, reuse_stats().2, FRESH[0].load(Relaxed), FRESH[1].load(Relaxed), cbytes as u64)
+        (
+            bytes as u64,
+            reuse_stats().2,
+            FRESH[0].load(Relaxed),
+            FRESH[1].load(Relaxed),
+            cbytes as u64,
+        )
     }
     #[cfg(target_family = "wasm")]
     (0, 0, 0, 0, 0)
@@ -875,7 +1005,9 @@ fn take(i: usize, who: u8) -> bool {
 
 /// `who` lets slot `i` go: whether it held it.
 fn give_up(i: usize, who: u8) -> bool {
-    OWNER[i].compare_exchange(who, NO_OWNER, AcqRel, Acquire).is_ok()
+    OWNER[i]
+        .compare_exchange(who, NO_OWNER, AcqRel, Acquire)
+        .is_ok()
 }
 
 /// Whether `who`'s own entry points may purge slot `i`: the other owner does not hold it.
@@ -912,7 +1044,10 @@ pub fn take_service_purge() -> (u32, u32) {
 /// H3 step (2): the service's purge of slot `i` (`force`: the ranges inside the purge delay too), only an arena it owns;
 /// each call also marks it alive for mimalloc's dead-man rule. Whether it purged.
 pub fn service_purge(i: usize, force: bool) -> bool {
-    if OWNER.get(i).is_none_or(|o| o.load(Acquire) != OWNER_SERVICE) {
+    if OWNER
+        .get(i)
+        .is_none_or(|o| o.load(Acquire) != OWNER_SERVICE)
+    {
         return false;
     }
     let id = arena_id(i);
@@ -954,14 +1089,17 @@ fn forced_purge_job() {
     }
     let probe = CANCEL_PROBE.load(Acquire);
     // SAFETY: only set_cancel_line_probe stores here, always from fn() -> bool.
-    let past = !probe.is_null() && unsafe { core::mem::transmute::<*mut (), fn() -> bool>(probe) }();
+    let past =
+        !probe.is_null() && unsafe { core::mem::transmute::<*mut (), fn() -> bool>(probe) }();
     if past {
         // mimalloc's purge guard is one try-lock over every arena: an arena whose purge met it held (the service's own
         // pass, or any collect) purged nothing here, counted
         let busy_test = BUSY_NEXT.swap(false, AcqRel);
         let mut busy = false;
         for i in 0..PURGE_SLOTS {
-            if purge_owner(i) == OWNER_SERVICE && (busy_test || (!service_purge(i, true) && guard_was_busy())) {
+            if purge_owner(i) == OWNER_SERVICE
+                && (busy_test || (!service_purge(i, true) && guard_was_busy()))
+            {
                 busy = true;
             }
         }
@@ -1045,19 +1183,37 @@ mod tests {
         const PMD: usize = 2 << 20;
         // SAFETY: a private anonymous reservation of 16 MiB, unmapped at the end.
         let base = unsafe {
-            libc::mmap(core::ptr::null_mut(), 16 << 20, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | libc::MAP_NORESERVE, -1, 0)
+            libc::mmap(
+                core::ptr::null_mut(),
+                16 << 20,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | libc::MAP_NORESERVE,
+                -1,
+                0,
+            )
         } as usize;
         assert_ne!(base, libc::MAP_FAILED as usize);
         let a = base.next_multiple_of(PMD);
         let (_, r0, w0) = decommit_counts();
         decommit(a + 4096, 6 << 20); // holds a whole aligned 2 MiB range: mapped over
         let (_, r1, w1) = decommit_counts();
-        assert_eq!(r1, r0 + 1, "a range holding a whole 2 MiB-aligned range is mapped over afresh");
+        assert_eq!(
+            r1,
+            r0 + 1,
+            "a range holding a whole 2 MiB-aligned range is mapped over afresh"
+        );
         decommit(a + PMD - (1 << 20), 2 << 20); // straddles a boundary, holds no whole range: DONTNEED pieces
         decommit(a + 4096, PMD); // just short of the next boundary's whole range
         let (_, r2, w2) = decommit_counts();
-        assert_eq!(r2, r1, "no remap for a range that holds no whole 2 MiB-aligned range");
-        assert_eq!((w0, w1, w2), (0, 0, 0), "no MADV_DONTNEED piece covered a whole 2 MiB-aligned range");
+        assert_eq!(
+            r2, r1,
+            "no remap for a range that holds no whole 2 MiB-aligned range"
+        );
+        assert_eq!(
+            (w0, w1, w2),
+            (0, 0, 0),
+            "no MADV_DONTNEED piece covered a whole 2 MiB-aligned range"
+        );
         // SAFETY: the reservation mapped above.
         unsafe { libc::munmap(base as *mut c_void, 16 << 20) };
     }
@@ -1068,7 +1224,11 @@ mod tests {
         assert_eq!(mark(a, 3, 200, true), (197, 197));
         assert_eq!(mark(a, 0, 64, true), (3, 64), "only the three not yet set");
         assert_eq!(mark(a, 100, 300, false), (100, 200), "100..200 were set");
-        assert_eq!(mark(a, 0, SLICES + 10, false), (100, SLICES), "the rest; the end is clamped");
+        assert_eq!(
+            mark(a, 0, SLICES + 10, false),
+            (100, SLICES),
+            "the rest; the end is clamped"
+        );
         assert_eq!(mark(a, 5, 5, true), (0, 0));
     }
 }

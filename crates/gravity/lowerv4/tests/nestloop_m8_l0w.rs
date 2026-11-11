@@ -53,6 +53,7 @@ fn maker_refuses(l: &Lowered, k: KindId) -> bool {
     l.blockers.iter().any(|b| b.pipe.is_some() && b.refusal.reason == Variant::Kind(k).not_built())
 }
 
+#[allow(dead_code)]
 fn check(rel: &str, ids: &[(i32, KindId)], reader: KindId) {
     let l = placed(rel, ids);
     assert!(maker_refuses(&l, reader), "{rel}: a reader refuses by {reader:?}: {:?}", l.lines);

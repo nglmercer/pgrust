@@ -1,3 +1,4 @@
+#![allow(clippy::missing_transmute_annotations)]
 //! dlopen/dlsym binding to the system libxml2, resolved once (ICU-lane
 //! precedent: no build-time dep; pods only guarantee the runtime .so).
 //! Unloadable/missing symbol = loud panic, never a no-libxml fallback.
@@ -280,6 +281,7 @@ impl LibXml2 {
     // xmlFree is a GLOBAL VARIABLE holding a fn pointer (xmlmemory.h);
     // calling the variable's address as code is a SIGBUS — read per call.
     #[inline]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn xmlFree(&self, p: *mut c_void) {
         unsafe { (*self.xmlFreeVar)(p) }
     }
@@ -407,6 +409,7 @@ fn load() -> Result<&'static LibXml2, String> {
 }
 
 #[inline]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn node_type(node: *mut xmlNode) -> c_int {
     unsafe { (*(node as *const xmlNodeHdr)).type_ }
 }
@@ -419,6 +422,7 @@ pub fn cstr(bytes: &[u8]) -> Vec<u8> {
     v
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn xmlchar_to_vec(p: *const c_uchar) -> Vec<u8> {
     if p.is_null() {
         return Vec::new();
@@ -433,6 +437,7 @@ pub unsafe fn xmlchar_to_vec(p: *const c_uchar) -> Vec<u8> {
     }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn buffer_to_vec(buf: *mut xmlBuffer) -> Vec<u8> {
     // SAFETY: buf is a live xmlBuffer per caller contract.
     unsafe {

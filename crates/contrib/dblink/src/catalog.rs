@@ -118,6 +118,7 @@ fn get_pkey_attnames<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>) -> PgResult<(i1
             let indkey_ptr = getattr(tup, ANUM_PG_INDEX_INDKEY, idesc).0.as_usize() as *const u8;
             let indkey = int2vector_values(indkey_ptr)?;
             let mut names = ::mcx::std_vec_with_capacity("dblink", indnkeyatts as usize)?;
+            #[allow(clippy::needless_range_loop)]
             for i in 0..indnkeyatts as usize {
                 let attno = indkey[i];
                 let name = tupdesc.attr(attno as usize - 1).attname.name_str();

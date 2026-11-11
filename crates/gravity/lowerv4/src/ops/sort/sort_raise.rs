@@ -157,7 +157,7 @@ impl SourceMech for RaiseEmit<'_> {
     fn locator(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals) -> Option<Locator> { self.0.locator(b, env, row) }
     fn nominal_site(&self, px: &Px<'_, '_>) -> Option<usize> { self.0.nominal_site(px) }
     fn write_back(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, cur: Value, out: Value) { self.0.write_back(b, env, cur, out) }
-    fn copy_entry(&self) -> Option<&crate::rerun::epq::copy_row::CopyEntry> { self.0.copy_entry() }
+    fn copy_entry(&self) -> Option<&crate::rerun::epq::copy_row::CopyEntry<'_>> { self.0.copy_entry() }
 }
 
 /// PG's raise at the Sort's start: `m6_raise` (42P22) or `m11_raise_no_proc` (XX000) stashes it and the open leaves

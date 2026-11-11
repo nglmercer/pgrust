@@ -17,7 +17,9 @@ use pgrc_format::wire::crc32c;
 fn bulk(vfs: &mut MemVfs, fxid: u64, probe: &Probe) -> u64 {
     let mut kit = Kit::new();
     let mut w = open_writer(vec![int8_col(1)], stamp(fxid, 1));
-    append_int8_rows(&mut w, vfs, &mut kit, 10, |i| Some((fxid * 1000 + i) as i64));
+    append_int8_rows(&mut w, vfs, &mut kit, 10, |i| {
+        Some((fxid * 1000 + i) as i64)
+    });
     finish_and_publish(&mut w, vfs, &mut kit, probe).gen
 }
 
@@ -40,9 +42,17 @@ fn unknown_flag(vfs: &mut MemVfs, gen: u64, fix_crc: bool) {
     if fix_crc {
         let crc = crc32c(&b[..s0 - 4]);
         b[s0 - 4..].copy_from_slice(&crc.to_le_bytes());
-        let cur = CommitPointer::decode(&vfs.read_full(&format!("{DIR}/{CURRENT_FILE_NAME}")).unwrap()).unwrap();
+        let cur = CommitPointer::decode(
+            &vfs.read_full(&format!("{DIR}/{CURRENT_FILE_NAME}"))
+                .unwrap(),
+        )
+        .unwrap();
         if cur.gen == gen {
-            put(vfs, CURRENT_FILE_NAME, &CommitPointer::new(gen, s0 as u64, crc).encode());
+            put(
+                vfs,
+                CURRENT_FILE_NAME,
+                &CommitPointer::new(gen, s0 as u64, crc).encode(),
+            );
         }
     }
     put(vfs, &name, &b);
@@ -51,7 +61,10 @@ fn unknown_flag(vfs: &mut MemVfs, gen: u64, fix_crc: bool) {
 fn snapshot(vfs: &mut MemVfs) -> Vec<(String, Vec<u8>)> {
     let mut names = vfs.list_dir(DIR).unwrap();
     names.sort();
-    names.into_iter().map(|n| (n.clone(), vfs.read_full(&format!("{DIR}/{n}")).unwrap())).collect()
+    names
+        .into_iter()
+        .map(|n| (n.clone(), vfs.read_full(&format!("{DIR}/{n}")).unwrap()))
+        .collect()
 }
 
 #[test]
@@ -64,9 +77,19 @@ fn cleanup_refuses_an_intact_manifest_it_cannot_decode_and_changes_nothing() {
     unknown_flag(&mut vfs, g2, true);
     let before = snapshot(&mut vfs);
     let r = cleanup_dir(&mut vfs, &mut NoWal, DIR, &committed);
-    assert!(matches!(r, Err(WriteError::ManifestChain { .. })), "refused: {r:?}");
-    assert!(r.unwrap_err().to_string().contains("cannot decode"), "a clear error");
-    assert_eq!(snapshot(&mut vfs), before, "CURRENT and every file untouched");
+    assert!(
+        matches!(r, Err(WriteError::ManifestChain { .. })),
+        "refused: {r:?}"
+    );
+    assert!(
+        r.unwrap_err().to_string().contains("cannot decode"),
+        "a clear error"
+    );
+    assert_eq!(
+        snapshot(&mut vfs),
+        before,
+        "CURRENT and every file untouched"
+    );
     assert!(g1 < g2);
 
     // below CURRENT: an aborted writer's readable generation on top of the unreadable committed one
@@ -86,11 +109,24 @@ fn cleanup_refuses_an_intact_manifest_it_cannot_decode_and_changes_nothing() {
     m3[64..68].copy_from_slice(&flags.to_le_bytes());
     let crc = crc32c(&m3[..s0 - 4]);
     m3[s0 - 4..].copy_from_slice(&crc.to_le_bytes());
-    assert!(pgrc_format::manifest::Manifest::decode(&m3).is_ok(), "the staged generation decodes");
+    assert!(
+        pgrc_format::manifest::Manifest::decode(&m3).is_ok(),
+        "the staged generation decodes"
+    );
     put(&mut vfs, &manifest_file_name(g2 + 1), &m3);
-    put(&mut vfs, CURRENT_FILE_NAME, &CommitPointer::new(g2 + 1, s0 as u64, crc).encode());
+    put(
+        &mut vfs,
+        CURRENT_FILE_NAME,
+        &CommitPointer::new(g2 + 1, s0 as u64, crc).encode(),
+    );
     let before = snapshot(&mut vfs);
-    assert!(matches!(cleanup_dir(&mut vfs, &mut NoWal, DIR, &aborted), Err(WriteError::ManifestChain { .. })), "refused through the chain");
+    assert!(
+        matches!(
+            cleanup_dir(&mut vfs, &mut NoWal, DIR, &aborted),
+            Err(WriteError::ManifestChain { .. })
+        ),
+        "refused through the chain"
+    );
     assert_eq!(snapshot(&mut vfs), before);
 }
 
@@ -101,7 +137,8 @@ fn a_torn_manifest_still_falls_back_to_the_last_generation() {
     let g1 = bulk(&mut vfs, 50, &committed);
     let g2 = bulk(&mut vfs, 51, &committed);
     unknown_flag(&mut vfs, g2, false);
-    let rep = cleanup_dir(&mut vfs, &mut NoWal, DIR, &committed).expect("a torn manifest is crash residue");
+    let rep = cleanup_dir(&mut vfs, &mut NoWal, DIR, &committed)
+        .expect("a torn manifest is crash residue");
     assert_eq!((rep.effective_gen, rep.current_repointed), (g1, true));
 }
 
@@ -124,9 +161,17 @@ fn longer_records(vfs: &mut MemVfs, gen: u64) {
     out.extend_from_slice(&b[MANIFEST_HEADER_LEN + n * PART_RECORD_LEN..b.len() - 4]);
     let crc = crc32c(&out);
     out.extend_from_slice(&crc.to_le_bytes());
-    let cur = CommitPointer::decode(&vfs.read_full(&format!("{DIR}/{CURRENT_FILE_NAME}")).unwrap()).unwrap();
+    let cur = CommitPointer::decode(
+        &vfs.read_full(&format!("{DIR}/{CURRENT_FILE_NAME}"))
+            .unwrap(),
+    )
+    .unwrap();
     if cur.gen == gen {
-        put(vfs, CURRENT_FILE_NAME, &CommitPointer::new(gen, out.len() as u64, crc).encode());
+        put(
+            vfs,
+            CURRENT_FILE_NAME,
+            &CommitPointer::new(gen, out.len() as u64, crc).encode(),
+        );
     }
     put(vfs, &name, &out);
 }
@@ -143,8 +188,15 @@ fn cleanup_refuses_an_intact_manifest_with_longer_records() {
     longer_records(&mut vfs, g2);
     let before = snapshot(&mut vfs);
     let r = cleanup_dir(&mut vfs, &mut NoWal, DIR, &committed);
-    assert!(matches!(r, Err(WriteError::ManifestChain { .. })), "refused: {r:?}");
-    assert_eq!(snapshot(&mut vfs), before, "CURRENT and every file untouched");
+    assert!(
+        matches!(r, Err(WriteError::ManifestChain { .. })),
+        "refused: {r:?}"
+    );
+    assert_eq!(
+        snapshot(&mut vfs),
+        before,
+        "CURRENT and every file untouched"
+    );
     // the same file torn (its crc stale) is still crash residue
     let mut vfs = mem_with_dir();
     let g1 = bulk(&mut vfs, 50, &committed);
@@ -155,6 +207,7 @@ fn cleanup_refuses_an_intact_manifest_with_longer_records() {
     let k = b.len() - 1;
     b[k] ^= 0xff;
     put(&mut vfs, &manifest_file_name(g2), &b);
-    let rep = cleanup_dir(&mut vfs, &mut NoWal, DIR, &committed).expect("a torn manifest is crash residue");
+    let rep = cleanup_dir(&mut vfs, &mut NoWal, DIR, &committed)
+        .expect("a torn manifest is crash residue");
     assert_eq!(rep.effective_gen, g1);
 }

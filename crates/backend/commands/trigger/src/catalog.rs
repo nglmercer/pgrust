@@ -9,10 +9,9 @@ use pg_depend::{DependencyType, ObjectAddress};
 use types_core::fmgr::{F_NAMEEQ, F_OIDEQ};
 use types_core::{AttrNumber, InvalidOid, Oid, NAMEDATALEN, RELATION_RELATION_ID};
 use types_error::{
-    PgError, PgResult, ERRCODE_DUPLICATE_COLUMN,
-    ERRCODE_DUPLICATE_OBJECT, ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_INSUFFICIENT_PRIVILEGE,
-    ERRCODE_INVALID_OBJECT_DEFINITION, ERRCODE_UNDEFINED_COLUMN,
-    ERRCODE_WRONG_OBJECT_TYPE, ERROR, ERRCODE_INTERNAL_ERROR,
+    PgError, PgResult, ERRCODE_DUPLICATE_COLUMN, ERRCODE_DUPLICATE_OBJECT,
+    ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_INSUFFICIENT_PRIVILEGE, ERRCODE_INTERNAL_ERROR,
+    ERRCODE_INVALID_OBJECT_DEFINITION, ERRCODE_UNDEFINED_COLUMN, ERRCODE_WRONG_OBJECT_TYPE, ERROR,
 };
 use types_nodes::primnodes::{Alias, Var};
 use types_nodes::rawnodes::CreateTrigStmt;
@@ -164,16 +163,22 @@ pub fn CreateTriggerFiringOn<'mcx>(
         RELKIND_RELATION => {
             if stmt.timing != TRIGGER_TYPE_BEFORE && stmt.timing != TRIGGER_TYPE_AFTER {
                 return Err(Box::new(
-                    (*err(format!("\"{relname}\" is a table"), ERRCODE_WRONG_OBJECT_TYPE))
-                        .with_detail("Tables cannot have INSTEAD OF triggers.".to_string()),
+                    (*err(
+                        format!("\"{relname}\" is a table"),
+                        ERRCODE_WRONG_OBJECT_TYPE,
+                    ))
+                    .with_detail("Tables cannot have INSTEAD OF triggers.".to_string()),
                 ));
             }
         }
         RELKIND_PARTITIONED_TABLE => {
             if stmt.timing != TRIGGER_TYPE_BEFORE && stmt.timing != TRIGGER_TYPE_AFTER {
                 return Err(Box::new(
-                    (*err(format!("\"{relname}\" is a table"), ERRCODE_WRONG_OBJECT_TYPE))
-                        .with_detail("Tables cannot have INSTEAD OF triggers.".to_string()),
+                    (*err(
+                        format!("\"{relname}\" is a table"),
+                        ERRCODE_WRONG_OBJECT_TYPE,
+                    ))
+                    .with_detail("Tables cannot have INSTEAD OF triggers.".to_string()),
                 ));
             }
             if stmt.row && !stmt.transitionRels.is_nil() {
@@ -193,17 +198,22 @@ pub fn CreateTriggerFiringOn<'mcx>(
         b'v' => {
             if stmt.timing != TRIGGER_TYPE_INSTEAD && stmt.row {
                 return Err(Box::new(
-                    (*err(format!("\"{relname}\" is a view"), ERRCODE_WRONG_OBJECT_TYPE))
-                        .with_detail(
-                            "Views cannot have row-level BEFORE or AFTER triggers."
-                                .to_string(),
-                        ),
+                    (*err(
+                        format!("\"{relname}\" is a view"),
+                        ERRCODE_WRONG_OBJECT_TYPE,
+                    ))
+                    .with_detail(
+                        "Views cannot have row-level BEFORE or AFTER triggers.".to_string(),
+                    ),
                 ));
             }
             if stmt.events & TRIGGER_TYPE_TRUNCATE != 0 {
                 return Err(Box::new(
-                    (*err(format!("\"{relname}\" is a view"), ERRCODE_WRONG_OBJECT_TYPE))
-                        .with_detail("Views cannot have TRUNCATE triggers.".to_string()),
+                    (*err(
+                        format!("\"{relname}\" is a view"),
+                        ERRCODE_WRONG_OBJECT_TYPE,
+                    ))
+                    .with_detail("Views cannot have TRUNCATE triggers.".to_string()),
                 ));
             }
         }
@@ -271,8 +281,11 @@ pub fn CreateTriggerFiringOn<'mcx>(
             )?;
         }
         if constrrelid != InvalidOid {
-            let aclresult =
-                aclchk::pg_class_aclcheck(constrrelid, miscinit::GetUserId(), adt_acl::ACL_TRIGGER)?;
+            let aclresult = aclchk::pg_class_aclcheck(
+                constrrelid,
+                miscinit::GetUserId(),
+                adt_acl::ACL_TRIGGER,
+            )?;
             if aclresult != aclchk::ACLCHECK_OK {
                 let constrrelname = lsyscache::relation::get_rel_name(mcx, constrrelid)?
                     .map(|n| n.as_str().to_string())
@@ -330,7 +343,11 @@ pub fn CreateTriggerFiringOn<'mcx>(
     let (oldtablename, newtablename) = validate_transition_rels(mcx, stmt, &rel, tgtype)?;
 
     let (when_node, qual, when_rtable) = match when_clause {
-        Some(w) => (Some(w), Some(outfuncs::nodeToString(mcx, w)?), NodeList::nil()),
+        Some(w) => (
+            Some(w),
+            Some(outfuncs::nodeToString(mcx, w)?),
+            NodeList::nil(),
+        ),
         None => match stmt.whenClause {
             Some(when) => {
                 let (node, qual, rtable) =
@@ -381,14 +398,8 @@ pub fn CreateTriggerFiringOn<'mcx>(
             scan_key(2, F_OIDEQ, Datum::from_oid(rel.rd_id)),
             scan_key(4, F_NAMEEQ, Datum::from_usize(cname.as_ptr() as usize)),
         ];
-        let mut scan = genam::systable_beginscan(
-            mcx,
-            &tgrel,
-            TRIGGER_RELID_NAME_INDEX_ID,
-            true,
-            None,
-            &keys,
-        )?;
+        let mut scan =
+            genam::systable_beginscan(mcx, &tgrel, TRIGGER_RELID_NAME_INDEX_ID, true, None, &keys)?;
         if let Some(tup) = genam::systable_getnext(mcx, &mut scan)? {
             let td = tgrel.descr();
             let mut isnull = false;
@@ -731,8 +742,11 @@ fn validate_transition_rels<'mcx>(
         }
         if rel.rd_rel.relkind == b'v' {
             return Err(Box::new(
-                (*err(format!("\"{}\" is a view", rel.name()), ERRCODE_WRONG_OBJECT_TYPE))
-                    .with_detail("Triggers on views cannot have transition tables.".to_string()),
+                (*err(
+                    format!("\"{}\" is a view", rel.name()),
+                    ERRCODE_WRONG_OBJECT_TYPE,
+                ))
+                .with_detail("Triggers on views cannot have transition tables.".to_string()),
             ));
         }
         if tgtype & TRIGGER_TYPE_ROW != 0 && pg_inherits::has_superclass(mcx, rel.rd_id)? {
@@ -828,7 +842,10 @@ fn transform_when_clause<'mcx>(
 
     let old_alias = mcx::leak_in(mcx::alloc_in(
         mcx,
-        Alias { aliasname: Some("old"), colnames: NodeList::nil() },
+        Alias {
+            aliasname: Some("old"),
+            colnames: NodeList::nil(),
+        },
     )?);
     let nsitem = parse_relation::addRangeTableEntryForRelation(
         mcx,
@@ -842,7 +859,10 @@ fn transform_when_clause<'mcx>(
     parse_relation::addNSItemToQuery(mcx, &mut pstate, nsitem, false, true, true)?;
     let new_alias = mcx::leak_in(mcx::alloc_in(
         mcx,
-        Alias { aliasname: Some("new"), colnames: NodeList::nil() },
+        Alias {
+            aliasname: Some("new"),
+            colnames: NodeList::nil(),
+        },
     )?);
     let nsitem = parse_relation::addRangeTableEntryForRelation(
         mcx,
@@ -890,8 +910,7 @@ fn when_err(
     if let Some(d) = detail {
         e = e.with_detail(d);
     }
-    let pos =
-        parser_small1::parser_errposition(pstate, location, mbutils::GetDatabaseEncoding());
+    let pos = parser_small1::parser_errposition(pstate, location, mbutils::GetDatabaseEncoding());
     if pos > 0 {
         e = e.with_cursor_position(pos);
     }
@@ -954,8 +973,8 @@ fn check_when_var(
                 ));
             }
             if tgtype & TRIGGER_TYPE_BEFORE != 0 && var.varattno == 0 {
-                let has_generated = (0..rel.rd_att.natts as usize)
-                    .any(|i| rel.rd_att.attr(i).attgenerated != 0);
+                let has_generated =
+                    (0..rel.rd_att.natts as usize).any(|i| rel.rd_att.attr(i).attgenerated != 0);
                 if has_generated {
                     return Err(when_err(
                         pstate,
@@ -1041,7 +1060,10 @@ fn build_columns<'mcx>(
         }
         if attnum == 0 {
             return Err(err(
-                format!("column \"{name}\" of relation \"{}\" does not exist", rel.name()),
+                format!(
+                    "column \"{name}\" of relation \"{}\" does not exist",
+                    rel.name()
+                ),
                 ERRCODE_UNDEFINED_COLUMN,
             ));
         }
@@ -1122,20 +1144,24 @@ pub fn TriggerSetParentTrigger<'mcx>(
     #[allow(non_upper_case_globals)] // C-parity name
     const TriggerOidIndexId: Oid = 2702;
     let trig_rel = table::table_open(mcx, TRIGGER_RELATION_ID, RowExclusiveLock)?;
-    let keys = [scan_key(Anum_pg_trigger_oid, F_OIDEQ, Datum::from_oid(child_trig_id))];
-    let mut scan =
-        genam::systable_beginscan(mcx, &trig_rel, TriggerOidIndexId, true, None, &keys)?;
+    let keys = [scan_key(
+        Anum_pg_trigger_oid,
+        F_OIDEQ,
+        Datum::from_oid(child_trig_id),
+    )];
+    let mut scan = genam::systable_beginscan(mcx, &trig_rel, TriggerOidIndexId, true, None, &keys)?;
     // trigger.c:1252: elog(ERROR, "could not find tuple for trigger %u").
     let Some(tup) = genam::systable_getnext(mcx, &mut scan)? else {
-        return Err(internal_error(format!("could not find tuple for trigger {child_trig_id}")));
+        return Err(internal_error(format!(
+            "could not find tuple for trigger {child_trig_id}"
+        )));
     };
     let desc = trig_rel.descr();
     let mut isnull = false;
     // SAFETY: tgparentid is a fixed NOT NULL pg_trigger column.
-    let tgparentid = unsafe {
-        types_tuple::heap_getattr(tup, Anum_pg_trigger_tgparentid, desc, &mut isnull)
-    }
-    .as_oid();
+    let tgparentid =
+        unsafe { types_tuple::heap_getattr(tup, Anum_pg_trigger_tgparentid, desc, &mut isnull) }
+            .as_oid();
     let natts = desc.natts as usize;
     let mut values: PgVec<'_, Datum> = mcx::vec_with_capacity_in(mcx, natts)?;
     let mut nulls: PgVec<'_, bool> = mcx::vec_with_capacity_in(mcx, natts)?;
@@ -1244,7 +1270,10 @@ fn set_relation_has_triggers<'mcx>(mcx: Mcx<'mcx>, relid: Oid) -> PgResult<()> {
 
 pub(crate) fn name_arg<'mcx>(mcx: Mcx<'mcx>, name: &str) -> PgResult<PgVec<'mcx, u8>> {
     let n = NAMEDATALEN as usize;
-    assert!(name.len() < n, "trigger name overflows NAMEDATALEN: {name:?}");
+    assert!(
+        name.len() < n,
+        "trigger name overflows NAMEDATALEN: {name:?}"
+    );
     let mut buf: PgVec<'mcx, u8> = mcx::vec_with_capacity_in(mcx, n)?;
     mcx::vec_append_bytes(&mut buf, name.as_bytes())?;
     mcx::vec_append_bytes(&mut buf, &[0u8; 64][..n - name.len()])?;
@@ -1262,10 +1291,18 @@ mod lookup_func_tests {
     // DeconstructQualifiedName performs, then a fixed verdict. Records the
     // (nargs, argtypes, missing_ok) shape trigger.c:694 must pass.
     static SEEN: std::sync::Mutex<Option<(usize, i16, usize, bool)>> = std::sync::Mutex::new(None);
-    fn stub_lookup(parts: &[&str], nargs: i16, argtypes: &[Oid], missing_ok: bool) -> PgResult<Oid> {
+    fn stub_lookup(
+        parts: &[&str],
+        nargs: i16,
+        argtypes: &[Oid],
+        missing_ok: bool,
+    ) -> PgResult<Oid> {
         *SEEN.lock().unwrap() = Some((parts.len(), nargs, argtypes.len(), missing_ok));
         catalog_namespace::DeconstructQualifiedName(parts)?;
-        Err(err("function stub() does not exist".to_string(), ERRCODE_UNDEFINED_FUNCTION))
+        Err(err(
+            "function stub() does not exist".to_string(),
+            ERRCODE_UNDEFINED_FUNCTION,
+        ))
     }
 
     fn name_list<'mcx>(mcx: Mcx<'mcx>, parts: &[&'mcx str]) -> NodeList<'mcx> {

@@ -2,7 +2,10 @@
 //! File names travel as strings and must classify (`dirlayout::classify`), so redo writes nothing else.
 
 use crate::dirlayout::classify;
-use crate::manifest::{ManifestHeader, PartRecord, MANIFESTF_ROWMAP2, MANIFESTF_RUNS, MANIFESTF_UNDER, MANIFEST_HEADER_LEN, PART_RECORD_LEN};
+use crate::manifest::{
+    ManifestHeader, PartRecord, MANIFESTF_ROWMAP2, MANIFESTF_RUNS, MANIFESTF_UNDER,
+    MANIFEST_HEADER_LEN, PART_RECORD_LEN,
+};
 use crate::wire::{put_u16, put_u32, put_u64, put_u8, Cur};
 use crate::{FormatError, FormatResult};
 
@@ -54,13 +57,19 @@ impl DirLoc {
         put_u32(out, self.relnumber);
     }
     pub fn decode_from(c: &mut Cur<'_>) -> FormatResult<DirLoc> {
-        Ok(DirLoc { spc: c.u32("DirLoc")?, db: c.u32("DirLoc")?, relnumber: c.u32("DirLoc")? })
+        Ok(DirLoc {
+            spc: c.u32("DirLoc")?,
+            db: c.u32("DirLoc")?,
+            relnumber: c.u32("DirLoc")?,
+        })
     }
 }
 
 fn put_name(out: &mut Vec<u8>, name: &str) -> FormatResult<()> {
     if classify(name).is_none() || name.len() > u16::MAX as usize {
-        return Err(FormatError::EncodeContract { detail: "pgrc WAL file name does not classify" });
+        return Err(FormatError::EncodeContract {
+            detail: "pgrc WAL file name does not classify",
+        });
     }
     put_u16(out, name.len() as u16);
     out.extend_from_slice(name.as_bytes());
@@ -112,9 +121,15 @@ impl RowidReserveRec {
         let dir = DirLoc::decode_from(&mut c)?;
         let high = c.u64("ROWID_RESERVE")?;
         if high > crate::rowid::ROWID_LIMIT {
-            return Err(FormatError::Corrupt { at: "ROWID_RESERVE high" });
+            return Err(FormatError::Corrupt {
+                at: "ROWID_RESERVE high",
+            });
         }
-        finish(&c, RowidReserveRec { dir, high }, "ROWID_RESERVE trailing bytes")
+        finish(
+            &c,
+            RowidReserveRec { dir, high },
+            "ROWID_RESERVE trailing bytes",
+        )
     }
 }
 
@@ -141,7 +156,9 @@ impl RowidExtentsRec {
         let table = crate::rowid::decode_segext(img)?;
         // the file may carry a longer table's tail; the record is exactly its table
         if img.len() != crate::rowid::SEGEXT_HEADER_LEN + 16 * table.len() {
-            return Err(crate::FormatError::Corrupt { at: "ROWID_EXTENTS" });
+            return Err(crate::FormatError::Corrupt {
+                at: "ROWID_EXTENTS",
+            });
         }
         Ok(RowidExtentsRec { dir, table })
     }
@@ -171,7 +188,9 @@ pub struct FileWriteRec<'a> {
 impl<'a> FileWriteRec<'a> {
     pub fn encode_header(&self, out: &mut Vec<u8>) -> FormatResult<()> {
         if self.bytes.len() > FILE_WRITE_MAX_CHUNK {
-            return Err(FormatError::EncodeContract { detail: "FILE_WRITE chunk over FILE_WRITE_MAX_CHUNK" });
+            return Err(FormatError::EncodeContract {
+                detail: "FILE_WRITE chunk over FILE_WRITE_MAX_CHUNK",
+            });
         }
         self.dir.encode_into(out);
         put_u64(out, self.off);
@@ -191,9 +210,16 @@ impl<'a> FileWriteRec<'a> {
         let name = get_name(&mut c, "FILE_WRITE name")?;
         let bytes = c.take(c.remaining(), "FILE_WRITE")?;
         if bytes.len() > FILE_WRITE_MAX_CHUNK {
-            return Err(FormatError::Corrupt { at: "FILE_WRITE chunk length" });
+            return Err(FormatError::Corrupt {
+                at: "FILE_WRITE chunk length",
+            });
         }
-        Ok(FileWriteRec { dir, name, off, bytes })
+        Ok(FileWriteRec {
+            dir,
+            name,
+            off,
+            bytes,
+        })
     }
 }
 
@@ -237,8 +263,9 @@ pub struct FileRefRec<'a> {
 
 impl<'a> FileRefRec<'a> {
     pub fn encode(&self, out: &mut Vec<u8>) -> FormatResult<()> {
-        let used = used_masks(&self.masks, self.len)
-            .ok_or(FormatError::EncodeContract { detail: "FILE_REF masks unsorted, overlapping or past the file" })?;
+        let used = used_masks(&self.masks, self.len).ok_or(FormatError::EncodeContract {
+            detail: "FILE_REF masks unsorted, overlapping or past the file",
+        })?;
         self.dir.encode_into(out);
         put_name(out, self.name)?;
         put_u64(out, self.len);
@@ -259,19 +286,35 @@ impl<'a> FileRefRec<'a> {
         let crc = c.u32("FILE_REF")?;
         let n = c.u8("FILE_REF masks")? as usize;
         if n > FILE_REF_MAX_MASKS {
-            return Err(FormatError::Corrupt { at: "FILE_REF mask count" });
+            return Err(FormatError::Corrupt {
+                at: "FILE_REF mask count",
+            });
         }
         let mut masks = NO_MASKS;
         for m in masks.iter_mut().take(n) {
             *m = (c.u64("FILE_REF mask")?, c.u32("FILE_REF mask")?);
             if m.1 == 0 {
-                return Err(FormatError::Corrupt { at: "FILE_REF empty mask" });
+                return Err(FormatError::Corrupt {
+                    at: "FILE_REF empty mask",
+                });
             }
         }
         if used_masks(&masks, len).is_none() {
-            return Err(FormatError::Corrupt { at: "FILE_REF masks" });
+            return Err(FormatError::Corrupt {
+                at: "FILE_REF masks",
+            });
         }
-        finish(&c, FileRefRec { dir, name, len, crc, masks }, "FILE_REF trailing bytes")
+        finish(
+            &c,
+            FileRefRec {
+                dir,
+                name,
+                len,
+                crc,
+                masks,
+            },
+            "FILE_REF trailing bytes",
+        )
     }
 }
 
@@ -380,9 +423,21 @@ impl PublishRec {
     pub fn encode(&self, out: &mut Vec<u8>) -> FormatResult<()> {
         self.dir.encode_into(out);
         put_u64(out, self.base_gen);
-        let under = if self.header.flags & MANIFESTF_UNDER != 0 { PUBLISH_KIND_UNDER } else { 0 };
-        let rowmap2 = if self.header.flags & MANIFESTF_ROWMAP2 != 0 { PUBLISH_KIND_ROWMAP2 } else { 0 };
-        let runs = if self.header.flags & MANIFESTF_RUNS != 0 { PUBLISH_KIND_RUNS } else { 0 };
+        let under = if self.header.flags & MANIFESTF_UNDER != 0 {
+            PUBLISH_KIND_UNDER
+        } else {
+            0
+        };
+        let rowmap2 = if self.header.flags & MANIFESTF_ROWMAP2 != 0 {
+            PUBLISH_KIND_ROWMAP2
+        } else {
+            0
+        };
+        let runs = if self.header.flags & MANIFESTF_RUNS != 0 {
+            PUBLISH_KIND_RUNS
+        } else {
+            0
+        };
         put_u8(out, self.kind as u8 | under | rowmap2 | runs);
         self.header.encode_into(out);
         put_u32(out, self.upsert.len() as u32);
@@ -412,23 +467,34 @@ impl PublishRec {
         let dir = DirLoc::decode_from(&mut c)?;
         let base_gen = c.u64("PUBLISH")?;
         let k = c.u8("PUBLISH kind")?;
-        let kind = PublishKind::from_u8(k & !PUBLISH_KIND_FLAGS).ok_or(FormatError::Corrupt { at: "PUBLISH kind" })?;
+        let kind = PublishKind::from_u8(k & !PUBLISH_KIND_FLAGS)
+            .ok_or(FormatError::Corrupt { at: "PUBLISH kind" })?;
         if c.remaining() < MANIFEST_HEADER_LEN {
-            return Err(FormatError::Truncated { at: "PUBLISH header" });
+            return Err(FormatError::Truncated {
+                at: "PUBLISH header",
+            });
         }
         let header = ManifestHeader::decode_from(&mut c)?;
         if (k & PUBLISH_KIND_UNDER != 0) != (header.flags & MANIFESTF_UNDER != 0) {
-            return Err(FormatError::Corrupt { at: "PUBLISH kind vs manifest flags" });
+            return Err(FormatError::Corrupt {
+                at: "PUBLISH kind vs manifest flags",
+            });
         }
         if (k & PUBLISH_KIND_ROWMAP2 != 0) != (header.flags & MANIFESTF_ROWMAP2 != 0) {
-            return Err(FormatError::Corrupt { at: "PUBLISH kind vs manifest ROWMAP2 flag" });
+            return Err(FormatError::Corrupt {
+                at: "PUBLISH kind vs manifest ROWMAP2 flag",
+            });
         }
         if (k & PUBLISH_KIND_RUNS != 0) != (header.flags & MANIFESTF_RUNS != 0) {
-            return Err(FormatError::Corrupt { at: "PUBLISH kind vs manifest RUNS flag" });
+            return Err(FormatError::Corrupt {
+                at: "PUBLISH kind vs manifest RUNS flag",
+            });
         }
         let n = c.u32("PUBLISH upsert")? as usize;
         if n > c.remaining() / PART_RECORD_LEN {
-            return Err(FormatError::Truncated { at: "PUBLISH upsert" });
+            return Err(FormatError::Truncated {
+                at: "PUBLISH upsert",
+            });
         }
         let mut upsert = crate::try_vec(n, "PUBLISH upsert")?;
         for _ in 0..n {
@@ -436,7 +502,9 @@ impl PublishRec {
         }
         let n = c.u32("PUBLISH retire")? as usize;
         if n > c.remaining() / 4 {
-            return Err(FormatError::Truncated { at: "PUBLISH retire" });
+            return Err(FormatError::Truncated {
+                at: "PUBLISH retire",
+            });
         }
         let mut retire = crate::try_vec(n, "PUBLISH retire")?;
         for _ in 0..n {
@@ -449,14 +517,37 @@ impl PublishRec {
         for _ in 0..n {
             let tmp = get_name(&mut c, "PUBLISH install tmp")?.to_string();
             let part_no = c.u32("PUBLISH install")?;
-            let header = crate::try_to_vec(get_bytes(&mut c, "PUBLISH install header")?, "PUBLISH install")?;
+            let header = crate::try_to_vec(
+                get_bytes(&mut c, "PUBLISH install header")?,
+                "PUBLISH install",
+            )?;
             let footer_off = c.u64("PUBLISH install")?;
-            let footer = crate::try_to_vec(get_bytes(&mut c, "PUBLISH install footer")?, "PUBLISH install")?;
-            installs.push(PartInstall { tmp, part_no, header, footer_off, footer });
+            let footer = crate::try_to_vec(
+                get_bytes(&mut c, "PUBLISH install footer")?,
+                "PUBLISH install",
+            )?;
+            installs.push(PartInstall {
+                tmp,
+                part_no,
+                header,
+                footer_off,
+                footer,
+            });
         }
         let renames = get_renames(&mut c)?;
         let manifest_crc = c.u32("PUBLISH crc")?;
-        let rec = PublishRec { dir, base_gen, kind, header, upsert, retire, ext, installs, renames, manifest_crc };
+        let rec = PublishRec {
+            dir,
+            base_gen,
+            kind,
+            header,
+            upsert,
+            retire,
+            ext,
+            installs,
+            renames,
+            manifest_crc,
+        };
         finish(&c, rec, "PUBLISH trailing bytes")
     }
 }
@@ -535,14 +626,27 @@ impl ReclaimRec {
             0 => None,
             1 => Some(Retire::Conflict(below)),
             2 => Some(Retire::Deferred(below)),
-            _ => return Err(FormatError::Corrupt { at: "RECLAIM retire flag" }),
+            _ => {
+                return Err(FormatError::Corrupt {
+                    at: "RECLAIM retire flag",
+                })
+            }
         };
         let n = c.u32("RECLAIM names")? as usize;
         let mut names = crate::try_vec(n.min(c.remaining() / 2), "RECLAIM names")?;
         for _ in 0..n {
             names.push(get_name(&mut c, "RECLAIM name")?.to_string());
         }
-        finish(&c, ReclaimRec { dir, xid, retire_below, names }, "RECLAIM trailing bytes")
+        finish(
+            &c,
+            ReclaimRec {
+                dir,
+                xid,
+                retire_below,
+                names,
+            },
+            "RECLAIM trailing bytes",
+        )
     }
 }
 
@@ -564,7 +668,9 @@ impl<'a> TupleImage<'a> {
     pub fn encode_into(&self, out: &mut Vec<u8>) -> FormatResult<()> {
         let len = TUPLE_IMAGE_HEADER_LEN + self.data.len();
         if len > u32::MAX as usize {
-            return Err(FormatError::EncodeContract { detail: "pgrc tuple image over 4 GiB" });
+            return Err(FormatError::EncodeContract {
+                detail: "pgrc tuple image over 4 GiB",
+            });
         }
         put_u32(out, len as u32);
         put_u16(out, self.infomask2);
@@ -580,7 +686,12 @@ impl<'a> TupleImage<'a> {
             return Err(FormatError::Corrupt { at });
         }
         let (infomask2, infomask, hoff) = (c.u16(at)?, c.u16(at)?, c.u8(at)?);
-        Ok(TupleImage { infomask2, infomask, hoff, data: c.take(len - TUPLE_IMAGE_HEADER_LEN, at)? })
+        Ok(TupleImage {
+            infomask2,
+            infomask,
+            hoff,
+            data: c.take(len - TUPLE_IMAGE_HEADER_LEN, at)?,
+        })
     }
 }
 
@@ -608,10 +719,15 @@ impl<'a> RowRec<'a> {
     /// `op`: `XLOG_PGRC_ROW_DELETE` or `XLOG_PGRC_ROW_UPDATE` (the flag bits of `info` are ignored).
     pub fn encode(&self, op: u8, out: &mut Vec<u8>) -> FormatResult<()> {
         if !self.shape_ok(op & XLOG_PGRC_OPMASK) {
-            return Err(FormatError::EncodeContract { detail: "ROW_DELETE carries no new row, ROW_UPDATE one" });
+            return Err(FormatError::EncodeContract {
+                detail: "ROW_DELETE carries no new row, ROW_UPDATE one",
+            });
         }
         self.parent.encode_into(out);
-        put_u8(out, (self.old.is_some() as u8 * ROW_HAS_OLD) | (self.new.is_some() as u8 * ROW_HAS_NEW));
+        put_u8(
+            out,
+            (self.old.is_some() as u8 * ROW_HAS_OLD) | (self.new.is_some() as u8 * ROW_HAS_NEW),
+        );
         for image in [&self.old, &self.new].into_iter().flatten() {
             image.encode_into(out)?;
         }
@@ -625,8 +741,12 @@ impl<'a> RowRec<'a> {
         if flags & !(ROW_HAS_OLD | ROW_HAS_NEW) != 0 {
             return Err(FormatError::Corrupt { at: "ROW flags" });
         }
-        let old = (flags & ROW_HAS_OLD != 0).then(|| TupleImage::decode_from(&mut c, "ROW old")).transpose()?;
-        let new = (flags & ROW_HAS_NEW != 0).then(|| TupleImage::decode_from(&mut c, "ROW new")).transpose()?;
+        let old = (flags & ROW_HAS_OLD != 0)
+            .then(|| TupleImage::decode_from(&mut c, "ROW old"))
+            .transpose()?;
+        let new = (flags & ROW_HAS_NEW != 0)
+            .then(|| TupleImage::decode_from(&mut c, "ROW new"))
+            .transpose()?;
         let rec = RowRec { parent, old, new };
         if !rec.shape_ok(op & XLOG_PGRC_OPMASK) {
             return Err(FormatError::Corrupt { at: "ROW shape" });
@@ -651,7 +771,9 @@ impl<'a> BulkRowsRec<'a> {
     /// The header; the caller registers `tuples` after it, so a batch is logged without a copy.
     pub fn encode_header(&self, out: &mut Vec<u8>) -> FormatResult<()> {
         if self.ntuples == 0 || self.tuples.is_empty() {
-            return Err(FormatError::EncodeContract { detail: "BULK_ROWS without rows" });
+            return Err(FormatError::EncodeContract {
+                detail: "BULK_ROWS without rows",
+            });
         }
         self.parent.encode_into(out);
         put_u32(out, self.ntuples);
@@ -670,22 +792,32 @@ impl<'a> BulkRowsRec<'a> {
         let ntuples = c.u32("BULK_ROWS")?;
         let tuples = c.take(c.remaining(), "BULK_ROWS")?;
         if ntuples == 0 || tuples.is_empty() {
-            return Err(FormatError::Corrupt { at: "BULK_ROWS without rows" });
+            return Err(FormatError::Corrupt {
+                at: "BULK_ROWS without rows",
+            });
         }
-        let rec = BulkRowsRec { parent, ntuples, tuples };
+        let rec = BulkRowsRec {
+            parent,
+            ntuples,
+            tuples,
+        };
         let mut off = 0;
         for _ in 0..ntuples {
             off = rec.image_at(off)?.1;
         }
         match off == tuples.len() {
             true => Ok(rec),
-            false => Err(FormatError::Corrupt { at: "BULK_ROWS trailing bytes" }),
+            false => Err(FormatError::Corrupt {
+                at: "BULK_ROWS trailing bytes",
+            }),
         }
     }
 
     /// The tuple at byte `off` of `tuples` and the offset of the next one.
     pub fn image_at(&self, off: usize) -> FormatResult<(TupleImage<'a>, usize)> {
-        let mut c = Cur::new(self.tuples.get(off..).ok_or(FormatError::Corrupt { at: "BULK_ROWS tuple" })?);
+        let mut c = Cur::new(self.tuples.get(off..).ok_or(FormatError::Corrupt {
+            at: "BULK_ROWS tuple",
+        })?);
         let image = TupleImage::decode_from(&mut c, "BULK_ROWS tuple")?;
         Ok((image, off + c.off()))
     }
@@ -717,7 +849,11 @@ mod tests {
     use super::*;
     use crate::dirlayout::{manifest_file_name, sections_file_name, temp_file_name};
 
-    const D: DirLoc = DirLoc { spc: 1663, db: 5, relnumber: 16384 };
+    const D: DirLoc = DirLoc {
+        spc: 1663,
+        db: 5,
+        relnumber: 16384,
+    };
 
     fn header() -> ManifestHeader {
         crate::tests::golden_sample_manifest().header
@@ -727,22 +863,51 @@ mod tests {
     fn file_write_round_trips_and_bounds_the_chunk() {
         let name = temp_file_name(744, 3);
         let bytes = vec![7u8; FILE_WRITE_MAX_CHUNK];
-        let rec = FileWriteRec { dir: D, name: &name, off: 262_144, bytes: &bytes };
+        let rec = FileWriteRec {
+            dir: D,
+            name: &name,
+            off: 262_144,
+            bytes: &bytes,
+        };
         let mut out = Vec::new();
         rec.encode(&mut out).unwrap();
         assert!(out.len() <= FILE_WRITE_MAX_CHUNK + 64);
         assert_eq!(FileWriteRec::decode(&out).unwrap(), rec);
         let big = vec![0u8; FILE_WRITE_MAX_CHUNK + 1];
-        assert!(FileWriteRec { dir: D, name: &name, off: 0, bytes: &big }.encode(&mut Vec::new()).is_err());
+        assert!(FileWriteRec {
+            dir: D,
+            name: &name,
+            off: 0,
+            bytes: &big
+        }
+        .encode(&mut Vec::new())
+        .is_err());
     }
 
     #[test]
     fn names_that_do_not_classify_are_refused_both_ways() {
         for bad in ["../x", "a/b", "part-1.pgrc/..", "postgresql.conf"] {
-            assert!(FileWriteRec { dir: D, name: bad, off: 0, bytes: &[] }.encode(&mut Vec::new()).is_err(), "{bad}");
+            assert!(
+                FileWriteRec {
+                    dir: D,
+                    name: bad,
+                    off: 0,
+                    bytes: &[]
+                }
+                .encode(&mut Vec::new())
+                .is_err(),
+                "{bad}"
+            );
         }
         let mut out = Vec::new();
-        FileWriteRec { dir: D, name: "part-1.pgrc", off: 0, bytes: &[] }.encode(&mut out).unwrap();
+        FileWriteRec {
+            dir: D,
+            name: "part-1.pgrc",
+            off: 0,
+            bytes: &[],
+        }
+        .encode(&mut out)
+        .unwrap();
         let at = DIR_LOC_LEN + 8 + 2;
         out[at..at + 6].copy_from_slice(b"../x/y");
         assert!(FileWriteRec::decode(&out).is_err());
@@ -763,7 +928,13 @@ mod tests {
                 crate::manifest::put_ext_record(&mut e, 1, b"segments");
                 e
             },
-            installs: vec![PartInstall { tmp: temp_file_name(744, 0), part_no: 3, header: vec![1; 64], footer_off: 4096, footer: vec![2; 96] }],
+            installs: vec![PartInstall {
+                tmp: temp_file_name(744, 0),
+                part_no: 3,
+                header: vec![1; 64],
+                footer_off: 4096,
+                footer: vec![2; 96],
+            }],
             renames: vec![(temp_file_name(744, 1), sections_file_name(7))],
             manifest_crc: 0xDEAD_BEEF,
         };
@@ -781,7 +952,18 @@ mod tests {
     #[test]
     fn a_stacked_publish_sets_the_kind_bit() {
         let at = 12 + 8; // the kind byte follows the dir and the base generation
-        let mut rec = PublishRec { dir: D, base_gen: 6, kind: PublishKind::Seal, header: header(), upsert: Vec::new(), retire: Vec::new(), ext: Vec::new(), installs: Vec::new(), renames: Vec::new(), manifest_crc: 1 };
+        let mut rec = PublishRec {
+            dir: D,
+            base_gen: 6,
+            kind: PublishKind::Seal,
+            header: header(),
+            upsert: Vec::new(),
+            retire: Vec::new(),
+            ext: Vec::new(),
+            installs: Vec::new(),
+            renames: Vec::new(),
+            manifest_crc: 1,
+        };
         let mut plain = Vec::new();
         rec.encode(&mut plain).unwrap();
         assert_eq!(plain[at], PublishKind::Seal as u8);
@@ -790,22 +972,43 @@ mod tests {
         rec.encode(&mut out).unwrap();
         assert_eq!(out[at], PublishKind::Seal as u8 | PUBLISH_KIND_UNDER);
         assert_eq!(PublishRec::decode(&out).unwrap(), rec);
-        assert!(PublishKind::from_u8(out[at]).is_none(), "an older binary's decode refuses the kind");
+        assert!(
+            PublishKind::from_u8(out[at]).is_none(),
+            "an older binary's decode refuses the kind"
+        );
         out[at] &= !PUBLISH_KIND_UNDER;
-        assert!(PublishRec::decode(&out).is_err(), "the flag without the bit");
+        assert!(
+            PublishRec::decode(&out).is_err(),
+            "the flag without the bit"
+        );
         plain[at] |= PUBLISH_KIND_UNDER;
-        assert!(PublishRec::decode(&plain).is_err(), "the bit without the flag");
+        assert!(
+            PublishRec::decode(&plain).is_err(),
+            "the bit without the flag"
+        );
     }
 
     #[test]
     fn install_reclaim_dir_and_logical_records_round_trip() {
-        let i = InstallRec { dir: D, renames: vec![(temp_file_name(1, 2), manifest_file_name(3))] };
+        let i = InstallRec {
+            dir: D,
+            renames: vec![(temp_file_name(1, 2), manifest_file_name(3))],
+        };
         let mut out = Vec::new();
         i.encode(&mut out).unwrap();
         assert_eq!(InstallRec::decode(&out).unwrap(), i);
 
-        for (retire_below, flag) in [(None, 0u8), (Some(Retire::Conflict(12)), 1), (Some(Retire::Deferred(12)), 2)] {
-            let r = ReclaimRec { dir: D, xid: 900, retire_below, names: vec![temp_file_name(1, 2), "part-4.pgrc".into()] };
+        for (retire_below, flag) in [
+            (None, 0u8),
+            (Some(Retire::Conflict(12)), 1),
+            (Some(Retire::Deferred(12)), 2),
+        ] {
+            let r = ReclaimRec {
+                dir: D,
+                xid: 900,
+                retire_below,
+                names: vec![temp_file_name(1, 2), "part-4.pgrc".into()],
+            };
             let mut out = Vec::new();
             r.encode(&mut out).unwrap();
             assert_eq!(ReclaimRec::decode(&out).unwrap(), r);
@@ -825,17 +1028,28 @@ mod tests {
 
     #[test]
     fn every_record_has_a_name() {
-        for info in [0x00u8, 0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80, 0x90, 0xA0, 0xB0, 0xC0, 0xD0] {
+        for info in [
+            0x00u8, 0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80, 0x90, 0xA0, 0xB0, 0xC0, 0xD0,
+        ] {
             assert!(identify(info).is_some());
         }
         assert_eq!(identify(0xA0), Some("FILE_REF"));
         assert_eq!(identify(0xB0), Some("ROWID_RESERVE"));
-        assert_eq!(XLOG_PGRC_ROWID_RESERVE, 0xB0, "IX0's opcode (main's ruling, 10-03)");
+        assert_eq!(
+            XLOG_PGRC_ROWID_RESERVE, 0xB0,
+            "IX0's opcode (main's ruling, 10-03)"
+        );
         assert_eq!(identify(0xC0), Some("ROWID_EXTENTS"));
-        assert_eq!(XLOG_PGRC_ROWID_EXTENTS, 0xC0, "IX0 DV-1 (main 10-04: not 0xB1, the low nibble is XLR_INFO_MASK)");
+        assert_eq!(
+            XLOG_PGRC_ROWID_EXTENTS, 0xC0,
+            "IX0 DV-1 (main 10-04: not 0xB1, the low nibble is XLR_INFO_MASK)"
+        );
         assert_eq!(XLOG_PGRC_ROWID_EXTENTS & !XLOG_PGRC_OPMASK, 0);
         assert_eq!(identify(0xD0), Some("ROWID_SET"));
-        assert_eq!(XLOG_PGRC_ROWID_SET, 0xD0, "IX0 L4 (main 10-05: reserved for IX0)");
+        assert_eq!(
+            XLOG_PGRC_ROWID_SET, 0xD0,
+            "IX0 L4 (main 10-05: reserved for IX0)"
+        );
         for reserved in [0xE0u8, 0xF0] {
             assert_eq!(identify(reserved), None);
         }
@@ -843,44 +1057,79 @@ mod tests {
 
     #[test]
     fn rowid_reserve_round_trips_and_refuses_bad_records() {
-        for high in [crate::rowid::ROWID_FIRST, 1 << 33, crate::rowid::ROWID_LIMIT] {
+        for high in [
+            crate::rowid::ROWID_FIRST,
+            1 << 33,
+            crate::rowid::ROWID_LIMIT,
+        ] {
             let r = RowidReserveRec { dir: D, high };
             let mut out = Vec::new();
             r.encode(&mut out);
             assert_eq!(out.len(), DIR_LOC_LEN + 8, "a tiny record");
             assert_eq!(&out[DIR_LOC_LEN..], &high.to_le_bytes());
             assert_eq!(RowidReserveRec::decode(&out).unwrap(), r);
-            assert!(RowidReserveRec::decode(&out[..out.len() - 1]).is_err(), "short");
+            assert!(
+                RowidReserveRec::decode(&out[..out.len() - 1]).is_err(),
+                "short"
+            );
             out.push(0);
             assert!(RowidReserveRec::decode(&out).is_err(), "trailing bytes");
         }
         let mut out = Vec::new();
-        RowidReserveRec { dir: D, high: crate::rowid::ROWID_LIMIT + 1 }.encode(&mut out);
+        RowidReserveRec {
+            dir: D,
+            high: crate::rowid::ROWID_LIMIT + 1,
+        }
+        .encode(&mut out);
         assert!(RowidReserveRec::decode(&out).is_err(), "past the ID space");
     }
 
     #[test]
     fn rowid_extents_round_trip_and_cap() {
         use crate::rowid::{SegExtent, ROWID_FIRST, SEGEXT_MAX_ENTRIES, SEG_EXTENT_IDS};
-        let e = |part_no: u32, idx: u32, k: u64| SegExtent { part_no, idx, base: ROWID_FIRST + k * SEG_EXTENT_IDS };
+        let e = |part_no: u32, idx: u32, k: u64| SegExtent {
+            part_no,
+            idx,
+            base: ROWID_FIRST + k * SEG_EXTENT_IDS,
+        };
         for table in [vec![], vec![e(4, 0, 0), e(4, 1, 3), e(7, 0, 1)]] {
             let r = RowidExtentsRec { dir: D, table };
             let mut out = Vec::new();
             r.encode(&mut out).unwrap();
             assert_eq!(out.len(), DIR_LOC_LEN + 12 + 16 * r.table.len());
             assert_eq!(RowidExtentsRec::decode(&out).unwrap(), r);
-            assert!(RowidExtentsRec::decode(&out[..out.len() - 1]).is_err(), "short");
+            assert!(
+                RowidExtentsRec::decode(&out[..out.len() - 1]).is_err(),
+                "short"
+            );
             out.push(0);
             assert!(RowidExtentsRec::decode(&out).is_err(), "trailing bytes");
         }
-        let full = RowidExtentsRec { dir: D, table: (0..SEGEXT_MAX_ENTRIES as u64).map(|k| e(k as u32, 0, k)).collect() };
+        let full = RowidExtentsRec {
+            dir: D,
+            table: (0..SEGEXT_MAX_ENTRIES as u64)
+                .map(|k| e(k as u32, 0, k))
+                .collect(),
+        };
         let mut out = Vec::new();
         full.encode(&mut out).unwrap();
-        assert!(out.len() <= 65536, "{} bytes at the cap: under 64 KB", out.len());
+        assert!(
+            out.len() <= 65536,
+            "{} bytes at the cap: under 64 KB",
+            out.len()
+        );
         let mut over = full.clone();
         over.table.push(e(u32::MAX, 0, SEGEXT_MAX_ENTRIES as u64));
         assert!(over.encode(&mut Vec::new()).is_err(), "past the hard cap");
-        assert!(RowidExtentsRec { dir: D, table: vec![e(4, 1, 0)] }.encode(&mut Vec::new()).is_err(), "a malformed table");
+        assert!(
+            RowidExtentsRec {
+                dir: D,
+                table: vec![e(4, 1, 0)]
+            }
+            .encode(&mut Vec::new())
+            .is_err(),
+            "a malformed table"
+        );
     }
 
     #[test]
@@ -893,10 +1142,21 @@ mod tests {
             (name.as_str(), [(0, 64), (0, 0)]),
             (long, [(0, 64), (17_000_000, 96)]),
         ] {
-            let rec = FileRefRec { dir: D, name, len: 17_000_096, crc: 0x1234_5678, masks };
+            let rec = FileRefRec {
+                dir: D,
+                name,
+                len: 17_000_096,
+                crc: 0x1234_5678,
+                masks,
+            };
             let mut out = Vec::new();
             rec.encode(&mut out).unwrap();
-            assert!(out.len() <= 96 - 24 + name.len(), "{} bytes for a {}-byte name", out.len(), name.len());
+            assert!(
+                out.len() <= 96 - 24 + name.len(),
+                "{} bytes for a {}-byte name",
+                out.len(),
+                name.len()
+            );
             assert_eq!(FileRefRec::decode(&out).unwrap(), rec);
             out.push(0);
             assert!(FileRefRec::decode(&out).is_err());
@@ -907,19 +1167,33 @@ mod tests {
     #[test]
     fn file_ref_masks_must_be_sorted_disjoint_and_inside() {
         let bad: [SmallMasks; 6] = [
-            [(4096, 96), (0, 64)],         // out of order
-            [(0, 64), (32, 64)],           // overlapping
-            [(0, 64), (1000, 96)],         // past len
-            [(0, 0), (0, 64)],             // a used slot after an unused one
-            [(u64::MAX, 2), (0, 0)],       // overflow
-            [(0, 0), (5, 0)],              // an unused slot that is not zero
+            [(4096, 96), (0, 64)],   // out of order
+            [(0, 64), (32, 64)],     // overlapping
+            [(0, 64), (1000, 96)],   // past len
+            [(0, 0), (0, 64)],       // a used slot after an unused one
+            [(u64::MAX, 2), (0, 0)], // overflow
+            [(0, 0), (5, 0)],        // an unused slot that is not zero
         ];
         for masks in bad {
-            let rec = FileRefRec { dir: D, name: "part-1.pgrc", len: 1024, crc: 0, masks };
+            let rec = FileRefRec {
+                dir: D,
+                name: "part-1.pgrc",
+                len: 1024,
+                crc: 0,
+                masks,
+            };
             assert!(rec.encode(&mut Vec::new()).is_err(), "{masks:?}");
             // The decoder refuses the same masks written by hand.
             let mut out = Vec::new();
-            FileRefRec { dir: D, name: "part-1.pgrc", len: 1024, crc: 0, masks: NO_MASKS }.encode(&mut out).unwrap();
+            FileRefRec {
+                dir: D,
+                name: "part-1.pgrc",
+                len: 1024,
+                crc: 0,
+                masks: NO_MASKS,
+            }
+            .encode(&mut out)
+            .unwrap();
             out.pop();
             let used: Vec<_> = masks.iter().filter(|m| *m != &(0, 0)).collect();
             put_u8(&mut out, used.len().max(1) as u8);
@@ -930,13 +1204,27 @@ mod tests {
             assert!(FileRefRec::decode(&out).is_err(), "{masks:?}");
         }
         // Adjacent masks and a mask ending at len are fine.
-        let ok = FileRefRec { dir: D, name: "part-1.pgrc", len: 1024, crc: 0, masks: [(0, 64), (64, 960)] };
+        let ok = FileRefRec {
+            dir: D,
+            name: "part-1.pgrc",
+            len: 1024,
+            crc: 0,
+            masks: [(0, 64), (64, 960)],
+        };
         let mut out = Vec::new();
         ok.encode(&mut out).unwrap();
         assert_eq!(FileRefRec::decode(&out).unwrap(), ok);
         // More than FILE_REF_MAX_MASKS on the wire is corrupt.
         let mut out = Vec::new();
-        FileRefRec { dir: D, name: "part-1.pgrc", len: 1024, crc: 0, masks: NO_MASKS }.encode(&mut out).unwrap();
+        FileRefRec {
+            dir: D,
+            name: "part-1.pgrc",
+            len: 1024,
+            crc: 0,
+            masks: NO_MASKS,
+        }
+        .encode(&mut out)
+        .unwrap();
         *out.last_mut().unwrap() = 3;
         for i in 0..3u64 {
             put_u64(&mut out, i * 10);
@@ -946,7 +1234,12 @@ mod tests {
     }
 
     fn img(data: &[u8]) -> TupleImage<'_> {
-        TupleImage { infomask2: 3, infomask: 0x0802, hoff: 24, data }
+        TupleImage {
+            infomask2: 3,
+            infomask: 0x0802,
+            hoff: 24,
+            data,
+        }
     }
 
     #[test]
@@ -961,7 +1254,11 @@ mod tests {
             (XLOG_PGRC_ROW_UPDATE, Some(img(b"o")), Some(img(&big))),
         ];
         for (op, old, new) in shapes {
-            let r = RowRec { parent: D, old, new };
+            let r = RowRec {
+                parent: D,
+                old,
+                new,
+            };
             let mut out = Vec::new();
             r.encode(op, &mut out).unwrap();
             assert_eq!(RowRec::decode(op, &out).unwrap(), r);
@@ -970,7 +1267,11 @@ mod tests {
         for i in [img(b"abc"), img(&big), img(b"")] {
             i.encode_into(&mut tuples).unwrap();
         }
-        let b = BulkRowsRec { parent: D, ntuples: 3, tuples: &tuples };
+        let b = BulkRowsRec {
+            parent: D,
+            ntuples: 3,
+            tuples: &tuples,
+        };
         let mut out = Vec::new();
         b.encode(&mut out).unwrap();
         let d = BulkRowsRec::decode(&out).unwrap();
@@ -978,7 +1279,11 @@ mod tests {
         let (t0, o) = d.image_at(0).unwrap();
         let (t1, o) = d.image_at(o).unwrap();
         let (t2, o) = d.image_at(o).unwrap();
-        assert_eq!((t0, t1.data.len(), t2, o), (img(b"abc"), 1 << 20, img(b""), tuples.len()), "a row past 64 KiB is one tuple");
+        assert_eq!(
+            (t0, t1.data.len(), t2, o),
+            (img(b"abc"), 1 << 20, img(b""), tuples.len()),
+            "a row past 64 KiB is one tuple"
+        );
         let mut head = Vec::new();
         b.encode_header(&mut head).unwrap();
         assert_eq!(head, out[..BULK_ROWS_HEADER_LEN]);
@@ -987,16 +1292,46 @@ mod tests {
     #[test]
     fn malformed_row_records_are_refused() {
         let mut out = Vec::new();
-        assert!(RowRec { parent: D, old: None, new: Some(img(b"n")) }.encode(XLOG_PGRC_ROW_DELETE, &mut out).is_err());
-        assert!(RowRec { parent: D, old: Some(img(b"o")), new: None }.encode(XLOG_PGRC_ROW_UPDATE, &mut out).is_err());
-        assert!(RowRec { parent: D, old: None, new: None }.encode(XLOG_PGRC_BULK_ROWS, &mut out).is_err());
+        assert!(RowRec {
+            parent: D,
+            old: None,
+            new: Some(img(b"n"))
+        }
+        .encode(XLOG_PGRC_ROW_DELETE, &mut out)
+        .is_err());
+        assert!(RowRec {
+            parent: D,
+            old: Some(img(b"o")),
+            new: None
+        }
+        .encode(XLOG_PGRC_ROW_UPDATE, &mut out)
+        .is_err());
+        assert!(RowRec {
+            parent: D,
+            old: None,
+            new: None
+        }
+        .encode(XLOG_PGRC_BULK_ROWS, &mut out)
+        .is_err());
 
         let mut upd = Vec::new();
-        RowRec { parent: D, old: Some(img(b"old")), new: Some(img(b"new")) }.encode(XLOG_PGRC_ROW_UPDATE, &mut upd).unwrap();
+        RowRec {
+            parent: D,
+            old: Some(img(b"old")),
+            new: Some(img(b"new")),
+        }
+        .encode(XLOG_PGRC_ROW_UPDATE, &mut upd)
+        .unwrap();
         // An UPDATE read as a DELETE, and a DELETE without its flags' images.
         assert!(RowRec::decode(XLOG_PGRC_ROW_DELETE, &upd).is_err());
         let mut del = Vec::new();
-        RowRec { parent: D, old: None, new: None }.encode(XLOG_PGRC_ROW_DELETE, &mut del).unwrap();
+        RowRec {
+            parent: D,
+            old: None,
+            new: None,
+        }
+        .encode(XLOG_PGRC_ROW_DELETE, &mut del)
+        .unwrap();
         assert!(RowRec::decode(XLOG_PGRC_ROW_UPDATE, &del).is_err());
         // Trailing bytes; a truncated image; an unknown flag bit; a set flag with a zero-length image.
         let mut t = upd.clone();
@@ -1016,8 +1351,20 @@ mod tests {
         z4.extend_from_slice(&[0; 4]);
         assert!(RowRec::decode(XLOG_PGRC_ROW_DELETE, &z4).is_err());
 
-        assert!(BulkRowsRec { parent: D, ntuples: 0, tuples: b"x" }.encode(&mut Vec::new()).is_err());
-        assert!(BulkRowsRec { parent: D, ntuples: 1, tuples: b"" }.encode(&mut Vec::new()).is_err());
+        assert!(BulkRowsRec {
+            parent: D,
+            ntuples: 0,
+            tuples: b"x"
+        }
+        .encode(&mut Vec::new())
+        .is_err());
+        assert!(BulkRowsRec {
+            parent: D,
+            ntuples: 1,
+            tuples: b""
+        }
+        .encode(&mut Vec::new())
+        .is_err());
         let mut b = Vec::new();
         encode_dir(D, &mut b);
         b.extend_from_slice(&1u32.to_le_bytes());
@@ -1026,9 +1373,20 @@ mod tests {
         // ntuples past the tuples, short of them (trailing bytes), a truncated tuple, a tuple shorter than its header.
         let mut one = Vec::new();
         img(b"row").encode_into(&mut one).unwrap();
-        for (n, tuples) in [(2, one.clone()), (1, [one.clone(), one.clone()].concat()), (1, one[..one.len() - 1].to_vec()), (1, 4u32.to_le_bytes().to_vec())] {
+        for (n, tuples) in [
+            (2, one.clone()),
+            (1, [one.clone(), one.clone()].concat()),
+            (1, one[..one.len() - 1].to_vec()),
+            (1, 4u32.to_le_bytes().to_vec()),
+        ] {
             let mut r = Vec::new();
-            BulkRowsRec { parent: D, ntuples: n, tuples: &tuples }.encode(&mut r).unwrap();
+            BulkRowsRec {
+                parent: D,
+                ntuples: n,
+                tuples: &tuples,
+            }
+            .encode(&mut r)
+            .unwrap();
             assert!(BulkRowsRec::decode(&r).is_err(), "{n} {tuples:?}");
         }
     }

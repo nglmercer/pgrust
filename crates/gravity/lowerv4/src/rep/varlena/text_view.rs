@@ -143,7 +143,7 @@ pub(super) fn compare(b: &mut FunctionBuilder<'_>, env: &mut Env, p: Value, null
     let pd = b.select(null, z, p);
     let r = b.call_host(h, &[env.ctx, pd, k, form, st, n], Some(Type::I64)).expect("returns");
     let out = decode(b, env, s, r);
-    (b.br(l_out, &out), b.switch_to(l_out));
+    b.br(l_out, &out); b.switch_to(l_out);
     [0, 1, 2].map(|i| b.block_params(l_out)[i])
 }
 
@@ -241,6 +241,7 @@ fn walk(b: &mut FunctionBuilder<'_>, env: &mut Env, data: Value, from: Value, le
 #[allow(unsafe_code)]
 mod tests {
     use super::*;
+    #[allow(unused_imports)]
     use crate::frame::stop::tests::run1;
 
     fn v1(b: &[u8]) -> Vec<u8> {
@@ -369,7 +370,7 @@ mod tests {
             let s = site(true, Some(Some(())), false, true);
             for d in VALUES {
                 let v = reference(d, true, Some((1, Some(2)))).expect("count 2");
-                let hit = elems.iter().any(|e| *e == v.as_bytes());
+                let hit = elems.contains(&v.as_bytes());
                 let want = if hit { (1, true, false) } else { (0, !null_elem, false) };
                 assert_eq!(eval(&s, &arr, Some(&v1(d.as_bytes())), Some((1, Some(2)))), want, "{d:?} null elem {null_elem}");
             }

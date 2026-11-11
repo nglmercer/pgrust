@@ -88,7 +88,14 @@ pub fn fc_unique_key_recheck(
 
     let mut values = [Datum::null(); INDEX_MAX_KEYS as usize];
     let mut isnull = [false; INDEX_MAX_KEYS as usize];
-    execindexing::FormIndexDatum(mcx, mcx, &mut index_info, &mut slot, &mut values, &mut isnull)?;
+    execindexing::FormIndexDatum(
+        mcx,
+        mcx,
+        &mut index_info,
+        &mut slot,
+        &mut values,
+        &mut isnull,
+    )?;
 
     if index_info.ii_HasExclusion {
         execindexing::check_exclusion_constraint(
@@ -128,10 +135,18 @@ pub fn fc_unique_key_recheck(
 }
 
 const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
+    FmgrBuiltin {
+        foid,
+        name,
+        nargs,
+        strict: true,
+        retset: false,
+        func,
+    }
 }
 
-pub const CONSTRAINT_BUILTINS: &[FmgrBuiltin] = &[b(1250, "unique_key_recheck", 0, fc_unique_key_recheck)];
+pub const CONSTRAINT_BUILTINS: &[FmgrBuiltin] =
+    &[b(1250, "unique_key_recheck", 0, fc_unique_key_recheck)];
 
 #[cfg(test)]
 mod tests {
@@ -152,7 +167,10 @@ mod tests {
         let mut fcinfo = LocalFcinfo::<1>::new(0);
         let e = fc_unique_key_recheck(None, &mut fcinfo).unwrap_err();
         assert_eq!(e.sqlstate(), ERRCODE_E_R_I_E_TRIGGER_PROTOCOL_VIOLATED);
-        assert_eq!(e.message(), "function \"unique_key_recheck\" was not called by trigger manager");
+        assert_eq!(
+            e.message(),
+            "function \"unique_key_recheck\" was not called by trigger manager"
+        );
     }
 
     // constraint.c:66/80 share the same shape.
@@ -160,8 +178,14 @@ mod tests {
     fn protocol_errors_are_39p01_with_c_text() {
         let e = protocol_err("must be fired AFTER ROW");
         assert_eq!(e.sqlstate(), ERRCODE_E_R_I_E_TRIGGER_PROTOCOL_VIOLATED);
-        assert_eq!(e.message(), "function \"unique_key_recheck\" must be fired AFTER ROW");
+        assert_eq!(
+            e.message(),
+            "function \"unique_key_recheck\" must be fired AFTER ROW"
+        );
         let e = protocol_err("must be fired for INSERT or UPDATE");
-        assert_eq!(e.message(), "function \"unique_key_recheck\" must be fired for INSERT or UPDATE");
+        assert_eq!(
+            e.message(),
+            "function \"unique_key_recheck\" must be fired for INSERT or UPDATE"
+        );
     }
 }

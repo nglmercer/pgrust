@@ -2,6 +2,7 @@
 //! reads: the header and the record. Under `Budget::Fixed(layout.size())` a worker's partial of a record smaller than the
 //! header (`[Count, SumI64]` + validity, 24 B) was `state_bytes` = 24 long, `partial_shape` saw no table and dropped it:
 //! `count(*), sum(x)` answered 0 / NULL at W >= 2 (m1_fold, m1_frame). The fixture is decompose's own plan capture.
+#[allow(unused_imports)]
 use std::path::Path;
 
 use gravity_abi::breaker::{BreakerKind, Budget, HashAgg, HASHAGG_HDR};

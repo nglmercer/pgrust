@@ -169,7 +169,7 @@ pub(super) fn compare(b: &mut FunctionBuilder<'_>, env: &mut Env, p: Value, null
     b.br(l_out, &[v, ok, e]);
     b.switch_to(l_res);
     let (v, ok) = result(b, s, b.block_params(l_res)[0], t);
-    (b.br(l_out, &[v, ok, z]), b.switch_to(l_out));
+    b.br(l_out, &[v, ok, z]); b.switch_to(l_out);
     [0, 1, 2].map(|i| b.block_params(l_out)[i])
 }
 

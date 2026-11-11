@@ -61,9 +61,24 @@ const NS: f64 = 1e9;
 /// The counters, in this order everywhere: the [`NSCAN`] scan counters, then per publish kind (`PublishKind`'s order,
 /// pgrc_write's `counters::KINDS`) its publishes and their wall microseconds.
 pub const NAMES: [&str; N] = [
-    "scans", "granules_read", "granules_pruned", "granules_answered", "dead_skipped", "key_scans",
-    "pub_bulk", "pub_bulk_us", "pub_rotate", "pub_rotate_us", "pub_seal", "pub_seal_us",
-    "pub_compile", "pub_compile_us", "pub_compact", "pub_compact_us", "pub_freeze", "pub_freeze_us",
+    "scans",
+    "granules_read",
+    "granules_pruned",
+    "granules_answered",
+    "dead_skipped",
+    "key_scans",
+    "pub_bulk",
+    "pub_bulk_us",
+    "pub_rotate",
+    "pub_rotate_us",
+    "pub_seal",
+    "pub_seal_us",
+    "pub_compile",
+    "pub_compile_us",
+    "pub_compact",
+    "pub_compact_us",
+    "pub_freeze",
+    "pub_freeze_us",
 ];
 pub const N: usize = NSCAN + 2 * PUB_KINDS;
 /// The scan counters: what a scan or a statement adds to its backend's pending counts.
@@ -89,7 +104,10 @@ pub struct Hot {
 
 impl Hot {
     pub const fn zero() -> Hot {
-        Hot { owner: AtomicU64::new(0), totals: [const { AtomicU64::new(0) }; N] }
+        Hot {
+            owner: AtomicU64::new(0),
+            totals: [const { AtomicU64::new(0) }; N],
+        }
     }
 }
 
@@ -102,7 +120,11 @@ pub struct Ewma {
 }
 
 impl Ewma {
-    pub const ZERO: Ewma = Ewma { t_ns: 0, seen: [0; N], s: [0.0; N] };
+    pub const ZERO: Ewma = Ewma {
+        t_ns: 0,
+        seen: [0; N],
+        s: [0.0; N],
+    };
 
     fn lambda() -> f64 {
         core::f64::consts::LN_2 / HALF_LIFE_S
@@ -111,6 +133,7 @@ impl Ewma {
     /// The events since the last tick join the sums at `now` (the sums decay by `2^(-dt / half-life)` first).
     pub fn tick(&mut self, now: u64, totals: &[u64; N]) {
         let f = (-(now.saturating_sub(self.t_ns) as f64 / NS) * Self::lambda()).exp();
+        #[allow(clippy::needless_range_loop)]
         for k in 0..N {
             self.s[k] = self.s[k] * f + totals[k].saturating_sub(self.seen[k]) as f64;
             self.seen[k] = totals[k];
@@ -121,7 +144,9 @@ impl Ewma {
     /// The rates per second at `now`: `lambda x (the sums decayed to now + the events since the last tick)`.
     pub fn rates(&self, now: u64, totals: &[u64; N]) -> [f64; N] {
         let f = (-(now.saturating_sub(self.t_ns) as f64 / NS) * Self::lambda()).exp();
-        core::array::from_fn(|k| Self::lambda() * (self.s[k] * f + totals[k].saturating_sub(self.seen[k]) as f64))
+        core::array::from_fn(|k| {
+            Self::lambda() * (self.s[k] * f + totals[k].saturating_sub(self.seen[k]) as f64)
+        })
     }
 }
 
@@ -142,7 +167,11 @@ pub struct Table<'a, E> {
 }
 
 fn table() -> Table<'static, [Ewma; SLOTS]> {
-    Table { hot: &HOT[..], tick: &TICK[..], ewma: &EWMA }
+    Table {
+        hot: &HOT[..],
+        tick: &TICK[..],
+        ewma: &EWMA,
+    }
 }
 
 impl<E: AsRef<[Ewma]> + AsMut<[Ewma]>> Table<'_, E> {
@@ -158,7 +187,8 @@ impl<E: AsRef<[Ewma]> + AsMut<[Ewma]>> Table<'_, E> {
 
     /// `key`'s slot, without claiming one.
     pub fn find(&self, key: u64) -> Option<usize> {
-        self.probe(key).find(|&i| self.hot[i].owner.load(Relaxed) == key)
+        self.probe(key)
+            .find(|&i| self.hot[i].owner.load(Relaxed) == key)
     }
 
     /// `key`'s slot, claiming a free one or reclaiming one idle for [`IDLE_S`] when it has none; `None` when every
@@ -173,14 +203,25 @@ impl<E: AsRef<[Ewma]> + AsMut<[Ewma]>> Table<'_, E> {
         }
         for i in self.probe(key) {
             let o = self.hot[i].owner.load(Relaxed);
-            let idle = o != CLAIMING && now.saturating_sub(self.tick[i].load(Relaxed)) >= IDLE_S * TICK_NS;
-            if (o == 0 || idle) && self.hot[i].owner.compare_exchange(o, CLAIMING, Relaxed, Relaxed).is_ok() {
+            let idle =
+                o != CLAIMING && now.saturating_sub(self.tick[i].load(Relaxed)) >= IDLE_S * TICK_NS;
+            if (o == 0 || idle)
+                && self.hot[i]
+                    .owner
+                    .compare_exchange(o, CLAIMING, Relaxed, Relaxed)
+                    .is_ok()
+            {
                 for t in &self.hot[i].totals {
                     t.store(0, Relaxed);
                 }
-                pgsync::lock(self.ewma).as_mut()[i] = Ewma { t_ns: now, ..Ewma::ZERO };
+                pgsync::lock(self.ewma).as_mut()[i] = Ewma {
+                    t_ns: now,
+                    ..Ewma::ZERO
+                };
                 self.tick[i].store(now, Relaxed);
-                self.hot[i].owner.store(key, std::sync::atomic::Ordering::Release);
+                self.hot[i]
+                    .owner
+                    .store(key, std::sync::atomic::Ordering::Release);
                 return Some(i);
             }
         }
@@ -195,7 +236,9 @@ impl<E: AsRef<[Ewma]> + AsMut<[Ewma]>> Table<'_, E> {
     /// Add `add` to `key`'s slot's counters from `at` on (claimed when it has none); the rates tick when a second has
     /// passed and the lock is free. False when `key` has no slot.
     pub fn fold(&self, key: u64, at: usize, add: &[u64], now: u64) -> bool {
-        let Some(i) = self.claim(key, now) else { return false };
+        let Some(i) = self.claim(key, now) else {
+            return false;
+        };
         for (t, &x) in self.hot[i].totals[at..].iter().zip(add) {
             if x != 0 {
                 t.fetch_add(x, Relaxed);
@@ -215,7 +258,11 @@ impl<E: AsRef<[Ewma]> + AsMut<[Ewma]>> Table<'_, E> {
     pub fn try_rates(&self, key: u64, now: u64) -> Option<Option<[f64; N]>> {
         let i = self.find(key)?;
         let totals = self.totals(i);
-        let rates = self.ewma.try_lock().ok().map(|e| e.as_ref()[i].rates(now, &totals));
+        let rates = self
+            .ewma
+            .try_lock()
+            .ok()
+            .map(|e| e.as_ref()[i].rates(now, &totals));
         (self.hot[i].owner.load(Relaxed) == key).then_some(rates)
     }
 
@@ -352,7 +399,11 @@ fn dead_in(mask: Option<&[u64; pgrc_scan::DV_GRANULE_WORDS]>, from: u32, to: u32
     for (w, &word) in m.iter().enumerate().take(to.div_ceil(64)).skip(from / 64) {
         let lo = (w * 64).max(from) - w * 64;
         let hi = ((w + 1) * 64).min(to) - w * 64;
-        let bits = if hi - lo == 64 { !0u64 } else { ((1u64 << (hi - lo)) - 1) << lo };
+        let bits = if hi - lo == 64 {
+            !0u64
+        } else {
+            ((1u64 << (hi - lo)) - 1) << lo
+        };
         n += (word & bits).count_ones() as u64;
     }
     n
@@ -402,7 +453,12 @@ impl ScanTally {
 
     /// The scan stops inside a granule of `rows` rows, `cursor` of them passed: the live ones past the cursor were
     /// credited and never returned.
-    pub fn stop(&mut self, rows: u32, cursor: u32, mask: Option<&[u64; pgrc_scan::DV_GRANULE_WORDS]>) {
+    pub fn stop(
+        &mut self,
+        rows: u32,
+        cursor: u32,
+        mask: Option<&[u64; pgrc_scan::DV_GRANULE_WORDS]>,
+    ) {
         if self.starts == 0 || cursor >= rows {
             return;
         }
@@ -426,7 +482,12 @@ impl ScanTally {
         // D4809 (F4): a scan dropped in its session's teardown (after pgstat's shutdown hook), or on a thread with no
         // session, counts nothing: a count there built a PgStatState nothing retired (UNBOUND)
         if rel.pgstat_enabled.get() && pgstat::pgstat_counting_open() {
-            pgstat::relation::pgstat_count_seq_scans_batched(rel.rd_id, rel.rd_rel.relisshared, t.starts, t.rows);
+            pgstat::relation::pgstat_count_seq_scans_batched(
+                rel.rd_id,
+                rel.rd_rel.relisshared,
+                t.starts,
+                t.rows,
+            );
         }
         let mut add = [0u64; NSCAN];
         add[SCANS] = t.starts;
@@ -469,7 +530,11 @@ fn gravity_at(g: &mut Vec<GravityPending>, at: u32, relid: Oid, add: bool) -> Op
         Some(i) => Some(i),
         None if !add => None,
         None => {
-            g.push(GravityPending { db, relid, ..GravityPending::default() }); // alloc: Cold (a backend's first statement)
+            g.push(GravityPending {
+                db,
+                relid,
+                ..GravityPending::default()
+            }); // alloc: Cold (a backend's first statement)
             Some(g.len() - 1)
         }
     }
@@ -485,7 +550,9 @@ fn adds_entries() -> bool {
 /// A worker's bind of a granule source over `relid` (hosts granule_source `bind_pg`): the position of the statement's
 /// entry on this thread, for its unbind ([`granule_scan_end`]); `u32::MAX` without one. D4761: it never adds one.
 pub fn gravity_slot(relid: Oid) -> u32 {
-    GRAVITY.with(|g| gravity_at(&mut g.borrow_mut(), u32::MAX, relid, false).map_or(u32::MAX, |i| i as u32))
+    GRAVITY.with(|g| {
+        gravity_at(&mut g.borrow_mut(), u32::MAX, relid, false).map_or(u32::MAX, |i| i as u32)
+    })
 }
 
 /// Gravity's leader bind of a granule source over `relid` (hosts granule_source `bind_pg`): the scan (`seq_scan`, as
@@ -493,10 +560,18 @@ pub fn gravity_slot(relid: Oid) -> u32 {
 /// lane the plan recorded for the leading `sorted_by` key), and its part list's totals. Plain adds; the position of the
 /// statement's entry, for its unbind. pgstat's flush is told there is something (a statement that never reaches its end
 /// still lands).
-pub fn granule_scan_start(relid: Oid, keyed: bool, list_rows: u64, list_granules: u64, list_deleted: u64) -> u32 {
+pub fn granule_scan_start(
+    relid: Oid,
+    keyed: bool,
+    list_rows: u64,
+    list_granules: u64,
+    list_deleted: u64,
+) -> u32 {
     let at = GRAVITY.with(|g| {
         let mut g = g.borrow_mut();
-        let Some(i) = gravity_at(&mut g, u32::MAX, relid, true) else { return u32::MAX };
+        let Some(i) = gravity_at(&mut g, u32::MAX, relid, true) else {
+            return u32::MAX;
+        };
         let p = &mut g[i];
         p.scans += 1;
         p.keyed += keyed as u64;
@@ -543,7 +618,10 @@ fn gravity_rows(p: &GravityPending) -> (u64, u64) {
         return (0, 0);
     }
     let dead = share_of(p.list_deleted, covered, p.list_granules);
-    (share_of(p.list_rows, covered, p.list_granules).saturating_sub(dead), dead)
+    (
+        share_of(p.list_rows, covered, p.list_granules).saturating_sub(dead),
+        dead,
+    )
 }
 
 /// `n x min(covered, total) / total` (`total` > 0): no division when every granule is covered (a scan that skips
@@ -568,7 +646,10 @@ pub fn gravity_statement_end() {
         if g.is_empty() {
             return;
         }
-        let (track, db) = (pgstat::pgstat_track_counts() && pgstat::pgstat_counting_open(), init_small::globals::MyDatabaseId());
+        let (track, db) = (
+            pgstat::pgstat_track_counts() && pgstat::pgstat_counting_open(),
+            init_small::globals::MyDatabaseId(),
+        );
         for p in g.iter() {
             let (rows, dead) = gravity_rows(p);
             if track && p.db == db {
@@ -601,7 +682,13 @@ pub struct ReadRates {
 /// while another thread ticks its rates (the caller skips it this time).
 pub fn read_rates(db: Oid, relid: Oid) -> Option<Option<ReadRates>> {
     let r = table().try_rates(key(db, relid), now())?;
-    Some(r.map(|r| ReadRates { scans: r[SCANS], key_scans: r[KEY], granules_read: r[READ], granules_pruned: r[PRUNED], granules_answered: r[ANSWERED] }))
+    Some(r.map(|r| ReadRates {
+        scans: r[SCANS],
+        key_scans: r[KEY],
+        granules_read: r[READ],
+        granules_pruned: r[PRUNED],
+        granules_answered: r[ANSWERED],
+    }))
 }
 
 /// `pgrc_scan_stats`' text for `relid` in this database (the caller's pending counts flushed first): `slot=own|none`, then each counter (`name=total`) and each
@@ -609,10 +696,11 @@ pub fn read_rates(db: Oid, relid: Oid) -> Option<Option<ReadRates>> {
 pub fn stats_text(relid: Oid) -> String {
     // the caller's own pending counts first (a session sees its own reads at once)
     flush();
-    let (slot, totals, rates) = match table().read(key(init_small::globals::MyDatabaseId(), relid), now()) {
-        Some((t, r)) => ("own", t, r),
-        None => ("none", [0; N], [0.0; N]),
-    };
+    let (slot, totals, rates) =
+        match table().read(key(init_small::globals::MyDatabaseId(), relid), now()) {
+            Some((t, r)) => ("own", t, r),
+            None => ("none", [0; N], [0.0; N]),
+        };
     let mut out = format!("slot={slot}");
     for (name, t) in NAMES.iter().zip(totals) {
         out.push_str(&format!(" {name}={t}"));
@@ -631,7 +719,10 @@ mod tests {
 
     #[test]
     fn a_steady_rate_reads_as_itself_and_halves_in_a_half_life() {
-        let mut e = Ewma { t_ns: 0, ..Ewma::ZERO };
+        let mut e = Ewma {
+            t_ns: 0,
+            ..Ewma::ZERO
+        };
         let mut totals = [0u64; N];
         // 10 scans a second for an hour, ticked once a second
         for t in 1..=3600u64 {
@@ -667,18 +758,30 @@ mod tests {
     }
 
     fn local(n: usize) -> Local {
-        Local { hot: (0..n).map(|_| Hot::zero()).collect(), tick: (0..n).map(|_| AtomicU64::new(0)).collect(), ewma: Mutex::new(vec![Ewma::ZERO; n]) }
+        Local {
+            hot: (0..n).map(|_| Hot::zero()).collect(),
+            tick: (0..n).map(|_| AtomicU64::new(0)).collect(),
+            ewma: Mutex::new(vec![Ewma::ZERO; n]),
+        }
     }
 
     impl Local {
         fn t(&self) -> Table<'_, Vec<Ewma>> {
-            Table { hot: &self.hot, tick: &self.tick, ewma: &self.ewma }
+            Table {
+                hot: &self.hot,
+                tick: &self.tick,
+                ewma: &self.ewma,
+            }
         }
     }
 
     fn same_home(t: &Table<'_, Vec<Ewma>>, n: usize) -> Vec<u64> {
         let h = t.home(key(5, 16384));
-        (16384u32..).map(|r| key(5, r)).filter(|&k| t.home(k) == h).take(n).collect()
+        (16384u32..)
+            .map(|r| key(5, r))
+            .filter(|&k| t.home(k) == h)
+            .take(n)
+            .collect()
     }
 
     #[test]
@@ -693,7 +796,11 @@ mod tests {
         assert_eq!(totals[..NSCAN], [2, 40, 0, 0, 4000, 0]);
         assert_eq!(totals[NSCAN..], [0; N - NSCAN], "no publish");
         assert!(rates[SCANS] > 0.0);
-        assert_eq!(t.find(key(6, 16400)), None, "another database's table of the same relid is another key");
+        assert_eq!(
+            t.find(key(6, 16400)),
+            None,
+            "another database's table of the same relid is another key"
+        );
     }
 
     #[test]
@@ -705,7 +812,11 @@ mod tests {
         assert!(t.fold(k, 0, &[3, 0, 0, 0, 0, 1], S));
         assert!(t.try_rates(k, 2 * S).unwrap().unwrap()[SCANS] > 0.0);
         let held = pgsync::lock(&l.ewma);
-        assert_eq!(t.try_rates(k, 2 * S), Some(None), "the rates' lock held: skipped, not waited for");
+        assert_eq!(
+            t.try_rates(k, 2 * S),
+            Some(None),
+            "the rates' lock held: skipped, not waited for"
+        );
         drop(held);
     }
 
@@ -717,26 +828,59 @@ mod tests {
         for &k in &ks[..PROBE] {
             assert!(t.fold(k, 0, &[1, 0, 0, 0, 0, 0], S));
         }
-        assert!(!t.fold(ks[PROBE], 0, &[1, 0, 0, 0, 0, 0], 2 * S), "every probed slot is an active table's");
+        assert!(
+            !t.fold(ks[PROBE], 0, &[1, 0, 0, 0, 0, 0], 2 * S),
+            "every probed slot is an active table's"
+        );
         assert!(t.read(ks[PROBE], 2 * S).is_none());
         // the owners stay active (a tick a second) except the first, idle past IDLE_S
         let later = (IDLE_S + 10) * S;
         for &k in &ks[1..PROBE] {
             assert!(t.fold(k, 0, &[1, 0, 0, 0, 0, 0], later - S));
         }
-        assert!(t.fold(ks[PROBE], 0, &[1, 0, 0, 0, 0, 0], later), "an idle slot is reclaimed");
-        assert_eq!(t.read(ks[PROBE], later).unwrap().0[SCANS], 1, "a reclaimed slot starts from zero");
-        assert!(t.read(ks[0], later).is_none(), "the idle table lost its slot");
+        assert!(
+            t.fold(ks[PROBE], 0, &[1, 0, 0, 0, 0, 0], later),
+            "an idle slot is reclaimed"
+        );
+        assert_eq!(
+            t.read(ks[PROBE], later).unwrap().0[SCANS],
+            1,
+            "a reclaimed slot starts from zero"
+        );
+        assert!(
+            t.read(ks[0], later).is_none(),
+            "the idle table lost its slot"
+        );
     }
 
     #[test]
     fn gravity_rows_are_the_covered_share_of_the_lists() {
-        let p = GravityPending { census: [6, 3, 0], list_rows: 120_000, list_granules: 12, list_deleted: 1200, ..GravityPending::default() };
+        let p = GravityPending {
+            census: [6, 3, 0],
+            list_rows: 120_000,
+            list_granules: 12,
+            list_deleted: 1200,
+            ..GravityPending::default()
+        };
         // half the granules covered: half the rows, less half the dead
         assert_eq!(gravity_rows(&p), (60_000 - 600, 600));
-        let all = GravityPending { census: [8, 0, 4], ..p };
-        assert_eq!(gravity_rows(&all), (120_000 - 1200, 1200), "every granule covered: the lists' live rows exactly");
-        assert_eq!(gravity_rows(&GravityPending { census: [0, 12, 0], ..p }), (0, 0), "all pruned: nothing read");
+        let all = GravityPending {
+            census: [8, 0, 4],
+            ..p
+        };
+        assert_eq!(
+            gravity_rows(&all),
+            (120_000 - 1200, 1200),
+            "every granule covered: the lists' live rows exactly"
+        );
+        assert_eq!(
+            gravity_rows(&GravityPending {
+                census: [0, 12, 0],
+                ..p
+            }),
+            (0, 0),
+            "all pruned: nothing read"
+        );
         assert_eq!(gravity_rows(&GravityPending::default()), (0, 0));
     }
 
@@ -750,23 +894,46 @@ mod tests {
         let relid: Oid = 0x7e57_5ca0;
         let db = init_small::globals::MyDatabaseId();
         let at = granule_scan_start(relid, true, 1000, 10, 0);
-        assert_eq!(gravity_slot(relid), at, "a worker's bind takes the leader's entry");
+        assert_eq!(
+            gravity_slot(relid),
+            at,
+            "a worker's bind takes the leader's entry"
+        );
         for c in [[3, 4, 0], [2, 0, 1], [0, 0, 0]] {
             granule_scan_end(at, relid, c);
         }
         granule_scan_end(at + 7, relid, [0, 0, 1]); // a stale position finds the entry
-        let p = GRAVITY.with(|g| g.borrow().iter().find(|p| p.relid == relid).copied()).unwrap();
+        let p = GRAVITY
+            .with(|g| g.borrow().iter().find(|p| p.relid == relid).copied())
+            .unwrap();
         assert_eq!((p.scans, p.keyed, p.census), (1, 1, [5, 4, 2]));
         gravity_statement_end();
-        assert!(GRAVITY.with(|g| g.borrow().iter().all(|p| p.relid != relid)), "drained");
-        assert_eq!(pending_of(relid), Some([1, 5, 4, 2, 0, 1]), "the backend's pending counts");
-        assert!(table().find(key(db, relid)).is_none(), "nothing shared before the flush");
+        assert!(
+            GRAVITY.with(|g| g.borrow().iter().all(|p| p.relid != relid)),
+            "drained"
+        );
+        assert_eq!(
+            pending_of(relid),
+            Some([1, 5, 4, 2, 0, 1]),
+            "the backend's pending counts"
+        );
+        assert!(
+            table().find(key(db, relid)).is_none(),
+            "nothing shared before the flush"
+        );
         flush();
         assert_eq!(pending_of(relid), None);
-        assert_eq!(table().read(key(db, relid), now()).unwrap().0[..NSCAN], [1, 5, 4, 2, 0, 1]);
+        assert_eq!(
+            table().read(key(db, relid), now()).unwrap().0[..NSCAN],
+            [1, 5, 4, 2, 0, 1]
+        );
         gravity_statement_end();
         flush();
-        assert_eq!(table().read(key(db, relid), now()).unwrap().0[..NSCAN], [1, 5, 4, 2, 0, 1], "nothing pending adds nothing");
+        assert_eq!(
+            table().read(key(db, relid), now()).unwrap().0[..NSCAN],
+            [1, 5, 4, 2, 0, 1],
+            "nothing pending adds nothing"
+        );
     }
 
     #[test]
@@ -778,7 +945,11 @@ mod tests {
                 assert_eq!(at, u32::MAX, "no entry to take");
                 granule_scan_end(at, relid, [3, 1, 0]);
             }
-            assert_eq!(GRAVITY.with(|g| g.borrow().len()), 0, "nothing kept on the pool thread");
+            assert_eq!(
+                GRAVITY.with(|g| g.borrow().len()),
+                0,
+                "nothing kept on the pool thread"
+            );
         })
         .join()
         .unwrap();
@@ -789,7 +960,11 @@ mod tests {
             let relid: Oid = 0x7e57_5d20;
             granule_scan_end(u32::MAX, relid, [2, 0, 0]);
             let p = GRAVITY.with(|g| g.borrow().iter().find(|p| p.relid == relid).copied());
-            assert_eq!(p.map(|p| p.census), Some([2, 0, 0]), "kept on the backend's thread");
+            assert_eq!(
+                p.map(|p| p.census),
+                Some([2, 0, 0]),
+                "kept on the backend's thread"
+            );
             gravity_statement_end();
             assert_eq!(GRAVITY.with(|g| g.borrow().len()), 0, "landed");
             memledger::unbind_backend();
@@ -805,15 +980,28 @@ mod tests {
         let at = granule_scan_start(relid, false, 800, 8, 0);
         granule_scan_end(at, relid, [8, 0, 0]);
         flush();
-        assert!(table().find(key(db, relid)).is_none(), "a fold alone leaves the statement's entries");
+        assert!(
+            table().find(key(db, relid)).is_none(),
+            "a fold alone leaves the statement's entries"
+        );
         flush_from_pgstat();
-        assert!(GRAVITY.with(|g| g.borrow().iter().all(|p| p.relid != relid)), "landed");
-        assert_eq!(table().read(key(db, relid), now()).unwrap().0[..NSCAN], [1, 8, 0, 0, 0, 0]);
+        assert!(
+            GRAVITY.with(|g| g.borrow().iter().all(|p| p.relid != relid)),
+            "landed"
+        );
+        assert_eq!(
+            table().read(key(db, relid), now()).unwrap().0[..NSCAN],
+            [1, 8, 0, 0, 0, 0]
+        );
     }
 
     #[test]
     fn a_tables_counts_stay_in_the_database_they_were_read_in() {
-        let (db, other, relid): (Oid, Oid, Oid) = (init_small::globals::MyDatabaseId(), 0x7e57_d000, 0x7e57_5cc0);
+        let (db, other, relid): (Oid, Oid, Oid) = (
+            init_small::globals::MyDatabaseId(),
+            0x7e57_d000,
+            0x7e57_5cc0,
+        );
         granule_scan_start(relid, false, 800, 8, 0);
         init_small::globals::SetMyDatabaseId(other);
         let at = granule_scan_start(relid, false, 800, 8, 0);
@@ -821,24 +1009,48 @@ mod tests {
         gravity_statement_end();
         flush();
         init_small::globals::SetMyDatabaseId(db);
-        assert_eq!(table().read(key(other, relid), now()).unwrap().0[..NSCAN], [1, 8, 0, 0, 0, 0]);
-        assert_eq!(table().read(key(db, relid), now()).unwrap().0[..NSCAN], [1, 0, 0, 0, 0, 0]);
+        assert_eq!(
+            table().read(key(other, relid), now()).unwrap().0[..NSCAN],
+            [1, 8, 0, 0, 0, 0]
+        );
+        assert_eq!(
+            table().read(key(db, relid), now()).unwrap().0[..NSCAN],
+            [1, 0, 0, 0, 0, 0]
+        );
     }
 
     #[test]
     fn the_share_is_the_same_on_every_branch() {
         let reference = |n: u64, c: u64, t: u64| (n as u128 * c.min(t) as u128 / t as u128) as u64;
         // covered >= total: no division
-        for (n, c, t) in [(120_000, 12, 12), (120_000, 20, 12), (0, 5, 5), (u64::MAX, 9, 3)] {
-            assert_eq!(share_of(n, c, t), reference(n, c, t), "all covered {n} {c} {t}");
+        for (n, c, t) in [
+            (120_000, 12, 12),
+            (120_000, 20, 12),
+            (0, 5, 5),
+            (u64::MAX, 9, 3),
+        ] {
+            assert_eq!(
+                share_of(n, c, t),
+                reference(n, c, t),
+                "all covered {n} {c} {t}"
+            );
         }
         // the product fits u64
-        for (n, c, t) in [(120_000u64, 6u64, 12u64), (1_000_003, 1, 123), (7, 3, 11), ((1 << 40) + 17, 1000, 1001)] {
+        for (n, c, t) in [
+            (120_000u64, 6u64, 12u64),
+            (1_000_003, 1, 123),
+            (7, 3, 11),
+            ((1 << 40) + 17, 1000, 1001),
+        ] {
             assert!(n.checked_mul(c).is_some());
             assert_eq!(share_of(n, c, t), reference(n, c, t), "u64 {n} {c} {t}");
         }
         // the product would overflow u64: u128
-        for (n, c, t) in [(u64::MAX / 3, 5, 7), (u64::MAX, u32::MAX as u64, u32::MAX as u64 + 1), (1 << 62, 4, 9)] {
+        for (n, c, t) in [
+            (u64::MAX / 3, 5, 7),
+            (u64::MAX, u32::MAX as u64, u32::MAX as u64 + 1),
+            (1 << 62, 4, 9),
+        ] {
             assert!(n.checked_mul(c).is_none());
             assert_eq!(share_of(n, c, t), reference(n, c, t), "u128 {n} {c} {t}");
         }
@@ -855,8 +1067,15 @@ mod tests {
         assert_eq!(pending_of(base), Some([2, 4, 0, 0, 0, 0]));
         assert!(table().find(key(db, base)).is_none());
         note(db, base + PENDING_CAP as Oid - 1, &[1, 0, 0, 0, 0, 0]);
-        assert_eq!(pending_of(base), None, "the cap's table folded every pending table");
-        assert_eq!(table().read(key(db, base), now()).unwrap().0[..NSCAN], [2, 4, 0, 0, 0, 0]);
+        assert_eq!(
+            pending_of(base),
+            None,
+            "the cap's table folded every pending table"
+        );
+        assert_eq!(
+            table().read(key(db, base), now()).unwrap().0[..NSCAN],
+            [2, 4, 0, 0, 0, 0]
+        );
         note(db, base + 1, &[0; NSCAN]);
         assert_eq!(pending_of(base + 1), None, "zeros add no entry");
     }
@@ -882,7 +1101,10 @@ mod tests {
         for r in (9..8192).step_by(10) {
             m[r / 64] |= 1 << (r % 64);
         }
-        let mut t = ScanTally { starts: 1, ..ScanTally::default() };
+        let mut t = ScanTally {
+            starts: 1,
+            ..ScanTally::default()
+        };
         t.granule(8192, Some(&m));
         t.granule(8192, None);
         assert_eq!((t.granules, t.dead, t.rows), (2, 819, 8192 - 819 + 8192));
@@ -900,7 +1122,13 @@ mod tests {
     fn the_publish_counters_follow_the_process_counters_kinds() {
         for (i, (k, name)) in pgrc_write::publish::counters::KINDS.iter().enumerate() {
             assert_eq!(*k as usize, i + 1, "{name}");
-            assert_eq!((NAMES[PUB + 2 * i], NAMES[PUB + 2 * i + 1]), (format!("pub_{name}").as_str(), format!("pub_{name}_us").as_str()));
+            assert_eq!(
+                (NAMES[PUB + 2 * i], NAMES[PUB + 2 * i + 1]),
+                (
+                    format!("pub_{name}").as_str(),
+                    format!("pub_{name}_us").as_str()
+                )
+            );
         }
         assert_eq!(pgrc_write::publish::counters::KINDS.len(), PUB_KINDS);
     }
@@ -914,12 +1142,27 @@ mod tests {
         published(db, relid, PublishKind::Bulk, 80, now());
         published(db, relid, PublishKind::Compact, 5000, now());
         assert_eq!(thread_publish_us() - us0, 5200);
-        let (t, r) = table().read(key(db, relid), now()).expect("folded without a flush");
+        let (t, r) = table()
+            .read(key(db, relid), now())
+            .expect("folded without a flush");
         assert_eq!(t[..NSCAN], [0; NSCAN], "no scan");
         let at = |name: &str| NAMES.iter().position(|n| *n == name).unwrap();
-        let got: Vec<u64> = ["pub_bulk", "pub_bulk_us", "pub_compact", "pub_compact_us", "pub_seal", "pub_freeze"].iter().map(|n| t[at(n)]).collect();
+        let got: Vec<u64> = [
+            "pub_bulk",
+            "pub_bulk_us",
+            "pub_compact",
+            "pub_compact_us",
+            "pub_seal",
+            "pub_freeze",
+        ]
+        .iter()
+        .map(|n| t[at(n)])
+        .collect();
         assert_eq!(got, [2, 200, 1, 5000, 0, 0]);
         assert!(r[at("pub_bulk")] > 0.0 && r[at("pub_seal")] <= 0.0);
-        assert!(PENDING.with(|p| p.borrow().adds.iter().all(|e| e.0 != key(db, relid))), "publishes never join the pending scan counts");
+        assert!(
+            PENDING.with(|p| p.borrow().adds.iter().all(|e| e.0 != key(db, relid))),
+            "publishes never join the pending scan counts"
+        );
     }
 }

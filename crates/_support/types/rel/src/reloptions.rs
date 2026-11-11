@@ -198,7 +198,10 @@ impl PgrcolumnarOptions {
     /// The declared typed paths, in order; an element that does not
     /// parse is skipped (DDL validated the spelling).
     pub fn shred_path_decls(&self) -> Vec<ShredPathDecl> {
-        self.shred_paths().split(',').filter_map(ShredPathDecl::parse).collect()
+        self.shred_paths()
+            .split(',')
+            .filter_map(ShredPathDecl::parse)
+            .collect()
     }
 
     /// The declared key columns in order (syntax-checked at parse time;
@@ -218,7 +221,10 @@ impl PgrcolumnarOptions {
             .map(str::trim)
             .filter(|c| !c.is_empty())
             .map(|c| {
-                read_canonical_key(c).unwrap_or_else(|| SortedByKey { col: c.to_string(), path: Vec::new() })
+                read_canonical_key(c).unwrap_or_else(|| SortedByKey {
+                    col: c.to_string(),
+                    path: Vec::new(),
+                })
             })
             .collect()
     }
@@ -297,7 +303,11 @@ impl SortedByKey {
     pub fn render(&self) -> String {
         let mut out = self.col.clone();
         for (i, k) in self.path.iter().enumerate() {
-            out.push_str(if i + 1 == self.path.len() { "->>'" } else { "->'" });
+            out.push_str(if i + 1 == self.path.len() {
+                "->>'"
+            } else {
+                "->'"
+            });
             out.push_str(&k.replace('\'', "''"));
             out.push('\'');
         }
@@ -365,6 +375,7 @@ fn read_canonical_key(item: &str) -> Option<SortedByKey> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum RdOptions {
     Std(StdRdOptions),
     Pgrcolumnar(PgrcolumnarOptions),
@@ -417,8 +428,11 @@ impl RdOptions {
             RdOptions::Hash(o) => Some(o.fillfactor),
             RdOptions::Gist(o) => Some(o.fillfactor),
             RdOptions::SpGist(o) => Some(o.fillfactor),
-            RdOptions::View(_) | RdOptions::Gin(_) | RdOptions::Brin(_)
-            | RdOptions::Hnsw(_) | RdOptions::Bloom(_) => None,
+            RdOptions::View(_)
+            | RdOptions::Gin(_)
+            | RdOptions::Brin(_)
+            | RdOptions::Hnsw(_)
+            | RdOptions::Bloom(_) => None,
         }
     }
 

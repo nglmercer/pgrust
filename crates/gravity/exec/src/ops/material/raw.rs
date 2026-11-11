@@ -84,6 +84,7 @@ struct SpoolRt {
 /// A spool region: the pool's (`Draw`), or past the pool's refusal a temp file's (`Road`): a whole mapping (the record
 /// region, an owned spool's merged records) or `len` bytes at an address carved from the road's mappings (a copies chunk,
 /// a large copy), live as long as the road's mappings are (the spool's life, or until its restart).
+#[allow(clippy::large_enum_variant)]
 enum Buf {
     Pool(RegionBuf),
     File(TempMap),
@@ -199,6 +200,7 @@ pub(crate) fn new_obj(rec: u64, draw: Draw) -> PgResult<Box<SpoolObj>> {
 #[repr(C)]
 pub(crate) struct OwnedObj {
     spools: core::cell::UnsafeCell<abi::OwnedSpools>,
+    #[allow(clippy::vec_box)]
     owners: Vec<Box<SpoolObj>>,
     merged: RefCell<Option<Buf>>,
     draw: Draw,

@@ -25,6 +25,7 @@ use gravity_expr::emit::LaneRef;
 use gravity_ir::builder::{FunctionBuilder, ProgramBuilder};
 use gravity_ir::{Block, ConvOp, IntBinOp, IntCond, Type, Value};
 use gravity_program::protos::{code_sparse_table_arg, code_table_arg, const_key_arg, word_zone_of, Proto, ProtoKind, VERDICT_BLOOM, VERDICT_CLAIM, VERDICT_COND, VERDICT_COUNT_ONLY, VERDICT_ELIDE, VERDICT_ELIDE_HIT, VERDICT_GUARD_SEL, VERDICT_LATE, VERDICT_PACKED, VERDICT_PSMA, VERDICT_UNREAD, VERDICT_WORD_ZONE, VERDICT_ZONE};
+#[allow(unused_imports)]
 use gravity_program::{LaneDesc, LaneId as SiteLane, Parallel, Pipeline, Reason as Why, SiteDesc, TableDecl, ZoneOp, ZonePred};
 use mcx::{CollectIn, GrowIn, PgBox, PgVec};
 use types_nodes::Node;
@@ -366,7 +367,7 @@ pub(crate) fn declare_verdicts<'g>(px: &mut Px<'g, '_>, k: usize, site: &mut Sit
         site.set_filter_only(l);
     }
     if !elide.is_empty() {
-        enables |= VERDICT_ELIDE | VERDICT_ELIDE_HIT * hit_only as u64;
+        enables |= VERDICT_ELIDE | (VERDICT_ELIDE_HIT * hit_only as u64);
     }
     // D3042, count.only: a plain count(*)-only end over projections alone (the fold's `count_only` plan: answer.rs `whole`
     // counts every window `end - cursor` and reads no lane) over a site with no predicate of any kind, its attribute lanes
@@ -653,7 +654,7 @@ fn tid_array(b: &mut FunctionBuilder<'_>, (ctx, l_cancel): (Value, Block), ptr: 
     b.switch_to(walk);
     let n = b.load_zext(Type::I32, ptr, 16);
     b.br(head, &[zero, all, zero]);
-    (b.switch_to(head), b.mark_loop_header(head));
+    b.switch_to(head); b.mark_loop_header(head);
     let [i, least, most] = [0, 1, 2].map(|j| b.block_params(head)[j]);
     let more = b.icmp(IntCond::Ult, i, n);
     b.cond_br(more, (body, &[]), (fin, &[least, most]));

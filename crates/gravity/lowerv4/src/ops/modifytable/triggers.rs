@@ -15,8 +15,8 @@
 //!   host's). The row goes through ExecIR{Update,Delete}Triggers; there is no heap, no ctid, no EPQ. V4R-330: an outer
 //!   view's WITH CHECK OPTION over the UPDATE (WCO_VIEW_CHECK) is the host's ExecUpdateEpilogue check over the row the
 //!   INSTEAD OF trigger returned (hosts write.rs `view_write`); an RLS check option over a view target stays refused.
-//! A transition-table scan (`Source::Named`, a trigger body's `SELECT .. FROM new_table`) is srf.function's (V4R-213).
-//! Created by M4 (owner M4-TRIG).
+//!   A transition-table scan (`Source::Named`, a trigger body's `SELECT .. FROM new_table`) is srf.function's (V4R-213).
+//!   Created by M4 (owner M4-TRIG).
 use gravity_abi::program::{WRITE_DELETE, WRITE_UPDATE};
 use gravity_decompose::ops::modifytable::trig_facts::TrigExt;
 use gravity_decompose::catalog::typefacts::{self, TypeFacts};
@@ -166,7 +166,7 @@ pub(crate) fn view_step<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g
     };
     let view = view_end(px, k, j, w, op, true);
     let ret = super::returning::make_ret(px, k, j);
-    mcx::pg_box_dyn!(px.mcx(), ViewStep { view, ret, natts: w.site.natts() as usize } => dyn StepMech + 'g)
+    mcx::pg_box_dyn!(px.mcx(), ViewStep { view, ret, natts: w.site.natts() } => dyn StepMech + 'g)
 }
 
 /// D667: the view's row op, then RETURNING over the view's natts cells (the site's wholerow cell is the child's).

@@ -1,16 +1,23 @@
-
 #[cfg(target_os = "linux")]
 const PMD: usize = 2 << 20;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mapping {
-    Allocator { huge: bool },
-    Accounted { huge: bool },
+    Allocator {
+        huge: bool,
+    },
+    Accounted {
+        huge: bool,
+    },
     /// A MAP_NORESERVE mapping of the caller's own (not the allocator's: no name is set; the caller re-applies its own
     /// name and advice, which a fresh mapping does not keep).
-    Reserved { huge: bool },
+    Reserved {
+        huge: bool,
+    },
     /// The page pool's own memory (crate pagepool): NORESERVE, named `pgrust:pool`.
-    Pool { huge: bool },
+    Pool {
+        huge: bool,
+    },
 }
 
 /// The global allocator (mimalloc) names every mapping it makes `mimalloc` (`PR_SET_VMA_ANON_NAME`); the fresh mapping
@@ -24,7 +31,15 @@ fn name_allocator(lo: usize, len: usize) {
     const PR_SET_VMA_ANON_NAME: libc::c_ulong = 0;
     // SAFETY: prctl reads the NUL-terminated name (the kernel copies it) and the range, which is one anonymous mapping
     // just made; a refusal changes nothing.
-    let _ = unsafe { libc::prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, lo as libc::c_ulong, len as libc::c_ulong, c"mimalloc".as_ptr()) };
+    let _ = unsafe {
+        libc::prctl(
+            PR_SET_VMA,
+            PR_SET_VMA_ANON_NAME,
+            lo as libc::c_ulong,
+            len as libc::c_ulong,
+            c"mimalloc".as_ptr(),
+        )
+    };
 }
 
 /// The page pool's mappings are named `pgrust:pool`, so /proc/<pid>/smaps reads them apart from the allocator's.
@@ -33,13 +48,22 @@ fn name_pool(lo: usize, len: usize) {
     const PR_SET_VMA: libc::c_int = 0x5356_4d41;
     const PR_SET_VMA_ANON_NAME: libc::c_ulong = 0;
     // SAFETY: as `name_allocator`.
-    let _ = unsafe { libc::prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, lo as libc::c_ulong, len as libc::c_ulong, c"pgrust:pool".as_ptr()) };
+    let _ = unsafe {
+        libc::prctl(
+            PR_SET_VMA,
+            PR_SET_VMA_ANON_NAME,
+            lo as libc::c_ulong,
+            len as libc::c_ulong,
+            c"pgrust:pool".as_ptr(),
+        )
+    };
 }
 
 #[cfg(target_os = "linux")]
 fn holds_whole_pmd(lo: usize, len: usize) -> bool {
     let p = lo.next_multiple_of(PMD);
-    p.checked_add(PMD).is_some_and(|e| e <= lo.saturating_add(len))
+    p.checked_add(PMD)
+        .is_some_and(|e| e <= lo.saturating_add(len))
 }
 
 /// # Safety
@@ -51,7 +75,11 @@ pub unsafe fn dontneed_split(lo: usize, len: usize) -> core::ffi::c_int {
     let mut rc = 0;
     while cur < end {
         let p = cur.next_multiple_of(PMD);
-        let stop = if p <= end && end - p >= PMD { p + PMD / 2 } else { end };
+        let stop = if p <= end && end - p >= PMD {
+            p + PMD / 2
+        } else {
+            end
+        };
         // SAFETY: a page-aligned sub-range of the caller's range (`PMD / 2` keeps page alignment).
         rc |= unsafe { libc::madvise(cur as *mut libc::c_void, stop - cur, libc::MADV_DONTNEED) };
         cur = stop;
@@ -80,7 +108,16 @@ pub unsafe fn give_back(lo: usize, len: usize, mapping: Mapping) -> core::ffi::c
     };
     let flags = libc::MAP_PRIVATE | libc::MAP_ANONYMOUS | libc::MAP_FIXED | extra;
     // SAFETY: MAP_FIXED replaces only the caller's own range (its contract), with the protection it had (read-write)
-    let p = unsafe { libc::mmap(lo as *mut libc::c_void, len, libc::PROT_READ | libc::PROT_WRITE, flags, -1, 0) };
+    let p = unsafe {
+        libc::mmap(
+            lo as *mut libc::c_void,
+            len,
+            libc::PROT_READ | libc::PROT_WRITE,
+            flags,
+            -1,
+            0,
+        )
+    };
     if p as usize != lo {
         // SAFETY: the caller's contract
         return unsafe { dontneed_split(lo, len) };
@@ -123,17 +160,29 @@ pub fn note_pin_failure(errno: i32, memlock: Option<(u64, u64)>) -> bool {
     if PIN_WARNED.swap(true, Relaxed) {
         return false;
     }
-    let lim = |v: u64| if v == u64::MAX { "unlimited".to_string() } else { v.to_string() };
-    let limits = memlock.map_or("unreadable".to_string(), |(c, m)| format!("soft {} hard {}", lim(c), lim(m)));
+    let lim = |v: u64| {
+        if v == u64::MAX {
+            "unlimited".to_string()
+        } else {
+            v.to_string()
+        }
+    };
+    let limits = memlock.map_or("unreadable".to_string(), |(c, m)| {
+        format!("soft {} hard {}", lim(c), lim(m))
+    });
     eprintln!("WARNING:  pagegive: the thread stack pin failed (errno {errno}); RLIMIT_MEMLOCK {limits}: this thread's exit may give its whole stack reservation back to the kernel");
     true
 }
 
 #[cfg(target_os = "linux")]
 fn memlock_limits() -> Option<(u64, u64)> {
-    let mut rl = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    let mut rl = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
     // SAFETY: a read of this process's limit into a local.
-    (unsafe { libc::getrlimit(libc::RLIMIT_MEMLOCK, &mut rl) } == 0).then_some((rl.rlim_cur, rl.rlim_max))
+    (unsafe { libc::getrlimit(libc::RLIMIT_MEMLOCK, &mut rl) } == 0)
+        .then_some((rl.rlim_cur, rl.rlim_max))
 }
 
 #[cfg(target_os = "linux")]
@@ -149,7 +198,10 @@ pub fn pin_thread_stack() -> bool {
         let ok = libc::pthread_attr_getstack(&attr, &mut lo, &mut size) == 0;
         let _ = libc::pthread_attr_getguardsize(&attr, &mut guard);
         libc::pthread_attr_destroy(&mut attr);
-        let page = usize::try_from(libc::sysconf(libc::_SC_PAGESIZE)).ok().filter(|p| p.is_power_of_two()).unwrap_or(4096);
+        let page = usize::try_from(libc::sysconf(libc::_SC_PAGESIZE))
+            .ok()
+            .filter(|p| p.is_power_of_two())
+            .unwrap_or(4096);
         if !ok || lo.is_null() || size <= guard + 2 * page {
             return false;
         }
@@ -191,7 +243,9 @@ where
 #[cfg(target_os = "linux")]
 pub fn resident_bytes(lo: usize, hi: usize, buf: &mut [u8]) -> Option<usize> {
     // SAFETY: sysconf has no preconditions.
-    let page = usize::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) }).ok().filter(|p| p.is_power_of_two())?;
+    let page = usize::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) })
+        .ok()
+        .filter(|p| p.is_power_of_two())?;
     if buf.is_empty() {
         return None;
     }
@@ -231,7 +285,14 @@ mod tests {
     fn map(len: usize) -> usize {
         // SAFETY: a fresh private anonymous mapping
         let p = unsafe {
-            libc::mmap(core::ptr::null_mut(), len, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_PRIVATE | libc::MAP_ANONYMOUS, -1, 0)
+            libc::mmap(
+                core::ptr::null_mut(),
+                len,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
+                -1,
+                0,
+            )
         };
         assert_ne!(p, libc::MAP_FAILED);
         p as usize
@@ -241,7 +302,10 @@ mod tests {
     fn give_back_reads_zero_and_keeps_the_mapping() {
         let len = 8 * PMD;
         let base = map(len);
-        for mapping in [Mapping::Allocator { huge: true }, Mapping::Accounted { huge: false }] {
+        for mapping in [
+            Mapping::Allocator { huge: true },
+            Mapping::Accounted { huge: false },
+        ] {
             // SAFETY: the test's own mapping
             unsafe { core::ptr::write_bytes(base as *mut u8, 0xAB, len) };
             let (lo, n) = (base + 4096, len - 2 * 4096);
@@ -257,7 +321,10 @@ mod tests {
         // SAFETY: as above
         unsafe { core::ptr::write_bytes(base as *mut u8, 0xCD, len) };
         // SAFETY: as above
-        assert_eq!(unsafe { give_back(base + 4096, 8192, Mapping::Allocator { huge: false }) }, 0);
+        assert_eq!(
+            unsafe { give_back(base + 4096, 8192, Mapping::Allocator { huge: false }) },
+            0
+        );
         // SAFETY: as above
         let s = unsafe { core::slice::from_raw_parts(base as *const u8, 4 * 4096) };
         assert!(s[4096..3 * 4096].iter().all(|&b| b == 0) && s[0] == 0xCD && s[3 * 4096] == 0xCD);
@@ -273,11 +340,18 @@ mod tests {
         unsafe { core::ptr::write_bytes(base as *mut u8, 0x3C, len) };
         let lo = base.next_multiple_of(PMD);
         // SAFETY: page-aligned, inside the test's own mapping, bytes dead
-        assert_eq!(unsafe { give_back(lo, PMD, Mapping::Pool { huge: true }) }, 0);
+        assert_eq!(
+            unsafe { give_back(lo, PMD, Mapping::Pool { huge: true }) },
+            0
+        );
         // SAFETY: the mapping is still there, read-write
-        assert!(unsafe { core::slice::from_raw_parts(lo as *const u8, PMD) }.iter().all(|&b| b == 0));
+        assert!(unsafe { core::slice::from_raw_parts(lo as *const u8, PMD) }
+            .iter()
+            .all(|&b| b == 0));
         let maps = std::fs::read_to_string("/proc/self/maps").unwrap();
-        let named = maps.lines().any(|l| l.starts_with(&format!("{lo:x}-")) && l.ends_with("[anon:pgrust:pool]"));
+        let named = maps
+            .lines()
+            .any(|l| l.starts_with(&format!("{lo:x}-")) && l.ends_with("[anon:pgrust:pool]"));
         // a kernel without anonymous VMA names (before 5.17) refuses the name and keeps the mapping
         let names = maps.contains("[anon:");
         assert!(named || !names, "no [anon:pgrust:pool] mapping at {lo:x}");
@@ -294,16 +368,28 @@ mod tests {
         // SAFETY: as above
         assert_eq!(unsafe { give_back_stack(base, len) }, 0);
         // SAFETY: as above
-        assert!(unsafe { core::slice::from_raw_parts(base as *const u8, len) }.iter().all(|&b| b == 0));
+        assert!(
+            unsafe { core::slice::from_raw_parts(base as *const u8, len) }
+                .iter()
+                .all(|&b| b == 0)
+        );
         // SAFETY: as above
         unsafe { libc::munmap(base as *mut libc::c_void, len) };
     }
 
     #[test]
     fn pin_locks_a_page_of_a_spawned_thread() {
-        let pinned = std::thread::Builder::new().stack_size(8 << 20).spawn(pin_thread_stack).unwrap().join().unwrap();
+        let pinned = std::thread::Builder::new()
+            .stack_size(8 << 20)
+            .spawn(pin_thread_stack)
+            .unwrap()
+            .join()
+            .unwrap();
         // an RLIMIT_MEMLOCK under a page refuses the lock; anything else locks one page
-        let mut rl = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+        let mut rl = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
         // SAFETY: a read of this process's limit
         unsafe { libc::getrlimit(libc::RLIMIT_MEMLOCK, &mut rl) };
         // SAFETY: a pure read
@@ -325,23 +411,41 @@ mod tests {
     #[test]
     fn pinned_with_no_memlock_counts_and_still_runs() {
         if std::env::var_os("PAGEGIVE_CHILD").is_some() {
-            let rl = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+            let rl = libc::rlimit {
+                rlim_cur: 0,
+                rlim_max: 0,
+            };
             // SAFETY: lowers this child process's own limit.
             assert_eq!(unsafe { libc::setrlimit(libc::RLIMIT_MEMLOCK, &rl) }, 0);
-            let n = std::thread::Builder::new().stack_size(8 << 20).spawn(pinned(|| 7)).unwrap().join().unwrap();
+            let n = std::thread::Builder::new()
+                .stack_size(8 << 20)
+                .spawn(pinned(|| 7))
+                .unwrap()
+                .join()
+                .unwrap();
             assert_eq!(n, 7);
             assert_eq!(pin_failures(), 1);
             return;
         }
         let me = std::env::current_exe().unwrap();
         let out = std::process::Command::new(me)
-            .args(["tests::pinned_with_no_memlock_counts_and_still_runs", "--exact", "--nocapture", "--test-threads", "1"])
+            .args([
+                "tests::pinned_with_no_memlock_counts_and_still_runs",
+                "--exact",
+                "--nocapture",
+                "--test-threads",
+                "1",
+            ])
             .env("PAGEGIVE_CHILD", "1")
             .output()
             .unwrap();
         let err = String::from_utf8_lossy(&out.stderr);
         assert!(out.status.success(), "child failed: {err}");
-        assert!(err.contains("WARNING:  pagegive: the thread stack pin failed (errno ") && err.contains("soft 0 hard 0"), "{err}");
+        assert!(
+            err.contains("WARNING:  pagegive: the thread stack pin failed (errno ")
+                && err.contains("soft 0 hard 0"),
+            "{err}"
+        );
     }
 
     #[inline(never)]
@@ -354,7 +458,10 @@ mod tests {
 
     #[test]
     fn pinned_thread_exit_leaves_its_deep_stack_alone() {
-        let mut rl = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+        let mut rl = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
         // SAFETY: a read of this process's limit
         unsafe { libc::getrlimit(libc::RLIMIT_MEMLOCK, &mut rl) };
         // SAFETY: a pure read
@@ -374,7 +481,7 @@ mod tests {
                 };
                 let here = &lo as *const usize as usize;
                 std::hint::black_box(dig(160)); // ~10 MiB of 64 KiB frames below `here`
-                // SAFETY: gettid has no preconditions
+                                                // SAFETY: gettid has no preconditions
                 let tid = unsafe { libc::syscall(libc::SYS_gettid) } as libc::pid_t;
                 tx.send((lo, size, here, tid)).unwrap();
             }))
@@ -384,7 +491,10 @@ mod tests {
         let t0 = std::time::Instant::now();
         // SAFETY: signal 0 probes for the task's existence
         while unsafe { libc::syscall(libc::SYS_tgkill, libc::getpid(), tid, 0) } == 0 {
-            assert!(t0.elapsed() < std::time::Duration::from_secs(30), "thread {tid} did not exit");
+            assert!(
+                t0.elapsed() < std::time::Duration::from_secs(30),
+                "thread {tid} did not exit"
+            );
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
         if rl.rlim_cur < page as u64 {
@@ -396,9 +506,17 @@ mod tests {
         assert!(from > lo + 2 * page);
         let mut v = vec![0u8; (hi - from) / page];
         // SAFETY: a residency query over a range of the thread's stack, still mapped until the join
-        assert_eq!(unsafe { libc::mincore(from as *mut libc::c_void, hi - from, v.as_mut_ptr()) }, 0);
+        assert_eq!(
+            unsafe { libc::mincore(from as *mut libc::c_void, hi - from, v.as_mut_ptr()) },
+            0
+        );
         let gone = v.iter().filter(|&&b| b & 1 == 0).count();
         h.join().unwrap();
-        assert_eq!(gone, 0, "{gone} of {} deep stack pages were given back at thread exit", v.len());
+        assert_eq!(
+            gone,
+            0,
+            "{gone} of {} deep stack pages were given back at thread exit",
+            v.len()
+        );
     }
 }

@@ -1097,12 +1097,14 @@ struct Params {
     ordered: bool,
     /// The count slot of the count-ordered form.
     count: Option<usize>,
+    #[allow(dead_code)]
     bits: u8,
     rec: usize,
     layout: RecordLayout,
     /// The count-ordered form's text keys (item 32): `(representative slot, code lane)` per key.
     reps: Reps,
     /// The distinct form: the pair words (0 otherwise), the group estimate and the accumulator layout (`layout` otherwise).
+    #[allow(dead_code)]
     pair: u8,
     groups: u32,
     acc: RecordLayout,

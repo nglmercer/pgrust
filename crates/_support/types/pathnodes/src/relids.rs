@@ -9,8 +9,10 @@
 //! the incumbent computed it) — so comparisons and plans are unchanged by
 //! construction. Pinned by relids_differential_tests.
 
+use crate::{
+    PathTarget, PlannerInfo, PtId, RelId, RelOptInfo, Relids, UpperRelationKind, RELOPT_UPPER_REL,
+};
 use mcx::{Mcx, PgVec};
-use crate::{PathTarget, PlannerInfo, PtId, RelId, RelOptInfo, Relids, UpperRelationKind, RELOPT_UPPER_REL};
 
 pub use repr::{
     relids_add_member, relids_add_member_mut, relids_copy, relids_del_member, relids_difference,
@@ -23,8 +25,8 @@ pub use repr::{
 // ---------------------------------------------------------------------------
 #[cfg(not(feature = "boxed_relids"))]
 mod repr {
-    use mcx::{vec_from_elem_in, Mcx, PgVec};
     use crate::Relids;
+    use mcx::{vec_from_elem_in, Mcx, PgVec};
 
     /// The unset value. Distinct from an allocated all-zero set: helpers
     /// preserve that distinction (e.g. `relids_intersect` of two disjoint
@@ -60,7 +62,6 @@ mod repr {
     }
 
     #[inline]
-
     pub fn relids_singleton<'mcx>(mcx: Mcx<'mcx>, x: u32) -> Relids<'mcx> {
         if x < 64 {
             return Relids::Small(1u64 << x);
@@ -71,7 +72,6 @@ mod repr {
     }
 
     #[inline]
-
     pub fn relids_union<'mcx>(mcx: Mcx<'mcx>, a: &Relids<'mcx>, b: &Relids<'mcx>) -> Relids<'mcx> {
         let (aw, bw) = (a.word_slice(), b.word_slice());
         let n = aw.len().max(bw.len());
@@ -90,7 +90,6 @@ mod repr {
     }
 
     #[inline]
-
     pub fn relids_intersect<'mcx>(
         mcx: Mcx<'mcx>,
         a: &Relids<'mcx>,
@@ -117,7 +116,6 @@ mod repr {
     }
 
     #[inline]
-
     pub fn relids_add_member<'mcx>(mcx: Mcx<'mcx>, a: &Relids<'mcx>, x: u32) -> Relids<'mcx> {
         match a {
             Relids::Empty => relids_singleton(mcx, x),
@@ -140,7 +138,6 @@ mod repr {
     }
 
     #[inline]
-
     pub fn relids_del_member<'mcx>(mcx: Mcx<'mcx>, a: &Relids<'mcx>, x: i32) -> Relids<'mcx> {
         let mut out = relids_copy(mcx, a);
         if x >= 0 {
@@ -152,7 +149,6 @@ mod repr {
     }
 
     #[inline]
-
     pub fn relids_difference<'mcx>(
         mcx: Mcx<'mcx>,
         a: &Relids<'mcx>,
@@ -174,7 +170,6 @@ mod repr {
     }
 
     #[inline]
-
     pub fn relids_copy<'mcx>(mcx: Mcx<'mcx>, a: &Relids<'mcx>) -> Relids<'mcx> {
         match a {
             Relids::Empty => Relids::Empty,
@@ -213,8 +208,8 @@ mod repr {
 // ---------------------------------------------------------------------------
 #[cfg(feature = "boxed_relids")]
 mod repr {
-    use mcx::{box_new_in, vec_from_elem_in, Mcx, PgVec};
     use crate::{Bitmapset, Relids};
+    use mcx::{box_new_in, vec_from_elem_in, Mcx, PgVec};
 
     /// The unset (`None`) Relids; distinct from an allocated all-zero set.
     #[inline]
@@ -240,7 +235,8 @@ mod repr {
     /// Mutable view of the backing words; empty slice for the unset value.
     #[inline]
     pub fn relids_word_slice_mut<'a>(a: &'a mut Relids<'_>) -> &'a mut [u64] {
-        a.as_mut().map_or(&mut [] as &mut [u64], |b| b.word_slice_mut())
+        a.as_mut()
+            .map_or(&mut [] as &mut [u64], |b| b.word_slice_mut())
     }
 
     #[inline]
@@ -281,7 +277,9 @@ mod repr {
         a: &Relids<'mcx>,
         b: &Relids<'mcx>,
     ) -> Relids<'mcx> {
-        let (Some(x), Some(y)) = (a, b) else { return None };
+        let (Some(x), Some(y)) = (a, b) else {
+            return None;
+        };
         let (xw, yw) = (x.word_slice(), y.word_slice());
         let n = xw.len().min(yw.len());
         if n == 0 {
@@ -398,7 +396,6 @@ pub fn relids_take<'mcx>(a: &mut Relids<'mcx>) -> Relids<'mcx> {
 }
 
 #[inline]
-
 pub fn relids_overlap(a: &Relids<'_>, b: &Relids<'_>) -> bool {
     relids_word_slice(a)
         .iter()
@@ -423,13 +420,11 @@ pub fn relids_equal(a: &Relids<'_>, b: &Relids<'_>) -> bool {
 }
 
 #[inline]
-
 pub fn relids_is_empty(a: &Relids<'_>) -> bool {
     relids_word_slice(a).iter().all(|w| *w == 0)
 }
 
 #[inline]
-
 pub fn relids_is_member(x: i32, a: &Relids<'_>) -> bool {
     if x < 0 {
         return false;
@@ -440,13 +435,14 @@ pub fn relids_is_member(x: i32, a: &Relids<'_>) -> bool {
 }
 
 #[inline]
-
 pub fn relids_num_members(a: &Relids<'_>) -> i32 {
-    relids_word_slice(a).iter().map(|w| w.count_ones() as i32).sum()
+    relids_word_slice(a)
+        .iter()
+        .map(|w| w.count_ones() as i32)
+        .sum()
 }
 
 #[inline]
-
 pub fn relids_is_subset(a: &Relids<'_>, b: &Relids<'_>) -> bool {
     let bw = relids_word_slice(b);
     for (i, w) in relids_word_slice(a).iter().enumerate() {
@@ -539,7 +535,10 @@ pub fn find_base_rel(root: &PlannerInfo<'_>, relid: i32) -> RelId {
         root.query_level
     );
     root.simple_rel_array[relid as usize].unwrap_or_else(|| {
-        panic!("no relation entry for relid {relid} (find_base_rel, level {})", root.query_level)
+        panic!(
+            "no relation entry for relid {relid} (find_base_rel, level {})",
+            root.query_level
+        )
     })
 }
 
@@ -603,7 +602,6 @@ pub fn fetch_upper_rel_with_relids<'mcx>(
 }
 
 #[inline]
-
 pub fn pgvec_clone_shallow<'mcx, T: Copy>(mcx: Mcx<'mcx>, v: &[T]) -> PgVec<'mcx, T> {
     let mut out = PgVec::new_in(mcx);
     out.reserve(v.len());

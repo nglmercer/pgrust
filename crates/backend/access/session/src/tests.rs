@@ -177,7 +177,13 @@ fn tls_names(src: &str) -> Vec<String> {
         let end = src[start..].find('\n').map_or(b.len(), |i| start + i);
         let line = src[start..end].trim_start();
         if start >= resume
-            && ["thread_local!", "std::thread_local!", "::std::thread_local!"].iter().any(|p| line.starts_with(p))
+            && [
+                "thread_local!",
+                "std::thread_local!",
+                "::std::thread_local!",
+            ]
+            .iter()
+            .any(|p| line.starts_with(p))
         {
             let mut j = start + src[start..].find('!').unwrap() + 1;
             while j < b.len() && !b"({[".contains(&b[j]) {
@@ -211,7 +217,10 @@ fn tls_names(src: &str) -> Vec<String> {
                     }
                 } else if depth == 1
                     && b[j..].starts_with(b"static")
-                    && (j == 0 || !(b[j - 1].is_ascii_alphanumeric() || b[j - 1] == b'_' || b[j - 1] == b'\''))
+                    && (j == 0
+                        || !(b[j - 1].is_ascii_alphanumeric()
+                            || b[j - 1] == b'_'
+                            || b[j - 1] == b'\''))
                 {
                     let mut k = j + 6;
                     let ws = k;
@@ -219,7 +228,10 @@ fn tls_names(src: &str) -> Vec<String> {
                         k += 1;
                     }
                     let id = k;
-                    if k > ws && k < b.len() && (b[k].is_ascii_alphabetic() || b[k] == b'_' || b[k] == b'$') {
+                    if k > ws
+                        && k < b.len()
+                        && (b[k].is_ascii_alphabetic() || b[k] == b'_' || b[k] == b'$')
+                    {
                         k += 1;
                         while k < b.len() && (b[k].is_ascii_alphanumeric() || b[k] == b'_') {
                             k += 1;
@@ -245,14 +257,22 @@ fn tls_names(src: &str) -> Vec<String> {
 }
 
 /// Every `(path under crates/, static)` a `thread_local!` declares below `dir`.
-fn tls_census(crates: &std::path::Path, dir: &std::path::Path, found: &mut std::collections::BTreeSet<(String, String)>) {
+fn tls_census(
+    crates: &std::path::Path,
+    dir: &std::path::Path,
+    found: &mut std::collections::BTreeSet<(String, String)>,
+) {
     for entry in std::fs::read_dir(dir).unwrap() {
         let path = entry.unwrap().path();
         if path.is_dir() {
             tls_census(crates, &path, found);
         } else if path.extension().is_some_and(|ext| ext == "rs") {
             let source = std::fs::read_to_string(&path).unwrap();
-            let rel = path.strip_prefix(crates).unwrap().to_string_lossy().replace('\\', "/");
+            let rel = path
+                .strip_prefix(crates)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/");
             for name in tls_names(&source) {
                 found.insert((rel.clone(), name));
             }
@@ -266,11 +286,13 @@ fn tls_census(crates: &std::path::Path, dir: &std::path::Path, found: &mut std::
 /// which holds one.
 #[test]
 fn tls_source_census_and_session_surface_are_pinned() {
-    let dir = std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)");
+    let dir = std::env::var_os("CARGO_MANIFEST_DIR")
+        .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)");
     let crates = std::path::Path::new(&dir).ancestors().nth(3).unwrap();
     let mut found = std::collections::BTreeSet::new();
     tls_census(crates, crates, &mut found);
-    let manifest = std::fs::read_to_string(std::path::Path::new(&dir).join("tls-census.tsv")).unwrap();
+    let manifest =
+        std::fs::read_to_string(std::path::Path::new(&dir).join("tls-census.tsv")).unwrap();
     let mut classed = std::collections::BTreeMap::new();
     for (n, line) in manifest.lines().enumerate() {
         if line.is_empty() || line.starts_with('#') {
@@ -284,7 +306,14 @@ fn tls_source_census_and_session_surface_are_pinned() {
         );
         let key = (fields[0].to_string(), fields[1].to_string());
         if let Some(class) = classed.insert(key, fields[2]) {
-            assert_eq!(class, fields[2], "tls-census.tsv:{}: two classes for {} {}", n + 1, fields[0], fields[1]);
+            assert_eq!(
+                class,
+                fields[2],
+                "tls-census.tsv:{}: two classes for {} {}",
+                n + 1,
+                fields[0],
+                fields[1]
+            );
         }
     }
     let missing: Vec<String> = found
@@ -302,7 +331,11 @@ fn tls_source_census_and_session_surface_are_pinned() {
         .filter(|key| !found.contains(*key))
         .map(|(path, name)| format!("{path}\t{name}"))
         .collect();
-    assert!(stale.is_empty(), "tls-census.tsv lines whose thread-local is gone:\n{}", stale.join("\n"));
+    assert!(
+        stale.is_empty(),
+        "tls-census.tsv lines whose thread-local is gone:\n{}",
+        stale.join("\n")
+    );
     let session_sources = [
         "backend/access/session/src/lib.rs",
         "backend/utils/init/init_small/src/globals.rs",
@@ -339,7 +372,9 @@ fn tls_source_census_and_session_surface_are_pinned() {
     }
     for path in session_sources {
         assert!(
-            classed.iter().any(|((p, _), class)| p == path && *class == "session"),
+            classed
+                .iter()
+                .any(|((p, _), class)| p == path && *class == "session"),
             "session source {path} holds no session thread-local"
         );
     }
@@ -617,14 +652,20 @@ fn stale_cancel_discard_clears_the_abort_byte() {
         let _ = SessionEnvelopeBoundaryIssue();
         assert!(!init_small::globals::QueryCancelPending());
         assert!(!init_small::globals::InterruptPending());
-        assert!(!init_small::globals::AbortPending(), "the stale cancel's abort byte must go with it");
+        assert!(
+            !init_small::globals::AbortPending(),
+            "the stale cancel's abort byte must go with it"
+        );
 
         init_small::globals::SetInterruptPending(true);
         init_small::globals::SetProcDiePending(true);
         init_small::globals::SetAbortPending(true);
         let _ = SessionEnvelopeBoundaryIssue();
         assert!(init_small::globals::ProcDiePending());
-        assert!(init_small::globals::AbortPending(), "a pending die keeps its byte");
+        assert!(
+            init_small::globals::AbortPending(),
+            "a pending die keeps its byte"
+        );
         init_small::globals::SetProcDiePending(false);
         init_small::globals::SetInterruptPending(false);
         init_small::globals::SetAbortPending(false);

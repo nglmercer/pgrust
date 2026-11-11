@@ -40,7 +40,13 @@ fn test_basic(nkeys: usize, shift: i32, asc: bool) {
     let mut tree: RadixTree<u64> = RadixTree::create(&ctx).unwrap();
 
     let keys: Vec<u64> = (0..nkeys)
-        .map(|i| if asc { (i as u64) << shift } else { ((nkeys - 1 - i) as u64) << shift })
+        .map(|i| {
+            if asc {
+                (i as u64) << shift
+            } else {
+                ((nkeys - 1 - i) as u64) << shift
+            }
+        })
         .collect();
 
     for &key in &keys {
@@ -69,6 +75,7 @@ fn test_basic(nkeys: usize, shift: i32, asc: bool) {
         assert_eq!(*iterval, expected);
     }
     assert!(iter.next().is_none());
+    #[allow(clippy::drop_non_drop)]
     drop(iter);
 
     for &key in &keys {
@@ -137,6 +144,7 @@ fn test_random() {
         assert_eq!(*iterval, keys[i]);
     }
     assert!(iter.next().is_none());
+    #[allow(clippy::drop_non_drop)]
     drop(iter);
 
     let mut prng = SplitMix64(seed);
@@ -285,7 +293,11 @@ struct VarImage {
 impl VarImage {
     fn new(nwords: usize, fill: u64) -> VarImage {
         let mut img = VarImage {
-            hdr: VarHdr { flags: 1, nwords: nwords as i8, fill: [0; 3] },
+            hdr: VarHdr {
+                flags: 1,
+                nwords: nwords as i8,
+                fill: [0; 3],
+            },
             words: [0; 8],
         };
         for w in 0..nwords {
@@ -301,7 +313,10 @@ unsafe fn check_var(tree: &RadixTree<VarHdr>, key: u64, nwords: usize, fill: u64
     assert_eq!((*p).nwords as usize, nwords);
     let words = p.cast::<u8>().add(size_of::<VarHdr>()).cast::<u64>();
     for w in 0..nwords {
-        assert_eq!(ptr::read_unaligned(words.add(w)), fill.wrapping_add(w as u64));
+        assert_eq!(
+            ptr::read_unaligned(words.add(w)),
+            fill.wrapping_add(w as u64)
+        );
     }
 }
 
@@ -336,7 +351,8 @@ fn test_varlen_runtime_embeddable() {
         // Populate a spread of keys with varying sizes; verify via iteration.
         for i in 0..500u64 {
             let img = VarImage::new((i % 8) as usize, i);
-            tree.set_ptr(i * 3, (&img as *const VarImage).cast()).unwrap();
+            tree.set_ptr(i * 3, (&img as *const VarImage).cast())
+                .unwrap();
         }
         let mut iter = tree.begin_iterate();
         let mut seen = 0u64;
@@ -350,6 +366,7 @@ fn test_varlen_runtime_embeddable() {
             seen += 1;
         }
         assert_eq!(seen, 500);
+        #[allow(clippy::drop_non_drop)]
         drop(iter);
 
         for i in 0..500u64 {
@@ -371,7 +388,10 @@ fn test_memory_usage_tracks_growth() {
         tree.set(i, &i).unwrap();
     }
     let grown = tree.memory_usage();
-    assert!(grown > initial, "memory_usage did not grow: {initial} -> {grown}");
+    assert!(
+        grown > initial,
+        "memory_usage did not grow: {initial} -> {grown}"
+    );
 }
 
 #[test]
@@ -438,8 +458,12 @@ fn memory_usage_keeps_freed_leaf_blocks() {
     assert!(leaf_blocks > size_of::<Big>());
     assert!(tree.delete(1));
     assert_eq!(tree.store.leaf_ctx.used(), 0);
-    let slab_blocks: usize = tree.store.node_slabs.iter()
-        .map(|slab| slab.stats_tree().arena_footprint).sum();
+    let slab_blocks: usize = tree
+        .store
+        .node_slabs
+        .iter()
+        .map(|slab| slab.stats_tree().arena_footprint)
+        .sum();
     assert_eq!(tree.memory_usage(), (leaf_blocks + slab_blocks) as u64);
 }
 
@@ -449,7 +473,9 @@ fn dsa_accounted_tree_with_shmem_fanouts() {
     let mut rng = SplitMix64(7);
     for &(nkeys, shift) in &[(16usize, 0i32), (63, 0), (256, 0), (3000, 3), (3000, 17)] {
         let dsa = DsaSizeModel::for_tidstore(64 * 1024 * 1024).unwrap();
-        let mut tree: RadixTree<u64> = RadixTree::create_in_dsa_accounted(test_ctx(), &crate::rt_class_names!("test"), dsa).unwrap();
+        let mut tree: RadixTree<u64> =
+            RadixTree::create_in_dsa_accounted(test_ctx(), &crate::rt_class_names!("test"), dsa)
+                .unwrap();
         let mut oracle = BTreeMap::new();
         for _ in 0..nkeys {
             let key = (rng.next() % (nkeys as u64 * 2)) << shift;
@@ -464,6 +490,7 @@ fn dsa_accounted_tree_with_shmem_fanouts() {
             assert_eq!(iter.next().map(|(key, val)| (key, *val)), Some((k, v)));
         }
         assert!(iter.next().is_none());
+        #[allow(clippy::drop_non_drop)]
         drop(iter);
         for &k in oracle.keys().step_by(2) {
             assert!(tree.delete(k));
@@ -478,7 +505,8 @@ fn dsa_accounted_tree_with_shmem_fanouts() {
 #[test]
 fn node_slabs_carry_the_callers_prefix() {
     let ctx = MemoryContext::new("TID storage");
-    let tree: RadixTree<u64> = RadixTree::create_in(ctx, &crate::rt_class_names!("local_ts")).unwrap();
+    let tree: RadixTree<u64> =
+        RadixTree::create_in(ctx, &crate::rt_class_names!("local_ts")).unwrap();
     let t = tree.store.leaf_ctx.stats_tree();
     let names: Vec<&str> = t.children.iter().map(|c| c.name).collect();
     assert!(names.contains(&"local_ts_radix_tree node4"), "{names:?}");

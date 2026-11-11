@@ -220,6 +220,7 @@ pub fn emit(pb: &mut ProgramBuilder, f: &Fold) -> Option<Func> {
     b.switch_to(next);
     let src1 = b.ptr_add(src, rec_c, 1, 0);
     b.br(head, &[i1, folded1, len2, src1, mix]);
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     Some(func)
 }

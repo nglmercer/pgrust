@@ -1108,6 +1108,7 @@ pub(crate) struct GrantLease {
     /// `res`'s `Rc` block on the owner the lease starts under (`memledger::charge::context()`: the portal it runs in, else
     /// its statement), fixed: a cursor's portal keeps its lease past the statement. FIRST field: a door-1 charge drops
     /// before the bytes it counts are freed.
+    #[allow(dead_code)]
     held: memledger::Charge,
     res: std::rc::Rc<gravity_driver::Reservation>,
     estimate: u64,

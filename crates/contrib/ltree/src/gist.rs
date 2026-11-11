@@ -161,6 +161,7 @@ fn decode_key(image: &[u8], siglen: usize) -> PgResult<LtgKey> {
 
     let left = read_node(data, off)?;
     let left_size = varsize(&data[off..]);
+    #[allow(clippy::if_same_then_else)]
     let rnode = if flag & LTG_NORIGHT != 0 {
         left.clone()
     } else if off + left_size >= data.len() {
@@ -323,6 +324,7 @@ pub fn ltree_union(entries: &[(Vec<u8>, bool)], siglen: usize) -> PgResult<Vec<u
             if isalltrue || cur.is_alltrue() {
                 isalltrue = true;
             } else {
+                #[allow(clippy::needless_range_loop)]
                 for i in 0..siglen {
                     base[i] |= cur.sign[i];
                 }
@@ -418,6 +420,7 @@ pub fn ltree_picksplit(
             } else if lisat || lu.is_alltrue() {
                 lisat = true;
             } else {
+                #[allow(clippy::needless_range_loop)]
                 for i in 0..siglen {
                     ls[i] |= lu.sign[i];
                 }
@@ -433,6 +436,7 @@ pub fn ltree_picksplit(
             } else if risat || lu.is_alltrue() {
                 risat = true;
             } else {
+                #[allow(clippy::needless_range_loop)]
                 for i in 0..siglen {
                     rs[i] |= lu.sign[i];
                 }
@@ -789,6 +793,7 @@ pub fn array_union(entries: &[(Vec<u8>, bool)], siglen: usize) -> PgResult<Vec<u
             isalltrue = true;
             break;
         }
+        #[allow(clippy::needless_range_loop)]
         for i in 0..siglen {
             base[i] |= add.sign[i];
         }
@@ -886,6 +891,7 @@ pub fn array_picksplit(
     let seed_l = make_seed_key(datum_l_allistrue, &union_l)?;
     let seed_r = make_seed_key(datum_r_allistrue, &union_r)?;
     let mut costvector: Vec<(usize, i32)> = ::mcx::std_vec_with_capacity("ltree", maxoff)?;
+    #[allow(clippy::needless_range_loop)]
     for j in 1..=maxoff {
         let kj = keys[j].as_ref().unwrap();
         let alpha = ahemdist(&seed_l, kj, siglen);
@@ -926,6 +932,7 @@ pub fn array_picksplit(
                     l_allistrue = true;
                 }
             } else {
+                #[allow(clippy::needless_range_loop)]
                 for i in 0..siglen {
                     union_l[i] |= kj.sign[i];
                 }
@@ -940,6 +947,7 @@ pub fn array_picksplit(
                     r_allistrue = true;
                 }
             } else {
+                #[allow(clippy::needless_range_loop)]
                 for i in 0..siglen {
                     union_r[i] |= kj.sign[i];
                 }

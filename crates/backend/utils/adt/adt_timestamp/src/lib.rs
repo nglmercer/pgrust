@@ -377,6 +377,7 @@ pub fn session_offset_over(lo: i64, hi: i64) -> Option<i64> {
     })
 }
 
+#[allow(clippy::result_unit_err)]
 pub fn timestamp2tm(
     dt: Timestamp,
     tzp: Option<&mut i32>,

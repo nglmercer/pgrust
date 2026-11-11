@@ -1444,6 +1444,7 @@ pub(crate) fn verify_heapam(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) 
         }
     }
     stream.end()?;
+    #[allow(clippy::drop_non_drop)]
     drop(next_block);
 
     vmbuf.release();

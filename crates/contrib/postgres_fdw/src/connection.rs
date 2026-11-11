@@ -1606,6 +1606,7 @@ pub(crate) fn fc_postgres_fdw_disconnect_all(
     Ok(Datum::from_bool(disconnect_cached_connections(None)?))
 }
 
+#[allow(clippy::large_enum_variant)]
 enum CleanupResult {
     TimedOut,
     Failed,

@@ -4,6 +4,7 @@ use super::{guarded, inner_of};
 
 mod raw;
 pub use raw::{grow, object_map, object_overdraw, object_region, pin_host, spill_epoch, spill_region};
+#[allow(unused_imports)]
 pub(crate) use raw::{file_slot_pin, give_owner_pin, map_owners, owner_wall_of, pin, pin_batch, pin_owner, pin_room, pin_room_one, spill_region_now, spill_region_spills, spill_region_unzeroed, spill_region_within, unmap_owners};
 
 pub use gravity_program::cost::runtime::HOST_ARENA_CHUNK as CHUNK;

@@ -106,7 +106,7 @@ fn move_constructor_preserves_source_length_inline_and_spilled() {
 
 #[test]
 // The self move-assignment below is deliberate: the test checks that the source stays valid through it.
-#[allow(clippy::self_assignment)]
+#[allow(clippy::self_assignment, dead_code)]
 fn move_assignment_clears_destination_and_leaves_source() {
     let context = MemoryContext::new_bump("bitset");
     for size in [0, 1, 64, 65, 256, 257] {

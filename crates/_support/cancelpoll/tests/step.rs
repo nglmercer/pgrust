@@ -7,12 +7,20 @@ use cancelpoll::{sort_by, step, Canceled, BATCH, SORT_RUN};
 #[test]
 fn a_step_stops_at_the_abort_bit_of_its_kernel_call_and_never_outside_one() {
     let mut s = step("outside");
-    assert_eq!(s.tick(), Ok(()), "outside a kernel call there is no byte to read");
+    assert_eq!(
+        s.tick(),
+        Ok(()),
+        "outside a kernel call there is no byte to read"
+    );
     drop(s);
     let byte = AtomicU8::new(cancelpoll::PROBE_BIT | 2);
     cancelpoll::scoped(&byte, || {
         let mut s = step("quiet");
-        assert_eq!(s.tick(), Ok(()), "the probe and the service bits are no cancel");
+        assert_eq!(
+            s.tick(),
+            Ok(()),
+            "the probe and the service bits are no cancel"
+        );
         byte.store(cancelpoll::ABORT_BIT, Ordering::Release);
         assert!(!cancelpoll::seen());
         assert_eq!(s.tick(), Err(Canceled));
@@ -48,7 +56,10 @@ fn a_held_steps_stop_never_marks_the_kernel_calls_stop() {
     static HELD: AtomicU8 = AtomicU8::new(cancelpoll::ABORT_BIT);
     let mut s = cancelpoll::step_static(&HELD, "static, outside a call");
     assert_eq!(s.tick(), Err(Canceled));
-    assert!(!cancelpoll::seen(), "no kernel call runs: nothing would reset the mark");
+    assert!(
+        !cancelpoll::seen(),
+        "no kernel call runs: nothing would reset the mark"
+    );
     let held = AtomicU8::new(cancelpoll::ABORT_BIT);
     let mut s = unsafe { cancelpoll::step_on(held.as_ptr(), "held, outside a call") };
     assert_eq!(s.tick(), Err(Canceled));
@@ -57,10 +68,16 @@ fn a_held_steps_stop_never_marks_the_kernel_calls_stop() {
     cancelpoll::scoped(&byte, || {
         let mut s = unsafe { cancelpoll::step_on(held.as_ptr(), "held, inside a call") };
         assert_eq!(s.tick(), Err(Canceled));
-        assert!(!cancelpoll::seen(), "the call's own byte is quiet: the stop is the held byte's owner's");
+        assert!(
+            !cancelpoll::seen(),
+            "the call's own byte is quiet: the stop is the held byte's owner's"
+        );
         byte.store(cancelpoll::ABORT_BIT, Ordering::Release);
         assert_eq!(step("lent").tick(), Err(Canceled));
-        assert!(cancelpoll::seen(), "a step on the lent byte marks its call's stop");
+        assert!(
+            cancelpoll::seen(),
+            "a step on the lent byte marks its call's stop"
+        );
     });
     assert!(!cancelpoll::seen(), "the call's end clears its mark");
 }
@@ -87,6 +104,7 @@ fn each_yields_the_cancel_as_an_item_and_then_ends() {
 }
 
 #[test]
+#[allow(clippy::single_range_in_vec_init)]
 fn pieces_cap_each_unit_and_stop_before_the_next() {
     let byte = AtomicU8::new(0);
     cancelpoll::scoped(&byte, || {
@@ -146,14 +164,19 @@ fn batch_ticks_once_per_batch() {
 #[test]
 fn sort_by_sorts_and_a_canceled_sort_keeps_every_element() {
     let n = 3 * SORT_RUN + 17;
-    let input: Vec<u32> = (0..n as u32).map(|i| i.wrapping_mul(2654435761) % 100_003).collect();
+    let input: Vec<u32> = (0..n as u32)
+        .map(|i| i.wrapping_mul(2654435761) % 100_003)
+        .collect();
     let mut want = input.clone();
     want.sort_unstable();
     let byte = AtomicU8::new(0);
     cancelpoll::scoped(&byte, || {
         let mut s = step("sort");
         let mut small: Vec<u32> = input[..100].to_vec();
-        assert_eq!(sort_by(&mut s, &mut small, &mut [], |a, b| a.cmp(b)), Ok(()));
+        assert_eq!(
+            sort_by(&mut s, &mut small, &mut [], |a, b| a.cmp(b)),
+            Ok(())
+        );
         let mut w = input[..100].to_vec();
         w.sort_unstable();
         assert_eq!(small, w);

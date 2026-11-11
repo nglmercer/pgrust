@@ -358,6 +358,7 @@ fn the_pulled_derived_fingerprint_equals_the_swept_one() {
 /// the table, codes after the sequence ends early, and a code pulled again out of order keeps its last print.
 #[test]
 fn the_pulled_derived_table_zeroes_every_unprinted_code_over_a_dirty_region() {
+    #[allow(unused_imports)]
     use gravity_dict::{Fp128, Region};
     gravity_dict::fp::install(0x0706_0504_0302_0100, 0x0f0e_0d0c_0b0a_0908);
     let ents: Vec<Vec<u8>> = (0..200u32).map(|i| format!("host{}.example/{}", i % 17, i).into_bytes()).collect();

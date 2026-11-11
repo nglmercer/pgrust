@@ -49,6 +49,7 @@ fn grow_pairs(pcur: usize, plen: usize) -> PgResult<usize> {
 }
 
 // get_val: one token starting at ptr; Ok(None) is EOF at token start.
+#[allow(clippy::if_same_then_else)]
 fn get_val(input: &[u8], mut ptr: usize, ignoreeq: bool) -> PgResult<Option<(Vec<u8>, bool, usize)>> {
     let mut st = Gv::WaitVal;
     let mut wordlen = 32usize;

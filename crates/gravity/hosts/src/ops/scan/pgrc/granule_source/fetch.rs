@@ -25,6 +25,7 @@ impl GranuleRangeSource {
             fires::fire_shared("pgrc.code_select");
         }
         // bounded("small-fixed: the zone predicates the row selection applies, at most ROW_PREDS (64)")
+        #[allow(clippy::needless_range_loop)]
         for zi in 0..nzone.min(ROW_PREDS) {
             let z = self.zone[zi];
             let k = z.lane as usize;
@@ -132,6 +133,7 @@ impl GranuleRangeSource {
         // verbatim part's lane holds image pointers); float / bool fixed lanes never carry a predicate
         // SRC-09: a prefix predicate's value is a key, never the lane's word; NEW-47: so is an unsigned word's (oid), its
         // zero-extended key, where the lane's cells compare signed at their width. P5-11: a probe word is no value
+        #[allow(clippy::nonminimal_bool)]
         !(z.prefix || z.is_hashed() || k >= self.recipe.natts || self.elided.has(k) || self.recipe.kinds[k] > lane::KIND_CODES && !(self.recipe.numeric.has(k) && !self.lane_byref.has(k)) || self.unsigned_key(k))
     }
 
@@ -227,7 +229,7 @@ impl GranuleRangeSource {
         // `code_sparse_dense_pct()` % of its rows (a near-unique column) has no value covering the rest at the part level, so
         // it decodes whole (a heuristic: a clustered granule can still hold a dominant base; the walk's guard below is exact)
         let (dict_codes, dense_pct) = (entry.dict.ncodes() as u64, gravity_program::cost::code_sparse_dense_pct());
-        if self.parts().part_if_open(p).is_some_and(|part| dict_codes * 100 > part.rows() as u64 * dense_pct) {
+        if self.parts().part_if_open(p).is_some_and(|part| dict_codes * 100 > part.rows() * dense_pct) {
             self.sparse_dense = p;
             return Ok(None);
         }

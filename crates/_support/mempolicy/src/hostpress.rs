@@ -58,7 +58,18 @@ pub struct HostPress {
 
 impl HostPress {
     pub const fn new() -> Self {
-        HostPress { mark_ms: 0, mark: Reading { psi_some_us: None, refault_bytes: None }, until_ms: 0, last: Window { psi_permille: 0, refault_per_s: 0 } }
+        HostPress {
+            mark_ms: 0,
+            mark: Reading {
+                psi_some_us: None,
+                refault_bytes: None,
+            },
+            until_ms: 0,
+            last: Window {
+                psi_permille: 0,
+                refault_per_s: 0,
+            },
+        }
     }
 
     /// A sample at `now_ms` (a monotonic clock from 1): whether the host is pressed now.
@@ -74,9 +85,15 @@ impl HostPress {
                 _ => None,
             };
             let psi = delta(self.mark.psi_some_us, r.psi_some_us).map_or(0, |us| us / span);
-            let refault = delta(self.mark.refault_bytes, r.refault_bytes).map_or(0, |b| b.saturating_mul(1_000) / span);
-            self.last = Window { psi_permille: psi, refault_per_s: refault };
-            if (bars.psi_permille != 0 && psi >= bars.psi_permille) || (bars.refault_per_s != 0 && refault >= bars.refault_per_s) {
+            let refault = delta(self.mark.refault_bytes, r.refault_bytes)
+                .map_or(0, |b| b.saturating_mul(1_000) / span);
+            self.last = Window {
+                psi_permille: psi,
+                refault_per_s: refault,
+            };
+            if (bars.psi_permille != 0 && psi >= bars.psi_permille)
+                || (bars.refault_per_s != 0 && refault >= bars.refault_per_s)
+            {
                 self.until_ms = now_ms.saturating_add(bars.hold_ms.max(1));
             }
             self.restart(now_ms, r);
@@ -100,25 +117,54 @@ mod tests {
     use super::{Bars, HostPress, Reading, Window};
 
     const MIB: u64 = 1 << 20;
-    const BARS: Bars = Bars { window_ms: 500, psi_permille: 50, refault_per_s: 64 * MIB, hold_ms: 2_000 };
+    const BARS: Bars = Bars {
+        window_ms: 500,
+        psi_permille: 50,
+        refault_per_s: 64 * MIB,
+        hold_ms: 2_000,
+    };
 
     fn r(psi_us: u64, refault: u64) -> Reading {
-        Reading { psi_some_us: Some(psi_us), refault_bytes: Some(refault) }
+        Reading {
+            psi_some_us: Some(psi_us),
+            refault_bytes: Some(refault),
+        }
     }
 
     /// Nothing presses until a window closes past a knob; a window's stall share and refault rate are per its wall time.
     #[test]
     fn a_window_past_either_knob_presses_and_one_under_both_does_not() {
         let mut h = HostPress::new();
-        assert!(!h.step(1, r(0, 0), &BARS), "the first sample opens a window");
-        assert!(!h.step(400, r(20_000, 0), &BARS), "the window is still open (its stall so far unread)");
-        assert!(h.step(501, r(25_000, 0), &BARS), "25 ms stalled in 500 ms = 50 per mille: pressed");
-        assert_eq!(h.last(), Window { psi_permille: 50, refault_per_s: 0 });
+        assert!(
+            !h.step(1, r(0, 0), &BARS),
+            "the first sample opens a window"
+        );
+        assert!(
+            !h.step(400, r(20_000, 0), &BARS),
+            "the window is still open (its stall so far unread)"
+        );
+        assert!(
+            h.step(501, r(25_000, 0), &BARS),
+            "25 ms stalled in 500 ms = 50 per mille: pressed"
+        );
+        assert_eq!(
+            h.last(),
+            Window {
+                psi_permille: 50,
+                refault_per_s: 0
+            }
+        );
 
         let mut h = HostPress::new();
         h.step(1, r(0, 0), &BARS);
-        assert!(!h.step(501, r(20_000, 31 * MIB), &BARS), "40 per mille and 62 MiB/s: under both");
-        assert!(h.step(1_001, r(20_000, 31 * MIB + 32 * MIB + 1), &BARS), "past 64 MiB/s of refaults: pressed");
+        assert!(
+            !h.step(501, r(20_000, 31 * MIB), &BARS),
+            "40 per mille and 62 MiB/s: under both"
+        );
+        assert!(
+            h.step(1_001, r(20_000, 31 * MIB + 32 * MIB + 1), &BARS),
+            "past 64 MiB/s of refaults: pressed"
+        );
     }
 
     /// Pressed lasts `hold_ms` past the last window over a knob, then lets go; a later window past a knob presses again.
@@ -127,28 +173,47 @@ mod tests {
         let mut h = HostPress::new();
         h.step(1, r(0, 0), &BARS);
         assert!(h.step(501, r(100_000, 0), &BARS));
-        assert!(h.step(1_001, r(100_000, 0), &BARS), "a quiet window: still held");
+        assert!(
+            h.step(1_001, r(100_000, 0), &BARS),
+            "a quiet window: still held"
+        );
         assert!(h.step(2_500, r(100_000, 0), &BARS), "held until 2,501");
         assert!(!h.step(2_501, r(100_000, 0), &BARS), "the hold is over");
-        assert!(h.step(3_001, r(100_000, 128 * MIB), &BARS), "refaults again: pressed");
+        assert!(
+            h.step(3_001, r(100_000, 128 * MIB), &BARS),
+            "refaults again: pressed"
+        );
     }
 
     /// A knob at 0 turns its signal off; an unreadable counter (None) or one that went back presses nothing.
     #[test]
     fn an_off_knob_an_unreadable_file_or_a_counter_going_back_never_press() {
-        let off = Bars { psi_permille: 0, refault_per_s: 0, ..BARS };
+        let off = Bars {
+            psi_permille: 0,
+            refault_per_s: 0,
+            ..BARS
+        };
         let mut h = HostPress::new();
         h.step(1, r(0, 0), &off);
         assert!(!h.step(501, r(500_000, 1 << 40), &off), "both knobs off");
 
         let mut h = HostPress::new();
         h.step(1, Reading::default(), &BARS);
-        assert!(!h.step(501, Reading::default(), &BARS), "no files: nothing to read");
+        assert!(
+            !h.step(501, Reading::default(), &BARS),
+            "no files: nothing to read"
+        );
 
         let mut h = HostPress::new();
         h.step(1, r(500_000, 1 << 40), &BARS);
-        assert!(!h.step(501, r(0, 0), &BARS), "both counters went back (a reopened file): the window restarts");
-        assert!(!h.step(1_001, r(1_000, MIB), &BARS), "the restarted window is quiet");
+        assert!(
+            !h.step(501, r(0, 0), &BARS),
+            "both counters went back (a reopened file): the window restarts"
+        );
+        assert!(
+            !h.step(1_001, r(1_000, MIB), &BARS),
+            "the restarted window is quiet"
+        );
     }
 
     /// The clock going back (a test's, a new epoch) restarts the window instead of underflowing.
@@ -157,6 +222,9 @@ mod tests {
         let mut h = HostPress::new();
         h.step(1_000, r(0, 0), &BARS);
         assert!(!h.step(10, r(1_000_000, 0), &BARS));
-        assert!(!h.step(400, r(1_000_000, 0), &BARS), "the window restarted at 10");
+        assert!(
+            !h.step(400, r(1_000_000, 0), &BARS),
+            "the window restarted at 10"
+        );
     }
 }

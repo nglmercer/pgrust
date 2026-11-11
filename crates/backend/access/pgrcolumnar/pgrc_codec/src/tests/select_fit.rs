@@ -76,12 +76,19 @@ fn clustered(n: usize, frames: usize, seed: &mut u64) -> Vec<u16> {
 }
 
 fn lane(enc: &mut dyn GranuleEncoder, width: u8, modu: u64, sorted: bool, seed: &mut u64) -> Built {
-    let class = StorageClass::ByvalWord { width, signed: true };
+    let class = StorageClass::ByvalWord {
+        width,
+        signed: true,
+    };
     let mut datums: Vec<u64> = (0..ROWS).map(|_| splitmix(seed) % (modu + 1)).collect();
     if sorted {
         datums.sort_unstable();
     }
-    let g = GranuleData { rows: ROWS, datums, validity: None };
+    let g = GranuleData {
+        rows: ROWS,
+        datums,
+        validity: None,
+    };
     build_stream(enc, &[g.input(class)], 0, true)
 }
 
@@ -114,7 +121,10 @@ fn gather(built: &Built, width: u8, sel: &[u16], o: &mut Outs) -> u64 {
     }
     let vt = crate::registry().resolve(ctx.key).expect("kernel");
     let n = sel.len();
-    let mut d = DecodeOut { datums: &mut o.dense[..n], arena: ByteArena::new(&mut o.arena) };
+    let mut d = DecodeOut {
+        datums: &mut o.dense[..n],
+        arena: ByteArena::new(&mut o.arena),
+    };
     (vt.decode_sel)(&ctx, &s, &mut d).expect("decode_sel");
     match width {
         2 => scatter(&mut o.i16s, sel, &o.dense, |d| d as i16),
@@ -131,7 +141,10 @@ fn whole(built: &Built, width: u8, o: &mut Outs) -> u64 {
         2 => (vt.decode_narrow)(&ctx, NarrowOut::I16(&mut o.i16s)).expect("decode_narrow") as u64,
         4 => (vt.decode_narrow)(&ctx, NarrowOut::I32(&mut o.i32s)).expect("decode_narrow") as u64,
         _ => {
-            let mut d = DecodeOut { datums: &mut o.words, arena: ByteArena::new(&mut o.arena) };
+            let mut d = DecodeOut {
+                datums: &mut o.words,
+                arena: ByteArena::new(&mut o.arena),
+            };
             (vt.decode_full)(&ctx, &mut d).expect("decode_full") as u64
         }
     }
@@ -142,18 +155,82 @@ fn whole(built: &Built, width: u8, o: &mut Outs) -> u64 {
 fn select_fit() {
     let mut seed = DEV_SEED;
     let mut lanes: Vec<(String, u8, Built)> = Vec::new();
-    for (lw, w, modu) in [(2u8, 1u8, 200u64), (2, 2, 30_000), (4, 1, 200), (4, 2, 60_000), (4, 3, (1 << 24) - 1), (4, 4, (1 << 31) - 1), (8, 1, 200), (8, 2, 60_000), (8, 4, (1 << 31) - 1), (8, 5, (1 << 40) - 1), (8, 8, u64::MAX / 4)] {
-        lanes.push((format!("bytefor.i{}.w{w}", lw * 8), lw, lane(&mut ByteForEncoder::new_bytefor(lw, w, true), lw, modu, false, &mut seed)));
+    for (lw, w, modu) in [
+        (2u8, 1u8, 200u64),
+        (2, 2, 30_000),
+        (4, 1, 200),
+        (4, 2, 60_000),
+        (4, 3, (1 << 24) - 1),
+        (4, 4, (1 << 31) - 1),
+        (8, 1, 200),
+        (8, 2, 60_000),
+        (8, 4, (1 << 31) - 1),
+        (8, 5, (1 << 40) - 1),
+        (8, 8, u64::MAX / 4),
+    ] {
+        lanes.push((
+            format!("bytefor.i{}.w{w}", lw * 8),
+            lw,
+            lane(
+                &mut ByteForEncoder::new_bytefor(lw, w, true),
+                lw,
+                modu,
+                false,
+                &mut seed,
+            ),
+        ));
     }
     for (lw, bits) in [(2u8, 9u32), (4, 4), (4, 12), (4, 20), (4, 31), (8, 40)] {
-        lanes.push((format!("ffor.i{}.b{bits}", lw * 8), lw, lane(&mut FforEncoder { signed: true, carry: None }, lw, (1u64 << bits) - 1, false, &mut seed)));
+        lanes.push((
+            format!("ffor.i{}.b{bits}", lw * 8),
+            lw,
+            lane(
+                &mut FforEncoder {
+                    signed: true,
+                    carry: None,
+                },
+                lw,
+                (1u64 << bits) - 1,
+                false,
+                &mut seed,
+            ),
+        ));
     }
-    lanes.push(("deltafor.i32.sorted".to_string(), 4, lane(&mut DeltaForEncoder::default(), 4, (1 << 31) - 1, true, &mut seed)));
+    lanes.push((
+        "deltafor.i32.sorted".to_string(),
+        4,
+        lane(
+            &mut DeltaForEncoder::default(),
+            4,
+            (1 << 31) - 1,
+            true,
+            &mut seed,
+        ),
+    ));
     for lw in [4u8, 8] {
-        let class = StorageClass::ByvalWord { width: lw, signed: true };
-        lanes.push((format!("verbatim.i{}", lw * 8), lw, lane(&mut VerbatimEncoder { class }, lw, (1 << 30) - 1, false, &mut seed)));
+        let class = StorageClass::ByvalWord {
+            width: lw,
+            signed: true,
+        };
+        lanes.push((
+            format!("verbatim.i{}", lw * 8),
+            lw,
+            lane(
+                &mut VerbatimEncoder { class },
+                lw,
+                (1 << 30) - 1,
+                false,
+                &mut seed,
+            ),
+        ));
     }
-    let mut o = Outs { dense: vec![0; ROWS as usize], arena: vec![0; 1 << 16], i16s: vec![0; ROWS as usize], i32s: vec![0; ROWS as usize], words: vec![0; ROWS as usize] };
+    let mut o = Outs {
+        dense: vec![0; ROWS as usize],
+        arena: vec![0; 1 << 16],
+        i16s: vec![0; ROWS as usize],
+        i32s: vec![0; ROWS as usize],
+        words: vec![0; ROWS as usize],
+    };
     println!("lane\tkey\tframes\tsurvivors\tgather_ns\twhole_ns");
     let mut summary = Vec::new();
     for (name, lw, built) in &lanes {
@@ -178,7 +255,10 @@ fn select_fit() {
             for n in [64usize, 256] {
                 let sel = clustered(n, frames, &mut seed);
                 let g = ns_per_call(|| gather(built, *lw, &sel, &mut o));
-                println!("{name}\t{:?}\t{frames}\t{n}\t{g:.1}\t{full:.1}", built.key());
+                println!(
+                    "{name}\t{:?}\t{frames}\t{n}\t{g:.1}\t{full:.1}",
+                    built.key()
+                );
                 if n == 64 {
                     per_frame.push(format!("{frames}f {g:.0}"));
                 }

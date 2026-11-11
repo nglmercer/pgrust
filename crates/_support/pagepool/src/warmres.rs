@@ -7,8 +7,9 @@
 //! in place before a Cold one is populated, and free superpages past the target go back by age, one superpage a remap.
 
 use crate::superpage::{self, State, SUPER};
-use crate::{os, reserve::zones, stats, Class, CLASSES};
+#[allow(unused_imports)]
 use crate::sync::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering::*};
+use crate::{os, reserve::zones, stats, Class, CLASSES};
 
 const WINDOW_MS: u32 = 60_000;
 const HALF_MS: u32 = WINDOW_MS / 2;
@@ -26,8 +27,10 @@ const PASS_NS: u64 = 2_000_000;
 
 static SWITCH: AtomicU8 = AtomicU8::new(0);
 
-static MISS_CLASS: crate::Line<[AtomicU64; CLASSES]> = crate::Line([const { AtomicU64::new(0) }; CLASSES]);
-static MISS_SIZE: crate::Line<[AtomicU64; SIZES]> = crate::Line([const { AtomicU64::new(0) }; SIZES]);
+static MISS_CLASS: crate::Line<[AtomicU64; CLASSES]> =
+    crate::Line([const { AtomicU64::new(0) }; CLASSES]);
+static MISS_SIZE: crate::Line<[AtomicU64; SIZES]> =
+    crate::Line([const { AtomicU64::new(0) }; SIZES]);
 static MISS_BYTES: crate::Line<AtomicU64> = crate::Line(AtomicU64::new(0));
 static ZERO_TAKES: crate::Line<AtomicU64> = crate::Line(AtomicU64::new(0));
 static DIRTY_TAKES: crate::Line<AtomicU64> = crate::Line(AtomicU64::new(0));
@@ -71,7 +74,11 @@ static SHED_CLOCK_MAX_NS: AtomicU64 = AtomicU64::new(0);
 pub fn on() -> bool {
     match SWITCH.load(Relaxed) {
         0 => {
-            let v = if !crate::hatch_on() && os::env_is_one(c"PGRUST_POOL_RESERVE") { 2 } else { 1 };
+            let v = if !crate::hatch_on() && os::env_is_one(c"PGRUST_POOL_RESERVE") {
+                2
+            } else {
+                1
+            };
             SWITCH.store(v, Relaxed);
             v == 2
         }
@@ -81,7 +88,10 @@ pub fn on() -> bool {
 
 #[cfg_attr(any(miri, target_family = "wasm"), allow(dead_code))]
 pub(crate) fn force(on: bool) {
-    debug_assert!(level() == 0, "the reserve switch moves only before the pool's first warm superpage");
+    debug_assert!(
+        level() == 0,
+        "the reserve switch moves only before the pool's first warm superpage"
+    );
     SWITCH.store(if on { 2 } else { 1 }, Relaxed);
 }
 
@@ -111,19 +121,31 @@ pub(crate) fn sized() -> bool {
 /// What R1's warm return keeps (the reserve proper, left to the ladder's background pass): the free warm bytes up to
 /// the target while ladder-sized, else 0.
 pub(crate) fn keep() -> usize {
-    if sized() { level().min(crate::claimer::target()) } else { 0 }
+    if sized() {
+        level().min(crate::claimer::target())
+    } else {
+        0
+    }
 }
 
 /// The most R1's and a pressure purge's first WarmDirty / WarmZero steps release: the spare past the target while
 /// ladder-sized, else all.
 pub(crate) fn spare_cap() -> usize {
-    if sized() { level().saturating_sub(crate::claimer::target()) } else { usize::MAX }
+    if sized() {
+        level().saturating_sub(crate::claimer::target())
+    } else {
+        usize::MAX
+    }
 }
 
 /// The most `pool_release_mode` (a) / (b)'s age pass releases: the spare past the target while the switch is on (sized
 /// or not: aging is no pressure, and the reserve's own spare release ages the rest), else all.
 pub(crate) fn age_cap() -> usize {
-    if on() { level().saturating_sub(crate::claimer::target()) } else { usize::MAX }
+    if on() {
+        level().saturating_sub(crate::claimer::target())
+    } else {
+        usize::MAX
+    }
 }
 
 #[inline]
@@ -139,7 +161,12 @@ pub(crate) fn size_bin(supers: u32) -> usize {
 /// A consumer took a free superpage that was `st` (per superpage, never per lookup).
 #[inline]
 pub(crate) fn drew(st: State) {
-    (if st == State::WarmDirty { &DIRTY_TAKES } else { &ZERO_TAKES }).fetch_add(1, Relaxed);
+    (if st == State::WarmDirty {
+        &DIRTY_TAKES
+    } else {
+        &ZERO_TAKES
+    })
+    .fetch_add(1, Relaxed);
     let after = level();
     let peak = PEAK.fetch_max(after + SUPER, Relaxed).max(after + SUPER);
     DD.fetch_max(peak - after, Relaxed);
@@ -177,11 +204,15 @@ pub(crate) fn refilled() {
 #[inline]
 pub(crate) fn want_of(deepest: usize, floor: usize) -> usize {
     let w = deepest.saturating_add(deepest / 10).max(floor);
-    w.checked_next_multiple_of(SUPER).unwrap_or(w & !(SUPER - 1))
+    w.checked_next_multiple_of(SUPER)
+        .unwrap_or(w & !(SUPER - 1))
 }
 
 fn want() -> usize {
-    let deep = DEEP[0].load(Relaxed).max(DEEP[1].load(Relaxed)).max(drawdown_now());
+    let deep = DEEP[0]
+        .load(Relaxed)
+        .max(DEEP[1].load(Relaxed))
+        .max(drawdown_now());
     want_of(deep, zones().cfg.warm_zero)
 }
 
@@ -189,7 +220,11 @@ fn want() -> usize {
 #[inline]
 pub(crate) fn bound_of(floor: usize, max: usize, cap: usize) -> usize {
     let max = max.max(floor);
-    if cap == 0 { max } else { max.min(cap / 2).max(floor) }
+    if cap == 0 {
+        max
+    } else {
+        max.min(cap / 2).max(floor)
+    }
 }
 
 fn bound() -> usize {
@@ -199,7 +234,11 @@ fn bound() -> usize {
 
 #[inline]
 pub(crate) fn budget_of(ladder: u64, bound: usize) -> usize {
-    if ladder == u64::MAX { bound } else { usize::try_from(ladder).unwrap_or(usize::MAX) }
+    if ladder == u64::MAX {
+        bound
+    } else {
+        usize::try_from(ladder).unwrap_or(usize::MAX)
+    }
 }
 
 fn budget() -> usize {
@@ -251,7 +290,9 @@ pub(crate) fn populated(ns: u64) {
     let us = ns / 1_000;
     POP_US[((u64::BITS - us.leading_zeros()) as usize).min(POP_BINS - 1)].fetch_add(1, Relaxed);
     for c in [&CREDIT[1], &CREDIT[0]] {
-        if c.fetch_update(Relaxed, Relaxed, |v| v.checked_sub(SUPER)).is_ok() {
+        if c.fetch_update(Relaxed, Relaxed, |v| v.checked_sub(SUPER))
+            .is_ok()
+        {
             CHURN.fetch_add(SUPER as u64, Relaxed);
             CHURN_AT.store(crate::purger::tick().max(1), Relaxed);
             return;
@@ -261,7 +302,9 @@ pub(crate) fn populated(ns: u64) {
 
 /// On: a free WarmDirty superpage zeroed in place and made WarmZero (no fault, no new memory). False: none free.
 pub(crate) fn recycle_one() -> bool {
-    let Some(i) = superpage::take_one(State::WarmDirty) else { return false };
+    let Some(i) = superpage::take_one(State::WarmDirty) else {
+        return false;
+    };
     let t0 = pg_clock::mono_ns();
     // SAFETY: a free superpage we hold, open read-write; nothing else reads or writes it until it is put back.
     unsafe { core::ptr::write_bytes(superpage::addr_of(i) as *mut u8, 0, SUPER) };
@@ -282,7 +325,11 @@ pub(crate) fn trim_spare(now: u32) {
         return;
     }
     let churned = CHURN_AT.load(Relaxed);
-    let age = if churned != 0 && now.wrapping_sub(churned) < WINDOW_MS { HALF_MS } else { SPARE_AGE_MS };
+    let age = if churned != 0 && now.wrapping_sub(churned) < WINDOW_MS {
+        HALF_MS
+    } else {
+        SPARE_AGE_MS
+    };
     let got = release(spare.min(SPARE_PASS_MAX), age, now);
     SPARE_RELEASED.fetch_add(got as u64, Relaxed);
 }
@@ -296,7 +343,10 @@ pub fn reserve_ask(want: usize) -> usize {
         return 0;
     }
     let held = level();
-    let bytes = want.checked_next_multiple_of(SUPER).unwrap_or(usize::MAX).min(held);
+    let bytes = want
+        .checked_next_multiple_of(SUPER)
+        .unwrap_or(usize::MAX)
+        .min(held);
     BUDGET.store((held - bytes) as u64, Relaxed);
     retarget();
     if bytes != 0 {
@@ -324,7 +374,9 @@ pub(crate) fn serve_shed() -> Option<usize> {
     let got = release(left.min(SHED_PASS_MAX), 0, crate::purger::tick());
     SHED.fetch_add(got as u64, Relaxed);
     // nothing released: nothing free is left to shed
-    let _ = SHED_LEFT.fetch_update(AcqRel, Acquire, |v| Some(if got == 0 { 0 } else { v.saturating_sub(got) }));
+    let _ = SHED_LEFT.fetch_update(AcqRel, Acquire, |v| {
+        Some(if got == 0 { 0 } else { v.saturating_sub(got) })
+    });
     if SHED_LEFT.load(Acquire) == 0 {
         SHED_RUNS.fetch_add(1, Relaxed);
         let clock = pg_clock::mono_ns().saturating_sub(SHED_ASK_NS.load(Relaxed));
@@ -338,7 +390,11 @@ pub(crate) fn serve_shed() -> Option<usize> {
 
 /// The reserve proper R1 leaves to the ladder's background pass (0 unless ladder-sized): its releasable bytes there.
 pub fn reserve_kept() -> u64 {
-    if crate::on() { keep() as u64 } else { 0 }
+    if crate::on() {
+        keep() as u64
+    } else {
+        0
+    }
 }
 
 /// Whether `PGRUST_POOL_RESERVE=1` (the ladder sizes the reserve only then).
@@ -348,7 +404,11 @@ pub fn reserve_on() -> bool {
 
 /// The reserve's start for the ladder's sizing: E1d's bound (0 with the pool off).
 pub fn reserve_bound() -> u64 {
-    if crate::on() { bound() as u64 } else { 0 }
+    if crate::on() {
+        bound() as u64
+    } else {
+        0
+    }
 }
 
 /// The memory ladder's probe of the reserve: (bytes held: free warm superpages, the foreground miss bytes so far).
@@ -447,7 +507,10 @@ pub struct Reserve {
 
 pub fn reserve_stats() -> Reserve {
     if !crate::on() {
-        return Reserve { on: on(), ..Reserve::default() };
+        return Reserve {
+            on: on(),
+            ..Reserve::default()
+        };
     }
     let cfg = zones().cfg;
     let ld = |a: &AtomicU64| a.load(Relaxed);
@@ -494,22 +557,62 @@ mod t {
     #[test]
     fn want_is_a_tenth_over_the_deepest_drawdown_with_a_floor_in_whole_superpages() {
         assert_eq!(want_of(0, 16 * MIB), 16 * MIB, "no drawdown: the floor");
-        assert_eq!(want_of(10 * MIB, 16 * MIB), 16 * MIB, "11 MiB is under the floor");
+        assert_eq!(
+            want_of(10 * MIB, 16 * MIB),
+            16 * MIB,
+            "11 MiB is under the floor"
+        );
         assert_eq!(want_of(100 * MIB, 16 * MIB), 110 * MIB);
         assert_eq!(want_of(20 * MIB, 16 * MIB), 22 * MIB);
-        assert_eq!(want_of(21 * MIB, 16 * MIB), 24 * MIB, "23.1 MiB rounds up to whole superpages");
-        assert_eq!(want_of(usize::MAX - SUPER, 0) % SUPER, 0, "saturates, never wraps");
+        assert_eq!(
+            want_of(21 * MIB, 16 * MIB),
+            24 * MIB,
+            "23.1 MiB rounds up to whole superpages"
+        );
+        assert_eq!(
+            want_of(usize::MAX - SUPER, 0) % SUPER,
+            0,
+            "saturates, never wraps"
+        );
     }
 
     #[test]
     fn the_budget_is_the_ladders_else_e1ds_bound() {
-        assert_eq!(bound_of(16 * MIB, 256 * MIB, 0), 256 * MIB, "no cap: pool_warm_zero_max");
-        assert_eq!(bound_of(16 * MIB, 256 * MIB, 128 * MIB), 64 * MIB, "half the claim cap");
-        assert_eq!(bound_of(16 * MIB, 256 * MIB, 8 * MIB), 16 * MIB, "never under the floor");
-        assert_eq!(bound_of(16 * MIB, 0, 0), 16 * MIB, "a max under the floor is the floor");
-        assert_eq!(budget_of(u64::MAX, 256 * MIB), 256 * MIB, "no ladder budget: the bound");
-        assert_eq!(budget_of(0, 256 * MIB), 0, "the ladder took the reserve: 0, under the floor");
-        assert_eq!(budget_of(512 << 20, 256 * MIB), 512 * MIB, "the ladder's raise passes E1d's bound");
+        assert_eq!(
+            bound_of(16 * MIB, 256 * MIB, 0),
+            256 * MIB,
+            "no cap: pool_warm_zero_max"
+        );
+        assert_eq!(
+            bound_of(16 * MIB, 256 * MIB, 128 * MIB),
+            64 * MIB,
+            "half the claim cap"
+        );
+        assert_eq!(
+            bound_of(16 * MIB, 256 * MIB, 8 * MIB),
+            16 * MIB,
+            "never under the floor"
+        );
+        assert_eq!(
+            bound_of(16 * MIB, 0, 0),
+            16 * MIB,
+            "a max under the floor is the floor"
+        );
+        assert_eq!(
+            budget_of(u64::MAX, 256 * MIB),
+            256 * MIB,
+            "no ladder budget: the bound"
+        );
+        assert_eq!(
+            budget_of(0, 256 * MIB),
+            0,
+            "the ladder took the reserve: 0, under the floor"
+        );
+        assert_eq!(
+            budget_of(512 << 20, 256 * MIB),
+            512 * MIB,
+            "the ladder's raise passes E1d's bound"
+        );
     }
 
     #[test]

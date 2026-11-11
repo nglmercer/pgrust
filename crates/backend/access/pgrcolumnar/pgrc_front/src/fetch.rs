@@ -14,20 +14,56 @@ use types_tuple::ItemPointerData;
 
 use crate::position::{self, Located, ViewRef};
 
-pub fn fetch_row_version<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, tid: &ItemPointerData, snapshot: &Snapshot<'mcx>, slot: &mut SlotData<'mcx>) -> PgResult<bool> {
-    if snapshot.as_deref().is_some_and(|s| s.snapshot_type != SnapshotType::SNAPSHOT_ANY) {
+pub fn fetch_row_version<'mcx>(
+    mcx: Mcx<'mcx>,
+    rel: &Relation<'mcx>,
+    tid: &ItemPointerData,
+    snapshot: &Snapshot<'mcx>,
+    slot: &mut SlotData<'mcx>,
+) -> PgResult<bool> {
+    if snapshot
+        .as_deref()
+        .is_some_and(|s| s.snapshot_type != SnapshotType::SNAPSHOT_ANY)
+    {
         position::id_at(rel, tid)?;
         return crate::ixfetch::fetch_once(mcx, rel, tid, snapshot, slot);
     }
     let mut scratch = ViewRef::default();
     let at = position::locate(mcx, rel, tid, &mut scratch)?;
-    crate::pathcache::note_located(rel, types_tuple::ItemPointerGetBlockNumberNoCheck(tid), types_tuple::ItemPointerGetOffsetNumberNoCheck(tid))?;
+    crate::pathcache::note_located(
+        rel,
+        types_tuple::ItemPointerGetBlockNumberNoCheck(tid),
+        types_tuple::ItemPointerGetOffsetNumberNoCheck(tid),
+    )?;
     let found = match &at {
-        Located::Segment { relid, tid: seg_tid, .. } => fetch_segment(mcx, *relid, seg_tid, snapshot, slot)?,
-        Located::Part { gen, part, granule, row, .. } => {
+        Located::Segment {
+            relid,
+            tid: seg_tid,
+            ..
+        } => fetch_segment(mcx, *relid, seg_tid, snapshot, slot)?,
+        Located::Part {
+            gen,
+            part,
+            granule,
+            row,
+            ..
+        } => {
             let schemas = pgrc_am::schema::col_schemas(rel)?;
-            let key = GranuleKey { gen: gen.view_key(), part: *part as u32, granule: *granule };
-            rowcache::fetch_row(mcx, rel.rd_id, &gen.parts[*part], &schemas, &rel.rd_att, key, *row, slot)?;
+            let key = GranuleKey {
+                gen: gen.view_key(),
+                part: *part as u32,
+                granule: *granule,
+            };
+            rowcache::fetch_row(
+                mcx,
+                rel.rd_id,
+                &gen.parts[*part],
+                &schemas,
+                &rel.rd_att,
+                key,
+                *row,
+                slot,
+            )?;
             true
         }
     };
@@ -44,7 +80,12 @@ pub fn fetch_row_version<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, tid: &ItemP
 /// A deferred row trigger's event is fetched this way at COMMIT: its position belonged to a statement's view, which is
 /// gone by then, while the RowIdent is stable across seals and compactions, and the row stays in the newest generation
 /// until the transaction ends (the transaction's own tombstone is not compiled while it runs).
-pub fn fetch_rowident<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, r: u64, slot: &mut SlotData<'mcx>) -> PgResult<bool> {
+pub fn fetch_rowident<'mcx>(
+    mcx: Mcx<'mcx>,
+    rel: &Relation<'mcx>,
+    r: u64,
+    slot: &mut SlotData<'mcx>,
+) -> PgResult<bool> {
     let mut scratch = ViewRef::default();
     let Some(at) = position::find(mcx, rel, r, &mut scratch)? else {
         exectuples::exec_clear_tuple(slot, mcx);
@@ -56,10 +97,29 @@ pub fn fetch_rowident<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, r: u64, slot: 
                 return Ok(false);
             }
         }
-        Located::Part { gen, part, granule, row, .. } => {
+        Located::Part {
+            gen,
+            part,
+            granule,
+            row,
+            ..
+        } => {
             let schemas = pgrc_am::schema::col_schemas(rel)?;
-            let key = GranuleKey { gen: gen.view_key(), part: *part as u32, granule: *granule };
-            rowcache::fetch_row(mcx, rel.rd_id, &gen.parts[*part], &schemas, &rel.rd_att, key, *row, slot)?;
+            let key = GranuleKey {
+                gen: gen.view_key(),
+                part: *part as u32,
+                granule: *granule,
+            };
+            rowcache::fetch_row(
+                mcx,
+                rel.rd_id,
+                &gen.parts[*part],
+                &schemas,
+                &rel.rd_att,
+                key,
+                *row,
+                slot,
+            )?;
         }
     }
     // the row's position in this statement (a deferred RI check refetches it by position under SnapshotSelf)
@@ -69,7 +129,13 @@ pub fn fetch_rowident<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, r: u64, slot: 
     Ok(true)
 }
 
-fn fetch_segment<'mcx>(mcx: Mcx<'mcx>, relid: types_core::Oid, tid: &ItemPointerData, snapshot: &Snapshot<'mcx>, slot: &mut SlotData<'mcx>) -> PgResult<bool> {
+fn fetch_segment<'mcx>(
+    mcx: Mcx<'mcx>,
+    relid: types_core::Oid,
+    tid: &ItemPointerData,
+    snapshot: &Snapshot<'mcx>,
+    slot: &mut SlotData<'mcx>,
+) -> PgResult<bool> {
     let seg = table::table_open(mcx, relid, AccessShareLock)?;
     let any;
     let snap = match snapshot.as_deref() {
@@ -86,9 +152,16 @@ fn fetch_segment<'mcx>(mcx: Mcx<'mcx>, relid: types_core::Oid, tid: &ItemPointer
             let base = slot.base_mut();
             let natts = seg.rd_att.natts as usize;
             if natts > base.tts_values.len() {
-                return Err(Box::new(PgError::error(format!("pgrcolumnar: segment {relid} has more columns than its table"))));
+                return Err(Box::new(PgError::error(format!(
+                    "pgrcolumnar: segment {relid} has more columns than its table"
+                ))));
             }
-            types_tuple::heap_deform_tuple(&tup, &seg.rd_att, &mut base.tts_values[..natts], &mut base.tts_isnull[..natts]);
+            types_tuple::heap_deform_tuple(
+                &tup,
+                &seg.rd_att,
+                &mut base.tts_values[..natts],
+                &mut base.tts_isnull[..natts],
+            );
             base.tts_isnull[natts..].fill(true);
             base.tts_nvalid = base.tts_values.len() as types_core::AttrNumber;
             base.mark_not_empty();

@@ -75,6 +75,7 @@ fn ledger2_a_breakers_region_is_held_by_its_slot_owner_under_the_statement_and_l
         let r = entry.run_to_end(&mut exec, &mut b);
         entry.end(exec, r.is_ok());
         r.expect("the count runs");
+        #[allow(clippy::drop_non_drop)]
         drop(b);
         drop(res);
         let after = owners(a, "operator");

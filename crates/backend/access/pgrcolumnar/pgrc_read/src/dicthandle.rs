@@ -30,9 +30,14 @@ use cost_profile::device::Device;
 use pgrc_format::dict::{DictEntryRef, DICT_INDEX_ENTRY_LEN};
 use pgrc_format::enc::Wrapper;
 use pgrc_format::geom::DICT_FRAME_ENTRIES;
-use pgrc_format::part::{StreamRole, StreamSectionHdr, STREAMF_DICT_EXEC, STREAMF_DICT_EXEC_NULLABLE, STREAM_SECTION_HDR_LEN};
+use pgrc_format::part::{
+    StreamRole, StreamSectionHdr, STREAMF_DICT_EXEC, STREAMF_DICT_EXEC_NULLABLE,
+    STREAM_SECTION_HDR_LEN,
+};
 use pgrc_format::FormatError;
-use pgsync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
+use pgsync::atomic::{
+    AtomicBool, AtomicPtr, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering,
+};
 use pgsync::Mutex;
 
 use crate::cursor::{load_region_with, RegionState};
@@ -83,7 +88,10 @@ impl DictFrameServe {
 /// copy arm, which preserves 8-aligned entry images (StrView §7b strict
 /// form). Read per open, like the fault mode.
 fn frame_direct() -> bool {
-    !matches!(std::env::var("PGRUST_PGRC_FRAME_DIRECT").as_deref(), Ok("0"))
+    !matches!(
+        std::env::var("PGRUST_PGRC_FRAME_DIRECT").as_deref(),
+        Ok("0")
+    )
 }
 
 /// [stack] `PGRUST_PGRC_DICT_BLOCK_LAZY=1` OPTS IN to block-lazy serving
@@ -184,7 +192,9 @@ const TOUCH_SPARSE: u8 = 2;
 /// this touch: then a caller that stages its raw bytes beside the index (`StreamCursor::stage_dict` / the values run's
 /// tail) hands the handle's first fault its whole read. A block-lazy payload reads sub-ranges and never takes them.
 pub fn wrapped_payload_whole(touch: Option<DictTouch>) -> bool {
-    DictFaultMode::from_env() == DictFaultMode::WholeFault || (!matches!(touch, Some(DictTouch::Sparse | DictTouch::Probe)) && block_lazy() == BlockLazyGrain::Off)
+    DictFaultMode::from_env() == DictFaultMode::WholeFault
+        || (!matches!(touch, Some(DictTouch::Sparse | DictTouch::Probe))
+            && block_lazy() == BlockLazyGrain::Off)
 }
 
 /// P5-18: whether part `part`'s dictionary of `(attno, path_ord)` is cheaper streamed whole than served to `renders` point
@@ -193,17 +203,38 @@ pub fn wrapped_payload_whole(touch: Option<DictTouch>) -> bool {
 /// (the stream directory only), so a caller that expects that many renders opens the dictionary undeclared and stages its
 /// payload whole beside the index. `false` for a payload that is not one wrapped extent: only that one is served at block
 /// grain, so the open mode changes nothing there.
-pub fn wrapped_dense_pays(part: &OpenPart, attno: u32, path_ord: u32, renders: u64) -> ReadResult<bool> {
+pub fn wrapped_dense_pays(
+    part: &OpenPart,
+    attno: u32,
+    path_ord: u32,
+    renders: u64,
+) -> ReadResult<bool> {
     let dir = part.stream_directory()?;
-    let (Some(index), Some(payload)) = (dir.lookup(attno, path_ord, StreamRole::DictIndex), dir.lookup(attno, path_ord, StreamRole::DictPayload)) else {
+    let (Some(index), Some(payload)) = (
+        dir.lookup(attno, path_ord, StreamRole::DictIndex),
+        dir.lookup(attno, path_ord, StreamRole::DictPayload),
+    ) else {
         return Ok(false);
     };
-    let [rec] = payload.extents.as_slice() else { return Ok(false) };
-    if pgrc_format::enc::Wrapper::from_u8(payload.entry.wrapper)? == pgrc_format::enc::Wrapper::None || index.entry.values == 0 {
+    let [rec] = payload.extents.as_slice() else {
+        return Ok(false);
+    };
+    if pgrc_format::enc::Wrapper::from_u8(payload.entry.wrapper)? == pgrc_format::enc::Wrapper::None
+        || index.entry.values == 0
+    {
         return Ok(false);
     }
-    let nb = index.entry.values.div_ceil(pgrc_format::geom::DICT_FRAME_ENTRIES as u64);
-    Ok(Device::at_residency(part.page_resident(rec.file_off, rec.len)).stream_pays(renders, nb, rec.len / nb))
+    let nb = index
+        .entry
+        .values
+        .div_ceil(pgrc_format::geom::DICT_FRAME_ENTRIES as u64);
+    Ok(
+        Device::at_residency(part.page_resident(rec.file_off, rec.len)).stream_pays(
+            renders,
+            nb,
+            rec.len / nb,
+        ),
+    )
 }
 
 /// [sqe8blk] Kill switch for the §3.1 refinements (uncached ensure_all
@@ -238,16 +269,14 @@ impl DictFaultMode {
 // ---------------------------------------------------------------------------
 pub static DICT_FRAME_FAULT_BYTES: core::sync::atomic::AtomicU64 =
     core::sync::atomic::AtomicU64::new(0);
-pub static DICT_FRAME_FAULTS: core::sync::atomic::AtomicU64 =
-    core::sync::atomic::AtomicU64::new(0);
+pub static DICT_FRAME_FAULTS: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
 pub static DICT_WHOLE_FAULT_BYTES: core::sync::atomic::AtomicU64 =
     core::sync::atomic::AtomicU64::new(0);
 /// [stack] Block-lazy census: COMPRESSED bytes preaded at wrapper-block
 /// grain, and the number of block faults (RESULTS-FMTLAND §B.3 serving).
 pub static DICT_BLOCK_FAULT_BYTES: core::sync::atomic::AtomicU64 =
     core::sync::atomic::AtomicU64::new(0);
-pub static DICT_BLOCK_FAULTS: core::sync::atomic::AtomicU64 =
-    core::sync::atomic::AtomicU64::new(0);
+pub static DICT_BLOCK_FAULTS: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
 
 /// Snapshot of the block-lazy census: (compressed_bytes_preaded, block_faults).
 pub fn dict_block_census() -> (u64, u64) {
@@ -273,14 +302,22 @@ pub fn dict_fault_census() -> (u64, u64, u64) {
 /// entries the front-coded arm materialised (first touch per handle and code), entries walked
 /// by a cursor, and the bytes the fc arm's materialisations hold.
 pub static DICT_ENTRY_CALLS: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
-pub static DICT_FC_MATERIALIZED: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
-pub static DICT_CURSOR_ENTRIES: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
-pub static DICT_FC_MATERIALIZED_BYTES: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+pub static DICT_FC_MATERIALIZED: core::sync::atomic::AtomicU64 =
+    core::sync::atomic::AtomicU64::new(0);
+pub static DICT_CURSOR_ENTRIES: core::sync::atomic::AtomicU64 =
+    core::sync::atomic::AtomicU64::new(0);
+pub static DICT_FC_MATERIALIZED_BYTES: core::sync::atomic::AtomicU64 =
+    core::sync::atomic::AtomicU64::new(0);
 
 /// Snapshot: `(entry calls, fc materialised, cursor entries, fc materialised bytes)`.
 pub fn dict_entry_census() -> (u64, u64, u64, u64) {
     use core::sync::atomic::Ordering::Relaxed;
-    (DICT_ENTRY_CALLS.load(Relaxed), DICT_FC_MATERIALIZED.load(Relaxed), DICT_CURSOR_ENTRIES.load(Relaxed), DICT_FC_MATERIALIZED_BYTES.load(Relaxed))
+    (
+        DICT_ENTRY_CALLS.load(Relaxed),
+        DICT_FC_MATERIALIZED.load(Relaxed),
+        DICT_CURSOR_ENTRIES.load(Relaxed),
+        DICT_FC_MATERIALIZED_BYTES.load(Relaxed),
+    )
 }
 
 /// The front-coded arm's materialised entries: an append-only chunk arena (entries never move)
@@ -299,7 +336,11 @@ const FC_CHUNK: usize = 1 << 20;
 impl FcArena {
     fn alloc(&mut self, len: usize) -> &mut [u8] {
         let need = len.next_multiple_of(8);
-        if self.chunks.last().is_none_or(|c| self.used + need > c.len()) {
+        if self
+            .chunks
+            .last()
+            .is_none_or(|c| self.used + need > c.len())
+        {
             let n = need.max(FC_CHUNK);
             self.chunks.push(vec![0u8; n].into_boxed_slice()); // alloc: Exec
             match &mut self.charge {
@@ -384,8 +425,7 @@ impl LazyRegion {
             self.len.store(len, Ordering::Release);
             self.ptr.store(ptr, Ordering::Release);
             if census_payload {
-                DICT_WHOLE_FAULT_BYTES
-                    .fetch_add(len as u64, core::sync::atomic::Ordering::Relaxed);
+                DICT_WHOLE_FAULT_BYTES.fetch_add(len as u64, core::sync::atomic::Ordering::Relaxed);
             }
         }
         let region = cell.as_ref().expect("just stored");
@@ -516,7 +556,8 @@ impl FrameLazyPayload {
             // First fault on this handle: validate the extent geometry the
             // whole-fault path validates (contiguity; the SB-7 cut), size
             // and reserve the region.
-            let mut step = cancelpoll::step("pgrc_read dict ensure_extent: a frame-lazy region's geometry");
+            let mut step =
+                cancelpoll::step("pgrc_read dict ensure_extent: a frame-lazy region's geometry");
             for (i, w) in ps.extents.windows(2).enumerate() {
                 step.batch(i)?;
                 if w[0].file_off + w[0].len != w[1].file_off {
@@ -532,8 +573,7 @@ impl FrameLazyPayload {
             // `fault_range`, before it assembles `total`; the lazy arm reserves
             // up front, so it MUST refuse hostile geometry here). Typed,
             // catchable (ERRCODE_DATA_CORRUPTED) — never an unbounded reservation.
-            let total =
-                dict_region_total_checked(ps.extents.iter().map(|e| e.len as usize).sum())?;
+            let total = dict_region_total_checked(ps.extents.iter().map(|e| e.len as usize).sum())?;
             let mut offsets = pgrc_format::try_vec(ps.extents.len(), "dicthandle")?;
             let mut off = 0usize;
             for (i, e) in ps.extents.iter().enumerate() {
@@ -590,9 +630,8 @@ impl FrameLazyPayload {
         // region requires its decode.
         fault_one(0)?;
         if self.ptr.load(Ordering::Acquire).is_null() {
-            let bytes = unsafe {
-                core::slice::from_raw_parts(state.buf.as_ptr() as *const u8, state.len)
-            };
+            let bytes =
+                unsafe { core::slice::from_raw_parts(state.buf.as_ptr() as *const u8, state.len) };
             let hdr = StreamSectionHdr::decode(bytes)?;
             if hdr.encoding != ps.entry.encoding || hdr.wrapper != ps.entry.wrapper {
                 return Err(ReadError::Format(FormatError::Corrupt { at: what }));
@@ -670,7 +709,8 @@ impl FrameDirectPayload {
             return Err(ReadError::Format(FormatError::Bounds { at: "dict frame" }));
         }
         if self.geom.get().is_none() {
-            let mut step = cancelpoll::step("pgrc_read dict ensure_extent: a frame-direct region's geometry");
+            let mut step =
+                cancelpoll::step("pgrc_read dict ensure_extent: a frame-direct region's geometry");
             for (i, w) in ps.extents.windows(2).enumerate() {
                 step.batch(i)?;
                 if w[0].file_off + w[0].len != w[1].file_off {
@@ -729,15 +769,14 @@ impl FrameDirectPayload {
     /// Resolve entry bytes for `code` frame-locally (index rec already
     /// decoded by the caller): `(image, bytes)` out of frame
     /// `code / DICT_FRAME_ENTRIES`'s SegBuf.
-    fn entry_slices(
-        &self,
-        code: u32,
-        payload_off: usize,
-    ) -> ReadResult<(&[u8], &[u8])> {
+    fn entry_slices(&self, code: u32, payload_off: usize) -> ReadResult<(&[u8], &[u8])> {
         let f = (code / DICT_FRAME_ENTRIES) as usize;
-        let geom = self.geom.get().ok_or(ReadError::Format(FormatError::Corrupt {
-            at: "dict payload geometry unpublished after ensure",
-        }))?;
+        let geom = self
+            .geom
+            .get()
+            .ok_or(ReadError::Format(FormatError::Corrupt {
+                at: "dict payload geometry unpublished after ensure",
+            }))?;
         let seg = self.segs[f]
             .get()
             .ok_or(ReadError::Format(FormatError::Corrupt {
@@ -745,13 +784,16 @@ impl FrameDirectPayload {
             }))?;
         let region_off = geom.payload_start + payload_off;
         if region_off >= geom.payload_end {
-            return Err(ReadError::Format(FormatError::Bounds { at: "dict payload" }));
+            return Err(ReadError::Format(FormatError::Bounds {
+                at: "dict payload",
+            }));
         }
         let lo = region_off
             .checked_sub(geom.offsets[f])
-            .ok_or(ReadError::Format(FormatError::Bounds { at: "dict payload" }))?;
-        pgrc_format::wire::varlena_entry_at(seg.bytes(), lo, "dict payload")
-            .map_err(Into::into)
+            .ok_or(ReadError::Format(FormatError::Bounds {
+                at: "dict payload",
+            }))?;
+        pgrc_format::wire::varlena_entry_at(seg.bytes(), lo, "dict payload").map_err(Into::into)
     }
 }
 
@@ -842,8 +884,10 @@ fn dict_region_total_checked(total: usize) -> ReadResult<usize> {
 struct BlockLazyState {
     /// D4552 (a): `btab` and `ftab` are the part cache's from their allocation, as `buf` is: dropped before them (field
     /// order), on whichever thread drops the state (a trim's evicted hook, another backend).
+    #[allow(dead_code)]
     tabs_charge: Option<memledger::Charge>,
     /// D4084: the whole fallback's region on the part cache's account; dropped before `whole` frees (field order).
+    #[allow(dead_code)]
     whole_charge: Option<memledger::Charge>,
     /// Reserved zeroed uncompressed-payload image (`reserve_zeroed` ⇒
     /// untouched blocks stay uncommitted). NEVER reallocated. Empty on the
@@ -874,13 +918,18 @@ struct ImageBuf {
     /// Its residency registry entry (`resident::NONE`: empty, or the registry could not grow).
     reg: u32,
     /// Dropped before `words` frees (field order).
+    #[allow(dead_code)]
     charge: Option<memledger::Charge>,
     words: Box<[u64]>,
 }
 
 impl ImageBuf {
     fn empty() -> ImageBuf {
-        ImageBuf { reg: memledger::resident::NONE, charge: None, words: Box::new([]) }
+        ImageBuf {
+            reg: memledger::resident::NONE,
+            charge: None,
+            words: Box::new([]),
+        }
     }
 
     /// `None` when the allocation fails (the callers' typed refusal, never `handle_alloc_error`'s abort).
@@ -897,7 +946,14 @@ impl ImageBuf {
         };
         let bytes = layout.size();
         let charge = Some(crate::partcache::holder_charge(bytes as u64));
-        let reg = memledger::resident::register(words.as_ptr() as usize, bytes, bytes, crate::partcache::LEDGER, false, true);
+        let reg = memledger::resident::register(
+            words.as_ptr() as usize,
+            bytes,
+            bytes,
+            crate::partcache::LEDGER,
+            false,
+            true,
+        );
         Some(ImageBuf { reg, charge, words })
     }
 }
@@ -916,7 +972,9 @@ impl ImageBuf {
 unsafe fn reserve_zeroed(layout: core::alloc::Layout) -> Option<*mut u64> {
     const PAGE: usize = 4096;
     // SAFETY: the caller's contract (a non-zero size)
-    if let Some(p) = pagepool::base_pages(layout.size(), || unsafe { std::alloc::alloc_zeroed(layout) }) {
+    if let Some(p) = pagepool::base_pages(layout.size(), || unsafe {
+        std::alloc::alloc_zeroed(layout)
+    }) {
         return (!p.is_null()).then_some(p as *mut u64);
     }
     // SAFETY: the caller's contract (a non-zero size)
@@ -1017,7 +1075,10 @@ impl Drop for BlockLazyPayload {
     fn drop(&mut self) {
         // D3003: the part cache census forgets the image's faulted bytes as they free (D4084: their memory leaves the
         // cache's account with the state's charges)
-        crate::partcache::uncount(self.resident.load(Ordering::Relaxed) as u64, &mut pgsync::lock(&self.gov));
+        crate::partcache::uncount(
+            self.resident.load(Ordering::Relaxed) as u64,
+            &mut pgsync::lock(&self.gov),
+        );
     }
 }
 
@@ -1032,7 +1093,11 @@ impl BlockLazyPayload {
         memledger::value::missed(memledger::Consumer::PartCache, n as u64);
         // cache plan A6: the decoded bytes read back, at the key the payload's door looks it up by (its one extent)
         if let Some(rec) = ps.extents.first() {
-            memledger::value::reloaded(memledger::Consumer::PartCache, part.value_key() ^ rec.file_off.rotate_left(32), n as u64);
+            memledger::value::reloaded(
+                memledger::Consumer::PartCache,
+                part.value_key() ^ rec.file_off.rotate_left(32),
+                n as u64,
+            );
         }
     }
 
@@ -1052,10 +1117,18 @@ impl BlockLazyPayload {
         if self.tables_charge.get().is_some() {
             return;
         }
-        let bits = self.bits.get().map_or(0, |b| b.capacity() * core::mem::size_of::<AtomicU64>());
-        let starts = self.frame_starts.get().map_or(0, |f| f.capacity() * core::mem::size_of::<u32>());
+        let bits = self
+            .bits
+            .get()
+            .map_or(0, |b| b.capacity() * core::mem::size_of::<AtomicU64>());
+        let starts = self
+            .frame_starts
+            .get()
+            .map_or(0, |f| f.capacity() * core::mem::size_of::<u32>());
         if bits + starts > 0 {
-            let _ = self.tables_charge.set(crate::partcache::holder_charge((bits + starts) as u64));
+            let _ = self
+                .tables_charge
+                .set(crate::partcache::holder_charge((bits + starts) as u64));
         }
     }
 
@@ -1070,7 +1143,11 @@ impl BlockLazyPayload {
             ptr: AtomicPtr::new(core::ptr::null_mut()),
             len: AtomicUsize::new(0),
             resident: AtomicUsize::new(0),
-            gov: Mutex::new(crate::partcache::Charged { slot: 0, epoch: 0, bytes: 0 }),
+            gov: Mutex::new(crate::partcache::Charged {
+                slot: 0,
+                epoch: 0,
+                bytes: 0,
+            }),
             blocks_resident: AtomicUsize::new(0),
         }
     }
@@ -1122,7 +1199,8 @@ impl BlockLazyPayload {
     /// fault, so it never counts toward the bytes-touched election).
     #[inline]
     fn frame_resident(&self, frame: u32) -> bool {
-        !self.ptr.load(Ordering::Acquire).is_null() && self.block_resident(self.block_of_frame(frame))
+        !self.ptr.load(Ordering::Acquire).is_null()
+            && self.block_resident(self.block_of_frame(frame))
     }
 
     /// Map a dict frame to its block ordinal (1:1 on valid geometry; the
@@ -1189,12 +1267,17 @@ impl BlockLazyPayload {
                     .try_into()
                     .expect("len 4"),
             ) as usize;
-            if first < 8 || !first.is_multiple_of(4) || first > payload_end - STREAM_SECTION_HDR_LEN {
+            if first < 8 || !first.is_multiple_of(4) || first > payload_end - STREAM_SECTION_HDR_LEN
+            {
                 return Ok(None);
             }
             let wrapper = pgrc_format::enc::Wrapper::from_u8(hdr.wrapper)?;
             let nbt = first / 4 - 1;
-            let nb = if wrapper.side_block() { nbt.saturating_sub(1) } else { nbt };
+            let nb = if wrapper.side_block() {
+                nbt.saturating_sub(1)
+            } else {
+                nbt
+            };
             if nb < 1 || hdr.frame_count as usize != nb {
                 // Block/frame skew (or a single block): the partial win is
                 // zero — whole assembly is strictly simpler.
@@ -1204,20 +1287,14 @@ impl BlockLazyPayload {
             let table = if STREAM_SECTION_HDR_LEN + first <= head.bytes().len() {
                 head
             } else {
-                part.subrange_bytes(
-                    rec,
-                    0,
-                    (STREAM_SECTION_HDR_LEN + first) as u64,
-                    what,
-                )?
+                part.subrange_bytes(rec, 0, (STREAM_SECTION_HDR_LEN + first) as u64, what)?
             };
             let tb = &table.bytes()[STREAM_SECTION_HDR_LEN..STREAM_SECTION_HDR_LEN + first];
             let btab: Vec<u32> = (0..=nbt)
                 .map(|i| u32::from_le_bytes(tb[i * 4..i * 4 + 4].try_into().expect("len 4")))
                 .collect();
             let comp_len = (payload_end - STREAM_SECTION_HDR_LEN) as u32;
-            if btab.windows(2).any(|w| w[0] > w[1]) || *btab.last().expect("nonempty") > comp_len
-            {
+            if btab.windows(2).any(|w| w[0] > w[1]) || *btab.last().expect("nonempty") > comp_len {
                 return Ok(None);
             }
             // [idx136, D302] Refuse a declared uncompressed image the dict
@@ -1231,17 +1308,11 @@ impl BlockLazyPayload {
                 return Ok(None);
             }
             // Frame table at the raw tail: uncompressed frame starts.
-            let tail = part.subrange_bytes(
-                rec,
-                hdr.frame_table_off as u64,
-                (nb * 4) as u64,
-                what,
-            )?;
+            let tail =
+                part.subrange_bytes(rec, hdr.frame_table_off as u64, (nb * 4) as u64, what)?;
             let ftab: Vec<u32> = (0..nb)
                 .map(|i| {
-                    u32::from_le_bytes(
-                        tail.bytes()[i * 4..i * 4 + 4].try_into().expect("len 4"),
-                    )
+                    u32::from_le_bytes(tail.bytes()[i * 4..i * 4 + 4].try_into().expect("len 4"))
                 })
                 .collect();
             if ftab[0] != 0
@@ -1253,9 +1324,16 @@ impl BlockLazyPayload {
             let side = match wrapper.side_block() {
                 false => None,
                 true => {
-                    let Some(u) = unwrappers.iter().find(|u| u.wrapper() == wrapper) else { return Ok(None) };
+                    let Some(u) = unwrappers.iter().find(|u| u.wrapper() == wrapper) else {
+                        return Ok(None);
+                    };
                     let (s0, s1) = (btab[nb] as u64, btab[nb + 1] as u64);
-                    let sb = part.subrange_bytes(rec, STREAM_SECTION_HDR_LEN as u64 + s0, s1 - s0, what)?;
+                    let sb = part.subrange_bytes(
+                        rec,
+                        STREAM_SECTION_HDR_LEN as u64 + s0,
+                        s1 - s0,
+                        what,
+                    )?;
                     match u.decode_side(sb.bytes())? {
                         Some(t) => Some(t),
                         None => return Ok(None),
@@ -1271,7 +1349,8 @@ impl BlockLazyPayload {
                     at: "dict payload reservation",
                 })
             })?;
-            let tabs = ((btab.capacity() + ftab.capacity()) * core::mem::size_of::<u32>() + side.as_ref().map_or(0, |t| t.bytes)) as u64;
+            let tabs = ((btab.capacity() + ftab.capacity()) * core::mem::size_of::<u32>()
+                + side.as_ref().map_or(0, |t| t.bytes)) as u64;
             Ok(Some(BlockLazyState {
                 buf,
                 len: unc_len,
@@ -1285,7 +1364,9 @@ impl BlockLazyPayload {
         };
         if let Some(st) = try_blocks()? {
             let nb = st.ftab.len();
-            let _ = self.bits.set((0..nb.div_ceil(64)).map(|_| AtomicU64::new(0)).collect());
+            let _ = self
+                .bits
+                .set((0..nb.div_ceil(64)).map(|_| AtomicU64::new(0)).collect());
             // [idx251] Publish the frame-start table BEFORE the ptr so a
             // reader that sees a non-null ptr (Acquire) also sees it — the
             // read path bounds each entry to its published block via
@@ -1294,7 +1375,8 @@ impl BlockLazyPayload {
             self.charge_tables();
             self.nblocks.store(nb, Ordering::Release);
             self.len.store(st.len, Ordering::Release);
-            self.ptr.store(st.buf.as_ptr() as *mut u8, Ordering::Release);
+            self.ptr
+                .store(st.buf.as_ptr() as *mut u8, Ordering::Release);
             return Ok(st);
         }
         // Whole-region fallback: exactly today's assembly (CRC-validated
@@ -1373,7 +1455,11 @@ impl BlockLazyPayload {
         let nb = state.ftab.len();
         let (c0, c1) = (state.btab[b] as usize, state.btab[b + 1] as usize);
         let f0 = state.ftab[b] as usize;
-        let f1 = if b + 1 < nb { state.ftab[b + 1] as usize } else { state.len };
+        let f1 = if b + 1 < nb {
+            state.ftab[b + 1] as usize
+        } else {
+            state.len
+        };
         let rec = &ps.extents[0];
         let seg = part.subrange_bytes(
             rec,
@@ -1393,10 +1479,7 @@ impl BlockLazyPayload {
         // reference reads unpublished bytes (readers gate on the bit,
         // Acquire), and all writes serialize on the cell lock.
         let dst = unsafe {
-            core::slice::from_raw_parts_mut(
-                (state.buf.as_mut_ptr() as *mut u8).add(f0),
-                f1 - f0,
-            )
+            core::slice::from_raw_parts_mut((state.buf.as_mut_ptr() as *mut u8).add(f0), f1 - f0)
         };
         let recs = pgrc_format::dict::dict_frame_records(index, b as u32)?;
         let grain = match &state.side {
@@ -1424,13 +1507,13 @@ impl BlockLazyPayload {
                     continue;
                 }
                 let s0 = state.ftab[blk] as usize;
-                let s1 = if blk + 1 < nb { state.ftab[blk + 1] as usize } else { state.len };
+                let s1 = if blk + 1 < nb {
+                    state.ftab[blk + 1] as usize
+                } else {
+                    state.len
+                };
                 unsafe {
-                    core::ptr::copy_nonoverlapping(
-                        payload.as_ptr().add(s0),
-                        base.add(s0),
-                        s1 - s0,
-                    );
+                    core::ptr::copy_nonoverlapping(payload.as_ptr().add(s0), base.add(s0), s1 - s0);
                 }
                 self.charge(part, ps, s1 - s0);
             }
@@ -1445,8 +1528,7 @@ impl BlockLazyPayload {
             return Ok(false);
         }
         self.charge(part, ps, f1 - f0);
-        DICT_BLOCK_FAULT_BYTES
-            .fetch_add((c1 - c0) as u64, core::sync::atomic::Ordering::Relaxed);
+        DICT_BLOCK_FAULT_BYTES.fetch_add((c1 - c0) as u64, core::sync::atomic::Ordering::Relaxed);
         DICT_BLOCK_FAULTS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         let bits = self.bits.get().expect("published at init");
         bits[b / 64].fetch_or(1u64 << (b % 64), Ordering::Release);
@@ -1512,7 +1594,11 @@ impl BlockLazyPayload {
             step.tick()?;
             let (c0, c1) = (state.btab[b] as usize, state.btab[b + 1] as usize);
             let f0 = state.ftab[b] as usize;
-            let f1 = if b + 1 < nb { state.ftab[b + 1] as usize } else { state.len };
+            let f1 = if b + 1 < nb {
+                state.ftab[b + 1] as usize
+            } else {
+                state.len
+            };
             let src = &raw.bytes()[STREAM_SECTION_HDR_LEN + c0..STREAM_SECTION_HDR_LEN + c1];
             // SAFETY: unpublished span under the cell lock (same law as
             // fault_block).
@@ -1544,21 +1630,20 @@ impl BlockLazyPayload {
                 // a block a tick: each block publishes as it is copied, so the blocks copied stay resident
                 step.tick()?;
                 let f0 = state.ftab[b] as usize;
-                let f1 = if b + 1 < nb { state.ftab[b + 1] as usize } else { state.len };
+                let f1 = if b + 1 < nb {
+                    state.ftab[b + 1] as usize
+                } else {
+                    state.len
+                };
                 unsafe {
-                    core::ptr::copy_nonoverlapping(
-                        payload.as_ptr().add(f0),
-                        base.add(f0),
-                        f1 - f0,
-                    );
+                    core::ptr::copy_nonoverlapping(payload.as_ptr().add(f0), base.add(f0), f1 - f0);
                 }
                 self.charge(part, ps, f1 - f0);
                 bits[b / 64].fetch_or(1u64 << (b % 64), Ordering::Release);
                 self.blocks_resident.fetch_add(1, Ordering::Release);
             }
         }
-        DICT_WHOLE_FAULT_BYTES
-            .fetch_add(state.len as u64, core::sync::atomic::Ordering::Relaxed);
+        DICT_WHOLE_FAULT_BYTES.fetch_add(state.len as u64, core::sync::atomic::Ordering::Relaxed);
         Ok(())
     }
 }
@@ -1654,13 +1739,21 @@ impl DictHandle {
         let k = self.part.value_key();
         // bounded("catalog-sized: a dictionary's index extents, a few per handle")
         for rec in &self.index_stream.extents {
-            memledger::value::lookup(memledger::Consumer::PartCache, k ^ rec.file_off.rotate_left(32), rec.len);
+            memledger::value::lookup(
+                memledger::Consumer::PartCache,
+                k ^ rec.file_off.rotate_left(32),
+                rec.len,
+            );
         }
         let stored: u64 = self.payload_stream.extents.iter().map(|r| r.len).sum();
         let held = self.resident_payload_bytes();
         // bounded("catalog-sized: a dictionary's payload extents, a few per handle")
         for rec in &self.payload_stream.extents {
-            memledger::value::lookup(memledger::Consumer::PartCache, k ^ rec.file_off.rotate_left(32), payload_door_bytes(rec.len, stored, held));
+            memledger::value::lookup(
+                memledger::Consumer::PartCache,
+                k ^ rec.file_off.rotate_left(32),
+                payload_door_bytes(rec.len, stored, held),
+            );
         }
     }
 
@@ -1675,7 +1768,8 @@ impl DictHandle {
         }
         let d = match self.payload_stream.extents.first() {
             Some(rec) if nb > 0 => {
-                let n = Device::at_residency(self.part.page_resident(rec.file_off, rec.len)).faults_to_stream(nb as u64, rec.len / nb as u64);
+                let n = Device::at_residency(self.part.page_resident(rec.file_off, rec.len))
+                    .faults_to_stream(nb as u64, rec.len / nb as u64);
                 usize::try_from(n).unwrap_or(usize::MAX).max(1)
             }
             // open builds a block-lazy payload over exactly one extent and the caller holds nb > 0, so this arm is never
@@ -1719,13 +1813,17 @@ fn present_bounded_entry<'a>(
 ) -> ReadResult<DictEntryRef<'a>> {
     let region_off = payload_start + payload_off;
     if region_off >= payload_end {
-        return Err(ReadError::Format(FormatError::Bounds { at: "dict payload" }));
+        return Err(ReadError::Format(FormatError::Bounds {
+            at: "dict payload",
+        }));
     }
     // Below the window start ⇒ the entry claims another (possibly
     // unpublished) frame/block: refuse before any read.
     let lo = region_off
         .checked_sub(seg_base)
-        .ok_or(ReadError::Format(FormatError::Bounds { at: "dict payload" }))?;
+        .ok_or(ReadError::Format(FormatError::Bounds {
+            at: "dict payload",
+        }))?;
     let (image, bytes) = pgrc_format::wire::varlena_entry_at(seg, lo, "dict payload")?;
     if bytes.len() != byte_len as usize {
         return Err(ReadError::Format(FormatError::Corrupt {
@@ -1735,11 +1833,13 @@ fn present_bounded_entry<'a>(
     use pgrc_format::dict::DictCharLenForm;
     let char_len = match charlen_form {
         DictCharLenForm::Absolute => char_field,
-        DictCharLenForm::Delta => byte_len.checked_sub(char_field).ok_or(
-            ReadError::Format(FormatError::Corrupt {
-                at: "dict entry char_len delta",
-            }),
-        )?,
+        DictCharLenForm::Delta => {
+            byte_len
+                .checked_sub(char_field)
+                .ok_or(ReadError::Format(FormatError::Corrupt {
+                    at: "dict entry char_len delta",
+                }))?
+        }
         DictCharLenForm::Absent => pgrc_format::dict::utf8_char_count(bytes),
     };
     Ok(DictEntryRef {
@@ -1763,7 +1863,14 @@ impl DictHandle {
         attno: u32,
         path_ord: u32,
     ) -> ReadResult<DictHandle> {
-        DictHandle::open_with_mode(part, pin, unwrappers, attno, path_ord, DictFaultMode::from_env())
+        DictHandle::open_with_mode(
+            part,
+            pin,
+            unwrappers,
+            attno,
+            path_ord,
+            DictFaultMode::from_env(),
+        )
     }
 
     /// [`DictHandle::open`] with the SB-7 fault mode stated explicitly —
@@ -1777,7 +1884,15 @@ impl DictHandle {
         path_ord: u32,
         mode: DictFaultMode,
     ) -> ReadResult<DictHandle> {
-        DictHandle::open_with_arms(part, pin, unwrappers, attno, path_ord, mode, DictFrameServe::from_env())
+        DictHandle::open_with_arms(
+            part,
+            pin,
+            unwrappers,
+            attno,
+            path_ord,
+            mode,
+            DictFrameServe::from_env(),
+        )
     }
 
     /// [`DictHandle::open_with_mode`] with the frame-serve arm ALSO stated
@@ -1810,7 +1925,16 @@ impl DictHandle {
         path_ord: u32,
         touch: DictTouch,
     ) -> ReadResult<DictHandle> {
-        DictHandle::open_elected(part, pin, unwrappers, attno, path_ord, DictFaultMode::from_env(), DictFrameServe::from_env(), Some(touch))
+        DictHandle::open_elected(
+            part,
+            pin,
+            unwrappers,
+            attno,
+            path_ord,
+            DictFaultMode::from_env(),
+            DictFrameServe::from_env(),
+            Some(touch),
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1849,8 +1973,7 @@ impl DictHandle {
         // payload fault can precede the refusal.
         for ps in [&index_stream, &payload_stream] {
             let w = pgrc_format::enc::Wrapper::from_u8(ps.entry.wrapper)?;
-            if w != pgrc_format::enc::Wrapper::None
-                && !unwrappers.iter().any(|u| u.wrapper() == w)
+            if w != pgrc_format::enc::Wrapper::None && !unwrappers.iter().any(|u| u.wrapper() == w)
             {
                 return Err(ReadError::Format(FormatError::WrapperUnsupported {
                     wrapper: w.as_u8(),
@@ -1913,11 +2036,17 @@ impl DictHandle {
                     // decoded bytes the image holds
                     if bl.any_resident() {
                         let bytes = payload_door_bytes(rec.len, rec.len, bl.resident_bytes());
-                        memledger::value::lookup(memledger::Consumer::PartCache, part.value_key() ^ rec.file_off.rotate_left(32), bytes);
+                        memledger::value::lookup(
+                            memledger::Consumer::PartCache,
+                            part.value_key() ^ rec.file_off.rotate_left(32),
+                            bytes,
+                        );
                     }
                     PayloadRegion::BlockLazy(bl)
                 }
-                BlockLazyGrain::Handle => PayloadRegion::BlockLazy(Arc::new(BlockLazyPayload::new())),
+                BlockLazyGrain::Handle => {
+                    PayloadRegion::BlockLazy(Arc::new(BlockLazyPayload::new()))
+                }
             }
         } else {
             PayloadRegion::Whole(LazyRegion::new())
@@ -1965,7 +2094,11 @@ impl DictHandle {
             fc,
             fc_memo_charge: pgsync::OnceLock::new(),
             fc_memo: pgsync::OnceLock::new(),
-            fc_arena: Mutex::new(FcArena { charge: None, chunks: Vec::new(), used: 0 }),
+            fc_arena: Mutex::new(FcArena {
+                charge: None,
+                chunks: Vec::new(),
+                used: 0,
+            }),
         })
     }
 
@@ -1979,12 +2112,9 @@ impl DictHandle {
             DictTouch::Sparse => TOUCH_SPARSE,
             DictTouch::Probe => return,
         };
-        let _ = self.touch.compare_exchange(
-            TOUCH_UNDECLARED,
-            v,
-            Ordering::Relaxed,
-            Ordering::Relaxed,
-        );
+        let _ =
+            self.touch
+                .compare_exchange(TOUCH_UNDECLARED, v, Ordering::Relaxed, Ordering::Relaxed);
     }
 
     /// Number of global codes (dict entries).
@@ -1993,7 +2123,9 @@ impl DictHandle {
     /// no statement uses the part (D3003 `users`). Only the part-grain / handle-grain block-lazy image is poisoned (the arm
     /// whose image the handle can own alone); bytes poisoned.
     pub fn debug_poison(&self) -> u64 {
-        let PayloadRegion::BlockLazy(b) = &self.payload else { return 0 };
+        let PayloadRegion::BlockLazy(b) = &self.payload else {
+            return 0;
+        };
         if self.part.users() == 0 {
             self.part.evict_contents();
         }
@@ -2009,10 +2141,16 @@ impl DictHandle {
     /// tables carry their own charges.
     pub fn loose_bytes(&self) -> u64 {
         let ext = core::mem::size_of::<pgrc_format::part::ExtentRecord>();
-        let streams = (self.index_stream.extents.capacity() + self.payload_stream.extents.capacity()) * ext;
+        let streams =
+            (self.index_stream.extents.capacity() + self.payload_stream.extents.capacity()) * ext;
         let payload = match &self.payload {
-            PayloadRegion::FrameLazy(f) => f.frame_bits.capacity() * core::mem::size_of::<AtomicU64>(),
-            PayloadRegion::FrameDirect(f) => f.segs.capacity() * core::mem::size_of::<pgsync::OnceLock<crate::openpart::SegBuf>>(),
+            PayloadRegion::FrameLazy(f) => {
+                f.frame_bits.capacity() * core::mem::size_of::<AtomicU64>()
+            }
+            PayloadRegion::FrameDirect(f) => {
+                f.segs.capacity()
+                    * core::mem::size_of::<pgsync::OnceLock<crate::openpart::SegBuf>>()
+            }
             PayloadRegion::Whole(_) | PayloadRegion::BlockLazy(_) => 0,
         };
         (streams + payload) as u64
@@ -2119,10 +2257,20 @@ impl DictHandle {
                 // On frame-cut geometry the frame ordinal IS the extent
                 // ordinal (seal.rs dict_frame_extents: one extent per
                 // frame, `granule_start` carries the frame ordinal).
-                fl.ensure_extent(&self.part, &self.payload_stream, frame, "dict payload stream")?;
+                fl.ensure_extent(
+                    &self.part,
+                    &self.payload_stream,
+                    frame,
+                    "dict payload stream",
+                )?;
             }
             PayloadRegion::FrameDirect(fd) => {
-                fd.ensure_extent(&self.part, &self.payload_stream, frame, "dict payload stream")?;
+                fd.ensure_extent(
+                    &self.part,
+                    &self.payload_stream,
+                    frame,
+                    "dict payload stream",
+                )?;
             }
             PayloadRegion::BlockLazy(bl) => {
                 // [sqe8blk] Part-grain dense/sparse election (see
@@ -2150,7 +2298,9 @@ impl DictHandle {
                     // faults vs the §6.4 block count (nblocks == 0
                     // before the first fault ⇒ stays block-grain).
                     let nb = bl.nblocks.load(Ordering::Acquire);
-                    nb > 0 && self.demand_block_faults.load(Ordering::Relaxed) as usize >= self.stream_after(nb)
+                    nb > 0
+                        && self.demand_block_faults.load(Ordering::Relaxed) as usize
+                            >= self.stream_after(nb)
                 };
                 if elected {
                     // shapecheck fire signal (REGISTRY P5-08): the election streamed the rest
@@ -2254,9 +2404,13 @@ impl DictHandle {
         if code >= self.entry_count {
             return Err(ReadError::Format(FormatError::Bounds { at: "dict code" }));
         }
-        let (iptr, ilen) = self
-            .index
-            .ensure(&self.part, self.unwrappers, &self.index_stream, "dict index stream", None)?;
+        let (iptr, ilen) = self.index.ensure(
+            &self.part,
+            self.unwrappers,
+            &self.index_stream,
+            "dict index stream",
+            None,
+        )?;
         // SAFETY: (iptr, ilen) were published from a payload slice of an
         // `Arc<[u8]>` rooted in `self.index.cell` for `self`'s lifetime;
         // the cell is write-once, so the region is live and immutable.
@@ -2271,32 +2425,36 @@ impl DictHandle {
         // declared form (typed corruption on a delta > byte_len — UTF-8
         // chars are never longer than their bytes).
         use pgrc_format::dict::DictCharLenForm;
-        let char_len = match self.charlen_form {
-            DictCharLenForm::Absolute => char_field,
-            DictCharLenForm::Delta => byte_len
-                .checked_sub(char_field)
-                .ok_or(ReadError::Format(FormatError::Corrupt {
-                    at: "dict entry char_len delta",
-                }))?,
-            // Option-C: nothing stored — serve from the load-time
-            // one-pass table (built on first call; the index-only/
-            // no-payload-fault contract is DEVIATED under this form by
-            // design — the build faults the payload once, then every
-            // call is a table read).
-            DictCharLenForm::Absent => {
-                if self.char_table.get().is_none() {
-                    let t = self.build_char_table()?;
-                    let n = (t.capacity() * core::mem::size_of::<u32>()) as u64;
-                    if self.char_table.set(t).is_ok() {
-                        let _ = self.char_table_charge.set(crate::partcache::holder_charge(n));
+        let char_len =
+            match self.charlen_form {
+                DictCharLenForm::Absolute => char_field,
+                DictCharLenForm::Delta => byte_len.checked_sub(char_field).ok_or(
+                    ReadError::Format(FormatError::Corrupt {
+                        at: "dict entry char_len delta",
+                    }),
+                )?,
+                // Option-C: nothing stored — serve from the load-time
+                // one-pass table (built on first call; the index-only/
+                // no-payload-fault contract is DEVIATED under this form by
+                // design — the build faults the payload once, then every
+                // call is a table read).
+                DictCharLenForm::Absent => {
+                    if self.char_table.get().is_none() {
+                        let t = self.build_char_table()?;
+                        let n = (t.capacity() * core::mem::size_of::<u32>()) as u64;
+                        if self.char_table.set(t).is_ok() {
+                            let _ = self
+                                .char_table_charge
+                                .set(crate::partcache::holder_charge(n));
+                        }
                     }
+                    let t = self.char_table.get().expect("just set");
+                    *t.get(code as usize)
+                        .ok_or(ReadError::Format(FormatError::Bounds {
+                            at: "dict char table",
+                        }))?
                 }
-                let t = self.char_table.get().expect("just set");
-                *t.get(code as usize).ok_or(ReadError::Format(
-                    FormatError::Bounds { at: "dict char table" },
-                ))?
-            }
-        };
+            };
         Ok((byte_len, char_len))
     }
 
@@ -2313,9 +2471,13 @@ impl DictHandle {
     /// The whole index (`DICT_INDEX_ENTRY_LEN` bytes per code: payload_off, byte_len, the
     /// char field) — INDEX-ONLY, no payload fault; live and immutable for the handle's life.
     pub fn index_bytes(&self) -> ReadResult<&[u8]> {
-        let (iptr, ilen) = self
-            .index
-            .ensure(&self.part, self.unwrappers, &self.index_stream, "dict index stream", None)?;
+        let (iptr, ilen) = self.index.ensure(
+            &self.part,
+            self.unwrappers,
+            &self.index_stream,
+            "dict index stream",
+            None,
+        )?;
         // SAFETY: a write-once published region, live for `self`'s lifetime.
         let index = unsafe { core::slice::from_raw_parts(iptr, ilen) };
         index
@@ -2363,9 +2525,13 @@ impl DictHandle {
         if code >= self.entry_count {
             return Err(ReadError::Format(FormatError::Bounds { at: "dict code" }));
         }
-        let (iptr, ilen) = self
-            .index
-            .ensure(&self.part, self.unwrappers, &self.index_stream, "dict index stream", None)?;
+        let (iptr, ilen) = self.index.ensure(
+            &self.part,
+            self.unwrappers,
+            &self.index_stream,
+            "dict index stream",
+            None,
+        )?;
         // SAFETY: write-once published region, live for `self`'s lifetime.
         let index = unsafe { core::slice::from_raw_parts(iptr, ilen) };
         let off = code as usize * DICT_INDEX_ENTRY_LEN;
@@ -2399,9 +2565,13 @@ impl DictHandle {
         if crate::dict_census_on() {
             DICT_ENTRY_CALLS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         }
-        let (iptr, ilen) = self
-            .index
-            .ensure(&self.part, self.unwrappers, &self.index_stream, "dict index stream", None)?;
+        let (iptr, ilen) = self.index.ensure(
+            &self.part,
+            self.unwrappers,
+            &self.index_stream,
+            "dict index stream",
+            None,
+        )?;
         if self.fc {
             // SAFETY: the write-once published index region, live for `self`'s lifetime.
             let index = unsafe { core::slice::from_raw_parts(iptr, ilen) };
@@ -2436,7 +2606,12 @@ impl DictHandle {
                 )?,
                 DictCharLenForm::Absent => pgrc_format::dict::utf8_char_count(bytes),
             };
-            return Ok(DictEntryRef { image, bytes, byte_len, char_len });
+            return Ok(DictEntryRef {
+                image,
+                bytes,
+                byte_len,
+                char_len,
+            });
         }
         // Read the index rec once. `payload_off` is untrusted file bytes;
         // the FrameLazy/BlockLazy arms below bound it to `code`'s PUBLISHED
@@ -2467,7 +2642,14 @@ impl DictHandle {
                 // for `self`'s lifetime.
                 let payload = unsafe { core::slice::from_raw_parts(pptr, plen) };
                 present_bounded_entry(
-                    payload, 0, 0, plen, payload_off, byte_len, char_field, self.charlen_form,
+                    payload,
+                    0,
+                    0,
+                    plen,
+                    payload_off,
+                    byte_len,
+                    char_field,
+                    self.charlen_form,
                 )
             }
             PayloadRegion::FrameLazy(fl) => {
@@ -2483,9 +2665,10 @@ impl DictHandle {
                 // dereference.
                 let f = self.frame_of_code(code);
                 let (flo, fhi) =
-                    fl.frame_span(f).ok_or(ReadError::Format(FormatError::Corrupt {
-                        at: "dict payload geometry unpublished after ensure",
-                    }))?;
+                    fl.frame_span(f)
+                        .ok_or(ReadError::Format(FormatError::Corrupt {
+                            at: "dict payload geometry unpublished after ensure",
+                        }))?;
                 let hi = fhi.min(pend);
                 // SAFETY: `base` is the published, never-moving region
                 // reservation; `[flo, hi)` lies within frame `f`'s extent,
@@ -2493,9 +2676,18 @@ impl DictHandle {
                 let region = unsafe { core::slice::from_raw_parts(base, region_len) };
                 let seg = region
                     .get(flo..hi)
-                    .ok_or(ReadError::Format(FormatError::Corrupt { at: "dict frame span" }))?;
+                    .ok_or(ReadError::Format(FormatError::Corrupt {
+                        at: "dict frame span",
+                    }))?;
                 present_bounded_entry(
-                    seg, flo, pstart, hi, payload_off, byte_len, char_field, self.charlen_form,
+                    seg,
+                    flo,
+                    pstart,
+                    hi,
+                    payload_off,
+                    byte_len,
+                    char_field,
+                    self.charlen_form,
                 )
             }
             PayloadRegion::BlockLazy(bl) => {
@@ -2512,15 +2704,29 @@ impl DictHandle {
                 match bl.block_span(self.frame_of_code(code), plen) {
                     Some((blo, bhi)) => {
                         let seg = payload.get(blo..bhi).ok_or(ReadError::Format(
-                            FormatError::Corrupt { at: "dict block span" },
+                            FormatError::Corrupt {
+                                at: "dict block span",
+                            },
                         ))?;
                         present_bounded_entry(
-                            seg, blo, 0, bhi, payload_off, byte_len, char_field,
+                            seg,
+                            blo,
+                            0,
+                            bhi,
+                            payload_off,
+                            byte_len,
+                            char_field,
                             self.charlen_form,
                         )
                     }
                     None => present_bounded_entry(
-                        payload, 0, 0, plen, payload_off, byte_len, char_field,
+                        payload,
+                        0,
+                        0,
+                        plen,
+                        payload_off,
+                        byte_len,
+                        char_field,
                         self.charlen_form,
                     ),
                 }
@@ -2537,12 +2743,16 @@ impl DictHandle {
         let byte_len = u32::from_le_bytes(rec[4..8].try_into().expect("len 4"));
         let char_field = u32::from_le_bytes(rec[8..12].try_into().expect("len 4"));
         let memo = self.fc_memo.get_or_init(|| {
-            let _ = self.fc_memo_charge.set(crate::partcache::holder_charge((self.entry_count as usize * core::mem::size_of::<AtomicU64>()) as u64));
+            let _ = self.fc_memo_charge.set(crate::partcache::holder_charge(
+                (self.entry_count as usize * core::mem::size_of::<AtomicU64>()) as u64,
+            ));
             (0..self.entry_count).map(|_| AtomicU64::new(0)).collect() // alloc: Exec
         });
         let mut p = memo[code as usize].load(Ordering::Acquire);
         if p == 0 {
-            let PayloadRegion::Whole(r) = &self.payload else { unreachable!("fc elects the whole arm") };
+            let PayloadRegion::Whole(r) = &self.payload else {
+                unreachable!("fc elects the whole arm")
+            };
             let (pptr, plen) = r.get().ok_or(ReadError::Format(FormatError::Corrupt {
                 at: "dict payload region unpublished after ensure",
             }))?;
@@ -2565,14 +2775,22 @@ impl DictHandle {
         let image = unsafe { core::slice::from_raw_parts(p as *const u8, 4 + byte_len as usize) };
         let bytes = &image[4..];
         use pgrc_format::dict::DictCharLenForm;
-        let char_len = match self.charlen_form {
-            DictCharLenForm::Absolute => char_field,
-            DictCharLenForm::Delta => byte_len.checked_sub(char_field).ok_or(ReadError::Format(FormatError::Corrupt {
-                at: "dict entry char_len delta",
-            }))?,
-            DictCharLenForm::Absent => pgrc_format::dict::utf8_char_count(bytes),
-        };
-        Ok(DictEntryRef { image, bytes, byte_len, char_len })
+        let char_len =
+            match self.charlen_form {
+                DictCharLenForm::Absolute => char_field,
+                DictCharLenForm::Delta => byte_len.checked_sub(char_field).ok_or(
+                    ReadError::Format(FormatError::Corrupt {
+                        at: "dict entry char_len delta",
+                    }),
+                )?,
+                DictCharLenForm::Absent => pgrc_format::dict::utf8_char_count(bytes),
+            };
+        Ok(DictEntryRef {
+            image,
+            bytes,
+            byte_len,
+            char_len,
+        })
     }
 
     /// The bytes the front-coded arm materialised on this handle (0 on the expanded arm).
@@ -2620,14 +2838,19 @@ impl DictHandle {
         };
         let fc = if self.fc && start < end {
             self.ensure_frame(self.frame_of_code(start))?;
-            let PayloadRegion::Whole(r) = &self.payload else { unreachable!("fc elects the whole arm") };
+            let PayloadRegion::Whole(r) = &self.payload else {
+                unreachable!("fc elects the whole arm")
+            };
             let (pptr, plen) = r.get().ok_or(ReadError::Format(FormatError::Corrupt {
                 at: "dict payload region unpublished after ensure",
             }))?;
             // SAFETY: the published write-once region, live for `'_` (the handle's lifetime).
             let payload = unsafe { core::slice::from_raw_parts(pptr, plen) };
             let fcr = pgrc_format::dict::FcResident::parse(payload)?;
-            Some((pgrc_format::dict::FcWalk::new(fcr, index, start, end)?, Vec::new()))
+            Some((
+                pgrc_format::dict::FcWalk::new(fcr, index, start, end)?,
+                Vec::new(),
+            ))
         } else {
             None
         };
@@ -2717,9 +2940,10 @@ impl<'a> DictEntryCursor<'a> {
                 // `Direct` win bounds each entry to `[flo, hi)`, so a crafted
                 // `payload_off` cannot reach outside the published frame.
                 let (flo, fhi) =
-                    fl.frame_span(frame).ok_or(ReadError::Format(FormatError::Corrupt {
-                        at: "dict payload geometry unpublished after ensure",
-                    }))?;
+                    fl.frame_span(frame)
+                        .ok_or(ReadError::Format(FormatError::Corrupt {
+                            at: "dict payload geometry unpublished after ensure",
+                        }))?;
                 let hi = fhi.min(pend);
                 // SAFETY: `base` is the published, never-moving region
                 // reservation; `[flo, hi)` lies within frame `frame`'s
@@ -2728,7 +2952,9 @@ impl<'a> DictEntryCursor<'a> {
                 let region = unsafe { core::slice::from_raw_parts(base, region_len) };
                 let seg = region
                     .get(flo..hi)
-                    .ok_or(ReadError::Format(FormatError::Corrupt { at: "dict frame span" }))?;
+                    .ok_or(ReadError::Format(FormatError::Corrupt {
+                        at: "dict frame span",
+                    }))?;
                 BulkWin::Direct {
                     seg,
                     base: flo,
@@ -2750,7 +2976,9 @@ impl<'a> DictEntryCursor<'a> {
                 match bl.block_span(frame, l) {
                     Some((blo, bhi)) => {
                         let seg = payload.get(blo..bhi).ok_or(ReadError::Format(
-                            FormatError::Corrupt { at: "dict block span" },
+                            FormatError::Corrupt {
+                                at: "dict block span",
+                            },
                         ))?;
                         BulkWin::Direct {
                             seg,
@@ -2782,29 +3010,46 @@ impl<'a> DictEntryCursor<'a> {
                 }
             }
         };
-        self.frame_end = (((frame as u64) + 1) * DICT_FRAME_ENTRIES as u64)
-            .min(self.end as u64) as u32;
+        self.frame_end =
+            (((frame as u64) + 1) * DICT_FRAME_ENTRIES as u64).min(self.end as u64) as u32;
         Ok(())
     }
 
     /// The front-coded arm's `next_entry`: the walk decodes in place into the cursor's buffer.
     fn next_fc(&mut self) -> ReadResult<Option<(u32, DictEntryRef<'_>)>> {
         let (walk, buf) = self.fc.as_mut().expect("fc arm");
-        let Some((code, len)) = walk.next(buf)? else { return Ok(None) };
+        let Some((code, len)) = walk.next(buf)? else {
+            return Ok(None);
+        };
         self.walked += 1;
         let off = code as usize * DICT_INDEX_ENTRY_LEN;
-        let rec = self.index.get(off..off + DICT_INDEX_ENTRY_LEN).ok_or(ReadError::Format(FormatError::Bounds { at: "dict index" }))?;
+        let rec = self
+            .index
+            .get(off..off + DICT_INDEX_ENTRY_LEN)
+            .ok_or(ReadError::Format(FormatError::Bounds { at: "dict index" }))?;
         let char_field = u32::from_le_bytes(rec[8..12].try_into().expect("len 4"));
         let image = &buf[..4 + len];
         use pgrc_format::dict::DictCharLenForm;
         let char_len = match self.dh.charlen_form {
             DictCharLenForm::Absolute => char_field,
-            DictCharLenForm::Delta => (len as u32).checked_sub(char_field).ok_or(ReadError::Format(FormatError::Corrupt {
-                at: "dict entry char_len delta",
-            }))?,
+            DictCharLenForm::Delta => {
+                (len as u32)
+                    .checked_sub(char_field)
+                    .ok_or(ReadError::Format(FormatError::Corrupt {
+                        at: "dict entry char_len delta",
+                    }))?
+            }
             DictCharLenForm::Absent => pgrc_format::dict::utf8_char_count(&image[4..]),
         };
-        Ok(Some((code, DictEntryRef { image, bytes: &image[4..], byte_len: len as u32, char_len })))
+        Ok(Some((
+            code,
+            DictEntryRef {
+                image,
+                bytes: &image[4..],
+                byte_len: len as u32,
+                char_len,
+            },
+        )))
     }
 
     /// The next `(code, entry)` in the range, or `Ok(None)` at the end.
@@ -2830,45 +3075,45 @@ impl<'a> DictEntryCursor<'a> {
         let payload_off = u32::from_le_bytes(rec[0..4].try_into().expect("len 4"));
         let byte_len = u32::from_le_bytes(rec[4..8].try_into().expect("len 4"));
         let char_field = u32::from_le_bytes(rec[8..12].try_into().expect("len 4"));
-        let (image, bytes) = match self.win {
-            BulkWin::Contig(p) => {
-                pgrc_format::wire::varlena_entry_at(p, payload_off as usize, "dict payload")?
-            }
-            BulkWin::Direct {
-                seg,
-                base,
-                payload_start,
-                payload_end,
-            } => {
-                let region_off = payload_start + payload_off as usize;
-                if region_off >= payload_end {
-                    return Err(ReadError::Format(FormatError::Bounds {
-                        at: "dict payload",
-                    }));
+        let (image, bytes) =
+            match self.win {
+                BulkWin::Contig(p) => {
+                    pgrc_format::wire::varlena_entry_at(p, payload_off as usize, "dict payload")?
                 }
-                let lo = region_off
-                    .checked_sub(base)
-                    .ok_or(ReadError::Format(FormatError::Bounds { at: "dict payload" }))?;
-                pgrc_format::wire::varlena_entry_at(seg, lo, "dict payload")?
-            }
-        };
+                BulkWin::Direct {
+                    seg,
+                    base,
+                    payload_start,
+                    payload_end,
+                } => {
+                    let region_off = payload_start + payload_off as usize;
+                    if region_off >= payload_end {
+                        return Err(ReadError::Format(FormatError::Bounds {
+                            at: "dict payload",
+                        }));
+                    }
+                    let lo = region_off.checked_sub(base).ok_or(ReadError::Format(
+                        FormatError::Bounds { at: "dict payload" },
+                    ))?;
+                    pgrc_format::wire::varlena_entry_at(seg, lo, "dict payload")?
+                }
+            };
         if bytes.len() != byte_len as usize {
             return Err(ReadError::Format(FormatError::Corrupt {
                 at: "dict entry byte_len",
             }));
         }
         use pgrc_format::dict::DictCharLenForm;
-        let char_len = match self.dh.charlen_form {
-            DictCharLenForm::Absolute => char_field,
-            DictCharLenForm::Delta => {
-                byte_len
-                    .checked_sub(char_field)
-                    .ok_or(ReadError::Format(FormatError::Corrupt {
+        let char_len =
+            match self.dh.charlen_form {
+                DictCharLenForm::Absolute => char_field,
+                DictCharLenForm::Delta => byte_len.checked_sub(char_field).ok_or(
+                    ReadError::Format(FormatError::Corrupt {
                         at: "dict entry char_len delta",
-                    }))?
-            }
-            DictCharLenForm::Absent => pgrc_format::dict::utf8_char_count(bytes),
-        };
+                    }),
+                )?,
+                DictCharLenForm::Absent => pgrc_format::dict::utf8_char_count(bytes),
+            };
         self.code = code + 1;
         self.walked += 1;
         Ok(Some((
@@ -2907,17 +3152,31 @@ mod d4135_tests {
     fn a_reservation_commits_only_the_pages_a_fault_writes_over_reused_memory_too() {
         const WORDS: usize = (8 << 20) / 8;
         const BLOCK: usize = 64 << 10;
-        let thp_always = std::fs::read_to_string("/sys/kernel/mm/transparent_hugepage/enabled").is_ok_and(|t| t.contains("[always]"));
+        let thp_always = std::fs::read_to_string("/sys/kernel/mm/transparent_hugepage/enabled")
+            .is_ok_and(|t| t.contains("[always]"));
         for round in 0..6 {
             let mut b = ImageBuf::zeroed(WORDS).expect("the reservation");
-            assert_eq!(resident(&b), 0, "round {round}: nothing faulted, so no whole page is resident");
+            assert_eq!(
+                resident(&b),
+                0,
+                "round {round}: nothing faulted, so no whole page is resident"
+            );
             // one block's fault, in the reservation's middle
             let at = WORDS / 2;
             b[at..at + BLOCK / 8].fill(7);
             let now = resident(&b);
-            assert!(now >= BLOCK - PAGE, "round {round}: the faulted block is resident ({now})");
-            assert!(thp_always || now <= BLOCK + PAGE, "round {round}: at most one page past the faulted block ({now})");
-            assert!(b[..at].iter().all(|&w| w == 0) && b[at + BLOCK / 8..].iter().all(|&w| w == 0), "the rest reads zero");
+            assert!(
+                now >= BLOCK - PAGE,
+                "round {round}: the faulted block is resident ({now})"
+            );
+            assert!(
+                thp_always || now <= BLOCK + PAGE,
+                "round {round}: at most one page past the faulted block ({now})"
+            );
+            assert!(
+                b[..at].iter().all(|&w| w == 0) && b[at + BLOCK / 8..].iter().all(|&w| w == 0),
+                "the rest reads zero"
+            );
             // every page dirtied, so the allocator's next block of this size is memory it reuses
             b.fill(u64::MAX);
         }
@@ -2959,7 +3218,10 @@ mod idx136_tests {
     #[test]
     fn crafted_uncompressed_len_refused() {
         let (index, _) = index_of(&[10, 2100, 7]);
-        assert!(refused(dict_payload_unc_checked((u32::MAX - 7) as usize, &index)));
+        assert!(refused(dict_payload_unc_checked(
+            (u32::MAX - 7) as usize,
+            &index
+        )));
     }
 
     // [idx136, D302] The law is exact: one byte short of the last entry, or
@@ -2984,7 +3246,10 @@ mod idx136_tests {
         for unc in end..=end + 7 {
             assert_eq!(dict_payload_unc_checked(unc, &index).ok(), Some(unc));
         }
-        assert!(end > 1024 * 1435, "the repro's image is past the old ratio bound");
+        assert!(
+            end > 1024 * 1435,
+            "the repro's image is past the old ratio bound"
+        );
     }
 }
 
@@ -3047,7 +3312,10 @@ mod idx251_tests {
         )
         .expect_err("below-window entry must be refused");
         assert!(
-            matches!(err, ReadError::Format(FormatError::Bounds { at: "dict payload" })),
+            matches!(
+                err,
+                ReadError::Format(FormatError::Bounds { at: "dict payload" })
+            ),
             "expected typed Bounds refusal, got {err:?}"
         );
     }
@@ -3081,16 +3349,35 @@ mod d4482_fc_arena_tests {
     /// (on the part cache's holder) holds every chunk's bytes, a second chunk's too, and nothing before the first.
     #[test]
     fn an_fc_arenas_chunks_are_the_part_caches_from_their_allocation() {
-        let mut a = FcArena { charge: None, chunks: Vec::new(), used: 0 };
-        assert!(a.charge.is_none(), "an arena that materialised nothing holds no charge");
+        let mut a = FcArena {
+            charge: None,
+            chunks: Vec::new(),
+            used: 0,
+        };
+        assert!(
+            a.charge.is_none(),
+            "an arena that materialised nothing holds no charge"
+        );
         a.alloc(10);
         a.alloc(100);
         let held = |a: &FcArena| a.charge.as_ref().map_or(0, |c| c.committed());
-        assert_eq!(held(&a), FC_CHUNK as u64, "the first chunk is on the charge");
-        assert_eq!(a.charge.as_ref().expect("charge").owner(), crate::partcache::OWNER, "the part cache's holder");
+        assert_eq!(
+            held(&a),
+            FC_CHUNK as u64,
+            "the first chunk is on the charge"
+        );
+        assert_eq!(
+            a.charge.as_ref().expect("charge").owner(),
+            crate::partcache::OWNER,
+            "the part cache's holder"
+        );
         a.alloc(FC_CHUNK);
         let bytes: usize = a.chunks.iter().map(|c| c.len()).sum();
-        assert_eq!((a.chunks.len(), held(&a)), (2, bytes as u64), "a second chunk's bytes join the charge");
+        assert_eq!(
+            (a.chunks.len(), held(&a)),
+            (2, bytes as u64),
+            "a second chunk's bytes join the charge"
+        );
     }
 }
 

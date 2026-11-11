@@ -753,6 +753,7 @@ impl Program {
 
     /// `d` frozen into the program's own arena (`V4Descs::freeze`) as `with_v4` does, the content key left as it is: for
     /// a program put together by hand (tests, rigs). Replaces any earlier set.
+    #[allow(clippy::arc_with_non_send_sync)]
     pub fn set_v4(&mut self, d: &V4Descs) {
         let (arena, frozen) = d.freeze();
         self.v4 = None;

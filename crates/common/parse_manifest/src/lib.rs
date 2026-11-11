@@ -87,6 +87,7 @@ impl<T: JsonManifestParseContext + ?Sized> JsonManifestParseContext for &mut T {
 
 /// C: JsonManifestSemanticState.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[allow(clippy::enum_variant_names)]
 enum SemState {
     ExpectToplevelStart,
     ExpectToplevelEnd,
@@ -211,6 +212,7 @@ impl<C: JsonManifestParseContext> JsonManifestParseState<C> {
     }
 
     /// C: json_manifest_finalize_file.
+    #[allow(clippy::redundant_guards)]
     fn finalize_file(&mut self) -> PgResult<()> {
         /* Pathname and size are required. */
         if self.pathname.is_none() && self.encoded_pathname.is_none() {
@@ -266,6 +268,7 @@ impl<C: JsonManifestParseContext> JsonManifestParseState<C> {
         let checksum = self.checksum.take();
         let checksum_payload: Option<Vec<u8>> = match checksum.as_deref() {
             None => None,
+            #[allow(clippy::redundant_guards)]
             Some(checksum) if checksum.is_empty() => None,
             Some(checksum) => match hexdecode_string(checksum) {
                 Some(payload) => Some(payload),

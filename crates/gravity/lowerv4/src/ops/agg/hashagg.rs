@@ -411,7 +411,7 @@ impl<'p> HashEnd<'_, 'p> {
             let (rec, window, no) = (b.block_params(l_hot)[0], b.block_params(l_hot)[1], b.bconst(false));
             b.br(l_join, &[rec, no, window]);
             b.switch_to(l_join);
-            let p = mcx::to_vec_in(&b.block_params(l_join)[..], self.mcx);
+            let p = mcx::to_vec_in(b.block_params(l_join), self.mcx);
             self.fold_rec(b, env, row, p[0], p[1], Some(p[2]));
         });
         true
@@ -565,7 +565,7 @@ impl<'p> EndMech for HashEnd<'_, 'p> {
 
     /// The owner phase merges the record as the table holds it (image keys, image min / max slots). The graph's legacy
     /// kernel fact words (decompose agg.rs `W_*`) go: they name slots of v4's own word plan (v4's facts are protocols).
-    fn pipeline_desc(&self, px: &Px<'_, '_>, k: usize, mut d: Pipeline) -> Pipeline {
+    fn pipeline_desc(&self, px: &Px<'_, '_>, _k: usize, mut d: Pipeline) -> Pipeline {
         d.words = None;
         d = crate::table::emit_key::resident(&self.rec, d);
         if let Some(o) = d.owner.as_mut() {

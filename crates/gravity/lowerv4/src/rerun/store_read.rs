@@ -38,6 +38,7 @@ use crate::frame::frame::{SourceMaker, Win};
 use crate::frame::open::{Base, OpenWord, OpenWords};
 use crate::face::step::ExprMech;
 use crate::frame::px::{ExId, Px, WordKey};
+#[allow(unused_imports)]
 use crate::graph::Gx;
 use crate::lx::CellRef;
 use crate::frame::row::{Carry, RowVals};

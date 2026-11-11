@@ -637,6 +637,7 @@ impl CmpCtx<'_> {
                         return compare;
                     }
                 }
+                #[allow(clippy::needless_range_loop)]
                 for nkey in 1..*nkeys as usize {
                     let key = &self.keys[nkey];
                     let (mut isnull1, mut isnull2) = (false, false);
@@ -724,6 +725,7 @@ impl CmpCtx<'_> {
             }
         }
 
+        #[allow(clippy::nonminimal_bool)]
         if *enforce_unique && !(!unique_nulls_not_distinct && equal_hasnull) {
             debug_assert!(!core::ptr::eq(tuple1, tuple2));
             if !self.violated.replace(true) {
@@ -1333,6 +1335,7 @@ impl Tuplesort {
         // index relation open for the life of the sort.
         let index_desc: Option<std::rc::Rc<TupleDescData<'static>>> =
             if attnums[..nkeys].contains(&0) {
+                #[allow(clippy::missing_transmute_annotations)]
                 Some(unsafe { mem::transmute(index_rel.rd_att.clone()) })
             } else {
                 None

@@ -4,7 +4,10 @@
 //! models drive the kernels through their traits instead (`loom_api`): loom's atomics cannot sit in statics.
 
 #[cfg(not(shuttle))]
-pub(crate) use core::sync::atomic::{AtomicBool, AtomicIsize, AtomicPtr, AtomicU16, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
+pub(crate) use core::sync::atomic::{
+    AtomicBool, AtomicIsize, AtomicPtr, AtomicU16, AtomicU32, AtomicU64, AtomicU8, AtomicUsize,
+    Ordering,
+};
 
 /// A spin wait's pause: under the models the spinner yields (PCT lowers its priority), so the holder it waits on runs.
 #[cfg(not(shuttle))]
@@ -37,7 +40,8 @@ mod model {
     /// (PCT lowers a yielding thread's priority, so a yield at every operation would make its schedules round robin).
     #[inline]
     fn point() {
-        static POINT: shuttle::sync::atomic::AtomicBool = shuttle::sync::atomic::AtomicBool::new(false);
+        static POINT: shuttle::sync::atomic::AtomicBool =
+            shuttle::sync::atomic::AtomicBool::new(false);
         // a failed model's teardown (a guard's unlock while unwinding) runs with no execution left to switch in
         if !std::thread::panicking() {
             POINT.load(Ordering::SeqCst);
@@ -72,15 +76,32 @@ mod model {
                     point();
                     self.0.swap(v, o)
                 }
-                pub fn compare_exchange(&self, c: $t, n: $t, s: Ordering, f: Ordering) -> Result<$t, $t> {
+                pub fn compare_exchange(
+                    &self,
+                    c: $t,
+                    n: $t,
+                    s: Ordering,
+                    f: Ordering,
+                ) -> Result<$t, $t> {
                     point();
                     self.0.compare_exchange(c, n, s, f)
                 }
-                pub fn compare_exchange_weak(&self, c: $t, n: $t, s: Ordering, f: Ordering) -> Result<$t, $t> {
+                pub fn compare_exchange_weak(
+                    &self,
+                    c: $t,
+                    n: $t,
+                    s: Ordering,
+                    f: Ordering,
+                ) -> Result<$t, $t> {
                     point();
                     self.0.compare_exchange(c, n, s, f)
                 }
-                pub fn fetch_update<F: FnMut($t) -> Option<$t>>(&self, s: Ordering, f: Ordering, g: F) -> Result<$t, $t> {
+                pub fn fetch_update<F: FnMut($t) -> Option<$t>>(
+                    &self,
+                    s: Ordering,
+                    f: Ordering,
+                    g: F,
+                ) -> Result<$t, $t> {
                     point();
                     self.0.fetch_update(s, f, g)
                 }
@@ -150,7 +171,13 @@ mod model {
             point();
             self.0.swap(p, o)
         }
-        pub fn compare_exchange(&self, c: *mut T, n: *mut T, s: Ordering, f: Ordering) -> Result<*mut T, *mut T> {
+        pub fn compare_exchange(
+            &self,
+            c: *mut T,
+            n: *mut T,
+            s: Ordering,
+            f: Ordering,
+        ) -> Result<*mut T, *mut T> {
             point();
             self.0.compare_exchange(c, n, s, f)
         }

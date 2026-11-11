@@ -23,16 +23,16 @@ mod execute;
 mod plan;
 mod tuptable;
 
-pub use access::{SPI_fnumber, SPI_getbinval, SPI_getvalue, SPI_gettypeid};
-pub use execute::{
-    SPI_exec, SPI_execp, SPI_execute, SPI_execute_extended, SPI_execute_plan,
-    SPI_execute_plan_extended, SPI_execute_plan_with_paramlist, SPI_execute_snapshot,
-    SpiExecuteOptions, SpiParamList,
-};
+pub use access::{SPI_fnumber, SPI_getbinval, SPI_gettypeid, SPI_getvalue};
 pub use cursor::{
     SPI_cursor_close, SPI_cursor_close_portal, SPI_cursor_fetch, SPI_cursor_open,
     SPI_cursor_open_extended, SPI_cursor_open_with_paramlist, SPI_scroll_cursor_fetch,
     SPI_scroll_cursor_move, SpiCursor,
+};
+pub use execute::{
+    SPI_exec, SPI_execp, SPI_execute, SPI_execute_extended, SPI_execute_plan,
+    SPI_execute_plan_extended, SPI_execute_plan_with_paramlist, SPI_execute_snapshot,
+    SpiExecuteOptions, SpiParamList,
 };
 pub use plan::{
     SPI_freeplan, SPI_getargcount, SPI_getargtypeid, SPI_keepplan, SPI_plan_command_tags,

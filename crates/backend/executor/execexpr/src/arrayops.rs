@@ -194,6 +194,7 @@ pub fn eval_array_expr(st: &mut ArrayExprState) -> PgResult<NullableDatum> {
             }
         }
         let mut this_dims = [0i32; MAXDIM];
+        #[allow(clippy::needless_range_loop)]
         for i in 0..this_ndims as usize {
             this_dims[i] = arrayfuncs::arr_dim(arr, i);
         }
@@ -228,6 +229,7 @@ pub fn eval_array_expr(st: &mut ArrayExprState) -> PgResult<NullableDatum> {
     let mut lbs = [0i32; MAXDIM];
     dims[0] = outer_nelems as i32;
     lbs[0] = 1;
+    #[allow(clippy::manual_memcpy)]
     for i in 1..ndims as usize {
         dims[i] = elem_dims[i - 1];
         lbs[i] = elem_lbs[i - 1];
@@ -253,10 +255,12 @@ pub fn eval_array_expr(st: &mut ArrayExprState) -> PgResult<NullableDatum> {
     out[8..12].copy_from_slice(&(dataoffset as i32).to_ne_bytes());
     out[12..16].copy_from_slice(&st.elemtype.to_ne_bytes());
     let mut off = 16usize;
+    #[allow(clippy::needless_range_loop)]
     for i in 0..ndims as usize {
         out[off..off + 4].copy_from_slice(&dims[i].to_ne_bytes());
         off += 4;
     }
+    #[allow(clippy::needless_range_loop)]
     for i in 0..ndims as usize {
         out[off..off + 4].copy_from_slice(&lbs[i].to_ne_bytes());
         off += 4;
@@ -440,7 +444,9 @@ pub fn sbsref_assign(
     }
     // SAFETY: cparam_arg is what the list owner armed for this evaluation.
     let expanded = !cur.isnull
-        && st.container_param.is_some_and(|(f, id)| unsafe { f(cparam_arg, id) });
+        && st
+            .container_param
+            .is_some_and(|(f, id)| unsafe { f(cparam_arg, id) });
 
     if st.refattrlength > 0 && (cur.isnull || st.replace.isnull) {
         // Fixed-length arrays: punt and return the original (C shape).

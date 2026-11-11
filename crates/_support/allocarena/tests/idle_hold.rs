@@ -5,7 +5,8 @@
 //! test binary: the owned flags and the purge delay are process-wide.
 
 #[global_allocator]
-static GLOBAL: init_small::oom::Rescue<mimalloc::MiMalloc> = init_small::oom::Rescue(mimalloc::MiMalloc);
+static GLOBAL: init_small::oom::Rescue<mimalloc::MiMalloc> =
+    init_small::oom::Rescue(mimalloc::MiMalloc);
 
 use std::time::{Duration, Instant};
 
@@ -38,11 +39,18 @@ const IDLE_MS: u64 = 700;
 fn freed_general_range() -> usize {
     let b = std::hint::black_box(vec![3u8; SIZE]);
     let p = b.as_ptr() as usize;
-    assert!(allocarena::in_arenas(b.as_ptr()) && !allocarena::in_cache_arena(b.as_ptr()), "the block is on a general arena");
+    assert!(
+        allocarena::in_arenas(b.as_ptr()) && !allocarena::in_cache_arena(b.as_ptr()),
+        "the block is on a general arena"
+    );
     drop(b);
     // SAFETY: mimalloc's collect on this thread (no forced purge).
     unsafe { libmimalloc_sys::mi_collect(false) };
-    assert!(resident(p, SIZE) >= SIZE * 9 / 10, "freed and pending: {} resident", resident(p, SIZE));
+    assert!(
+        resident(p, SIZE) >= SIZE * 9 / 10,
+        "freed and pending: {} resident",
+        resident(p, SIZE)
+    );
     p
 }
 
@@ -59,12 +67,17 @@ fn forced_collect_elsewhere() {
 }
 
 fn fallbacks() -> u64 {
-    (0..allocarena::general_arenas()).map(allocarena::general_purge_fallbacks).sum()
+    (0..allocarena::general_arenas())
+        .map(allocarena::general_purge_fallbacks)
+        .sum()
 }
 
 #[test]
 fn the_hold_purges_an_owned_arena_only_after_an_idle_stretch() {
-    assert!(allocarena::general_arenas() >= 1, "the general arenas are installed");
+    assert!(
+        allocarena::general_arenas() >= 1,
+        "the general arenas are installed"
+    );
     allocarena::set_general_purge_owned(true);
     let owner0 = allocarena::purged_bytes().0;
     let p = freed_general_range();
@@ -76,8 +89,16 @@ fn the_hold_purges_an_owned_arena_only_after_an_idle_stretch() {
         std::thread::sleep(Duration::from_millis(100));
     }
     forced_collect_elsewhere();
-    assert!(resident(p, SIZE) >= SIZE * 9 / 10, "claims kept coming: the hold kept it: {} resident", resident(p, SIZE));
-    assert_eq!(fallbacks(), 0, "the hold kept the owner alive: no dead-man fallback");
+    assert!(
+        resident(p, SIZE) >= SIZE * 9 / 10,
+        "claims kept coming: the hold kept it: {} resident",
+        resident(p, SIZE)
+    );
+    assert_eq!(
+        fallbacks(),
+        0,
+        "the hold kept the owner alive: no dead-man fallback"
+    );
     drop(live);
     // SAFETY: mimalloc's collect on this thread (no forced purge).
     unsafe { libmimalloc_sys::mi_collect(false) };
@@ -87,9 +108,20 @@ fn the_hold_purges_an_owned_arena_only_after_an_idle_stretch() {
         let _ = allocarena::purge_after_idle(true, false, IDLE_MS);
         std::thread::sleep(Duration::from_millis(50));
     }
-    assert!(resident(p, SIZE) <= SIZE / 16, "idle: the hold purged it: {} resident", resident(p, SIZE));
-    assert!(t.elapsed() >= Duration::from_millis(IDLE_MS / 2), "not before the idle stretch: {:?}", t.elapsed());
-    assert!(allocarena::purged_bytes().0 - owner0 >= (SIZE / 2) as u64, "counted as the owner's purge");
+    assert!(
+        resident(p, SIZE) <= SIZE / 16,
+        "idle: the hold purged it: {} resident",
+        resident(p, SIZE)
+    );
+    assert!(
+        t.elapsed() >= Duration::from_millis(IDLE_MS / 2),
+        "not before the idle stretch: {:?}",
+        t.elapsed()
+    );
+    assert!(
+        allocarena::purged_bytes().0 - owner0 >= (SIZE / 2) as u64,
+        "counted as the owner's purge"
+    );
     assert_eq!(fallbacks(), 0, "no fallback");
     allocarena::set_general_purge_owned(false);
 }

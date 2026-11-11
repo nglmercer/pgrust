@@ -85,7 +85,11 @@ impl spgxlogAddLeaf {
 
     pub fn decode(b: &[u8]) -> PgResult<Self> {
         if b.len() < SizeOfSpgxlogAddLeaf {
-            return Err(short_record_err("spgxlogAddLeaf", SizeOfSpgxlogAddLeaf, b.len()));
+            return Err(short_record_err(
+                "spgxlogAddLeaf",
+                SizeOfSpgxlogAddLeaf,
+                b.len(),
+            ));
         }
         Ok(spgxlogAddLeaf {
             newPage: b[0] != 0,
@@ -127,7 +131,11 @@ impl spgxlogMoveLeafs {
 
     pub fn decode(b: &[u8]) -> PgResult<Self> {
         if b.len() < SizeOfSpgxlogMoveLeafs {
-            return Err(short_record_err("spgxlogMoveLeafs", SizeOfSpgxlogMoveLeafs, b.len()));
+            return Err(short_record_err(
+                "spgxlogMoveLeafs",
+                SizeOfSpgxlogMoveLeafs,
+                b.len(),
+            ));
         }
         Ok(spgxlogMoveLeafs {
             nMoves: u16_at(b, 0),
@@ -170,7 +178,11 @@ impl spgxlogAddNode {
 
     pub fn decode(b: &[u8]) -> PgResult<Self> {
         if b.len() < SizeOfSpgxlogAddNode {
-            return Err(short_record_err("spgxlogAddNode", SizeOfSpgxlogAddNode, b.len()));
+            return Err(short_record_err(
+                "spgxlogAddNode",
+                SizeOfSpgxlogAddNode,
+                b.len(),
+            ));
         }
         Ok(spgxlogAddNode {
             offnum: u16_at(b, 0),
@@ -207,7 +219,11 @@ impl spgxlogSplitTuple {
 
     pub fn decode(b: &[u8]) -> PgResult<Self> {
         if b.len() < SizeOfSpgxlogSplitTuple {
-            return Err(short_record_err("spgxlogSplitTuple", SizeOfSpgxlogSplitTuple, b.len()));
+            return Err(short_record_err(
+                "spgxlogSplitTuple",
+                SizeOfSpgxlogSplitTuple,
+                b.len(),
+            ));
         }
         Ok(spgxlogSplitTuple {
             offnumPrefix: u16_at(b, 0),
@@ -257,7 +273,11 @@ impl spgxlogPickSplit {
 
     pub fn decode(b: &[u8]) -> PgResult<Self> {
         if b.len() < SizeOfSpgxlogPickSplit {
-            return Err(short_record_err("spgxlogPickSplit", SizeOfSpgxlogPickSplit, b.len()));
+            return Err(short_record_err(
+                "spgxlogPickSplit",
+                SizeOfSpgxlogPickSplit,
+                b.len(),
+            ));
         }
         Ok(spgxlogPickSplit {
             isRootSplit: b[0] != 0,
@@ -301,7 +321,11 @@ impl spgxlogVacuumLeaf {
 
     pub fn decode(b: &[u8]) -> PgResult<Self> {
         if b.len() < SizeOfSpgxlogVacuumLeaf {
-            return Err(short_record_err("spgxlogVacuumLeaf", SizeOfSpgxlogVacuumLeaf, b.len()));
+            return Err(short_record_err(
+                "spgxlogVacuumLeaf",
+                SizeOfSpgxlogVacuumLeaf,
+                b.len(),
+            ));
         }
         Ok(spgxlogVacuumLeaf {
             nDead: u16_at(b, 0),
@@ -332,7 +356,11 @@ impl spgxlogVacuumRoot {
 
     pub fn decode(b: &[u8]) -> PgResult<Self> {
         if b.len() < SizeOfSpgxlogVacuumRoot {
-            return Err(short_record_err("spgxlogVacuumRoot", SizeOfSpgxlogVacuumRoot, b.len()));
+            return Err(short_record_err(
+                "spgxlogVacuumRoot",
+                SizeOfSpgxlogVacuumRoot,
+                b.len(),
+            ));
         }
         Ok(spgxlogVacuumRoot {
             nDelete: u16_at(b, 0),
@@ -364,7 +392,11 @@ impl spgxlogVacuumRedirect {
 
     pub fn decode(b: &[u8]) -> PgResult<Self> {
         if b.len() < SizeOfSpgxlogVacuumRedirect {
-            return Err(short_record_err("spgxlogVacuumRedirect", SizeOfSpgxlogVacuumRedirect, b.len()));
+            return Err(short_record_err(
+                "spgxlogVacuumRedirect",
+                SizeOfSpgxlogVacuumRedirect,
+                b.len(),
+            ));
         }
         Ok(spgxlogVacuumRedirect {
             nToPlaceholder: u16_at(b, 0),

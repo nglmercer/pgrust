@@ -42,12 +42,17 @@ fn io_err<T>(e: std::io::Error, what: &str) -> PgResult<T> {
 }
 
 pub(crate) fn prepare() -> PgResult<()> {
-    Spool::data().ensure_dir().or_else(|e| io_err(e, &format!("could not create directory \"{SPOOL_DIR}\"")))
+    Spool::data()
+        .ensure_dir()
+        .or_else(|e| io_err(e, &format!("could not create directory \"{SPOOL_DIR}\"")))
 }
 
 pub(crate) fn register(start: XLogRecPtr) -> SpoolCover {
     let seg = transam_xlog::wal_segment_size() as u64;
-    SpoolCover { cover: pgrc_spool::backup_begin(start, seg), done: false }
+    SpoolCover {
+        cover: pgrc_spool::backup_begin(start, seg),
+        done: false,
+    }
 }
 
 /// Whether entries of `[start, ..)` may have gone with their WAL segments: an ERROR, or while archiving (the archive
@@ -59,7 +64,10 @@ fn removed(start: XLogRecPtr, tli: types_core::TimeLineID, warned: &mut bool) ->
         Err(e) if transam_xlog::XLogArchivingActive() => {
             if !std::mem::replace(warned, true) {
                 let _ = ereport(WARNING)
-                    .errmsg(format!("{}; pgrcolumnar files its WAL references may be missing from this backup", e.message))
+                    .errmsg(format!(
+                        "{}; pgrcolumnar files its WAL references may be missing from this backup",
+                        e.message
+                    ))
                     .errhint("Restore them from the WAL archive (pgrust.pgrc_archive_parts).")
                     .finish(loc("pgrc_append_spool"));
             }
@@ -81,10 +89,20 @@ pub(crate) fn append_spool(
     // holds was inserted before it, so after settle it is named. A standby lands each file before the WAL naming it,
     // in LSN order, so everything landed is the bound.
     let in_recovery = transam_xlog::RecoveryInProgress();
-    let bound = if in_recovery { u64::MAX } else { transam_xlog::GetXLogInsertRecPtr() };
+    let bound = if in_recovery {
+        u64::MAX
+    } else {
+        transam_xlog::GetXLogInsertRecPtr()
+    };
     pgrc_spool::settle();
-    let entries = Spool::data().list(start, bound).or_else(|e| io_err(e, &format!("could not list \"{SPOOL_DIR}\"")))?;
-    let cover = if in_recovery { entries.last().map_or(start, |&(l, _)| l + 1) } else { bound };
+    let entries = Spool::data()
+        .list(start, bound)
+        .or_else(|e| io_err(e, &format!("could not list \"{SPOOL_DIR}\"")))?;
+    let cover = if in_recovery {
+        entries.last().map_or(start, |&(l, _)| l + 1)
+    } else {
+        bound
+    };
     sc.cover.set_cover(cover);
     sc.done = true;
     let mut warned = false;
@@ -93,7 +111,20 @@ pub(crate) fn append_spool(
     for (lsn, _) in &entries {
         let path = PgPath::from(format!("{SPOOL_DIR}/{}", spool_name(*lsn)));
         let sent = match lstat_raw(&path) {
-            Ok(statbuf) => sendFile(sink, state, &path, &path, &statbuf, true, INVALID_OID, INVALID_OID, None, manifest, None, 0)?,
+            Ok(statbuf) => sendFile(
+                sink,
+                state,
+                &path,
+                &path,
+                &statbuf,
+                true,
+                INVALID_OID,
+                INVALID_OID,
+                None,
+                manifest,
+                None,
+                0,
+            )?,
             Err(libc::ENOENT) => false,
             Err(errnum) => return stat_error(&path, "file", errnum, "pgrc_append_spool"),
         };

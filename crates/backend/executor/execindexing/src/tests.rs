@@ -150,9 +150,15 @@ fn install() {
             }
             Ok(())
         });
-        seam_default!(backend_progress_seams::pgstat_progress_update_param, |index, val| {
-            PROGRESS_LOG.lock().unwrap_or_else(|e| e.into_inner()).push((index, val));
-        });
+        seam_default!(
+            backend_progress_seams::pgstat_progress_update_param,
+            |index, val| {
+                PROGRESS_LOG
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push((index, val));
+            }
+        );
     });
     static INIT: Once = Once::new();
     INIT.call_once(|| {
@@ -267,7 +273,10 @@ fn install() {
             HEAP_OID => Ok(Relation::open(heap_relation_data(mcx), None)),
             IDX_OID => {
                 let unique = UNIQUE_IDX.with(Cell::get);
-                Ok(Relation::open(index_relation_data(mcx, unique), noop_closer()))
+                Ok(Relation::open(
+                    index_relation_data(mcx, unique),
+                    noop_closer(),
+                ))
             }
             other => panic!("unknown relation oid {other}"),
         });
@@ -312,17 +321,19 @@ fn install() {
                 amoprighttype: INT4OID,
             }))
         });
-        syscache_seams::lookup_pg_amop_by_strategy::set(|opfamily, lefttype, righttype, strategy| {
-            assert_eq!(
-                (opfamily, lefttype, righttype),
-                (INT4_BTREE_OPFAMILY, INT4OID, INT4OID)
-            );
-            Ok(match strategy {
-                3 => OP_INT4EQ,
-                5 => OP_INT4GT,
-                _ => 0,
-            })
-        });
+        syscache_seams::lookup_pg_amop_by_strategy::set(
+            |opfamily, lefttype, righttype, strategy| {
+                assert_eq!(
+                    (opfamily, lefttype, righttype),
+                    (INT4_BTREE_OPFAMILY, INT4OID, INT4OID)
+                );
+                Ok(match strategy {
+                    3 => OP_INT4EQ,
+                    5 => OP_INT4GT,
+                    _ => 0,
+                })
+            },
+        );
         relcache_build_seams::scan_exclusion_ops::set(|mcx, _conrelid, _index_relid, _name, n| {
             EXCL_SCANS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let mut ops = PgVec::new_in(mcx);
@@ -332,19 +343,21 @@ fn install() {
             Ok(ops)
         });
         syscache_seams::lookup_pg_operator_shape::set(|opno| {
-            Ok((opno == OP_INT4EQ).then_some(syscache_seams::PgOperatorShape {
-                oprnamespace: 11,
-                oprleft: INT4OID,
-                oprright: INT4OID,
-                oprresult: 16,
-                oprcom: OP_INT4EQ,
-                oprnegate: 0,
-                oprcode: F_INT4EQ,
-                oprrest: 0,
-                oprjoin: 0,
-                oprcanmerge: true,
-                oprcanhash: true,
-            }))
+            Ok(
+                (opno == OP_INT4EQ).then_some(syscache_seams::PgOperatorShape {
+                    oprnamespace: 11,
+                    oprleft: INT4OID,
+                    oprright: INT4OID,
+                    oprresult: 16,
+                    oprcom: OP_INT4EQ,
+                    oprnegate: 0,
+                    oprcode: F_INT4EQ,
+                    oprrest: 0,
+                    oprjoin: 0,
+                    oprcanmerge: true,
+                    oprcanhash: true,
+                }),
+            )
         });
         syscache_seams::lookup_pg_amproc::set(|opfamily, lefttype, righttype, procnum| {
             assert_eq!(
@@ -441,9 +454,18 @@ fn heap_relation_data(mcx: Mcx<'_>) -> RelationData<'_> {
         rd_firstRelfilelocatorSubid: Cell::new(0),
         rd_droppedSubid: Cell::new(0),
         rd_lockInfo: LockInfoData {
-            lockRelId: LockRelId { relId: HEAP_OID, dbId: 5 },
+            lockRelId: LockRelId {
+                relId: HEAP_OID,
+                dbId: 5,
+            },
         },
-        rd_rel: pg_class("t", HEAP_OID, ::tableam::HEAP_TABLE_AM_OID, RELKIND_RELATION, true),
+        rd_rel: pg_class(
+            "t",
+            HEAP_OID,
+            ::tableam::HEAP_TABLE_AM_OID,
+            RELKIND_RELATION,
+            true,
+        ),
         rd_att: Rc::new(int4_tupdesc(mcx)),
         rd_index: None,
         rd_opcintype: PgVec::new_in(mcx),
@@ -454,13 +476,17 @@ fn heap_relation_data(mcx: Mcx<'_>) -> RelationData<'_> {
         pgstat_enabled: Cell::new(false),
         pgstat_link: core::cell::Cell::new((0, core::ptr::null_mut())),
         rd_amcache: Default::default(),
-        rd_amcache_hash: Default::default(), rd_amcache_gin: Default::default(), rd_amcache_spgist: Default::default(), rd_amcache_bloom: Default::default(),
+        rd_amcache_hash: Default::default(),
+        rd_amcache_gin: Default::default(),
+        rd_amcache_spgist: Default::default(),
+        rd_amcache_bloom: Default::default(),
         rd_support: PgVec::new_in(mcx),
         rd_supportinfo: Default::default(),
         rd_opcoptions: Default::default(),
         rd_indexlist: Default::default(),
-            rd_trigdesc: Default::default(),
-            rd_hastriggers: false, rd_hasrules: false,
+        rd_trigdesc: Default::default(),
+        rd_hastriggers: false,
+        rd_hasrules: false,
     }
 }
 
@@ -486,9 +512,18 @@ fn index_relation_data(mcx: Mcx<'_>, unique: bool) -> RelationData<'_> {
         rd_firstRelfilelocatorSubid: Cell::new(0),
         rd_droppedSubid: Cell::new(0),
         rd_lockInfo: LockInfoData {
-            lockRelId: LockRelId { relId: IDX_OID, dbId: 5 },
+            lockRelId: LockRelId {
+                relId: IDX_OID,
+                dbId: 5,
+            },
         },
-        rd_rel: pg_class("t_idx", IDX_OID, ::types_core::BTREE_AM_OID, RELKIND_INDEX, false),
+        rd_rel: pg_class(
+            "t_idx",
+            IDX_OID,
+            ::types_core::BTREE_AM_OID,
+            RELKIND_INDEX,
+            false,
+        ),
         rd_att: Rc::new(int4_tupdesc(mcx)),
         rd_index: Some(FormData_pg_index {
             indexrelid: IDX_OID,
@@ -506,8 +541,8 @@ fn index_relation_data(mcx: Mcx<'_>, unique: bool) -> RelationData<'_> {
             indxmin: 0,
             indkey,
             has_indpred: false,
-        indexprs_src: None,
-        indpred_src: None,
+            indexprs_src: None,
+            indpred_src: None,
         }),
         rd_opcintype: one(INT4OID),
         rd_opfamily: one(INT4_BTREE_OPFAMILY),
@@ -517,13 +552,17 @@ fn index_relation_data(mcx: Mcx<'_>, unique: bool) -> RelationData<'_> {
         pgstat_enabled: Cell::new(false),
         pgstat_link: core::cell::Cell::new((0, core::ptr::null_mut())),
         rd_amcache: Default::default(),
-        rd_amcache_hash: Default::default(), rd_amcache_gin: Default::default(), rd_amcache_spgist: Default::default(), rd_amcache_bloom: Default::default(),
+        rd_amcache_hash: Default::default(),
+        rd_amcache_gin: Default::default(),
+        rd_amcache_spgist: Default::default(),
+        rd_amcache_bloom: Default::default(),
         rd_support: PgVec::new_in(mcx),
         rd_supportinfo: Default::default(),
         rd_opcoptions: Default::default(),
         rd_indexlist: Default::default(),
-            rd_trigdesc: Default::default(),
-            rd_hastriggers: false, rd_hasrules: false,
+        rd_trigdesc: Default::default(),
+        rd_hastriggers: false,
+        rd_hasrules: false,
     }
 }
 
@@ -539,24 +578,35 @@ fn insert_row<'mcx>(
         ::heaptuple::heap_form_tuple(mcx, &heap.rd_att, &[Datum::from_i32(val)], &[false])?;
     ::heapam::heap_insert(heap, tuple.as_tuple_mut(), 0, 0, None)?;
 
-    let mut slot = exectuples::make_tuple_table_slot(
-        mcx,
-        TupleSlotKind::Virtual,
-        Some(heap.rd_att.clone()),
-    );
+    let mut slot =
+        exectuples::make_tuple_table_slot(mcx, TupleSlotKind::Virtual, Some(heap.rd_att.clone()));
     slot.base_mut().tts_values[0] = Datum::from_i32(val);
     slot.base_mut().tts_isnull[0] = false;
     exectuples::exec_store_virtual_tuple(&mut slot);
     slot.base_mut().tts_tid = tuple.as_tuple_mut().t_self;
     slot.base_mut().tts_tableOid = HEAP_OID;
 
-    crate::ExecInsertIndexTuples(mcx, mcx, idxstate, heap, &mut slot, None, false, None, &[], false)
-        .map(|_| ())
+    crate::ExecInsertIndexTuples(
+        mcx,
+        mcx,
+        idxstate,
+        heap,
+        &mut slot,
+        None,
+        false,
+        None,
+        &[],
+        false,
+    )
+    .map(|_| ())
 }
 
 fn static_mvcc_snapshot() -> Rc<SnapshotData<'static>> {
     let ctx: &'static MemoryContext = Box::leak(Box::new(MemoryContext::new("snap-test")));
-    Rc::new(SnapshotData::sentinel(ctx.mcx(), SnapshotType::SNAPSHOT_MVCC))
+    Rc::new(SnapshotData::sentinel(
+        ctx.mcx(),
+        SnapshotType::SNAPSHOT_MVCC,
+    ))
 }
 
 fn scan_values<'mcx>(mcx: Mcx<'mcx>, opno: Oid, opfuncid: Oid, k: i32) -> Vec<i32> {
@@ -574,11 +624,23 @@ fn scan_values<'mcx>(mcx: Mcx<'mcx>, opno: Oid, opfuncid: Oid, k: i32) -> Vec<i3
     fmgr_core::fmgr_info_into(opfuncid, &mut key.sk_func).unwrap();
     key.sk_argument = Datum::from_i32(k);
     let keys = [key];
-    let mut scan = indexam::index_beginscan(mcx, &heap, &index_rel, static_mvcc_snapshot(), 1, 0).unwrap();
+    let mut scan =
+        indexam::index_beginscan(mcx, &heap, &index_rel, static_mvcc_snapshot(), 1, 0).unwrap();
     indexam::index_rescan(&mut scan, Some(&keys), None).unwrap();
-    let mut slot = exectuples::make_tuple_table_slot(mcx, TupleSlotKind::BufferHeapTuple, Some(heap.rd_att.clone()));
+    let mut slot = exectuples::make_tuple_table_slot(
+        mcx,
+        TupleSlotKind::BufferHeapTuple,
+        Some(heap.rd_att.clone()),
+    );
     let mut out = Vec::new();
-    while indexam::index_getnext_slot(mcx, &mut scan, ::types_scan::sdir::ForwardScanDirection, &mut slot).unwrap() {
+    while indexam::index_getnext_slot(
+        mcx,
+        &mut scan,
+        ::types_scan::sdir::ForwardScanDirection,
+        &mut slot,
+    )
+    .unwrap()
+    {
         let mut isnull = false;
         let v = exectuples::slot_getattr(&mut slot, 1, &mut isnull);
         assert!(!isnull);
@@ -614,7 +676,10 @@ fn insert_rows_then_index_scan_finds_them() {
     crate::ExecCloseIndices(idxstate).unwrap();
 
     assert_eq!(scan_values(mcx, OP_INT4EQ, F_INT4EQ, 20), vec![20]);
-    assert_eq!(scan_values(mcx, OP_INT4GT, F_INT4GT, 15), vec![20, 30, 40, 50]);
+    assert_eq!(
+        scan_values(mcx, OP_INT4GT, F_INT4GT, 15),
+        vec![20, 30, 40, 50]
+    );
     quiesced();
 }
 
@@ -734,7 +799,6 @@ fn take_progress() -> Vec<(usize, i64)> {
     std::mem::take(&mut *PROGRESS_LOG.lock().unwrap_or_else(|e| e.into_inner()))
 }
 
-
 /// Seams the b139 witnesses need on top of `install()`: the cancel-aware
 /// CHECK_FOR_INTERRUPTS, a progress-parameter recorder, and the snapshot
 /// machinery (GetLatestSnapshot/RegisterSnapshot: procarray + varsup images,
@@ -747,10 +811,14 @@ fn install_b139_seams() {
         seam_default!(xact_seams::get_current_command_id, |_| Ok(0));
         seam_default!(xact_seams::isolation_uses_xact_snapshot, || false);
         seam_default!(xact_seams::isolation_is_serializable, || false);
-        seam_default!(xact_seams::transaction_id_is_current_transaction_id, |_| false);
+        seam_default!(xact_seams::transaction_id_is_current_transaction_id, |_| {
+            false
+        });
         seam_default!(transam_xlog_seams::recovery_in_progress, || false);
         seam_default!(subtrans_seams::sub_trans_get_topmost_transaction, Ok);
-        seam_default!(syscache_seams::relation_invalidates_snapshots_only, |_| false);
+        seam_default!(syscache_seams::relation_invalidates_snapshots_only, |_| {
+            false
+        });
         seam_default!(syscache_seams::relation_has_sys_cache, |_| true);
         seam_default!(resowner_seams::current_resource_owner, || {
             ::types_resowner::ResourceOwner::NULL
@@ -788,11 +856,8 @@ fn insert_heap_row<'mcx>(
     let mut tuple =
         ::heaptuple::heap_form_tuple(mcx, &heap.rd_att, &[Datum::from_i32(val)], &[false]).unwrap();
     ::heapam::heap_insert(heap, tuple.as_tuple_mut(), 0, 0, None).unwrap();
-    let mut slot = exectuples::make_tuple_table_slot(
-        mcx,
-        TupleSlotKind::Virtual,
-        Some(heap.rd_att.clone()),
-    );
+    let mut slot =
+        exectuples::make_tuple_table_slot(mcx, TupleSlotKind::Virtual, Some(heap.rd_att.clone()));
     slot.base_mut().tts_values[0] = Datum::from_i32(val);
     slot.base_mut().tts_isnull[0] = false;
     exectuples::exec_store_virtual_tuple(&mut slot);
@@ -931,9 +996,18 @@ fn self_tuple_seen_twice_in_probe_is_an_error() {
     let mut slot = insert_heap_row(mcx, &heap, 9);
     for _ in 0..2 {
         crate::ExecInsertIndexTuples(
-            mcx, mcx, &mut idxstate, &heap, &mut slot, None, false, None, &[], false,
+            mcx,
+            mcx,
+            &mut idxstate,
+            &heap,
+            &mut slot,
+            None,
+            false,
+            None,
+            &[],
+            false,
         )
-            .unwrap();
+        .unwrap();
     }
     make_exclusion(&mut idxstate.infos[0]);
     let tid = slot.base().tts_tid;
@@ -955,7 +1029,10 @@ fn self_tuple_seen_twice_in_probe_is_an_error() {
         &mut conflict,
     )
     .expect_err("duplicate self TID must error, not assert");
-    assert_eq!(err.message(), "found self tuple multiple times in index \"t_idx\"");
+    assert_eq!(
+        err.message(),
+        "found self tuple multiple times in index \"t_idx\""
+    );
     assert_eq!(err.sqlstate(), ::types_error::ERRCODE_INTERNAL_ERROR);
     // The error unwinds out of a live index scan (C's resowner releases its
     // pin at abort); the harness has no owner, so pins are not audited here.
@@ -972,7 +1049,11 @@ fn self_tuple_seen_twice_in_probe_is_an_error() {
 fn without_overlaps_typtype_is_checked_before_the_datum_is_read() {
     let exe = std::env::current_exe().unwrap();
     let out = std::process::Command::new(exe)
-        .args(["--exact", "tests::without_overlaps_child_probe", "--nocapture"])
+        .args([
+            "--exact",
+            "tests::without_overlaps_child_probe",
+            "--nocapture",
+        ])
         .env("EXECINDEXING_B139_CHILD", "1")
         .output()
         .expect("spawn child probe");
@@ -1005,7 +1086,10 @@ fn without_overlaps_child_probe() {
         b'b' as i8,         // TYPTYPE_BASE
     )
     .expect_err("non-range typtype is an error");
-    assert_eq!(err.message(), "WITHOUT OVERLAPS column \"a\" is not a range or multirange");
+    assert_eq!(
+        err.message(),
+        "WITHOUT OVERLAPS column \"a\" is not a range or multirange"
+    );
     assert_eq!(err.sqlstate(), ::types_error::ERRCODE_INTERNAL_ERROR);
 }
 
@@ -1026,9 +1110,18 @@ fn index_check_exclusion_checks_for_interrupts_per_tuple() {
     for v in [1, 2, 3] {
         let mut slot = insert_heap_row(mcx, &heap, v);
         crate::ExecInsertIndexTuples(
-            mcx, mcx, &mut idxstate, &heap, &mut slot, None, false, None, &[], false,
+            mcx,
+            mcx,
+            &mut idxstate,
+            &heap,
+            &mut slot,
+            None,
+            false,
+            None,
+            &[],
+            false,
         )
-            .unwrap();
+        .unwrap();
     }
     crate::ExecCloseIndices(idxstate).unwrap();
 
@@ -1247,13 +1340,19 @@ fn index_info_rejects_invalid_attribute_counts_before_metadata_access() {
         catalog.indnatts = count;
         catalog.indisexclusion = true;
         let index = Relation::open(data, noop_closer());
-        for result in [crate::BuildIndexInfo(mcx, &index), crate::BuildDummyIndexInfo(mcx, &index)] {
+        for result in [
+            crate::BuildIndexInfo(mcx, &index),
+            crate::BuildDummyIndexInfo(mcx, &index),
+        ] {
             let error = match result {
                 Err(error) => error,
                 Ok(_) => panic!("invalid indnatts accepted"),
             };
             assert_eq!(error.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
-            assert_eq!(error.message(), format!("invalid indnatts {count} for index {IDX_OID}"));
+            assert_eq!(
+                error.message(),
+                format!("invalid indnatts {count} for index {IDX_OID}")
+            );
         }
     }
     for count in [1, types_core::INDEX_MAX_KEYS] {

@@ -6,6 +6,9 @@
 //! elect DIFFERENT encodings (the it-really-took witness — otherwise the
 //! leg proves nothing).
 
+use pgrc_format::dirlayout::part_file_name;
+use pgrc_format::part::{FooterFixed, PartTail, SectionEntry, SectionKind, StreamEntry};
+use pgrc_format::wire::Cur;
 use pgrc_qa::adapters::{ForcedElection, ForcedPlan, Probe};
 use pgrc_qa::corpus::{
     append_fixture_rows, append_rows_with_sources, finish, finish_with_sources, int8_fixture,
@@ -13,9 +16,6 @@ use pgrc_qa::corpus::{
 };
 use pgrc_qa::simvfs::SimVfs;
 use pgrc_qa::{bool_col, f64_col};
-use pgrc_format::dirlayout::part_file_name;
-use pgrc_format::part::{FooterFixed, PartTail, SectionEntry, SectionKind, StreamEntry};
-use pgrc_format::wire::Cur;
 use pgrc_write::elect::{CandidateSource, ReferenceCandidates};
 use pgrc_write::publish::{effective_manifest, TxnVerdict};
 use pgrc_write::writer::PartCutPolicy;

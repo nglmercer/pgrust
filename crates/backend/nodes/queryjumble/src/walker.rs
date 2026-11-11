@@ -400,6 +400,7 @@ fn is_squashable_constant(element: Node<'_>) -> bool {
                 }
                 for (i, arg) in func.args.iter().enumerate() {
                     if arg.node_tag() != NodeTag::T_Const {
+                        #[allow(clippy::if_same_then_else)]
                         if i == 0 && stack_depth::stack_is_too_deep() {
                             return false;
                         } else if !is_squashable_constant(arg) {
@@ -432,10 +433,7 @@ fn elements<'mcx>(js: J<'_, 'mcx>, l: &NodeList<'mcx>, e: &p::ArrayExpr<'mcx>) -
     list(js, l)
 }
 
-pub(crate) fn jumble_query_struct<'mcx>(
-    js: J<'_, 'mcx>,
-    e: &q::Query<'mcx>,
-) -> PgResult<()> {
+pub(crate) fn jumble_query_struct<'mcx>(js: J<'_, 'mcx>, e: &q::Query<'mcx>) -> PgResult<()> {
     js.tag(NodeTag::T_Query);
     js.f_u32(e.commandType as u32);
     node(js, e.utilityStmt)?;

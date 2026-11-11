@@ -19,8 +19,8 @@
 //!   PostgreSQL's get_hash_memory_limit()): past it, the build leaves by a run-time refusal (`PAST`), before any row
 //!   left the statement (both pipelines run ahead of rows: effects.rs `falls_at_run`); since the row executor's
 //!   deletion that is the statement's 0A000, the one place PostgreSQL batches this join where the served run cannot.
-//! A served PostgreSQL plan holds no Gather (decompose refuses one), so its Hash is never parallel-aware: the serial
-//! batch rule is the only one. A home: sort's ends ask `served`, hashjoin's build end `guard_of` and `check`.
+//!   A served PostgreSQL plan holds no Gather (decompose refuses one), so its Hash is never parallel-aware: the serial
+//!   batch rule is the only one. A home: sort's ends ask `served`, hashjoin's build end `guard_of` and `check`.
 use std::borrow::Cow;
 
 use gravity_decompose::join::JoinDesc;

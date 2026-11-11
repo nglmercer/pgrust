@@ -15,6 +15,7 @@
 //! the frame (the lowering pins it, as D1005 pins a lazy build's probe); the members run nested through their width-1
 //! arm, and every other pipeline keeps its width. A read on a worker finds no frame: a Bug guard by name, never a value.
 //! Created by M8-RUNTIME.
+#[allow(unused_imports)]
 use core::ptr::NonNull;
 use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicU32, Ordering};

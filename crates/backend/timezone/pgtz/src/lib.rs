@@ -137,6 +137,7 @@ pub fn pg_open_tzfile(
     }
 
     if let Some(canonname) = canonname {
+        #[allow(clippy::sliced_string_as_bytes)]
         let canonical = fullname[orignamelen + 1..].as_bytes();
         let n = canonical.len().min(TZ_STRLEN_MAX);
         canonname[..n].copy_from_slice(&canonical[..n]);

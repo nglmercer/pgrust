@@ -7,12 +7,12 @@ use shm_mq::{ShmMqHandle, ShmMqResult};
 use stringinfo::StringInfo;
 use types_core::{ProcNumber, INVALID_PROC_NUMBER};
 use types_error::{
-    make_sqlstate, PgError, PgResult, DEBUG1, ERROR, FATAL, INFO, LOG, NOTICE, PANIC, WARNING,
+    make_sqlstate, PgError, PgResult, DEBUG1, ERROR, FATAL, INFO, LOG, NOTICE, PANIC,
     PG_DIAG_COLUMN_NAME, PG_DIAG_CONSTRAINT_NAME, PG_DIAG_CONTEXT, PG_DIAG_DATATYPE_NAME,
     PG_DIAG_INTERNAL_POSITION, PG_DIAG_INTERNAL_QUERY, PG_DIAG_MESSAGE_DETAIL,
     PG_DIAG_MESSAGE_HINT, PG_DIAG_MESSAGE_PRIMARY, PG_DIAG_SCHEMA_NAME, PG_DIAG_SEVERITY,
     PG_DIAG_SEVERITY_NONLOCALIZED, PG_DIAG_SOURCE_FILE, PG_DIAG_SOURCE_FUNCTION,
-    PG_DIAG_SOURCE_LINE, PG_DIAG_SQLSTATE, PG_DIAG_STATEMENT_POSITION, PG_DIAG_TABLE_NAME,
+    PG_DIAG_SOURCE_LINE, PG_DIAG_SQLSTATE, PG_DIAG_STATEMENT_POSITION, PG_DIAG_TABLE_NAME, WARNING,
 };
 use types_storage::storage::ProcSignalReason;
 
@@ -187,7 +187,9 @@ fn mq_send_loop(handle: &mut ShmMqHandle, buf: &[u8]) -> PgResult<ShmMqResult> {
 }
 
 fn mq_putmessage_noblock(_msgtype: u8, _s: &[u8]) -> PgResult<()> {
-    Err(Box::new(PgError::error("not currently supported".to_string())))
+    Err(Box::new(PgError::error(
+        "not currently supported".to_string(),
+    )))
 }
 
 fn elog_error(msg: String) -> Box<PgError> {

@@ -153,6 +153,7 @@ fn calc_rank_and(
                     for &cp in ct {
                         let dist =
                             (wep_getpos(lp) as i32 - wep_getpos(cp) as i32).abs();
+                        #[allow(clippy::nonminimal_bool)]
                         if dist != 0 || (dist == 0 && (this_is_null || ct_is_null)) {
                             let d = if dist == 0 { MAXENTRYPOS as i32 } else { dist };
                             let curw = ((wpos(w, lp) * wpos(w, cp) * word_distance(d))

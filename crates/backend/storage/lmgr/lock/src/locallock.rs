@@ -12,11 +12,13 @@ use types_storage::lock::{
 use crate::fastpath::{decrement_strong_lock_count, FastPathStrongLockHashPartition};
 
 #[derive(Clone, Copy, Debug)]
+#[allow(clippy::upper_case_acronyms)]
 pub(crate) struct LOCALLOCKOWNER {
     pub owner: ResourceOwner,
     pub nLocks: i64,
 }
 
+#[allow(clippy::upper_case_acronyms)]
 pub(crate) struct LOCALLOCK {
     pub hashcode: u32,
     pub lock: *mut LOCK,

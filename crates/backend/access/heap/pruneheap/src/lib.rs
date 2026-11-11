@@ -1,8 +1,7 @@
 //! pruneheap.c: prune + freeze lanes live (prune loop, HOT-chain walk,
 //! execute, freeze plans, XLOG_HEAP2_PRUNE_*).
 
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use ::elog::CritSection;
 use ::tableam_vocab::VacuumCutoffs;
@@ -23,8 +22,8 @@ use ::types_tuple::{
 };
 
 use ::heapam::freeze::{
-    heap_freeze_prepared_tuples, heap_pre_freeze_checks, heap_prepare_freeze_tuple,
-    HeapPageFreeze, HeapTupleFreeze,
+    heap_freeze_prepared_tuples, heap_pre_freeze_checks, heap_prepare_freeze_tuple, HeapPageFreeze,
+    HeapTupleFreeze,
 };
 use ::heapam::{HeapTupleHeaderAdvanceConflictHorizon, HeapTupleHeaderGetUpdateXid};
 use ::heapam_visibility::HeapTupleSatisfiesVacuumHorizon;
@@ -211,8 +210,12 @@ pub fn heap_page_prune_and_freeze(
     let fpi_before = transam_xlog_seams::wal_usage_fpi::call();
 
     let pagefrz = if freeze {
-        let new_relfrozen_xid = new_relfrozen_xid.as_deref_mut().expect("FREEZE needs trackers");
-        let new_relmin_mxid = new_relmin_mxid.as_deref_mut().expect("FREEZE needs trackers");
+        let new_relfrozen_xid = new_relfrozen_xid
+            .as_deref_mut()
+            .expect("FREEZE needs trackers");
+        let new_relmin_mxid = new_relmin_mxid
+            .as_deref_mut()
+            .expect("FREEZE needs trackers");
         HeapPageFreeze {
             freeze_required: false,
             FreezePageRelfrozenXid: *new_relfrozen_xid,
@@ -434,7 +437,14 @@ pub fn heap_page_prune_and_freeze(
     // pruneheap.c:754 START_CRIT_SECTION() .. :847 END.
     CritSection::run(|| {
         prune_apply(
-            relation, buffer, page_ptr, &mut prstate, reason, do_prune, do_hint, do_freeze,
+            relation,
+            buffer,
+            page_ptr,
+            &mut prstate,
+            reason,
+            do_prune,
+            do_hint,
+            do_freeze,
         )
     })?;
 
@@ -727,7 +737,12 @@ fn heap_prune_chain(
             heap_prune_record_unused(prstate, item, true);
         }
     } else {
-        heap_prune_record_redirect(prstate, rootoffnum, chainitems[ndeadchain], rootlp.is_normal());
+        heap_prune_record_redirect(
+            prstate,
+            rootoffnum,
+            chainitems[ndeadchain],
+            rootlp.is_normal(),
+        );
         for &item in &chainitems[1..ndeadchain] {
             heap_prune_record_unused(prstate, item, true);
         }
@@ -837,7 +852,9 @@ fn heap_prune_record_unchanged_lp_normal(
                     prstate.all_visible = false;
                 } else {
                     let xmin = htup.xmin();
-                    let cutoffs = prstate.cutoffs.expect("all_visible only tracked with FREEZE");
+                    let cutoffs = prstate
+                        .cutoffs
+                        .expect("all_visible only tracked with FREEZE");
                     if !TransactionIdPrecedes(xmin, cutoffs.OldestXmin) {
                         prstate.all_visible = false;
                     } else if TransactionIdFollows(xmin, prstate.visibility_cutoff_xid)
@@ -1104,8 +1121,13 @@ fn heap_log_freeze_new_plan(plan: &mut [u8; 12], frz: &HeapTupleFreeze) {
 }
 
 fn heap_log_freeze_cmp(a: &HeapTupleFreeze, b: &HeapTupleFreeze) -> core::cmp::Ordering {
-    (a.xmax, a.t_infomask2, a.t_infomask, a.frzflags, a.offset)
-        .cmp(&(b.xmax, b.t_infomask2, b.t_infomask, b.frzflags, b.offset))
+    (a.xmax, a.t_infomask2, a.t_infomask, a.frzflags, a.offset).cmp(&(
+        b.xmax,
+        b.t_infomask2,
+        b.t_infomask,
+        b.frzflags,
+        b.offset,
+    ))
 }
 
 // heap_log_freeze_plan: dedup tuple freeze plans (sorts `tuples` in place);
@@ -1223,7 +1245,11 @@ pub fn log_heap_prune_and_freeze(
     let conflict = conflict_xid.to_ne_bytes();
     let main_data: [&[u8]; 2] = [
         &xlrec,
-        if TransactionIdIsValid(conflict_xid) { &conflict } else { &[] },
+        if TransactionIdIsValid(conflict_xid) {
+            &conflict
+        } else {
+            &[]
+        },
     ];
 
     let recptr = xloginsert_seams::xlog_insert_record::call(
@@ -1282,7 +1308,10 @@ pub fn heap_freeze_own_insert(
     if offnum > page.max_offset_number() || !page.item_id(offnum).is_normal() {
         bufmgr_seams::lock_buffer::call(buffer, bufmgr_seams::BUFFER_LOCK_UNLOCK)?;
         bufmgr_seams::release_buffer::call(buffer)?;
-        return Err(Box::new(::types_error::PgError::new(::types_error::ERROR, "heap_freeze_own_insert: invalid lp")));
+        return Err(Box::new(::types_error::PgError::new(
+            ::types_error::ERROR,
+            "heap_freeze_own_insert: invalid lp",
+        )));
     }
     let itemid = page.item_id(offnum);
     // SAFETY: an LP_NORMAL item of the exclusively locked page.
@@ -1299,7 +1328,17 @@ pub fn heap_freeze_own_insert(
     heap_freeze_prepared_tuples(buffer, &frz);
     bufmgr_seams::mark_buffer_dirty::call(buffer)?;
     if relation_needs_wal(relation) {
-        log_heap_prune_and_freeze(relation, buffer, InvalidTransactionId, false, PruneReason::PruneOnAccess, &mut frz, &[], &[], &[])?;
+        log_heap_prune_and_freeze(
+            relation,
+            buffer,
+            InvalidTransactionId,
+            false,
+            PruneReason::PruneOnAccess,
+            &mut frz,
+            &[],
+            &[],
+            &[],
+        )?;
     }
     init_small::globals::EndCriticalSection();
     bufmgr_seams::lock_buffer::call(buffer, bufmgr_seams::BUFFER_LOCK_UNLOCK)?;

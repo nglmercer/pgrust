@@ -49,7 +49,16 @@ pub enum Site {
 }
 
 impl Site {
-    pub const ALL: [Site; 8] = [Site::Draw, Site::Admit, Site::Scratch, Site::SmallDraw, Site::Load, Site::Sample, Site::Hook, Site::Block];
+    pub const ALL: [Site; 8] = [
+        Site::Draw,
+        Site::Admit,
+        Site::Scratch,
+        Site::SmallDraw,
+        Site::Load,
+        Site::Sample,
+        Site::Hook,
+        Site::Block,
+    ];
 
     pub const fn name(self) -> &'static str {
         match self {
@@ -153,7 +162,12 @@ pub enum Cancel {
 }
 
 impl Cancel {
-    pub const ALL: [Cancel; 4] = [Cancel::Watchdog, Cancel::LadderR6, Cancel::Terminate, Cancel::R6AckTimeout];
+    pub const ALL: [Cancel; 4] = [
+        Cancel::Watchdog,
+        Cancel::LadderR6,
+        Cancel::Terminate,
+        Cancel::R6AckTimeout,
+    ];
 
     pub const fn name(self) -> &'static str {
         match self {
@@ -191,7 +205,17 @@ pub enum Why {
 }
 
 impl Why {
-    pub const ALL: [Why; 9] = [Why::PastCap, Why::DrawCapped, Why::SpillsItself, Why::LastTry, Why::WaitSpent, Why::Canceled, Why::NoWait, Why::Hold, Why::MaxRegion];
+    pub const ALL: [Why; 9] = [
+        Why::PastCap,
+        Why::DrawCapped,
+        Why::SpillsItself,
+        Why::LastTry,
+        Why::WaitSpent,
+        Why::Canceled,
+        Why::NoWait,
+        Why::Hold,
+        Why::MaxRegion,
+    ];
 
     pub const fn name(self) -> &'static str {
         match self {
@@ -241,7 +265,14 @@ struct Counters {
 
 impl Counters {
     const fn new() -> Counters {
-        Counters { misses: AtomicU64::new(0), waits: AtomicU64::new(0), wait_ns: AtomicU64::new(0), wait_max_ns: AtomicU64::new(0), refusals: AtomicU64::new(0), last_tries: AtomicU64::new(0) }
+        Counters {
+            misses: AtomicU64::new(0),
+            waits: AtomicU64::new(0),
+            wait_ns: AtomicU64::new(0),
+            wait_max_ns: AtomicU64::new(0),
+            refusals: AtomicU64::new(0),
+            last_tries: AtomicU64::new(0),
+        }
     }
 }
 
@@ -319,7 +350,11 @@ pub fn clock_ns() -> u64 {
     #[cfg(any(feature = "std", test))]
     {
         static EPOCH: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
-        EPOCH.get_or_init(std::time::Instant::now).elapsed().as_nanos() as u64 + 1
+        EPOCH
+            .get_or_init(std::time::Instant::now)
+            .elapsed()
+            .as_nanos() as u64
+            + 1
     }
     #[cfg(not(any(feature = "std", test)))]
     0
@@ -344,7 +379,8 @@ std::thread_local! {
 fn take_ran() -> Ran {
     #[cfg(any(feature = "std", test))]
     {
-        RAN.try_with(|r| r.replace(Ran::default())).unwrap_or_default()
+        RAN.try_with(|r| r.replace(Ran::default()))
+            .unwrap_or_default()
     }
     #[cfg(not(any(feature = "std", test)))]
     Ran::default()
@@ -396,7 +432,14 @@ impl Wait {
         c.misses.fetch_add(1, Relaxed);
         c.waits.fetch_add(1, Relaxed);
         let _ = take_ran();
-        Wait { site, need, read, line: crate::ladder::line(), t0: clock_ns(), outcome: AtomicU8::new(Outcome::Covered as u8) }
+        Wait {
+            site,
+            need,
+            read,
+            line: crate::ladder::line(),
+            t0: clock_ns(),
+            outcome: AtomicU8::new(Outcome::Covered as u8),
+        }
     }
 
     /// The wait took its last try (`DrawWait::LastTry`).
@@ -426,7 +469,12 @@ impl Wait {
 
     /// It ends seated below its ask, unless refused or canceled.
     pub fn halved(&self) {
-        let _ = self.outcome.compare_exchange(Outcome::Covered as u8, Outcome::Halved as u8, Relaxed, Relaxed);
+        let _ = self.outcome.compare_exchange(
+            Outcome::Covered as u8,
+            Outcome::Halved as u8,
+            Relaxed,
+            Relaxed,
+        );
     }
 }
 
@@ -435,8 +483,23 @@ impl Drop for Wait {
         let end = clock_ns();
         let outcome = Outcome::from_u8(self.outcome.load(Relaxed));
         let ran = take_ran();
-        ended(self.site, end.saturating_sub(self.t0), matches!(outcome, Outcome::Refused | Outcome::Canceled));
-        record(&Episode { seq: 0, start_ns: self.t0, end_ns: end, site: self.site, need: self.need, read: self.read, line: self.line, ran: ran.mask, relief: ran.relief, outcome });
+        ended(
+            self.site,
+            end.saturating_sub(self.t0),
+            matches!(outcome, Outcome::Refused | Outcome::Canceled),
+        );
+        record(&Episode {
+            seq: 0,
+            start_ns: self.t0,
+            end_ns: end,
+            site: self.site,
+            need: self.need,
+            read: self.read,
+            line: self.line,
+            ran: ran.mask,
+            relief: ran.relief,
+            outcome,
+        });
     }
 }
 
@@ -483,8 +546,16 @@ pub fn hook_close() {
         return;
     }
     let end = clock_ns();
-    let outcome = if ran.mask & (1 << Rung::Cancel as u16) != 0 { Outcome::VictimCanceled } else { Outcome::Covered };
-    ended(Site::Hook, end.saturating_sub(t0), outcome == Outcome::VictimCanceled);
+    let outcome = if ran.mask & (1 << Rung::Cancel as u16) != 0 {
+        Outcome::VictimCanceled
+    } else {
+        Outcome::Covered
+    };
+    ended(
+        Site::Hook,
+        end.saturating_sub(t0),
+        outcome == Outcome::VictimCanceled,
+    );
     record(&Episode {
         seq: 0,
         start_ns: t0,
@@ -535,7 +606,12 @@ struct Slot {
     w: [AtomicU64; WORDS],
 }
 
-static SLOTS: [Slot; RING] = [const { Slot { seq: AtomicU64::new(0), w: [const { AtomicU64::new(0) }; WORDS] } }; RING];
+static SLOTS: [Slot; RING] = [const {
+    Slot {
+        seq: AtomicU64::new(0),
+        w: [const { AtomicU64::new(0) }; WORDS],
+    }
+}; RING];
 static NEXT: AtomicU64 = AtomicU64::new(0);
 static DROPPED: AtomicU64 = AtomicU64::new(0);
 
@@ -548,13 +624,21 @@ fn record(e: &Episode) {
     let n = NEXT.fetch_add(1, Relaxed) + 1;
     let s = &SLOTS[((n - 1) % RING as u64) as usize];
     let cur = s.seq.load(Relaxed);
-    if cur & 1 == 1 || s.seq.compare_exchange(cur, 2 * n - 1, Acquire, Relaxed).is_err() {
+    if cur & 1 == 1
+        || s.seq
+            .compare_exchange(cur, 2 * n - 1, Acquire, Relaxed)
+            .is_err()
+    {
         DROPPED.fetch_add(1, Relaxed);
         return;
     }
     fence(Release);
     let meta = e.site as u64 | (e.outcome as u64) << 8 | (e.ran as u64) << 16;
-    for (i, x) in [e.start_ns, e.end_ns, e.need, e.read, e.line, meta].into_iter().chain(e.relief).enumerate() {
+    for (i, x) in [e.start_ns, e.end_ns, e.need, e.read, e.line, meta]
+        .into_iter()
+        .chain(e.relief)
+        .enumerate()
+    {
         s.w[i].store(x, Relaxed);
     }
     s.seq.store(2 * n, Release);
@@ -730,11 +814,23 @@ mod tests {
         assert_eq!(after.refusals, before.refusals + 1);
         assert_eq!(after.last_tries, before.last_tries + 1);
         assert!(after.wait_max_ns >= after.wait_ns - before.wait_ns);
-        assert_eq!(rung_ns()[Rung::EvictElastic as usize], ns_before[Rung::EvictElastic as usize] + 1_000);
+        assert_eq!(
+            rung_ns()[Rung::EvictElastic as usize],
+            ns_before[Rung::EvictElastic as usize] + 1_000
+        );
         let e = last(Site::Draw).expect("the episode is in the ring");
         assert_eq!((e.need, e.outcome), (4 << 20, Outcome::Refused));
-        assert_eq!(e.ran, 1 << Rung::EvictElastic as u16 | 1 << Rung::Revoke as u16);
-        assert_eq!((e.relief[Rung::EvictElastic as usize], e.relief[Rung::Revoke as usize]), (3 << 20, 1 << 20));
+        assert_eq!(
+            e.ran,
+            1 << Rung::EvictElastic as u16 | 1 << Rung::Revoke as u16
+        );
+        assert_eq!(
+            (
+                e.relief[Rung::EvictElastic as usize],
+                e.relief[Rung::Revoke as usize]
+            ),
+            (3 << 20, 1 << 20)
+        );
         assert!(e.end_ns >= e.start_ns);
     }
 
@@ -748,13 +844,19 @@ mod tests {
             w.halved();
         }
         let after = site(Site::Admit);
-        assert_eq!((after.waits, after.refusals), (before.waits + 1, before.refusals));
+        assert_eq!(
+            (after.waits, after.refusals),
+            (before.waits + 1, before.refusals)
+        );
         let e = last(Site::Admit).expect("the episode is in the ring");
         assert_eq!((e.outcome, e.ran), (Outcome::Halved, 0));
         // a refusal at once is a miss with no wait
         note_refused(Site::Admit);
         let now = site(Site::Admit);
-        assert_eq!((now.misses, now.waits, now.refusals), (after.misses + 1, after.waits, after.refusals + 1));
+        assert_eq!(
+            (now.misses, now.waits, now.refusals),
+            (after.misses + 1, after.waits, after.refusals + 1)
+        );
     }
 
     #[test]
@@ -769,10 +871,19 @@ mod tests {
         hook_close();
         hook_close();
         let after = site(Site::Hook);
-        assert_eq!((after.misses, after.refusals), (before.misses + 1, before.refusals + 1));
+        assert_eq!(
+            (after.misses, after.refusals),
+            (before.misses + 1, before.refusals + 1)
+        );
         let e = last(Site::Hook).expect("the hook's episode is in the ring");
-        assert_eq!((e.need, e.read, e.line, e.outcome), (7 << 20, 100 << 20, 93 << 20, Outcome::VictimCanceled));
-        assert_eq!(e.ran, 1 << Rung::EvictProtected as u16 | 1 << Rung::Cancel as u16);
+        assert_eq!(
+            (e.need, e.read, e.line, e.outcome),
+            (7 << 20, 100 << 20, 93 << 20, Outcome::VictimCanceled)
+        );
+        assert_eq!(
+            e.ran,
+            1 << Rung::EvictProtected as u16 | 1 << Rung::Cancel as u16
+        );
     }
 
     #[test]
@@ -799,9 +910,23 @@ mod tests {
     #[test]
     fn the_revoke_clocks_bucket_by_log2_ms_and_read_their_quantiles() {
         let _g = LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        assert_eq!((bucket(0), bucket(1), bucket(2), bucket(3), bucket(4), bucket(1023), bucket(1024)), (0, 1, 2, 2, 3, 10, 11));
+        assert_eq!(
+            (
+                bucket(0),
+                bucket(1),
+                bucket(2),
+                bucket(3),
+                bucket(4),
+                bucket(1023),
+                bucket(1024)
+            ),
+            (0, 1, 2, 2, 3, 10, 11)
+        );
         assert_eq!(bucket(u64::MAX), BUCKETS - 1);
-        assert_eq!((bucket_ms(0), bucket_ms(1), bucket_ms(2), bucket_ms(11)), (0, 1, 3, 2047));
+        assert_eq!(
+            (bucket_ms(0), bucket_ms(1), bucket_ms(2), bucket_ms(11)),
+            (0, 1, 3, 2047)
+        );
         let mut h = [0u64; BUCKETS];
         h[bucket(5)] = 98;
         h[bucket(900)] = 2;
@@ -814,10 +939,16 @@ mod tests {
         note_given(1 << 20);
         let after = revoke();
         assert_eq!(after.settled, before.settled + 2);
-        assert_eq!((after.no_cut, after.nothing_given), (before.no_cut + 1, before.nothing_given + 1));
+        assert_eq!(
+            (after.no_cut, after.nothing_given),
+            (before.no_cut + 1, before.nothing_given + 1)
+        );
         assert_eq!(after.clock1[bucket(5)], before.clock1[bucket(5)] + 1);
         assert_eq!(after.clock2[bucket(40)], before.clock2[bucket(40)] + 1);
-        assert_eq!((after.give_backs, after.given_bytes), (before.give_backs + 1, before.given_bytes + (1 << 20)));
+        assert_eq!(
+            (after.give_backs, after.given_bytes),
+            (before.give_backs + 1, before.given_bytes + (1 << 20))
+        );
     }
 
     #[test]
@@ -827,8 +958,17 @@ mod tests {
         note_cancel(Cancel::LadderR6);
         note_cancel(Cancel::Terminate);
         let after = cancels();
-        assert_eq!(after[Cancel::Watchdog as usize], before[Cancel::Watchdog as usize]);
-        assert_eq!(after[Cancel::LadderR6 as usize], before[Cancel::LadderR6 as usize] + 1);
-        assert_eq!(after[Cancel::Terminate as usize], before[Cancel::Terminate as usize] + 1);
+        assert_eq!(
+            after[Cancel::Watchdog as usize],
+            before[Cancel::Watchdog as usize]
+        );
+        assert_eq!(
+            after[Cancel::LadderR6 as usize],
+            before[Cancel::LadderR6 as usize] + 1
+        );
+        assert_eq!(
+            after[Cancel::Terminate as usize],
+            before[Cancel::Terminate as usize] + 1
+        );
     }
 }

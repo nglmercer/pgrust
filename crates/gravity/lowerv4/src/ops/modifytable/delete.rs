@@ -16,7 +16,7 @@
 //!   target's own scan: `write.lock`'s end (D882, write/delete_built.rs: the target hashed on a join's build side; the
 //!   rest refused by name, M7's write.*).
 //! - several result relations (inheritance, a partitioned target not pruned to one leaf): `write.route` (M4).
-//! Rules on the target serve: the rewriter already applied them, and the extra rule queries are statements of their own.
+//!   Rules on the target serve: the rewriter already applied them, and the extra rule queries are statements of their own.
 use gravity_abi::program::WRITE_DELETE;
 use gravity_decompose::ops::modifytable::trig_facts::{TrigExt, TRIG_DELETE};
 use gravity_decompose::ops::shared::modifytable::{Member, WriteDesc};
@@ -225,7 +225,7 @@ fn admit(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>, a: ArenaRef) -> (u32, Wri
     // producerchain ARM: or one arm of several targets' streamed union over a nest copy (nest_outer.rs decides)
     let own = own && (chain || crate::ops::modifytable::nest_outer::admits(gx, k, w));
     // after the write only RETURNING's projection (write.returning checks its shape)
-    if w.returning.is_none() && p.ops.iter().skip_while(|o| !matches!(o, Op::Write(_))).skip(1).next().is_some() {
+    if w.returning.is_none() && p.ops.iter().skip_while(|o| !matches!(o, Op::Write(_))).nth(1).is_some() {
         crate::refuse!(node, Reason::Bug { payload: "a DELETE with an op after its write and no RETURNING" });
     }
     (relid, plan, own)

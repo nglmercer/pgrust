@@ -107,7 +107,7 @@ unsafe fn copy(ctx: *mut Ctx, slot: *mut u64, images: *mut u64, new: &[u8], cap:
         return 0;
     }
     let h = d as *mut u64;
-    (h.write(cap as u64), h.add(1).write(win), h.add(2).write(thr));
+    h.write(cap as u64); h.add(1).write(win); h.add(2).write(thr);
     write_image(d.add(HDR), new);
     slot.write_unaligned(d.add(HDR) as u64);
     1

@@ -294,6 +294,7 @@ pub fn DropRelationsAllBuffers(smgr_reln: &[RelFileLocatorBackend]) -> PgResult<
     let mut n_blocks_to_invalidate: u64 = 0;
     let mut cached = true;
     'outer: for (i, r) in rels.iter().enumerate() {
+        #[allow(clippy::needless_range_loop)]
         for j in 0..nforks {
             let fork = ForkNumber::from_i32(j as i32).expect("fork number");
             let nblocks = smgr_seams::smgr_nblocks_cached::call(*r, fork);
@@ -311,6 +312,7 @@ pub fn DropRelationsAllBuffers(smgr_reln: &[RelFileLocatorBackend]) -> PgResult<
 
     if cached && n_blocks_to_invalidate < buf_drop_full_scan_threshold() {
         for (i, r) in rels.iter().enumerate() {
+            #[allow(clippy::needless_range_loop)]
             for j in 0..nforks {
                 if block[i][j] == InvalidBlockNumber {
                     continue;

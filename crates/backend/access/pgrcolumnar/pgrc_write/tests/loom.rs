@@ -55,6 +55,8 @@ use std::sync::Arc;
 
 use loom::thread;
 
+use pgrc_format::class::{ColSchema, CollationClass, StorageClass, TypeSemantics};
+use pgrc_format::relopt::ShredOptions;
 use pgrc_write::elect::ReferenceCandidates;
 use pgrc_write::ingest::RawDatum;
 use pgrc_write::par::{
@@ -64,8 +66,6 @@ use pgrc_write::par::{
 use pgrc_write::seal::{PartSpec, ReferenceResolver};
 use pgrc_write::writer::PartCutPolicy;
 use pgrc_write::wvfs::{MemVfs, WriteVfs};
-use pgrc_format::class::{ColSchema, CollationClass, StorageClass, TypeSemantics};
-use pgrc_format::relopt::ShredOptions;
 
 const DIR: &str = "/tbl/pgrc_777";
 const FXID: u64 = 42;
@@ -146,7 +146,8 @@ fn engine_over(shared: &SharedMemVfs) -> Arc<ParEngine> {
 fn int_chunk(base: i64) -> RowChunk {
     let mut c = RowChunk::new(1, 64);
     for i in 0..64i64 {
-        c.push_row(&[RawDatum::Word((base + i) as u64)]).expect("push");
+        c.push_row(&[RawDatum::Word((base + i) as u64)])
+            .expect("push");
     }
     c
 }
@@ -177,7 +178,10 @@ fn racing_workers_close_each_part_exactly_once() {
             engine.close_input(2);
             let sealed = engine.collect().expect("collect");
             assert_eq!(sealed.len(), 1);
-            shared.with(|v| v.read_full(&format!("{DIR}/{}", sealed[0].0.tmp_name)).expect("tmp"))
+            shared.with(|v| {
+                v.read_full(&format!("{DIR}/{}", sealed[0].0.tmp_name))
+                    .expect("tmp")
+            })
         };
         let shared = shared_dir();
         let engine = engine_over(&shared);
@@ -192,8 +196,10 @@ fn racing_workers_close_each_part_exactly_once() {
         engine.close_input(2);
         let sealed = engine.collect().expect("collect");
         assert_eq!(sealed.len(), 1, "the part closes exactly once");
-        let bytes = shared
-            .with(|v| v.read_full(&format!("{DIR}/{}", sealed[0].0.tmp_name)).expect("tmp"));
+        let bytes = shared.with(|v| {
+            v.read_full(&format!("{DIR}/{}", sealed[0].0.tmp_name))
+                .expect("tmp")
+        });
         assert_eq!(bytes, oracle, "byte-identical under every interleaving");
     });
 }
@@ -210,7 +216,8 @@ fn first_error_wins_and_cleanup_is_total() {
         let mut bad = RowChunk::new(1, 64);
         for i in 0..64i64 {
             // Bytes cell on a byval class: normalize refuses typed.
-            bad.push_row(&[RawDatum::Bytes(&i.to_le_bytes())]).expect("push");
+            bad.push_row(&[RawDatum::Bytes(&i.to_le_bytes())])
+                .expect("push");
         }
         engine.publish_chunk(bad, 1).expect("pub");
         let e1 = Arc::clone(&engine);
@@ -226,7 +233,10 @@ fn first_error_wins_and_cleanup_is_total() {
             "typed: {err:?}"
         );
         engine.cleanup_temps().expect("cleanup");
-        assert!(tmp_residue(&shared).is_empty(), "no residue in any interleaving");
+        assert!(
+            tmp_residue(&shared).is_empty(),
+            "no residue in any interleaving"
+        );
     });
 }
 
@@ -250,7 +260,10 @@ fn parked_claimer_always_wakes_on_publish_and_drain() {
             engine.close_input(2);
             let sealed = engine.collect().expect("collect");
             assert_eq!(sealed.len(), 1);
-            shared.with(|v| v.read_full(&format!("{DIR}/{}", sealed[0].0.tmp_name)).expect("tmp"))
+            shared.with(|v| {
+                v.read_full(&format!("{DIR}/{}", sealed[0].0.tmp_name))
+                    .expect("tmp")
+            })
         };
         let shared = shared_dir();
         let engine = engine_over(&shared);
@@ -265,8 +278,10 @@ fn parked_claimer_always_wakes_on_publish_and_drain() {
         t.join().expect("worker returns in every interleaving");
         let sealed = engine.collect().expect("collect");
         assert_eq!(sealed.len(), 1, "one part");
-        let bytes = shared
-            .with(|v| v.read_full(&format!("{DIR}/{}", sealed[0].0.tmp_name)).expect("tmp"));
+        let bytes = shared.with(|v| {
+            v.read_full(&format!("{DIR}/{}", sealed[0].0.tmp_name))
+                .expect("tmp")
+        });
         assert_eq!(bytes, oracle, "parking is schedule, never content");
     });
 }
@@ -282,12 +297,20 @@ fn parked_claimer_always_wakes_on_cancel() {
         let e1 = Arc::clone(&engine);
         let t = thread::spawn(move || e1.run_worker(0));
         engine.publish_chunk(int_chunk(0), 0).expect("pub");
-        engine.fail(pgrc_write::WriteError::Contract { detail: "seeded session failure" });
+        engine.fail(pgrc_write::WriteError::Contract {
+            detail: "seeded session failure",
+        });
         t.join().expect("worker returns in every interleaving");
         let err = engine.collect().expect_err("the failure must surface");
-        assert!(matches!(err, pgrc_write::WriteError::Contract { .. }), "typed: {err:?}");
+        assert!(
+            matches!(err, pgrc_write::WriteError::Contract { .. }),
+            "typed: {err:?}"
+        );
         engine.cleanup_temps().expect("cleanup");
-        assert!(tmp_residue(&shared).is_empty(), "no residue in any interleaving");
+        assert!(
+            tmp_residue(&shared).is_empty(),
+            "no residue in any interleaving"
+        );
     });
 }
 

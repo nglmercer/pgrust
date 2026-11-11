@@ -9,19 +9,19 @@
 //! - a tuple with a null bitmap walks its present attributes (an absent one reads NULL);
 //! - a page that is not full (a tuple with fewer attributes: missing defaults) is deformed by the host (`heap_page_lane`);
 //!   on an unread page the first such row asks for the lanes.
-//! A varlena cell is the datum pointer into the pinned page (valid until the window: a retain copies). The walk goes over
-//! the line pointers last to first (ascending tuple addresses, Decision 11) under a plain or a hashed aggregate where the
-//! effects home finds the row order invisible (`effects::visible::order_visible`: every aggregate order-free, D853, with
-//! PG's min / max member, D862, and a hashed group's keys one image; no VOLATILE call, D831; no LIMIT / OFFSET, D1804, or
-//! row lock, V4R-512; no outer-first hash probe after ops that may raise, D2593); forward everywhere else. A catalog
-//! NOT NULL column has no validity test (P7). The window's facts are `nonulls` (full and no null bitmap, or unread),
-//! `page_full` (or unread) and `nosel`: the fast body is the fixed-offset walk behind the header word's one test.
-//! A by-reference column of fixed length (uuid, interval, name) sits at the running offset aligned to its `typalign` and is
-//! stepped over by its `typlen`; read, its cell is the datum pointer into the pinned page, as a varlena's. A dropped column
-//! ahead of a read one is stepped over by its kept layout (`Facts::dropped_layout`); a whole row reads it by that layout
-//! (D2789). A site the walk cannot read (a type the catalog does not answer, a read lane in another form) keeps heap.rs's
-//! host-deformed windows (`make` returns `None`).
-//! Owner M2-HEAP.
+//!   A varlena cell is the datum pointer into the pinned page (valid until the window: a retain copies). The walk goes over
+//!   the line pointers last to first (ascending tuple addresses, Decision 11) under a plain or a hashed aggregate where the
+//!   effects home finds the row order invisible (`effects::visible::order_visible`: every aggregate order-free, D853, with
+//!   PG's min / max member, D862, and a hashed group's keys one image; no VOLATILE call, D831; no LIMIT / OFFSET, D1804, or
+//!   row lock, V4R-512; no outer-first hash probe after ops that may raise, D2593); forward everywhere else. A catalog
+//!   NOT NULL column has no validity test (P7). The window's facts are `nonulls` (full and no null bitmap, or unread),
+//!   `page_full` (or unread) and `nosel`: the fast body is the fixed-offset walk behind the header word's one test.
+//!   A by-reference column of fixed length (uuid, interval, name) sits at the running offset aligned to its `typalign` and is
+//!   stepped over by its `typlen`; read, its cell is the datum pointer into the pinned page, as a varlena's. A dropped column
+//!   ahead of a read one is stepped over by its kept layout (`Facts::dropped_layout`); a whole row reads it by that layout
+//!   (D2789). A site the walk cannot read (a type the catalog does not answer, a read lane in another form) keeps heap.rs's
+//!   host-deformed windows (`make` returns `None`).
+//!   Owner M2-HEAP.
 use core::cell::{Cell as Once, RefCell};
 
 use gravity_abi::ctx::{lane, site_off};
@@ -406,7 +406,7 @@ impl<'g> PagesMech<'g> {
         }
         b.br(l_join, &full[..]);
         b.switch_to(l_join);
-        let mut out = mcx::to_vec_in(&b.block_params(l_join)[..], self.mcx);
+        let mut out = mcx::to_vec_in(b.block_params(l_join), self.mcx);
         let end = if p.tail { out.pop().map_or(Off::K(0), Off::V) } else { Off::K(0) };
         (out, end)
     }
@@ -525,7 +525,7 @@ impl<'g> PagesMech<'g> {
         }
         b.br(l_done, &args[..]);
         b.switch_to(l_done);
-        let mut out = mcx::to_vec_in(&b.block_params(l_done)[..], self.mcx);
+        let mut out = mcx::to_vec_in(b.block_params(l_done), self.mcx);
         let end = if p.tail { out.pop() } else { None };
         (out, end)
     }
@@ -585,7 +585,7 @@ impl<'g> PagesMech<'g> {
         }
         b.br(l_done, &args[..]);
         b.switch_to(l_done);
-        let mut out = mcx::to_vec_in(&b.block_params(l_done)[..], self.mcx);
+        let mut out = mcx::to_vec_in(b.block_params(l_done), self.mcx);
         let end = if p.tail { out.pop() } else { None };
         (out, end)
     }

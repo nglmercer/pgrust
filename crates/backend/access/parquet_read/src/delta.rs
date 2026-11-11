@@ -44,13 +44,24 @@ fn zigzag(v: u64) -> i64 {
 /// Unpack `count` values of `width` bits (LSB-first) starting at `*pos`, each handed to `each` in order (memsig E-pub t5:
 /// no mini-block scratch list; the caller keeps what it needs).
 #[inline]
-fn unpack_lsb(buf: &[u8], end: usize, pos: &mut usize, width: usize, count: usize, mut each: impl FnMut(i64)) -> PgResult<()> {
+fn unpack_lsb(
+    buf: &[u8],
+    end: usize,
+    pos: &mut usize,
+    width: usize,
+    count: usize,
+    mut each: impl FnMut(i64),
+) -> PgResult<()> {
     let nbytes = (count * width).div_ceil(8);
     if *pos + nbytes > end {
         return Err(corrupt_page("delta miniblock overruns page"));
     }
     let src = &buf[*pos..*pos + nbytes];
-    let mask: u64 = if width == 64 { u64::MAX } else { (1u64 << width) - 1 };
+    let mask: u64 = if width == 64 {
+        u64::MAX
+    } else {
+        (1u64 << width) - 1
+    };
     let mut acc: u128 = 0;
     let mut acc_bits = 0usize;
     let mut byte = 0usize;
@@ -83,7 +94,11 @@ pub(crate) fn delta_binary_packed(
     let block_size = uleb(buf, end, pos)? as usize;
     let miniblocks = uleb(buf, end, pos)? as usize;
     let total = uleb(buf, end, pos)? as usize;
-    if block_size == 0 || miniblocks == 0 || !block_size.is_multiple_of(128) || !block_size.is_multiple_of(miniblocks) {
+    if block_size == 0
+        || miniblocks == 0
+        || !block_size.is_multiple_of(128)
+        || !block_size.is_multiple_of(miniblocks)
+    {
         return Err(Box::new(types_error::PgError::error(format!( // alloc: Cold
             "corrupt parquet page: invalid delta block shape (block size {block_size}, {miniblocks} miniblocks, {total} values)"
         ))
@@ -102,7 +117,8 @@ pub(crate) fn delta_binary_packed(
     if total == 0 {
         return Ok(0);
     }
-    out.try_reserve(total).map_err(|_| corrupt_page("out of memory decoding delta values"))?; // alloc: Exec charged the cursor's charge (ColumnCursor::held_bytes: plain / tmp64 / tmp64b, synced after the page opens)
+    out.try_reserve(total)
+        .map_err(|_| corrupt_page("out of memory decoding delta values"))?; // alloc: Exec charged the cursor's charge (ColumnCursor::held_bytes: plain / tmp64 / tmp64b, synced after the page opens)
     out.push(first); // alloc: Exec charged the cursor's charge (ColumnCursor::held_bytes: plain / tmp64 / tmp64b, synced after the page opens)
     let mut prev = first;
     let mut left = total - 1;
@@ -156,7 +172,9 @@ pub(crate) fn delta_ints_to_plain(
     scratch.clear();
     let n = delta_binary_packed(buf, end, &mut pos, width * 8, expected, scratch)?;
     plain.clear();
-    plain.try_reserve(n * width).map_err(|_| corrupt_page("out of memory decoding delta values"))?; // alloc: Exec charged the cursor's charge (ColumnCursor::held_bytes: plain / tmp64 / tmp64b, synced after the page opens)
+    plain
+        .try_reserve(n * width)
+        .map_err(|_| corrupt_page("out of memory decoding delta values"))?; // alloc: Exec charged the cursor's charge (ColumnCursor::held_bytes: plain / tmp64 / tmp64b, synced after the page opens)
     if width == 4 {
         for &v in scratch.iter() {
             plain.extend_from_slice(&(v as i32).to_le_bytes()); // alloc: Exec charged the cursor's charge (ColumnCursor::held_bytes: plain / tmp64 / tmp64b, synced after the page opens)
@@ -186,13 +204,17 @@ pub(crate) fn delta_length_to_plain(
         if l < 0 || l > i32::MAX as i64 {
             return Err(corrupt_page("negative string length in delta stream"));
         }
-        total = total.checked_add(l as usize).ok_or_else(|| corrupt_page("string lengths overflow"))?;
+        total = total
+            .checked_add(l as usize)
+            .ok_or_else(|| corrupt_page("string lengths overflow"))?;
     }
     if pos + total > end {
         return Err(corrupt_page("delta string bytes overrun page"));
     }
     plain.clear();
-    plain.try_reserve(total + 4 * n).map_err(|_| corrupt_page("out of memory decoding delta strings"))?; // alloc: Exec charged the cursor's charge (ColumnCursor::held_bytes: plain / tmp64 / tmp64b, synced after the page opens)
+    plain
+        .try_reserve(total + 4 * n)
+        .map_err(|_| corrupt_page("out of memory decoding delta strings"))?; // alloc: Exec charged the cursor's charge (ColumnCursor::held_bytes: plain / tmp64 / tmp64b, synced after the page opens)
     for &l in scratch.iter() {
         let l = l as usize;
         plain.extend_from_slice(&(l as u32).to_le_bytes()); // alloc: Exec charged the cursor's charge (ColumnCursor::held_bytes: plain / tmp64 / tmp64b, synced after the page opens)
@@ -238,15 +260,21 @@ pub(crate) fn delta_byte_array_to_plain(
         let len = p + s;
         let this_start = match flba {
             None => {
-                plain.try_reserve(4 + len).map_err(|_| corrupt_page("out of memory decoding delta strings"))?; // alloc: Exec charged the cursor's charge (ColumnCursor::held_bytes: plain / tmp64 / tmp64b, synced after the page opens)
+                plain
+                    .try_reserve(4 + len)
+                    .map_err(|_| corrupt_page("out of memory decoding delta strings"))?; // alloc: Exec charged the cursor's charge (ColumnCursor::held_bytes: plain / tmp64 / tmp64b, synced after the page opens)
                 plain.extend_from_slice(&(len as u32).to_le_bytes()); // alloc: Exec charged the cursor's charge (ColumnCursor::held_bytes: plain / tmp64 / tmp64b, synced after the page opens)
                 plain.len()
             }
             Some(w) => {
                 if len != w {
-                    return Err(corrupt_page("delta value length differs from the fixed width"));
+                    return Err(corrupt_page(
+                        "delta value length differs from the fixed width",
+                    ));
                 }
-                plain.try_reserve(len).map_err(|_| corrupt_page("out of memory decoding delta values"))?; // alloc: Exec charged the cursor's charge (ColumnCursor::held_bytes: plain / tmp64 / tmp64b, synced after the page opens)
+                plain
+                    .try_reserve(len)
+                    .map_err(|_| corrupt_page("out of memory decoding delta values"))?; // alloc: Exec charged the cursor's charge (ColumnCursor::held_bytes: plain / tmp64 / tmp64b, synced after the page opens)
                 plain.len()
             }
         };
@@ -270,12 +298,18 @@ pub(crate) fn byte_stream_split_to_plain(
     n: usize,
     plain: &mut Vec<u8>,
 ) -> PgResult<()> {
-    let need = n.checked_mul(width).ok_or_else(|| corrupt_page("value count overflow"))?;
+    let need = n
+        .checked_mul(width)
+        .ok_or_else(|| corrupt_page("value count overflow"))?;
     if start + need != end {
-        return Err(corrupt_page("byte stream split page size does not match its values"));
+        return Err(corrupt_page(
+            "byte stream split page size does not match its values",
+        ));
     }
     plain.clear();
-    plain.try_reserve(need).map_err(|_| corrupt_page("out of memory decoding values"))?; // alloc: Exec charged the cursor's charge (ColumnCursor::held_bytes: plain / tmp64 / tmp64b, synced after the page opens)
+    plain
+        .try_reserve(need)
+        .map_err(|_| corrupt_page("out of memory decoding values"))?; // alloc: Exec charged the cursor's charge (ColumnCursor::held_bytes: plain / tmp64 / tmp64b, synced after the page opens)
     plain.resize(need, 0); // alloc: Exec charged the cursor's charge (ColumnCursor::held_bytes: plain / tmp64 / tmp64b, synced after the page opens)
     let src = &buf[start..end];
     for k in 0..width {
@@ -314,7 +348,11 @@ mod tests {
     }
 
     fn wrap(v: i64, bits: u32) -> i64 {
-        if bits == 64 { v } else { (v as i32) as i64 }
+        if bits == 64 {
+            v
+        } else {
+            (v as i32) as i64
+        }
     }
 
     fn encode_w(values: &[i64], bits: u32) -> Vec<u8> {
@@ -326,8 +364,10 @@ mod tests {
         if values.is_empty() {
             return out;
         }
-        let deltas: Vec<i64> =
-            values.windows(2).map(|w| wrap(w[1].wrapping_sub(w[0]), bits)).collect();
+        let deltas: Vec<i64> = values
+            .windows(2)
+            .map(|w| wrap(w[1].wrapping_sub(w[0]), bits))
+            .collect();
         for block in deltas.chunks(128) {
             let min = *block.iter().min().unwrap();
             push_zig(&mut out, min);
@@ -338,11 +378,19 @@ mod tests {
                     .iter()
                     .map(|&d| {
                         let r = d.wrapping_sub(min);
-                        if bits == 64 { r as u64 } else { (r as u32) as u64 }
+                        if bits == 64 {
+                            r as u64
+                        } else {
+                            (r as u32) as u64
+                        }
                     })
                     .collect();
                 let maxv = rel.iter().copied().max().unwrap_or(0);
-                let w = if maxv == 0 { 0 } else { 64 - maxv.leading_zeros() as usize };
+                let w = if maxv == 0 {
+                    0
+                } else {
+                    64 - maxv.leading_zeros() as usize
+                };
                 widths[mi] = w as u8;
                 let mut body = Vec::new();
                 let mut acc: u128 = 0;
@@ -393,7 +441,10 @@ mod tests {
         let mut plain = Vec::new();
         let mut scratch = Vec::new();
         delta_ints_to_plain(&buf, 0, buf.len(), 4, 4, &mut plain, &mut scratch).unwrap();
-        let got: Vec<i32> = plain.chunks(4).map(|c| i32::from_le_bytes(c.try_into().unwrap())).collect();
+        let got: Vec<i32> = plain
+            .chunks(4)
+            .map(|c| i32::from_le_bytes(c.try_into().unwrap()))
+            .collect();
         assert_eq!(got, [i32::MAX, i32::MIN, 0, -1]);
     }
 
@@ -404,7 +455,10 @@ mod tests {
         for cut in 0..buf.len() {
             let mut pos = 0;
             let mut out = Vec::new();
-            assert!(delta_binary_packed(&buf, cut, &mut pos, 64, 300, &mut out).is_err(), "cut {cut}");
+            assert!(
+                delta_binary_packed(&buf, cut, &mut pos, 64, 300, &mut out).is_err(),
+                "cut {cut}"
+            );
         }
     }
 

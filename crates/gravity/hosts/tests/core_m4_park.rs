@@ -18,6 +18,7 @@ use gravity_hosts::{take_error, IndexSource, LockHost, SiteRecipe, WriteHost};
 use gravity_program::{Cmd, Conflict, IndexPlan, LockKind, WaitPolicy, WritePlan};
 use mcx::MemoryContext;
 use types_core::Oid;
+#[allow(unused_imports)]
 use types_error::{PgResult, ERRCODE_CHECK_VIOLATION, ERRCODE_NOT_NULL_VIOLATION, ERRCODE_UNIQUE_VIOLATION, ERRCODE_WITH_CHECK_OPTION_VIOLATION};
 use types_nodes::parsenodes::WCOKind;
 use types_nodes::{Node, NodeList};
@@ -599,6 +600,7 @@ fn an_update_over_several_result_relations_forms_each_targets_row_over_its_old_v
     let ins = mcx::alloc_leak_in(sm, Bitmapset::empty()).unwrap();
     let upd = mcx::alloc_leak_in(sm, Bitmapset::make_singleton(sm, 1 - FLIHAN).unwrap()).unwrap();
     // SAFETY: the plan's bitmaps as the admission hands them in (`admit::modified_cols`: 'static over the statement's plan)
+    #[allow(clippy::unnecessary_cast)]
     let cols: ModifiedCols = unsafe { (&*(ins as *const Bitmapset<'_> as *const Bitmapset<'static>), &*(upd as *const Bitmapset<'_> as *const Bitmapset<'static>)) };
     let a = Box::leak(Box::new(gravity_program::Arena::new(256))).handle();
     let leaves = [RouteLeaf { relid: HEAP_OID, natts: 1, nindexes: 1, before_row: false }, RouteLeaf { relid: HEAP2_OID, natts: 1, nindexes: 0, before_row: false }];

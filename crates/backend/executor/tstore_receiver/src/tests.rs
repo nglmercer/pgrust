@@ -111,7 +111,13 @@ fn detoast_without_varlena_columns_takes_notoast_arm() {
     let mcx = leaked_mcx();
     let d = desc(mcx, 4, true);
     let mut dr = tstore_create_DR();
-    set_params(&mut dr, types_portal::TuplestoreHandle::NULL, true, None, None);
+    set_params(
+        &mut dr,
+        types_portal::TuplestoreHandle::NULL,
+        true,
+        None,
+        None,
+    );
     dr.startup(1, &d).unwrap();
 }
 
@@ -172,7 +178,10 @@ fn startup_accepts_result_type_matching_target_tupdesc() {
     let mut dr = tstore_create_DR();
     set_params(&mut dr, h, false, Some(target), Some(PORTAL_MISMATCH_MSG));
     dr.startup(1, &typeinfo).unwrap();
-    assert!(dr.scratch.is_none(), "the cross-check must not create a context");
+    assert!(
+        dr.scratch.is_none(),
+        "the cross-check must not create a context"
+    );
     tuplestore::hold::end(h);
 }
 
@@ -219,10 +228,17 @@ fn tupmap_arm_remaps_rows_into_the_target_descriptor() {
     let typeinfo = int4_desc_dropped(mcx, &[false, false]);
     let h = tuplestore::hold::register(tuplestore::Tuplestore::begin_heap(false, true, 64));
     let mut dr = tstore_create_DR();
-    set_params(&mut dr, h, false, Some(target.clone()), Some(PORTAL_MISMATCH_MSG));
+    set_params(
+        &mut dr,
+        h,
+        false,
+        Some(target.clone()),
+        Some(PORTAL_MISMATCH_MSG),
+    );
     dr.startup(1, &typeinfo).unwrap();
 
-    let mut slot = exectuples::make_tuple_table_slot(mcx, TupleSlotKind::Virtual, Some(typeinfo.clone()));
+    let mut slot =
+        exectuples::make_tuple_table_slot(mcx, TupleSlotKind::Virtual, Some(typeinfo.clone()));
     for (i, v) in [7, 9].into_iter().enumerate() {
         slot.base_mut().tts_values[i] = Datum::from_i32(v);
         slot.base_mut().tts_isnull[i] = false;
@@ -244,7 +260,10 @@ fn tupmap_arm_remaps_rows_into_the_target_descriptor() {
     });
     exectuples::slot_getallattrs(&mut out);
     assert_eq!(out.base().tts_values[0].as_i32(), 7);
-    assert!(out.base().tts_isnull[1], "dropped target column maps from attno 0 = NULL");
+    assert!(
+        out.base().tts_isnull[1],
+        "dropped target column maps from attno 0 = NULL"
+    );
     assert!(!out.base().tts_isnull[2]);
     assert_eq!(out.base().tts_values[2].as_i32(), 9);
     exectuples::exec_clear_tuple(&mut out, mcx);
@@ -254,7 +273,10 @@ fn tupmap_arm_remaps_rows_into_the_target_descriptor() {
     exectuples::slot_getallattrs(&mut out);
     assert_eq!(out.base().tts_values[0].as_i32(), 8);
     assert!(out.base().tts_isnull[1]);
-    assert!(out.base().tts_isnull[2], "input NULL stays NULL through the map");
+    assert!(
+        out.base().tts_isnull[2],
+        "input NULL stays NULL through the map"
+    );
     exectuples::exec_clear_tuple(&mut out, mcx);
     tuplestore::hold::end(h);
 }
@@ -269,10 +291,17 @@ fn tupmap_arm_skips_dropped_input_columns() {
     let typeinfo = int4_desc_dropped(mcx, &[false, true, false]);
     let h = tuplestore::hold::register(tuplestore::Tuplestore::begin_heap(false, true, 64));
     let mut dr = tstore_create_DR();
-    set_params(&mut dr, h, false, Some(target.clone()), Some(PORTAL_MISMATCH_MSG));
+    set_params(
+        &mut dr,
+        h,
+        false,
+        Some(target.clone()),
+        Some(PORTAL_MISMATCH_MSG),
+    );
     dr.startup(1, &typeinfo).unwrap();
 
-    let mut slot = exectuples::make_tuple_table_slot(mcx, TupleSlotKind::Virtual, Some(typeinfo.clone()));
+    let mut slot =
+        exectuples::make_tuple_table_slot(mcx, TupleSlotKind::Virtual, Some(typeinfo.clone()));
     for (i, v) in [1, 2, 3].into_iter().enumerate() {
         slot.base_mut().tts_values[i] = Datum::from_i32(v);
         slot.base_mut().tts_isnull[i] = false;

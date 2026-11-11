@@ -140,7 +140,9 @@ pub fn init_all_with_transport(transport: Transport) {
     pgrc_wal::init_seams();
     pgrc_companion::init_seams();
     pgrc_colcache::init_seams();
-    heapam_xlog::set_redo_block_hook(|l, block| pgrc_marks::written((l.spcOid, l.dbOid, l.relNumber), block));
+    heapam_xlog::set_redo_block_hook(|l, block| {
+        pgrc_marks::written((l.spcOid, l.dbOid, l.relNumber), block)
+    });
     tableam_seams::pgrc_relation_vacuum::set(pgrc_front::builtins::vacuum);
     tableam_seams::pgrc_freeze::set(pgrc_front::builtins::freeze);
     tableam_seams::pgrc_index_dead::set(pgrc_front::ixclean::vacuum_dead);

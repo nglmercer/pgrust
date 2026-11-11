@@ -76,6 +76,7 @@ thread_local! {
 
 // relation_open mock for COMPOSITE_REL: a relkind-'c' relation with columns
 // (a int4, b int4) and reltype = COMPOSITE_OID, as relcache would serve it.
+#[allow(clippy::field_reassign_with_default)]
 fn fake_relation_open(
     mcx: mcx::Mcx<'_>,
     oid: Oid,
@@ -657,6 +658,7 @@ fn anonymous_record_identifier_is_fresh_each_call() {
 
 // C equalRowTypes also compares attcollation and attisdropped (tupdesc.c:796-800).
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn record_typmod_distinguishes_collation_and_dropped() {
     install();
     let mcx_holder = ::mcx::MemoryContext::new("rowtype-equal-test");

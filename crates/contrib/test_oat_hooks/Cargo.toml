@@ -23,3 +23,7 @@ objectaccess = { path = "../../backend/catalog/objectaccess" }
 parallel_seams = { path = "../../backend/access/transam/parallel_seams" }
 pgsync = { path = "../../_support/pgsync" }
 superuser_seams = { path = "../../backend/utils/misc/superuser_seams" }
+
+# pgsync's process_global! macro expands `#[cfg(not(loom))]` here.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }

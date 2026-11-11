@@ -249,7 +249,7 @@ pub(crate) fn hit(b: &mut FunctionBuilder<'_>, env: &Env, f: &Live, h: Value) ->
 /// rule, only while the window samples: a window that counted nothing leaves the state line alone). `None`: a key
 /// that is no such cell, or lanes the source cannot fill alone (each row then tests on its own, `test`).
 #[allow(clippy::type_complexity)]
-pub(crate) fn block(p: &Probe<'_>, b: &mut FunctionBuilder<'_>, env: &mut Env, (row, j, mask): (&RowVals, Value, Mask), (word, f): (i32, &Live), fill: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env, &[i16]) -> bool) -> Option<Value> {
+pub(crate) fn block(p: &Probe<'_>, b: &mut FunctionBuilder<'_>, env: &mut Env, (row, _j, mask): (&RowVals, Value, Mask), (word, f): (i32, &Live), fill: &mut dyn FnMut(&mut FunctionBuilder<'_>, &mut Env, &[i16]) -> bool) -> Option<Value> {
     let mut cols: PgVec<'_, i16> = mcx::reserved_in(p.keys.len(), env.mcx);
     for k in p.keys.iter() {
         let KeySrc::Col(a, ..) = k else { return None };

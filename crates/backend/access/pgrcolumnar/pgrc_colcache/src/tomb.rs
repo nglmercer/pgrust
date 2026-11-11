@@ -4,10 +4,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use pgrc_am::catalog::{Generation, RowMap};
+use pgrc_am::rowid_alloc::Extents;
 use pgrc_format::dml::Tombstone;
 use pgrc_format::geom::GRANULE_ROWS;
 use pgrc_format::manifest::SegState;
-use pgrc_am::rowid_alloc::Extents;
 use pgrc_front::filter::TombFilter;
 use pgrc_marks::Locator;
 use types_error::{PgError, PgResult};
@@ -43,7 +43,12 @@ pub struct GenKeyer<'a> {
 impl<'a> GenKeyer<'a> {
     pub fn new(gen: &'a Arc<Generation>, dir: String, ext: Arc<Extents>) -> GenKeyer<'a> {
         GenKeyer {
-            live: gen.segments.iter().filter(|r| r.state != SegState::Sealed).map(|r| r.part_no).collect(),
+            live: gen
+                .segments
+                .iter()
+                .filter(|r| r.state != SegState::Sealed)
+                .map(|r| r.part_no)
+                .collect(),
             maps: Vec::new(),
             gen,
             dir,
@@ -52,7 +57,11 @@ impl<'a> GenKeyer<'a> {
     }
 
     #[doc(hidden)]
-    pub fn with_maps(gen: &'a Arc<Generation>, ext: Arc<Extents>, maps: Vec<Arc<RowMap>>) -> GenKeyer<'a> {
+    pub fn with_maps(
+        gen: &'a Arc<Generation>,
+        ext: Arc<Extents>,
+        maps: Vec<Arc<RowMap>>,
+    ) -> GenKeyer<'a> {
         let mut k = GenKeyer::new(gen, String::new(), ext);
         k.maps = maps.into_iter().map(Some).collect();
         k
@@ -77,7 +86,11 @@ impl Keyer for GenKeyer<'_> {
     }
     fn locate(&mut self, id: u64) -> PgResult<Option<(usize, u32, u32)>> {
         if self.maps.is_empty() {
-            self.maps = ::mcx::stdvec::try_filled(self.gen.manifest.parts.len(), None, "pgrc tombstone keying")?;
+            self.maps = ::mcx::stdvec::try_filled(
+                self.gen.manifest.parts.len(),
+                None,
+                "pgrc tombstone keying",
+            )?;
         }
         let (gen, dir, maps) = (self.gen, &self.dir, &mut self.maps);
         let mut map_of = |i: usize| -> PgResult<Arc<RowMap>> {
@@ -86,7 +99,9 @@ impl Keyer for GenKeyer<'_> {
                 None => Arc::clone(maps[i].insert(gen.row_map(i, dir)?)),
             })
         };
-        let Some((i, ord, _)) = gen.locate(id, &mut map_of)? else { return Ok(None) };
+        let Some((i, ord, _)) = gen.locate(id, &mut map_of)? else {
+            return Ok(None);
+        };
         let grain = match gen.manifest.parts[i].granule_rows {
             0 => GRANULE_ROWS,
             g => g,
@@ -107,7 +122,10 @@ pub fn key(k: &mut dyn Keyer, id: u64) -> PgResult<Keyed> {
             None => Keyed::Moot,
         });
     }
-    Ok(seg.map_or(Keyed::Moot, |(part_no, pos)| Keyed::Segment { part_no, pos }))
+    Ok(seg.map_or(Keyed::Moot, |(part_no, pos)| Keyed::Segment {
+        part_no,
+        pos,
+    }))
 }
 
 pub fn tombstone(c: &BlockImage, i: usize) -> PgResult<Tombstone> {
@@ -123,7 +141,10 @@ pub fn tombstone(c: &BlockImage, i: usize) -> PgResult<Tombstone> {
 }
 
 fn corrupt(what: String) -> Box<PgError> {
-    Box::new(PgError::error(format!("pgrcolumnar: tombstone {what}")).with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED))
+    Box::new(
+        PgError::error(format!("pgrcolumnar: tombstone {what}"))
+            .with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),
+    )
 }
 
 pub struct Settled {
@@ -173,7 +194,11 @@ pub fn settle(t: &CompanionImage, k: &mut dyn Keyer) -> PgResult<Settled> {
 /// Cached per tombstone locator, two entries (the newest generations in use), only once admitted under the cap.
 pub fn settled(t: &CompanionImage, k: &mut dyn Keyer) -> PgResult<Arc<Settled>> {
     let key_of = (t.loc, k.gen(), t.settled_ver);
-    if let Some(s) = pgsync::lock(&SETTLED).iter().find(|(l, s)| *l == t.loc && s.gen == key_of.1 && s.ver == key_of.2).map(|(_, s)| Arc::clone(s)) {
+    if let Some(s) = pgsync::lock(&SETTLED)
+        .iter()
+        .find(|(l, s)| *l == t.loc && s.gen == key_of.1 && s.ver == key_of.2)
+        .map(|(_, s)| Arc::clone(s))
+    {
         return Ok(s);
     }
     let s = Arc::new(settle(t, k)?);
@@ -214,6 +239,7 @@ pub fn forget_settled(loc: Locator) {
     });
 }
 
+#[allow(clippy::nonminimal_bool)]
 pub fn is_recent(c: &BlockImage, i: usize) -> bool {
     !(c.all_settled || c.is_settled(i)) && !is_dead(&c.hdr[i])
 }

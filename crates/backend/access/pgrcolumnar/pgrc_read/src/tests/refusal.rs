@@ -40,10 +40,7 @@ fn kinds_part() -> BuiltPart {
 }
 
 fn open_bytes(bytes: Vec<u8>) -> Result<OpenPart, ReadError> {
-    OpenPart::open(
-        Box::new(MemPartIo::new(bytes, 7, 7)),
-        &PartExpect::none(),
-    )
+    OpenPart::open(Box::new(MemPartIo::new(bytes, 7, 7)), &PartExpect::none())
 }
 
 // -- byte-patch helpers (fix the CRC chain after a deliberate edit) --------
@@ -67,8 +64,11 @@ fn fix_crcs(bytes: &mut [u8], footer_off: usize, sidx: usize, recompute_section:
         let crc = crc32c(&bytes[off..off + len]);
         put_at(bytes, e + 28, &crc.to_le_bytes());
     }
-    let count =
-        u32::from_le_bytes(bytes[footer_off + 24..footer_off + 28].try_into().expect("4")) as usize;
+    let count = u32::from_le_bytes(
+        bytes[footer_off + 24..footer_off + 28]
+            .try_into()
+            .expect("4"),
+    ) as usize;
     let st_crc = crc32c(&bytes[st_off..st_off + count * 32]);
     put_at(bytes, footer_off + 40, &st_crc.to_le_bytes());
     let f_crc = crc32c(&bytes[footer_off..footer_off + 92]);
@@ -280,15 +280,16 @@ fn section_table_refusals() {
     part.section_bytes(0).expect("optional section still reads");
     // Overlapping sections refuse structurally.
     let mut bytes = b.bytes.clone();
-    let s0_off = u64_at(&b.bytes, st_off) ;
+    let s0_off = u64_at(&b.bytes, st_off);
     put_at(&mut bytes, st_off + 32, &s0_off.to_le_bytes());
     fix_crcs(&mut bytes, fo, 1, false);
     let e = open_bytes(bytes).expect_err("overlap");
     assert!(
         matches!(
             e,
-            ReadError::Format(FormatError::Corrupt { at: "section overlap" })
-                | ReadError::Format(FormatError::CrcMismatch { .. })
+            ReadError::Format(FormatError::Corrupt {
+                at: "section overlap"
+            }) | ReadError::Format(FormatError::CrcMismatch { .. })
         ),
         "got {e}"
     );
@@ -419,20 +420,20 @@ fn dispatch_refusals_unknown_reserved_missing_wrapper_role_class() {
     // lacks them; an unassigned id (5) refuses the same typed way — the
     // id rides the error, never a corruption verdict.
     for id in [3u8, 4, 5, 255] {
-        let e = open_cursor(patch_stream_entry(&b, 0, 43, &[id]))
-            .expect_err("wrapper");
-        assert_eq!(e, ReadError::Format(FormatError::WrapperUnsupported { wrapper: id }));
+        let e = open_cursor(patch_stream_entry(&b, 0, 43, &[id])).expect_err("wrapper");
+        assert_eq!(
+            e,
+            ReadError::Format(FormatError::WrapperUnsupported { wrapper: id })
+        );
     }
     // Unknown role byte.
-    let e = open_cursor(patch_stream_entry(&b, 0, 40, &[9u8]))
-        .expect_err("role");
+    let e = open_cursor(patch_stream_entry(&b, 0, 40, &[9u8])).expect_err("role");
     assert!(matches!(
         e,
         ReadError::Format(FormatError::UnknownStreamRole { role: 9 })
     ));
     // Unknown storage class byte.
-    let e = open_cursor(patch_stream_entry(&b, 0, 41, &[6u8]))
-        .expect_err("class");
+    let e = open_cursor(patch_stream_entry(&b, 0, 41, &[6u8])).expect_err("class");
     assert!(matches!(
         e,
         ReadError::Format(FormatError::UnknownStorageClass { class: 6 })
@@ -495,7 +496,9 @@ fn identical_bytes_reopen_is_deterministic() {
 
 /// Stream-dir slot of the first entry carrying `role` (attno 1, root).
 fn slot_of_role(b: &BuiltPart, role: StreamRole) -> usize {
-    let sd = b.find_section(SectionKind::StreamDir, 0, 0).expect("stream dir");
+    let sd = b
+        .find_section(SectionKind::StreamDir, 0, 0)
+        .expect("stream dir");
     let sd_off = b.sections[sd].off as usize;
     (0..64)
         .find(|slot| b.bytes[sd_off + slot * 48 + 40] == role.as_u8())
@@ -530,6 +533,10 @@ fn dict_wrapper_ids_refuse_typed_before_any_payload_fault() {
             ReadError::Format(FormatError::WrapperUnsupported { wrapper: id }),
             "handle refusal carries the id"
         );
-        assert_eq!(part.faults().len(), before + 1, "StreamDir only — no payload fault");
+        assert_eq!(
+            part.faults().len(),
+            before + 1,
+            "StreamDir only — no payload fault"
+        );
     }
 }

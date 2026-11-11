@@ -65,7 +65,9 @@ pub(crate) fn compute_tsvector_stats<'mcx>(
     let bucket_width = (num_mcelem_target + 10) * 1000 / 7;
 
     // aset: pruned lexeme copies and chain growth free per C's pfree.
-    let key_cx = col_mcx.context().new_child("compute_tsvector_stats lexemes");
+    let key_cx = col_mcx
+        .context()
+        .new_child("compute_tsvector_stats lexemes");
     let key_mcx = key_cx.mcx();
     let mut items: EntrySlab<'_, TrackItem<'_>> = EntrySlab::new(col_mcx);
     let mut lexemes_tab = DynaHash::new(key_mcx, num_mcelem_target as i64)?;
@@ -114,8 +116,11 @@ pub(crate) fn compute_tsvector_stats<'mcx>(
                     Some(idx) => items[idx].frequency += 1,
                     None => {
                         let key = mcx::slice_in(key_mcx, lexeme)?;
-                        let id =
-                            items.alloc(TrackItem { key: Some(key), frequency: 1, delta: b_current - 1 });
+                        let id = items.alloc(TrackItem {
+                            key: Some(key),
+                            frequency: 1,
+                            delta: b_current - 1,
+                        });
                         lexemes_tab.insert(h, id);
                     }
                 }
@@ -146,8 +151,7 @@ pub(crate) fn compute_tsvector_stats<'mcx>(
 
         let cutoff_freq = 9 * lexeme_no / bucket_width as i64;
 
-        let mut sort_table: PgVec<'_, u32> =
-            mcx::vec_with_capacity_in(col_mcx, lexemes_tab.len())?;
+        let mut sort_table: PgVec<'_, u32> = mcx::vec_with_capacity_in(col_mcx, lexemes_tab.len())?;
         let mut minfreq = lexeme_no;
         let mut maxfreq = 0i64;
         for id in lexemes_tab.seq() {
@@ -171,7 +175,11 @@ pub(crate) fn compute_tsvector_stats<'mcx>(
                 lexemes_tab.len(),
                 track_len
             ))
-            .finish(types_error::ErrorLocation::new(file!(), line!() as i32, "compute_tsvector_stats"))?;
+            .finish(types_error::ErrorLocation::new(
+                file!(),
+                line!() as i32,
+                "compute_tsvector_stats",
+            ))?;
 
         let mut num_mcelem = num_mcelem_target;
         if num_mcelem < track_len {
@@ -231,5 +239,7 @@ fn text_datum_in<'m>(mcx: Mcx<'m>, s: &[u8]) -> PgResult<Datum> {
     let mut img: PgVec<'m, u8> = mcx::vec_with_capacity_in(mcx, s.len() + datum::VARHDRSZ)?;
     mcx::vec_append_bytes(&mut img, &datum::set_varsize_4b(s.len() + datum::VARHDRSZ))?;
     mcx::vec_append_bytes(&mut img, s)?;
-    Ok(Datum::from_usize(adt_multirangetypes::leak_image(img).as_ptr() as usize))
+    Ok(Datum::from_usize(
+        adt_multirangetypes::leak_image(img).as_ptr() as usize,
+    ))
 }

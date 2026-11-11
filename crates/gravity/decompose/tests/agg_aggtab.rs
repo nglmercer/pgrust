@@ -2,6 +2,7 @@
 // independently of scripts/gravity-agg-table.py, and checked row by row against `aggtab::AGG_TABLE`.
 use std::collections::BTreeMap;
 use std::fs;
+#[allow(unused_imports)]
 use std::path::Path;
 
 use gravity_decompose::ops::shared::agg::fold_of;

@@ -141,6 +141,7 @@ fn field_in(img: *const u8, fieldnum: i16, typ: Oid, desc: &TupleDescData<'_>) -
     let mut isnull = false;
     // SAFETY: `fieldnum` was validated against the descriptor above.
     let value = unsafe { types_tuple::heap_getattr(&tuple, fieldnum as i32, desc, &mut isnull) };
+    #[allow(clippy::forget_non_drop)]
     core::mem::forget(tuple);
     Ok(NullableDatum { value, isnull })
 }
@@ -184,6 +185,7 @@ pub(crate) fn form(desc: &TupleDescData<'_>, values: &[Datum], nulls: &[bool], r
 pub(crate) fn deform(img: *const u8, desc: &TupleDescData<'_>, values: &mut [Datum], nulls: &mut [bool]) {
     let tuple = tuple_over(img);
     types_tuple::heap_deform_tuple(&tuple, desc, values, nulls);
+    #[allow(clippy::forget_non_drop)]
     core::mem::forget(tuple);
 }
 
@@ -430,6 +432,7 @@ fn map_by_name(ind: &TupleDescData<'_>, outd: &TupleDescData<'_>) -> Result<Opti
     let (innatts, outnatts) = (ind.natts as usize, outd.natts as usize);
     let mut map = vec![0i16; outnatts]; // alloc: Program
     let mut next: isize = -1;
+    #[allow(clippy::needless_range_loop)]
     for i in 0..outnatts {
         let outatt = &outd.attrs[i];
         if outatt.attisdropped {

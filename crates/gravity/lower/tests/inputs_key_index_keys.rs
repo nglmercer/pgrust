@@ -1,6 +1,7 @@
 // The content key over an index scan's keys (key.rs `keys`): two graphs that differ only in one field of one IndexKey get
 // different keys. `col` above all: every expression column's table attno is 0, so keys on two expression columns of one
 // index differ only in `col` (e1 index keys, main 09-24).
+#[allow(unused_imports)]
 use std::path::Path;
 
 use gravity_decompose::graph::KeyForm;

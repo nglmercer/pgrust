@@ -42,8 +42,8 @@
 use crate::format::meta::{KeyKind, Sortedness, StatsRecord};
 use crate::format::sidecar::{ColDistribution, STATS_MCV_K};
 use crate::kept::{collect_on_n, On};
-pub use crate::sketch::HistOrder;
 use crate::sketch::or_skipped;
+pub use crate::sketch::HistOrder;
 use pgrc_format::FormatResult;
 
 /// FOLDSTATS: the most histogram bounds a fold serves (PG's for the default statistics target 100).
@@ -119,13 +119,22 @@ pub fn fold_pg_statistic_for(
 
     // MCV: sum exact counts by value across parts (lower-bound law above): every part's entries sorted by value,
     // equal values summed in place (wave 3: the working list on `on`; what the ordered map did).
-    let n: usize = parts.iter().filter_map(|p| p.sketch).map(|s| s.mcv.len()).sum();
+    let n: usize = parts
+        .iter()
+        .filter_map(|p| p.sketch)
+        .map(|s| s.mcv.len())
+        .sum();
     let mut by_count = or_skipped(collect_on_n(
         on,
         n,
-        parts.iter().filter_map(|p| p.sketch).flat_map(|s| s.mcv.iter().map(|(v, c)| (v.as_slice(), *c))),
+        parts
+            .iter()
+            .filter_map(|p| p.sketch)
+            .flat_map(|s| s.mcv.iter().map(|(v, c)| (v.as_slice(), *c))),
     ))?;
-    by_count.as_mut_slice().sort_unstable_by(|a, b| a.0.cmp(b.0));
+    by_count
+        .as_mut_slice()
+        .sort_unstable_by(|a, b| a.0.cmp(b.0));
     // dedup_by keeps the first of a run and hands it each later equal entry: the run's counts summed into it.
     by_count.with_vec(|v| {
         v.dedup_by(|later, kept| {
@@ -137,31 +146,58 @@ pub fn fold_pg_statistic_for(
         })
     });
     // Every part's top-k is its whole eligible distinct set: the merged counts are the column's exact ones.
-    let sketches: Option<Vec<&ColDistribution>> = parts.iter().filter(|p| p.part_record.nonnull > 0).map(|p| p.sketch).collect();
-    let complete = sketches
-        .as_ref()
-        .is_some_and(|v| v.iter().all(|s| s.long_values == 0 && s.mcv.len() as u64 >= s.ndv_eligible));
+    let sketches: Option<Vec<&ColDistribution>> = parts
+        .iter()
+        .filter(|p| p.part_record.nonnull > 0)
+        .map(|p| p.sketch)
+        .collect();
+    let complete = sketches.as_ref().is_some_and(|v| {
+        v.iter()
+            .all(|s| s.long_values == 0 && s.mcv.len() as u64 >= s.ndv_eligible)
+    });
 
-    let stadistinct = fold_ndv(parts, sketches.as_deref(), complete, by_count.len(), ndv_estimate);
+    let stadistinct = fold_ndv(
+        parts,
+        sketches.as_deref(),
+        complete,
+        by_count.len(),
+        ndv_estimate,
+    );
 
     // Values are distinct now, so (count desc, value asc) is a total order.
-    by_count.as_mut_slice().sort_unstable_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+    by_count
+        .as_mut_slice()
+        .sort_unstable_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
     // compute_scalar_stats' admission: all values fit the list, or a value 1.25x as common as the average, twice
     // at least
     let all_fit = complete && by_count.len() <= STATS_MCV_K;
     if !all_fit {
-        let avg = if stadistinct > 0.0 { total_nonnull as f64 / stadistinct } else { f64::INFINITY };
+        let avg = if stadistinct > 0.0 {
+            total_nonnull as f64 / stadistinct
+        } else {
+            f64::INFINITY
+        };
         let min_count = (1.25 * avg).max(2.0);
         by_count.with_vec(|v| v.retain(|&(_, c)| c as f64 >= min_count));
     }
-    let mut sta_mcv: Vec<(Vec<u8>, f64)> = or_skipped(pgrc_format::try_vec(by_count.len().min(STATS_MCV_K), "fold"))?;
+    let mut sta_mcv: Vec<(Vec<u8>, f64)> = or_skipped(pgrc_format::try_vec(
+        by_count.len().min(STATS_MCV_K),
+        "fold",
+    ))?;
     for &(v, c) in by_count.iter().take(STATS_MCV_K) {
-        sta_mcv.push((or_skipped(pgrc_format::try_to_vec(v, "fold"))?, c as f64 / total_rows as f64));
+        sta_mcv.push((
+            or_skipped(pgrc_format::try_to_vec(v, "fold"))?,
+            c as f64 / total_rows as f64,
+        ));
     }
 
     // Histogram: none when the list holds every value (compute_scalar_stats); else the parts' bounds merged in value
     // order, weighted by the part's rows.
-    let sta_histogram = if all_fit && !sta_mcv.is_empty() { Vec::new() } else { or_skipped(merge_histograms(parts, order))? };
+    let sta_histogram = if all_fit && !sta_mcv.is_empty() {
+        Vec::new()
+    } else {
+        or_skipped(merge_histograms(parts, order))?
+    };
 
     // P-8 correlation.
     let desc = parts
@@ -176,11 +212,7 @@ pub fn fold_pg_statistic_for(
             0.0
         }
     } else {
-        let all = |s: Sortedness| {
-            parts
-                .iter()
-                .all(|p| p.part_record.sortedness == s.as_u8())
-        };
+        let all = |s: Sortedness| parts.iter().all(|p| p.part_record.sortedness == s.as_u8());
         if (all(Sortedness::Ascending) || all(Sortedness::Constant)) && ranges_follow(parts, true) {
             1.0
         } else if all(Sortedness::Descending) && ranges_follow(parts, false) {
@@ -205,7 +237,10 @@ fn keyed(parts: &[PartColInput<'_>]) -> Option<Vec<(i64, i64)>> {
     parts
         .iter()
         .filter(|p| p.part_record.nonnull > 0)
-        .map(|p| (p.part_record.key_kind != KeyKind::Absent as u8).then_some((p.part_record.min_key, p.part_record.max_key)))
+        .map(|p| {
+            (p.part_record.key_kind != KeyKind::Absent as u8)
+                .then_some((p.part_record.min_key, p.part_record.max_key))
+        })
         .collect()
 }
 
@@ -215,11 +250,25 @@ fn ranges_follow(parts: &[PartColInput<'_>], ascending: bool) -> bool {
     if parts.iter().filter(|p| p.part_record.nonnull > 0).count() <= 1 {
         return true;
     }
-    keyed(parts).is_some_and(|r| r.windows(2).all(|w| if ascending { w[0].1 <= w[1].0 } else { w[0].0 >= w[1].1 }))
+    keyed(parts).is_some_and(|r| {
+        r.windows(2).all(|w| {
+            if ascending {
+                w[0].1 <= w[1].0
+            } else {
+                w[0].0 >= w[1].1
+            }
+        })
+    })
 }
 
 /// `stadistinct` (a positive count): see the module doc.
-fn fold_ndv(parts: &[PartColInput<'_>], sketches: Option<&[&ColDistribution]>, complete: bool, merged: usize, estimate: f64) -> f64 {
+fn fold_ndv(
+    parts: &[PartColInput<'_>],
+    sketches: Option<&[&ColDistribution]>,
+    complete: bool,
+    merged: usize,
+    estimate: f64,
+) -> f64 {
     let Some(v) = sketches else { return estimate };
     if v.is_empty() {
         return estimate;
@@ -228,10 +277,18 @@ fn fold_ndv(parts: &[PartColInput<'_>], sketches: Option<&[&ColDistribution]>, c
         return merged as f64;
     }
     let lo = v.iter().map(|s| s.ndv_eligible).max().unwrap_or(0) as f64;
-    let hi = v.iter().map(|s| s.ndv_eligible + s.long_values).sum::<u64>() as f64;
+    let hi = v
+        .iter()
+        .map(|s| s.ndv_eligible + s.long_values)
+        .sum::<u64>() as f64;
     // every part's values distinct, and no value in two parts: exact keys, disjoint ranges
-    let unique = v.iter().all(|s| s.long_values == 0 && s.ndv_eligible == s.nonnull);
-    let exact = parts.iter().filter(|p| p.part_record.nonnull > 0).all(|p| p.part_record.key_kind == KeyKind::Exact as u8);
+    let unique = v
+        .iter()
+        .all(|s| s.long_values == 0 && s.ndv_eligible == s.nonnull);
+    let exact = parts
+        .iter()
+        .filter(|p| p.part_record.nonnull > 0)
+        .all(|p| p.part_record.key_kind == KeyKind::Exact as u8);
     if unique && exact {
         if let Some(mut r) = keyed(parts) {
             r.sort_unstable();
@@ -291,14 +348,39 @@ fn merge_histograms(parts: &[PartColInput<'_>], order: HistOrder) -> FormatResul
     for &(lo, hi, mass) in &shares {
         let (a, b) = (pos(lo), pos(hi));
         if b > a {
-            knots.push(Knot { v: lo, at: a, jump: 0.0, dslope: mass / (b - a) });
-            knots.push(Knot { v: hi, at: b, jump: 0.0, dslope: -mass / (b - a) });
+            knots.push(Knot {
+                v: lo,
+                at: a,
+                jump: 0.0,
+                dslope: mass / (b - a),
+            });
+            knots.push(Knot {
+                v: hi,
+                at: b,
+                jump: 0.0,
+                dslope: -mass / (b - a),
+            });
         } else if order.same(lo, hi) {
-            knots.push(Knot { v: lo, at: a, jump: mass, dslope: 0.0 });
+            knots.push(Knot {
+                v: lo,
+                at: a,
+                jump: mass,
+                dslope: 0.0,
+            });
         } else {
             // distinct values at one position (a long common prefix): half the share at each
-            knots.push(Knot { v: lo, at: a, jump: mass / 2.0, dslope: 0.0 });
-            knots.push(Knot { v: hi, at: b, jump: mass / 2.0, dslope: 0.0 });
+            knots.push(Knot {
+                v: lo,
+                at: a,
+                jump: mass / 2.0,
+                dslope: 0.0,
+            });
+            knots.push(Knot {
+                v: hi,
+                at: b,
+                jump: mass / 2.0,
+                dslope: 0.0,
+            });
         }
     }
     knots.sort_by(|x, y| x.at.total_cmp(&y.at).then_with(|| order.cmp(x.v, y.v)));
@@ -357,7 +439,10 @@ fn merge_histograms(parts: &[PartColInput<'_>], order: HistOrder) -> FormatResul
                 _ => pgrc_format::try_to_vec(merged[k].v, "fold")?,
             }
         };
-        if out.last().is_none_or(|l| order.cmp(l, &v) == std::cmp::Ordering::Less) {
+        if out
+            .last()
+            .is_none_or(|l| order.cmp(l, &v) == std::cmp::Ordering::Less)
+        {
             out.push(v);
         }
     }
@@ -386,11 +471,17 @@ impl Words {
             return None;
         }
         let first = vals.next()?;
-        let w = Words { order, width: first.len() };
-        if !(1..=8).contains(&w.width) || (order == HistOrder::Float && w.width != 4 && w.width != 8) {
+        let w = Words {
+            order,
+            width: first.len(),
+        };
+        if !(1..=8).contains(&w.width)
+            || (order == HistOrder::Float && w.width != 4 && w.width != 8)
+        {
             return None;
         }
-        let ok = |v: &[u8]| v.len() == w.width && (order != HistOrder::Float || w.float(v).is_finite());
+        let ok =
+            |v: &[u8]| v.len() == w.width && (order != HistOrder::Float || w.float(v).is_finite());
         (ok(first) && vals.all(ok)).then_some(w)
     }
 
@@ -469,7 +560,11 @@ mod tests {
             nonnull: 90,
             ndv_eligible: 3,
             long_values: 0,
-            mcv: vec![(b"a".to_vec(), 60), (b"b".to_vec(), 20), (b"c".to_vec(), 10)],
+            mcv: vec![
+                (b"a".to_vec(), 60),
+                (b"b".to_vec(), 20),
+                (b"c".to_vec(), 10),
+            ],
             hist_bounds: vec![b"a".to_vec(), b"b".to_vec(), b"c".to_vec()],
         };
         let out = fold_pg_statistic(
@@ -487,7 +582,10 @@ mod tests {
         assert!((out.stawidth - 5.0).abs() < 1e-9);
         assert_eq!(out.stadistinct, 3.0);
         assert_eq!(out.sta_mcv[0], (b"a".to_vec(), 0.6));
-        assert!(out.sta_histogram.is_empty(), "FOLDSTATS: every value in the list, no histogram (compute_scalar_stats)");
+        assert!(
+            out.sta_histogram.is_empty(),
+            "FOLDSTATS: every value in the list, no histogram (compute_scalar_stats)"
+        );
         assert_eq!(out.stacorrelation, 1.0, "P-8: ascending folds to 1.0");
     }
 
@@ -518,20 +616,36 @@ mod tests {
     /// its bound budget; the charged-vs-plain checks are trunk's.
     #[test]
     fn the_merge_on_an_owner_matches_the_ordered_map() {
-        let recs: Vec<StatsRecord> = (0..40).map(|_| rec(500, Sortedness::Unknown, 900)).collect();
+        let recs: Vec<StatsRecord> = (0..40)
+            .map(|_| rec(500, Sortedness::Unknown, 900))
+            .collect();
         let sketches: Vec<ColDistribution> = (0..40u32)
             .map(|p| ColDistribution {
                 nonnull: 500,
                 ndv_eligible: 30,
                 long_values: 0,
                 mcv: (0..30u32)
-                    .map(|i| (format!("v{:02}", (i * 7 + p) % 45).into_bytes(), u64::from(1 + (i + p) % 5) * if i < 3 { 1000 } else { 1 }))
+                    .map(|i| {
+                        (
+                            format!("v{:02}", (i * 7 + p) % 45).into_bytes(),
+                            u64::from(1 + (i + p) % 5) * if i < 3 { 1000 } else { 1 },
+                        )
+                    })
                     .collect(),
-                hist_bounds: (0..33u32).map(|i| format!("b{:03}", (i * 3 + p) % 70).into_bytes()).collect(),
+                hist_bounds: (0..33u32)
+                    .map(|i| format!("b{:03}", (i * 3 + p) % 70).into_bytes())
+                    .collect(),
             })
             .collect();
-        let inputs: Vec<PartColInput<'_>> =
-            recs.iter().zip(&sketches).map(|(r, s)| PartColInput { part_record: r, rows: 600, sketch: Some(s) }).collect();
+        let inputs: Vec<PartColInput<'_>> = recs
+            .iter()
+            .zip(&sketches)
+            .map(|(r, s)| PartColInput {
+                part_record: r,
+                rows: 600,
+                sketch: Some(s),
+            })
+            .collect();
         let total = 600.0 * 40.0;
         let mut merged: std::collections::BTreeMap<&[u8], u64> = std::collections::BTreeMap::new();
         for s in &sketches {
@@ -547,26 +661,58 @@ mod tests {
         let min_count = (1.25 * (500.0 * 40.0 / plain.stadistinct)).max(2.0);
         by_count.retain(|&(_, c)| c as f64 >= min_count);
         assert!(!by_count.is_empty(), "the heavy values are admitted");
-        let want_mcv: Vec<(Vec<u8>, f64)> =
-            by_count.iter().take(crate::format::sidecar::STATS_MCV_K).map(|(v, c)| (v.to_vec(), *c as f64 / total)).collect();
-        let mut bounds: Vec<&[u8]> = sketches.iter().flat_map(|s| s.hist_bounds.iter().map(|b| b.as_slice())).collect();
+        let want_mcv: Vec<(Vec<u8>, f64)> = by_count
+            .iter()
+            .take(crate::format::sidecar::STATS_MCV_K)
+            .map(|(v, c)| (v.to_vec(), *c as f64 / total))
+            .collect();
+        let mut bounds: Vec<&[u8]> = sketches
+            .iter()
+            .flat_map(|s| s.hist_bounds.iter().map(|b| b.as_slice()))
+            .collect();
         bounds.sort();
         bounds.dedup();
         assert_eq!(plain.sta_mcv, want_mcv);
-        assert!(!plain.sta_histogram.is_empty() && plain.sta_histogram.len() <= FOLD_HIST_BOUNDS.min(bounds.len()));
-        assert_eq!(plain.sta_histogram.first().map(Vec::as_slice), bounds.first().copied());
-        assert_eq!(plain.sta_histogram.last().map(Vec::as_slice), bounds.last().copied());
+        assert!(
+            !plain.sta_histogram.is_empty()
+                && plain.sta_histogram.len() <= FOLD_HIST_BOUNDS.min(bounds.len())
+        );
+        assert_eq!(
+            plain.sta_histogram.first().map(Vec::as_slice),
+            bounds.first().copied()
+        );
+        assert_eq!(
+            plain.sta_histogram.last().map(Vec::as_slice),
+            bounds.last().copied()
+        );
         std::thread::spawn(move || {
             memledger::bind_backend(3973, 8173);
             memledger::statement_begin();
             let (o, _) = memledger::charge::context();
-            let inputs: Vec<PartColInput<'_>> =
-                recs.iter().zip(&sketches).map(|(r, s)| PartColInput { part_record: r, rows: 600, sketch: Some(s) }).collect();
-            let charged =
-                fold_pg_statistic_for(&inputs, 45.0, false, HistOrder::Bytes, Some((o, memledger::Kind::Region))).expect("fold");
+            let inputs: Vec<PartColInput<'_>> = recs
+                .iter()
+                .zip(&sketches)
+                .map(|(r, s)| PartColInput {
+                    part_record: r,
+                    rows: 600,
+                    sketch: Some(s),
+                })
+                .collect();
+            let charged = fold_pg_statistic_for(
+                &inputs,
+                45.0,
+                false,
+                HistOrder::Bytes,
+                Some((o, memledger::Kind::Region)),
+            )
+            .expect("fold");
             assert_eq!(charged.sta_mcv, plain.sta_mcv);
             assert_eq!(charged.sta_histogram, plain.sta_histogram);
-            assert_eq!(memledger::charge::owner_row(o).committed, 0, "the working lists are given back");
+            assert_eq!(
+                memledger::charge::owner_row(o).committed,
+                0,
+                "the working lists are given back"
+            );
             memledger::statement_end();
             memledger::unbind_backend();
         })
@@ -638,7 +784,10 @@ mod tests {
     }
 
     fn decode(bounds: &[Vec<u8>]) -> Vec<i64> {
-        bounds.iter().map(|b| i64::from_le_bytes(b.as_slice().try_into().expect("int8"))).collect()
+        bounds
+            .iter()
+            .map(|b| i64::from_le_bytes(b.as_slice().try_into().expect("int8")))
+            .collect()
     }
 
     /// The share of the histogram's bins above `x` (the planner's reading, bins equal mass).
@@ -660,38 +809,76 @@ mod tests {
     #[test]
     fn two_disjoint_parts_fold_like_a_sample() {
         let (a, b) = (unique_part(1, 200_000), unique_part(300_001, 500_000));
-        let (ra, rb) = (keyed_rec(200_000, Sortedness::Ascending, 1, 200_000), keyed_rec(200_000, Sortedness::Ascending, 300_001, 500_000));
+        let (ra, rb) = (
+            keyed_rec(200_000, Sortedness::Ascending, 1, 200_000),
+            keyed_rec(200_000, Sortedness::Ascending, 300_001, 500_000),
+        );
         let out = fold_pg_statistic(
             &[
-                PartColInput { part_record: &ra, rows: 200_000, sketch: Some(&a) },
-                PartColInput { part_record: &rb, rows: 200_000, sketch: Some(&b) },
+                PartColInput {
+                    part_record: &ra,
+                    rows: 200_000,
+                    sketch: Some(&a),
+                },
+                PartColInput {
+                    part_record: &rb,
+                    rows: 200_000,
+                    sketch: Some(&b),
+                },
             ],
             383_625.0, // the HLL's estimate on box 44
             false,
             HistOrder::Signed,
         )
         .expect("fold");
-        assert!(out.sta_mcv.is_empty(), "a unique column has no MCVs: {:?}", out.sta_mcv.len());
-        assert_eq!(out.stadistinct, 400_000.0, "distinct within parts, disjoint ranges: exact");
-        assert_eq!(out.stacorrelation, 1.0, "ascending parts in ascending ranges");
+        assert!(
+            out.sta_mcv.is_empty(),
+            "a unique column has no MCVs: {:?}",
+            out.sta_mcv.len()
+        );
+        assert_eq!(
+            out.stadistinct, 400_000.0,
+            "distinct within parts, disjoint ranges: exact"
+        );
+        assert_eq!(
+            out.stacorrelation, 1.0,
+            "ascending parts in ascending ranges"
+        );
         let h = decode(&out.sta_histogram);
         assert!(h.windows(2).all(|w| w[0] < w[1]), "value order: {h:?}");
         assert_eq!((h[0], *h.last().unwrap()), (1, 500_000));
         let above = frac_above(&h, 300_000);
-        assert!((above - 0.5).abs() < 0.02, "id > 300000: {above} of the rows, 0.5 true");
+        assert!(
+            (above - 0.5).abs() < 0.02,
+            "id > 300000: {above} of the rows, 0.5 true"
+        );
         let between = frac_above(&h, 400_000) - frac_above(&h, 410_000);
-        assert!((between - 0.025).abs() < 0.005, "BETWEEN 400000 AND 410000: {between}, 0.025 true");
+        assert!(
+            (between - 0.025).abs() < 0.005,
+            "BETWEEN 400000 AND 410000: {between}, 0.025 true"
+        );
     }
 
     /// A part weighs by its rows, not its bound count.
     #[test]
     fn parts_weigh_by_rows() {
         let (small, big) = (unique_part(1_000_001, 1_001_000), unique_part(1, 100_000));
-        let (rs, rbig) = (keyed_rec(1_000, Sortedness::Ascending, 1_000_001, 1_001_000), keyed_rec(100_000, Sortedness::Ascending, 1, 100_000));
+        let (rs, rbig) = (
+            keyed_rec(1_000, Sortedness::Ascending, 1_000_001, 1_001_000),
+            keyed_rec(100_000, Sortedness::Ascending, 1, 100_000),
+        );
         let out = fold_pg_statistic(
             &[
-                PartColInput { part_record: &rs, rows: 1_000, sketch: Some(&small) },
-                PartColInput { part_record: &rbig, rows: 100_000, sketch: Some(&big) },
+                PartColInput {
+                    part_record: &rs,
+                    rows: 1_000,
+                    sketch: Some(&small),
+                },
+                PartColInput {
+                    part_record: &rbig,
+                    rows: 100_000,
+                    sketch: Some(&big),
+                },
             ],
             101_000.0,
             false,
@@ -700,7 +887,10 @@ mod tests {
         .expect("fold");
         let h = decode(&out.sta_histogram);
         let above = frac_above(&h, 100_000);
-        assert!(above < 0.03, "the 1000-row part is ~1 % of the rows: {above}");
+        assert!(
+            above < 0.03,
+            "the 1000-row part is ~1 % of the rows: {above}"
+        );
         assert_eq!(out.stacorrelation, 0.0, "ranges out of part order");
     }
 
@@ -719,12 +909,23 @@ mod tests {
     #[test]
     fn overlapping_unique_parts_keep_the_estimate_in_bounds() {
         let (a, b) = (unique_part(1, 1_000), unique_part(501, 1_500));
-        let (ra, rb) = (keyed_rec(1_000, Sortedness::Ascending, 1, 1_000), keyed_rec(1_000, Sortedness::Ascending, 501, 1_500));
+        let (ra, rb) = (
+            keyed_rec(1_000, Sortedness::Ascending, 1, 1_000),
+            keyed_rec(1_000, Sortedness::Ascending, 501, 1_500),
+        );
         let fold = |est: f64| {
             fold_pg_statistic(
                 &[
-                    PartColInput { part_record: &ra, rows: 1_000, sketch: Some(&a) },
-                    PartColInput { part_record: &rb, rows: 1_000, sketch: Some(&b) },
+                    PartColInput {
+                        part_record: &ra,
+                        rows: 1_000,
+                        sketch: Some(&a),
+                    },
+                    PartColInput {
+                        part_record: &rb,
+                        rows: 1_000,
+                        sketch: Some(&b),
+                    },
                 ],
                 est,
                 false,
@@ -733,10 +934,24 @@ mod tests {
             .expect("fold")
         };
         assert_eq!(fold(1_490.0).stadistinct, 1_490.0);
-        assert_eq!(fold(100.0).stadistinct, 1_000.0, "at least the larger part's exact count");
+        assert_eq!(
+            fold(100.0).stadistinct,
+            1_000.0,
+            "at least the larger part's exact count"
+        );
         assert_eq!(fold(9_999.0).stadistinct, 2_000.0, "at most the parts' sum");
-        assert!(fold(1_490.0).sta_mcv.iter().all(|(_, f)| *f >= 2.0 / 2_000.0), "a listed value repeats");
-        assert_eq!(fold(1_490.0).stacorrelation, 0.0, "overlapping ranges: not sorted across parts");
+        assert!(
+            fold(1_490.0)
+                .sta_mcv
+                .iter()
+                .all(|(_, f)| *f >= 2.0 / 2_000.0),
+            "a listed value repeats"
+        );
+        assert_eq!(
+            fold(1_490.0).stacorrelation,
+            0.0,
+            "overlapping ranges: not sorted across parts"
+        );
     }
 
     /// A skewed column keeps its heavy hitters (and only them) as MCVs.
@@ -747,8 +962,17 @@ mod tests {
         entries.sort();
         let d = crate::sketch::distribution_from_sorted_counts_in(&entries, HistOrder::Signed);
         let r = keyed_rec(10_000, Sortedness::Unknown, 0, 5_000);
-        let out = fold_pg_statistic(&[PartColInput { part_record: &r, rows: 10_000, sketch: Some(&d) }], 5_001.0, false, HistOrder::Signed)
-            .expect("fold");
+        let out = fold_pg_statistic(
+            &[PartColInput {
+                part_record: &r,
+                rows: 10_000,
+                sketch: Some(&d),
+            }],
+            5_001.0,
+            false,
+            HistOrder::Signed,
+        )
+        .expect("fold");
         assert_eq!(out.sta_mcv.len(), 1, "{:?}", out.sta_mcv.len());
         assert_eq!(out.sta_mcv[0], (int8(0), 0.5));
     }
@@ -760,22 +984,33 @@ mod tests {
         // part i holds the ids congruent to i mod 3: the same range, and bounds at nearly the same values
         let parts: Vec<ColDistribution> = (0..3i64)
             .map(|i| {
-                let mut e: Vec<(Vec<u8>, u64)> = (0..100_000i64).map(|k| (int8(3 * k + i + 1), 1)).collect();
+                let mut e: Vec<(Vec<u8>, u64)> =
+                    (0..100_000i64).map(|k| (int8(3 * k + i + 1), 1)).collect();
                 e.sort();
                 crate::sketch::distribution_from_sorted_counts_in(&e, HistOrder::Signed)
             })
             .collect();
-        let recs: Vec<StatsRecord> = (0..3i64).map(|i| keyed_rec(100_000, Sortedness::Ascending, i + 1, 299_998 + i)).collect();
+        let recs: Vec<StatsRecord> = (0..3i64)
+            .map(|i| keyed_rec(100_000, Sortedness::Ascending, i + 1, 299_998 + i))
+            .collect();
         let inputs: Vec<PartColInput<'_>> = parts
             .iter()
             .zip(&recs)
-            .map(|(d, r)| PartColInput { part_record: r, rows: 100_000, sketch: Some(d) })
+            .map(|(d, r)| PartColInput {
+                part_record: r,
+                rows: 100_000,
+                sketch: Some(d),
+            })
             .collect();
         let out = fold_pg_statistic(&inputs, 300_000.0, false, HistOrder::Signed).expect("fold");
         let h = decode(&out.sta_histogram);
         assert_eq!(h.len(), FOLD_HIST_BOUNDS);
         let below = |x: i64| 1.0 - frac_above(&h, x);
-        assert!((below(1_000) - 1_000.0 / 300_000.0).abs() < 0.001, "id < 1000: {}", below(1_000));
+        assert!(
+            (below(1_000) - 1_000.0 / 300_000.0).abs() < 0.001,
+            "id < 1000: {}",
+            below(1_000)
+        );
         assert!(((below(160_000) - below(150_000)) - 10_000.0 / 300_000.0).abs() < 0.002);
         assert_eq!(out.stacorrelation, 0.0, "overlapping ranges");
     }
@@ -784,23 +1019,40 @@ mod tests {
     #[test]
     fn float_bounds_interpolate_in_value_order() {
         let mk = |lo: i64, hi: i64| {
-            let mut e: Vec<(Vec<u8>, u64)> = (lo..hi).map(|k| ((k as f64 / 4.0).to_bits().to_le_bytes().to_vec(), 1)).collect();
+            let mut e: Vec<(Vec<u8>, u64)> = (lo..hi)
+                .map(|k| ((k as f64 / 4.0).to_bits().to_le_bytes().to_vec(), 1))
+                .collect();
             e.sort();
             crate::sketch::distribution_from_sorted_counts_in(&e, HistOrder::Float)
         };
         let (a, b) = (mk(-40_000, 0), mk(0, 40_000));
-        let (ra, rb) = (rec(40_000, Sortedness::Unknown, 0), rec(40_000, Sortedness::Unknown, 0));
+        let (ra, rb) = (
+            rec(40_000, Sortedness::Unknown, 0),
+            rec(40_000, Sortedness::Unknown, 0),
+        );
         let out = fold_pg_statistic(
             &[
-                PartColInput { part_record: &ra, rows: 40_000, sketch: Some(&a) },
-                PartColInput { part_record: &rb, rows: 40_000, sketch: Some(&b) },
+                PartColInput {
+                    part_record: &ra,
+                    rows: 40_000,
+                    sketch: Some(&a),
+                },
+                PartColInput {
+                    part_record: &rb,
+                    rows: 40_000,
+                    sketch: Some(&b),
+                },
             ],
             80_000.0,
             false,
             HistOrder::Float,
         )
         .expect("fold");
-        let h: Vec<f64> = out.sta_histogram.iter().map(|b| f64::from_bits(u64::from_le_bytes(b.as_slice().try_into().expect("f64")))).collect();
+        let h: Vec<f64> = out
+            .sta_histogram
+            .iter()
+            .map(|b| f64::from_bits(u64::from_le_bytes(b.as_slice().try_into().expect("f64"))))
+            .collect();
         assert!(h.windows(2).all(|w| w[0] < w[1]), "{h:?}");
         assert_eq!((h[0], *h.last().unwrap()), (-10_000.0, 9_999.75));
         assert!(h[50].abs() < 250.0, "the median bound is near 0: {}", h[50]);
@@ -810,16 +1062,29 @@ mod tests {
     #[test]
     fn byte_ordered_bounds_are_picked_not_made() {
         let mk = |p: &str| {
-            let mut e: Vec<(Vec<u8>, u64)> = (0..10_000).map(|k| (format!("{p}{k:05}").into_bytes(), 1)).collect();
+            let mut e: Vec<(Vec<u8>, u64)> = (0..10_000)
+                .map(|k| (format!("{p}{k:05}").into_bytes(), 1))
+                .collect();
             e.sort();
             crate::sketch::distribution_from_sorted_counts_in(&e, HistOrder::Bytes)
         };
         let (a, b) = (mk("a-"), mk("m-"));
-        let (ra, rb) = (rec(10_000, Sortedness::Unknown, 70_000), rec(10_000, Sortedness::Unknown, 70_000));
+        let (ra, rb) = (
+            rec(10_000, Sortedness::Unknown, 70_000),
+            rec(10_000, Sortedness::Unknown, 70_000),
+        );
         let out = fold_pg_statistic(
             &[
-                PartColInput { part_record: &ra, rows: 10_000, sketch: Some(&a) },
-                PartColInput { part_record: &rb, rows: 10_000, sketch: Some(&b) },
+                PartColInput {
+                    part_record: &ra,
+                    rows: 10_000,
+                    sketch: Some(&a),
+                },
+                PartColInput {
+                    part_record: &rb,
+                    rows: 10_000,
+                    sketch: Some(&b),
+                },
             ],
             20_000.0,
             false,
@@ -827,10 +1092,18 @@ mod tests {
         )
         .expect("fold");
         let h = &out.sta_histogram;
-        let inputs: std::collections::BTreeSet<&Vec<u8>> = a.hist_bounds.iter().chain(&b.hist_bounds).collect();
-        assert!(h.iter().all(|v| inputs.contains(v)), "every bound an input bound");
+        let inputs: std::collections::BTreeSet<&Vec<u8>> =
+            a.hist_bounds.iter().chain(&b.hist_bounds).collect();
+        assert!(
+            h.iter().all(|v| inputs.contains(v)),
+            "every bound an input bound"
+        );
         assert!(h.windows(2).all(|w| w[0] < w[1]));
         let from_m = h.iter().filter(|v| v.starts_with(b"m-")).count();
-        assert!((from_m as i64 - h.len() as i64 / 2).abs() <= 2, "half the bounds from each part: {from_m} of {}", h.len());
+        assert!(
+            (from_m as i64 - h.len() as i64 / 2).abs() <= 2,
+            "half the bounds from each part: {from_m} of {}",
+            h.len()
+        );
     }
 }

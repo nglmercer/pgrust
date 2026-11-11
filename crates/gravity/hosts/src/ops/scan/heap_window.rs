@@ -6,10 +6,10 @@
 //! - V4R-371 (D1001): an all-visible page of normal line pointers is answered from them alone (`PAGE_UNREAD`), whatever the recipe.
 //! - I8 (row 8): late decode. A lane asked with `LANE_LATE` is deformed to its own attribute only, over the site's selection
 //!   when it has one: the filter lanes over every row, the rest for the survivors.
-//! The header-reading walk goes last to first (Decision 11: tuples sit at ascending addresses) and publishes the offsets
-//! ascending, PostgreSQL's order; the IR picks its own direction over them. No heap condition cache (the user 09-24).
+//!   The header-reading walk goes last to first (Decision 11: tuples sit at ascending addresses) and publishes the offsets
+//!   ascending, PostgreSQL's order; the IR picks its own direction over them. No heap condition cache (the user 09-24).
 //! - H03a (row 15, road `heap.stream`, V4R-32): the read-stream look-ahead of cold claims (`ReadAhead`).
-//! Created by M2 (owner M2-HOSTS; the read-ahead M2-HEAP, Owner-Ack main 09-24).
+//!   Created by M2 (owner M2-HOSTS; the read-ahead M2-HEAP, Owner-Ack main 09-24).
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Weak};
@@ -92,7 +92,7 @@ pub struct Lanes<'a> {
 /// A lane request's reach (`heap_source.rs` `lane_pg`): the attribute to deform to and the rows. A plain request deforms
 /// every attribute the recipe wants over every row (one pass, the rest of the page's lanes with it); a `LANE_LATE`
 /// request deforms only to its own attribute, over the site's selection when it selects fewer rows than the window has.
-pub fn reach<'s>(late: bool, attno: usize, want: usize, sel: &'s [u32], nvis: usize) -> (usize, Option<&'s [u32]>) {
+pub fn reach(late: bool, attno: usize, want: usize, sel: &[u32], nvis: usize) -> (usize, Option<&[u32]>) {
     match late {
         true => (attno, (!sel.is_empty() && sel.len() < nvis).then_some(sel)),
         false => (want, None),

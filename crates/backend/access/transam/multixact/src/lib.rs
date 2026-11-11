@@ -1,5 +1,4 @@
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use std::cell::RefCell;
 use std::sync::atomic::Ordering::Relaxed;
@@ -8,7 +7,7 @@ use std::sync::OnceLock;
 
 use elog::{elog, ereport};
 use init_small::globals;
-use lwlock::{LWLockAcquire, LWLockRelease, LWLock, LW_EXCLUSIVE, LW_SHARED};
+use lwlock::{LWLock, LWLockAcquire, LWLockRelease, LW_EXCLUSIVE, LW_SHARED};
 use mcx::{oom_named, Mcx, McxOwned, MemoryContext, PgVec};
 use pmsignal::{PMSignalReason, SendPostmasterSignal};
 use slru::{
@@ -29,11 +28,11 @@ use types_error::{
 };
 use types_guc::GucSource;
 use types_storage::multixact::{ISUPDATE_from_mxstatus, MultiXactMember, MultiXactStatus};
+use types_storage::storage::{DELAY_CHKPT_START, MULTI_XACT_GEN_LOCK, MULTI_XACT_TRUNCATION_LOCK};
 use types_storage::storage::{
     LWTRANCHE_MULTIXACTMEMBER_BUFFER, LWTRANCHE_MULTIXACTMEMBER_SLRU,
     LWTRANCHE_MULTIXACTOFFSET_BUFFER, LWTRANCHE_MULTIXACTOFFSET_SLRU,
 };
-use types_storage::storage::{DELAY_CHKPT_START, MULTI_XACT_GEN_LOCK, MULTI_XACT_TRUNCATION_LOCK};
 use types_storage::sync::{FileTag, SyncRequestHandler};
 use xlogreader_seams::XLogReaderState;
 
@@ -65,9 +64,9 @@ const MXACT_MEMBER_BITS_PER_XACT: u32 = 8;
 const MXACT_MEMBER_XACT_BITMASK: u32 = (1 << MXACT_MEMBER_BITS_PER_XACT) - 1;
 const MULTIXACT_FLAGBYTES_PER_GROUP: usize = 4;
 const MULTIXACT_MEMBERS_PER_MEMBERGROUP: u32 = MULTIXACT_FLAGBYTES_PER_GROUP as u32;
-const MULTIXACT_MEMBERGROUP_SIZE: usize =
-    SIZE_OF_TRANSACTION_ID * MULTIXACT_MEMBERS_PER_MEMBERGROUP as usize
-        + MULTIXACT_FLAGBYTES_PER_GROUP;
+const MULTIXACT_MEMBERGROUP_SIZE: usize = SIZE_OF_TRANSACTION_ID
+    * MULTIXACT_MEMBERS_PER_MEMBERGROUP as usize
+    + MULTIXACT_FLAGBYTES_PER_GROUP;
 const MULTIXACT_MEMBERGROUPS_PER_PAGE: u32 = (BLCKSZ / MULTIXACT_MEMBERGROUP_SIZE) as u32;
 pub const MULTIXACT_MEMBERS_PER_PAGE: u32 =
     MULTIXACT_MEMBERGROUPS_PER_PAGE * MULTIXACT_MEMBERS_PER_MEMBERGROUP;
@@ -278,7 +277,8 @@ fn my_slot() -> usize {
 // their member slots come directly after the MaxBackends backend slots.
 fn prepared_xact_member_slot(procno: i32) -> usize {
     let st = MultiXactState();
-    let first_prepared = state_max_backends(st) + ::init_small::globals::NumAuxiliaryProcs() as usize;
+    let first_prepared =
+        state_max_backends(st) + ::init_small::globals::NumAuxiliaryProcs() as usize;
     debug_assert!(procno >= 0 && procno as usize >= first_prepared);
     let idx = state_max_backends(st) + (procno as usize - first_prepared);
     debug_assert!(idx < st.num_member_slots);
@@ -560,8 +560,14 @@ pub fn MultiXactIdCreate(
     // No need to check that both XIDs are still running (multixact.c: xid2
     // is normally our own XID and the caller just checked xid1).
     let mut members = [
-        MultiXactMember { xid: xid1, status: status1 },
-        MultiXactMember { xid: xid2, status: status2 },
+        MultiXactMember {
+            xid: xid1,
+            status: status1,
+        },
+        MultiXactMember {
+            xid: xid2,
+            status: status2,
+        },
     ];
     MultiXactIdCreateFromMembers(&mut members)
 }
@@ -824,7 +830,10 @@ fn RecordNewMultiXact(
         };
 
         if init_needed {
-            dlog(DEBUG1, "next offsets page is not initialized, initializing it now".to_string());
+            dlog(
+                DEBUG1,
+                "next offsets page is not initialized, initializing it now".to_string(),
+            );
 
             let mut bank = LwGuard::acquire(SimpleLruGetBankLock(octl, next_pageno), LW_EXCLUSIVE)?;
             let slotno = SimpleLruZeroPage(octl, next_pageno, &mut bank)?;
@@ -898,8 +907,11 @@ fn RecordNewMultiXact(
         let g = mguard.as_mut().expect("member bank lock held");
         let buf = mctl.page_buffer_mut(mslotno, g);
         buf[memberoff..memberoff + 4].copy_from_slice(&m.xid.to_ne_bytes());
-        let mut flagsval =
-            u32::from_ne_bytes(buf[flagsoff..flagsoff + 4].try_into().expect("4-byte flags"));
+        let mut flagsval = u32::from_ne_bytes(
+            buf[flagsoff..flagsoff + 4]
+                .try_into()
+                .expect("4-byte flags"),
+        );
         flagsval &= !(MXACT_MEMBER_XACT_BITMASK << bshift);
         flagsval |= (m.status as u32) << bshift;
         buf[flagsoff..flagsoff + 4].copy_from_slice(&flagsval.to_ne_bytes());
@@ -1019,7 +1031,11 @@ fn GetNewMultiXactId(nmembers_in: i32) -> PgResult<(MultiXactId, MultiXactOffset
     };
 
     if st.oldestOffsetKnown.load(Relaxed)
-        && MultiXactOffsetWouldWrap(st.offsetStopLimit.load(Relaxed), next_offset, nmembers as u32)
+        && MultiXactOffsetWouldWrap(
+            st.offsetStopLimit.load(Relaxed),
+            next_offset,
+            nmembers as u32,
+        )
     {
         let offset_stop_limit = st.offsetStopLimit.load(Relaxed);
         let oldest_db = st.oldestMultiXactDB.load(Relaxed);
@@ -1038,7 +1054,10 @@ fn GetNewMultiXactId(nmembers_in: i32) -> PgResult<(MultiXactId, MultiXactOffset
     }
 
     if !st.oldestOffsetKnown.load(Relaxed)
-        || st.nextOffset.load(Relaxed).wrapping_sub(st.oldestOffset.load(Relaxed))
+        || st
+            .nextOffset
+            .load(Relaxed)
+            .wrapping_sub(st.oldestOffset.load(Relaxed))
             > MULTIXACT_MEMBER_SAFE_THRESHOLD
     {
         // Signal only on segment crossings so the postmaster isn't swamped.
@@ -1080,9 +1099,12 @@ fn GetNewMultiXactId(nmembers_in: i32) -> PgResult<(MultiXactId, MultiXactOffset
     // space; erroring out mid-write would corrupt the previous MultiXact.
     globals::StartCriticalSection();
 
-    st.nextMXact.store(st.nextMXact.load(Relaxed).wrapping_add(1), Relaxed);
-    st.nextOffset
-        .store(st.nextOffset.load(Relaxed).wrapping_add(nmembers as u32), Relaxed);
+    st.nextMXact
+        .store(st.nextMXact.load(Relaxed).wrapping_add(1), Relaxed);
+    st.nextOffset.store(
+        st.nextOffset.load(Relaxed).wrapping_add(nmembers as u32),
+        Relaxed,
+    );
 
     LWLockRelease(genlock)?;
 
@@ -1255,7 +1277,9 @@ fn get_members_into(
         }
         ereport(ERROR)
             .errcode(ERRCODE_DATA_CORRUPTED)
-            .errmsg(format!("MultiXact {multi} has invalid member count {length}"))
+            .errmsg(format!(
+                "MultiXact {multi} has invalid member count {length}"
+            ))
             .finish(loc("GetMultiXactIdMembers"))?;
         unreachable!("ERROR finish returned");
     }
@@ -1295,7 +1319,9 @@ fn get_members_into(
         let g = mguard.as_ref().expect("member bank lock held");
         let buf = mctl.page_buffer(mslotno, g);
         let xid = TransactionId::from_ne_bytes(
-            buf[memberoff..memberoff + 4].try_into().expect("4-byte xid"),
+            buf[memberoff..memberoff + 4]
+                .try_into()
+                .expect("4-byte xid"),
         );
 
         // Corner case 2: the unused member slot zero after offset wraparound
@@ -1308,8 +1334,11 @@ fn get_members_into(
 
         let flagsoff = MXOffsetToFlagsOffset(off);
         let bshift = MXOffsetToFlagsBitShift(off);
-        let flagsval =
-            u32::from_ne_bytes(buf[flagsoff..flagsoff + 4].try_into().expect("4-byte flags"));
+        let flagsval = u32::from_ne_bytes(
+            buf[flagsoff..flagsoff + 4]
+                .try_into()
+                .expect("4-byte flags"),
+        );
 
         out.push(MultiXactMember {
             xid,
@@ -1403,16 +1432,13 @@ fn check_multixact_recdata_len(recdata: &[u8], func: &'static str) -> PgResult<(
                 recdata.len()
             ))
             .finish(loc(func))
-            .err().unwrap());
+            .err()
+            .unwrap());
     }
     Ok(())
 }
 
-pub fn multixact_twophase_recover(
-    xid: TransactionId,
-    _info: u16,
-    recdata: &[u8],
-) -> PgResult<()> {
+pub fn multixact_twophase_recover(xid: TransactionId, _info: u16, recdata: &[u8]) -> PgResult<()> {
     let dummy = twophase_seams::two_phase_get_dummy_proc_number::call(xid, false)?;
     check_multixact_recdata_len(recdata, "multixact_twophase_recover")?;
     let oldest_member = MultiXactId::from_ne_bytes(recdata.try_into().unwrap());
@@ -1431,11 +1457,7 @@ pub fn multixact_twophase_postcommit(
     Ok(())
 }
 
-pub fn multixact_twophase_postabort(
-    xid: TransactionId,
-    info: u16,
-    recdata: &[u8],
-) -> PgResult<()> {
+pub fn multixact_twophase_postabort(xid: TransactionId, info: u16, recdata: &[u8]) -> PgResult<()> {
     multixact_twophase_postcommit(xid, info, recdata)
 }
 
@@ -1511,7 +1533,10 @@ pub fn MultiXactShmemInit() -> PgResult<()> {
     let (raw, found) = shmem_seams::shmem_init_struct::call("Shared MultiXact State", shmem_size)?;
     debug_assert!(!found, "MultiXactShmemInit: segment already initialized");
     const {
-        assert!(core::mem::align_of::<MultiXactStateShared>() <= 64, "PG_CACHE_LINE_SIZE alignment");
+        assert!(
+            core::mem::align_of::<MultiXactStateShared>() <= 64,
+            "PG_CACHE_LINE_SIZE alignment"
+        );
     }
     // C's size is 48 + 4 * (2 * MaxBackends + max_prepared_xacts) bytes;
     // MaxBackends >= 3 keeps it at or above the Rust header size.
@@ -1851,7 +1876,10 @@ pub fn MultiXactAdvanceNextMXact(
 pub fn MultiXactAdvanceOldest(oldest_multi: MultiXactId, oldest_multi_db: Oid) -> PgResult<()> {
     debug_assert!(xlogutils_seams::in_recovery::call());
 
-    if MultiXactIdPrecedes(MultiXactState().oldestMultiXactId.load(Relaxed), oldest_multi) {
+    if MultiXactIdPrecedes(
+        MultiXactState().oldestMultiXactId.load(Relaxed),
+        oldest_multi,
+    ) {
         SetMultiXactIdLimit(oldest_multi, oldest_multi_db, false)?;
     }
     Ok(())
@@ -1926,7 +1954,11 @@ pub fn GetOldestMultiXactId() -> PgResult<MultiXactId> {
 
 fn SetOffsetVacuumLimit(is_startup: bool) -> PgResult<bool> {
     let st = MultiXactState();
-    LWLockAcquire(MultiXactTruncationLock(), LW_SHARED, globals::MyProcNumber())?;
+    LWLockAcquire(
+        MultiXactTruncationLock(),
+        LW_SHARED,
+        globals::MyProcNumber(),
+    )?;
 
     macro_rules! unlock_on_err {
         ($e:expr) => {
@@ -1940,7 +1972,11 @@ fn SetOffsetVacuumLimit(is_startup: bool) -> PgResult<bool> {
         };
     }
 
-    unlock_on_err!(LWLockAcquire(MultiXactGenLock(), LW_SHARED, globals::MyProcNumber()));
+    unlock_on_err!(LWLockAcquire(
+        MultiXactGenLock(),
+        LW_SHARED,
+        globals::MyProcNumber()
+    ));
     debug_assert!(st.finishedStartup.load(Relaxed));
     let oldest_multixact_id = st.oldestMultiXactId.load(Relaxed);
     let next_mxact = st.nextMXact.load(Relaxed);
@@ -1962,7 +1998,10 @@ fn SetOffsetVacuumLimit(is_startup: bool) -> PgResult<bool> {
             Some(off) => {
                 oldest_offset = off;
                 oldest_offset_known = true;
-                dlog(DEBUG1, format!("oldest MultiXactId member is at offset {oldest_offset}"));
+                dlog(
+                    DEBUG1,
+                    format!("oldest MultiXactId member is at offset {oldest_offset}"),
+                );
             }
             None => {
                 dlog(
@@ -1985,7 +2024,10 @@ fn SetOffsetVacuumLimit(is_startup: bool) -> PgResult<bool> {
             .wrapping_sub(MULTIXACT_MEMBERS_PER_PAGE * SLRU_PAGES_PER_SEGMENT as u32);
 
         if !prev_oldest_offset_known && !is_startup {
-            dlog(LOG, "MultiXact member wraparound protections are now enabled".to_string());
+            dlog(
+                LOG,
+                "MultiXact member wraparound protections are now enabled".to_string(),
+            );
         }
         dlog(
             DEBUG1,
@@ -2101,9 +2143,16 @@ fn PerformMembersTruncation(
 
     // The last segment can still contain valid (possibly partial) data.
     while segment != endsegment {
-        dlog(DEBUG2, format!("truncating multixact members segment {segment:x}"));
+        dlog(
+            DEBUG2,
+            format!("truncating multixact members segment {segment:x}"),
+        );
         SlruDeleteSegment(mctl, segment)?;
-        segment = if segment == maxsegment { 0 } else { segment + 1 };
+        segment = if segment == maxsegment {
+            0
+        } else {
+            segment + 1
+        };
     }
     Ok(())
 }
@@ -2132,7 +2181,11 @@ pub fn TruncateMultiXact(new_oldest_multi: MultiXactId, new_oldest_multi_db: Oid
     // Only one truncation at a time: members must not vanish under a
     // concurrent lookup. No interlock with multixact creation is needed;
     // creation is bounded by the limits, which only ever grow.
-    LWLockAcquire(MultiXactTruncationLock(), LW_EXCLUSIVE, globals::MyProcNumber())?;
+    LWLockAcquire(
+        MultiXactTruncationLock(),
+        LW_EXCLUSIVE,
+        globals::MyProcNumber(),
+    )?;
 
     macro_rules! unlock_on_err {
         ($e:expr) => {
@@ -2146,7 +2199,11 @@ pub fn TruncateMultiXact(new_oldest_multi: MultiXactId, new_oldest_multi_db: Oid
         };
     }
 
-    unlock_on_err!(LWLockAcquire(MultiXactGenLock(), LW_SHARED, globals::MyProcNumber()));
+    unlock_on_err!(LWLockAcquire(
+        MultiXactGenLock(),
+        LW_SHARED,
+        globals::MyProcNumber()
+    ));
     let next_multi = st.nextMXact.load(Relaxed);
     let next_offset = st.nextOffset.load(Relaxed);
     let oldest_multi = st.oldestMultiXactId.load(Relaxed);
@@ -2295,7 +2352,9 @@ pub fn TruncateMultiXact(new_oldest_multi: MultiXactId, new_oldest_multi_db: Oid
     if let Err(err) = &critical {
         elog::panic_on_crit_section_escape(err);
     }
-    my_proc.delayChkptFlags.fetch_and(!DELAY_CHKPT_START, Relaxed);
+    my_proc
+        .delayChkptFlags
+        .fetch_and(!DELAY_CHKPT_START, Relaxed);
     globals::EndCriticalSection();
     critical?;
 
@@ -2342,7 +2401,10 @@ fn MultiXactMemberPagePrecedes(page1: i64, page2: i64) -> bool {
     let offset2 = (page2 as MultiXactOffset).wrapping_mul(MULTIXACT_MEMBERS_PER_PAGE);
 
     MultiXactOffsetPrecedes(offset1, offset2)
-        && MultiXactOffsetPrecedes(offset1, offset2.wrapping_add(MULTIXACT_MEMBERS_PER_PAGE - 1))
+        && MultiXactOffsetPrecedes(
+            offset1,
+            offset2.wrapping_add(MULTIXACT_MEMBERS_PER_PAGE - 1),
+        )
 }
 
 fn WriteMZeroPageXlogRec(pageno: i64, info: u8) -> PgResult<()> {
@@ -2404,8 +2466,7 @@ pub fn multixact_redo(record: &mut XLogReaderState) -> PgResult<()> {
     let data = unsafe { decoded.main_data_bytes() };
 
     if info == XLOG_MULTIXACT_ZERO_OFF_PAGE {
-        let pageno =
-            i64::from_ne_bytes(multixact_record_field::<8>(data, 0, "zero offsets page")?);
+        let pageno = i64::from_ne_bytes(multixact_record_field::<8>(data, 0, "zero offsets page")?);
         if !(0..=MAX_OFFSET_PAGE).contains(&pageno) {
             return corrupt_multixact_record(format!(
                 "invalid multixact zero offsets page record: page {pageno} out of range"
@@ -2432,8 +2493,7 @@ pub fn multixact_redo(record: &mut XLogReaderState) -> PgResult<()> {
         PRE_INITIALIZED_OFFSETS_PAGE.set(-1);
         Ok(())
     } else if info == XLOG_MULTIXACT_ZERO_MEM_PAGE {
-        let pageno =
-            i64::from_ne_bytes(multixact_record_field::<8>(data, 0, "zero members page")?);
+        let pageno = i64::from_ne_bytes(multixact_record_field::<8>(data, 0, "zero members page")?);
         if !(0..=MAX_MEMBER_PAGE).contains(&pageno) {
             return corrupt_multixact_record(format!(
                 "invalid multixact zero members page record: page {pageno} out of range"
@@ -2448,8 +2508,7 @@ pub fn multixact_redo(record: &mut XLogReaderState) -> PgResult<()> {
         bank.release()
     } else if info == XLOG_MULTIXACT_CREATE_ID {
         let mid = MultiXactId::from_ne_bytes(multixact_record_field::<4>(data, 0, "create")?);
-        let moff =
-            MultiXactOffset::from_ne_bytes(multixact_record_field::<4>(data, 4, "create")?);
+        let moff = MultiXactOffset::from_ne_bytes(multixact_record_field::<4>(data, 4, "create")?);
         let nmembers = i32::from_ne_bytes(multixact_record_field::<4>(data, 8, "create")?);
 
         // nmembers is attacker-controlled: reject a negative count, and require
@@ -2482,16 +2541,16 @@ pub fn multixact_redo(record: &mut XLogReaderState) -> PgResult<()> {
 
         let cx = MemoryContext::new("multixact_redo members");
         let mut members: PgVec<'_, MultiXactMember> = PgVec::new_in(cx.mcx());
-        members
-            .try_reserve(nmembers.max(0) as usize)
-            .map_err(|_| cx.mcx().oom(nmembers.max(0) as usize * core::mem::size_of::<MultiXactMember>()))?;
+        members.try_reserve(nmembers.max(0) as usize).map_err(|_| {
+            cx.mcx()
+                .oom(nmembers.max(0) as usize * core::mem::size_of::<MultiXactMember>())
+        })?;
         let mut max_xid = record_xid;
         for i in 0..nmembers as usize {
             let base = SIZE_OF_MULTIXACT_CREATE + i * SIZE_OF_MULTIXACT_MEMBER;
             let xid =
                 TransactionId::from_ne_bytes(multixact_record_field::<4>(data, base, "create")?);
-            let status =
-                i32::from_ne_bytes(multixact_record_field::<4>(data, base + 4, "create")?);
+            let status = i32::from_ne_bytes(multixact_record_field::<4>(data, base + 4, "create")?);
             // Validate the status word before mxstatus_from_word: a corrupt WAL
             // create record gets a data-corruption error with this record's
             // context, rather than the generic per-member status error.
@@ -2524,8 +2583,9 @@ pub fn multixact_redo(record: &mut XLogReaderState) -> PgResult<()> {
                 data.len()
             ));
         }
-        let oldest_multi_db =
-            Oid::from(u32::from_ne_bytes(multixact_record_field::<4>(data, 0, "truncate")?));
+        let oldest_multi_db = Oid::from(u32::from_ne_bytes(multixact_record_field::<4>(
+            data, 0, "truncate",
+        )?));
         let start_trunc_off =
             MultiXactId::from_ne_bytes(multixact_record_field::<4>(data, 4, "truncate")?);
         let end_trunc_off =
@@ -2550,7 +2610,11 @@ pub fn multixact_redo(record: &mut XLogReaderState) -> PgResult<()> {
             ),
         );
 
-        LWLockAcquire(MultiXactTruncationLock(), LW_EXCLUSIVE, globals::MyProcNumber())?;
+        LWLockAcquire(
+            MultiXactTruncationLock(),
+            LW_EXCLUSIVE,
+            globals::MyProcNumber(),
+        )?;
         let res = (|| {
             SetMultiXactIdLimit(end_trunc_off, oldest_multi_db, false)?;
             PerformMembersTruncation(start_trunc_memb, end_trunc_memb)?;
@@ -2562,7 +2626,10 @@ pub fn multixact_redo(record: &mut XLogReaderState) -> PgResult<()> {
     } else {
         // multixact.c:3713: elog(PANIC, "multixact_redo: unknown op code %u", info)
         // — a reported PANIC, never a Rust unwind of the startup thread.
-        Err(Box::new(PgError::new(PANIC, format!("multixact_redo: unknown op code {info}"))))
+        Err(Box::new(PgError::new(
+            PANIC,
+            format!("multixact_redo: unknown op code {info}"),
+        )))
     }
 }
 
@@ -2602,7 +2669,9 @@ fn members_warning_msg(oid: Oid, n: u32) -> String {
     if n == 1 {
         format!("database with OID {oid} must be vacuumed before {n} more multixact member is used")
     } else {
-        format!("database with OID {oid} must be vacuumed before {n} more multixact members are used")
+        format!(
+            "database with OID {oid} must be vacuumed before {n} more multixact members are used"
+        )
     }
 }
 

@@ -17,7 +17,10 @@ pub(crate) const ALIGN_MAX: usize = 128;
 const HDR: usize = 128;
 pub(crate) const NCLS: usize = 24;
 /// mimalloc's bins up to 1 KiB: 8 B steps to 64 B, then four per doubling.
-pub(crate) const SIZES: [u32; NCLS] = [8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448, 512, 640, 768, 896, 1024];
+pub(crate) const SIZES: [u32; NCLS] = [
+    8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448, 512, 640,
+    768, 896, 1024,
+];
 
 const CLASS_OF: [u8; SMALL_MAX / 8 + 1] = {
     let mut t = [0u8; SMALL_MAX / 8 + 1];
@@ -79,7 +82,8 @@ pub(crate) struct Run {
     _p2: [u64; 6],
 }
 
-const _: () = assert!(core::mem::size_of::<Run>() == HDR && core::mem::offset_of!(Run, owner) == 64);
+const _: () =
+    assert!(core::mem::size_of::<Run>() == HDR && core::mem::offset_of!(Run, owner) == 64);
 const _: () = assert!(core::mem::offset_of!(Run, alink) == 8);
 
 #[repr(C, align(64))]
@@ -153,7 +157,11 @@ static DEAD_LIVE: crate::Line<AtomicIsize> = crate::Line(AtomicIsize::new(0));
 static CACHE_RUNS: AtomicIsize = AtomicIsize::new(0);
 
 fn reg_lock() {
-    while REG_LOCK.0.compare_exchange_weak(false, true, Acquire, Relaxed).is_err() {
+    while REG_LOCK
+        .0
+        .compare_exchange_weak(false, true, Acquire, Relaxed)
+        .is_err()
+    {
         core::hint::spin_loop();
     }
 }
@@ -226,17 +234,25 @@ fn tid() -> u64 {
     {
         let t: u64;
         // SAFETY: reads the thread pointer register.
-        unsafe { core::arch::asm!("mrs {}, tpidr_el0", out(reg) t, options(pure, nomem, nostack, preserves_flags)) };
+        unsafe {
+            core::arch::asm!("mrs {}, tpidr_el0", out(reg) t, options(pure, nomem, nostack, preserves_flags))
+        };
         t
     }
     #[cfg(all(target_os = "linux", target_arch = "x86_64", not(miri)))]
     {
         let t: u64;
         // SAFETY: reads the thread control block's self pointer.
-        unsafe { core::arch::asm!("mov {}, qword ptr fs:[0]", out(reg) t, options(pure, readonly, nostack, preserves_flags)) };
+        unsafe {
+            core::arch::asm!("mov {}, qword ptr fs:[0]", out(reg) t, options(pure, readonly, nostack, preserves_flags))
+        };
         t
     }
-    #[cfg(not(all(target_os = "linux", any(target_arch = "aarch64", target_arch = "x86_64"), not(miri))))]
+    #[cfg(not(all(
+        target_os = "linux",
+        any(target_arch = "aarch64", target_arch = "x86_64"),
+        not(miri)
+    )))]
     {
         HEAP.with(|h| h as *const Heap as u64)
     }
@@ -265,7 +281,11 @@ pub(crate) fn class_of(size: usize, align: usize) -> usize {
     debug_assert!(size <= SMALL_MAX && align <= ALIGN_MAX);
     // SAFETY: size <= SMALL_MAX, the caller's.
     let c = unsafe { *CLASS_OF.get_unchecked((size + 7) >> 3) } as usize;
-    if align <= 8 { c } else { aligned_class(c, align) }
+    if align <= 8 {
+        c
+    } else {
+        aligned_class(c, align)
+    }
 }
 
 #[inline]
@@ -299,7 +319,8 @@ pub(crate) unsafe fn block_size(p: *const u8) -> usize {
 #[inline]
 pub(crate) fn is_small(p: *const u8) -> bool {
     let base = p as usize & !(RUN - 1);
-    base != p as usize && matches!(crate::run::lookup(base as *const u8), Some(i) if i.kind == crate::run::Kind::Blocks { bucket: RUN_BUCKET } && (i.tag == Tag::SMALL || i.tag == Tag::CACHE))
+    base != p as usize
+        && matches!(crate::run::lookup(base as *const u8), Some(i) if i.kind == crate::run::Kind::Blocks { bucket: RUN_BUCKET } && (i.tag == Tag::SMALL || i.tag == Tag::CACHE))
 }
 
 #[inline(always)]
@@ -407,7 +428,9 @@ unsafe fn find_cache(c: usize) -> *mut Run {
         let mut nb = 0;
         let mut got = null_mut();
         for _ in 0..ADOPT {
-            let Some(i) = ab_pop(&ABANDONED_CACHE[c], ab_lock(CACHE, c), &Abandoned) else { break };
+            let Some(i) = ab_pop(&ABANDONED_CACHE[c], ab_lock(CACHE, c), &Abandoned) else {
+                break;
+            };
             let r = at(i);
             owner(r).store(tid(), Relaxed);
             collect(r);
@@ -423,7 +446,11 @@ unsafe fn find_cache(c: usize) -> *mut Run {
         for &i in &back[..nb] {
             ABANDONED_CACHE[c].push(&Abandoned, i);
         }
-        if got.is_null() { fresh(c, tid(), CACHE) } else { got }
+        if got.is_null() {
+            fresh(c, tid(), CACHE)
+        } else {
+            got
+        }
     }
 }
 
@@ -544,7 +571,9 @@ unsafe fn find(h: &Heap, c: usize) -> *mut Run {
             h.full[c].set((*r).next as *mut Run);
         }
         for _ in 0..ADOPT {
-            let Some(i) = ab_pop(&ABANDONED[c], ab_lock(GENERAL, c), &Abandoned) else { break };
+            let Some(i) = ab_pop(&ABANDONED[c], ab_lock(GENERAL, c), &Abandoned) else {
+                break;
+            };
             let r = at(i);
             owner(r).store(tid(), Relaxed);
             COUNTS.adopted.fetch_add(1, Relaxed);
@@ -608,7 +637,11 @@ unsafe fn fresh(c: usize, owner: u64, kind: u8) -> *mut Run {
 
 #[inline]
 fn hint(kind: u8) -> Hint {
-    if kind == CACHE { CACHE_HINT } else { RUN_HINT }
+    if kind == CACHE {
+        CACHE_HINT
+    } else {
+        RUN_HINT
+    }
 }
 
 unsafe fn format(r: *mut Run, c: usize, id: u64, lazy: bool, kind: u8) {
@@ -644,7 +677,11 @@ unsafe fn extend(r: *mut Run) -> bool {
             return false;
         }
         let left = (end - bump) / size;
-        let n = if (*r).lazy { (EXTEND / size).max(4).min(left) } else { left };
+        let n = if (*r).lazy {
+            (EXTEND / size).max(4).min(left)
+        } else {
+            left
+        };
         let base = r as usize;
         let first = base + bump as usize;
         let mut p = first;
@@ -809,7 +846,13 @@ unsafe fn free_remote(r: *mut Run, p: *mut u8) {
 fn flush_pending(e: &Pending) {
     let base = e.run.replace(0);
     let (head, tail) = ((e.head.get() - base) as u32, (e.tail.get() - base) as u32);
-    remote_push_chain(remote(base as *mut Run), &RunLinks(base), head, tail, e.n.get());
+    remote_push_chain(
+        remote(base as *mut Run),
+        &RunLinks(base),
+        head,
+        tail,
+        e.n.get(),
+    );
 }
 
 fn flush_all_pending(h: &Heap) {
@@ -844,7 +887,13 @@ pub fn remote_push<A: Atom64>(w: &A, links: &impl Links, off: u32) -> u64 {
 
 /// Push a chain of `n` blocks, `head` to `tail` (already linked), onto a run's remote list (one CAS); the word before.
 #[inline]
-pub fn remote_push_chain<A: Atom64>(w: &A, links: &impl Links, head: u32, tail: u32, n: u32) -> u64 {
+pub fn remote_push_chain<A: Atom64>(
+    w: &A,
+    links: &impl Links,
+    head: u32,
+    tail: u32,
+    n: u32,
+) -> u64 {
     debug_assert!(head != 0 && head < 1 << 16 && tail != 0 && tail < 1 << 16 && n > 0);
     let mut cur = w.load(Relaxed);
     loop {
@@ -921,7 +970,11 @@ static AB_LOCK: [AtomicU32; 2 * NCLS] = [const { AtomicU32::new(0) }; 2 * NCLS];
 
 #[inline]
 fn abandoned(kind: u8, c: usize) -> &'static Stack {
-    if kind == CACHE { &ABANDONED_CACHE[c] } else { &ABANDONED[c] }
+    if kind == CACHE {
+        &ABANDONED_CACHE[c]
+    } else {
+        &ABANDONED[c]
+    }
 }
 
 #[inline]
@@ -1117,7 +1170,11 @@ static TAIL_BUDGET_NS: AtomicU64 = AtomicU64::new(500_000);
 pub(crate) fn tail_on() -> bool {
     match TAIL_SWITCH.load(Relaxed) {
         0 => {
-            let v = if crate::os::env_is_one(c"PGRUST_POOL_IDLE_TAIL") { 2 } else { 1 };
+            let v = if crate::os::env_is_one(c"PGRUST_POOL_IDLE_TAIL") {
+                2
+            } else {
+                1
+            };
             TAIL_SWITCH.store(v, Relaxed);
             v == 2
         }
@@ -1135,12 +1192,22 @@ pub(crate) fn force_tail_budget(ns: u64) {
 }
 
 pub(crate) fn tail_counts() -> (u64, u64, u64) {
-    (TAIL_RUNS.load(Relaxed), TAIL_BYTES.load(Relaxed), TAIL_DEFERS.load(Relaxed))
+    (
+        TAIL_RUNS.load(Relaxed),
+        TAIL_BYTES.load(Relaxed),
+        TAIL_DEFERS.load(Relaxed),
+    )
 }
 
 /// (cuts, their total ns, the longest, the ones the budget stopped, cuts by ns: bin 0 under 1 us, bin k under 2^k us).
 pub(crate) fn tail_times() -> (u64, u64, u64, u64, [u64; TAIL_BINS]) {
-    (TAIL_CALLS.load(Relaxed), TAIL_NS.load(Relaxed), TAIL_MAX_NS.load(Relaxed), TAIL_STOPS.load(Relaxed), core::array::from_fn(|i| TAIL_HIST[i].load(Relaxed)))
+    (
+        TAIL_CALLS.load(Relaxed),
+        TAIL_NS.load(Relaxed),
+        TAIL_MAX_NS.load(Relaxed),
+        TAIL_STOPS.load(Relaxed),
+        core::array::from_fn(|i| TAIL_HIST[i].load(Relaxed)),
+    )
 }
 
 /// Card 10, a session's idle release: each run this thread owns with blocks out (current and partial; a full run has
@@ -1161,14 +1228,19 @@ pub(crate) fn give_idle_tails(resume: bool) -> (usize, bool) {
     if !resume {
         h.tail_again.set(0);
     }
-    let (mut bytes, mut stop, mut cuts, mut deferred) = (0, None, 0u32, resume && h.tail_deferred.get());
+    let (mut bytes, mut stop, mut cuts, mut deferred) =
+        (0, None, 0u32, resume && h.tail_deferred.get());
     // SAFETY: this heap's runs, on their owner thread; the partial lists are circular.
     unsafe {
         'classes: for c in c0 as usize..NCLS {
             let (cur, first) = (h.cur[c].get(), h.partial[c].get());
             // the class's current run, then its partial ring; `i` counts the runs of the walk (those of the first class
             // the last cut passed are not cut again)
-            let (mut r, mut ring) = if cur != empty() { (cur, false) } else { (first, true) };
+            let (mut r, mut ring) = if cur != empty() {
+                (cur, false)
+            } else {
+                (first, true)
+            };
             let mut i = 0u32;
             while !r.is_null() {
                 if c != c0 as usize || i >= skip {
@@ -1202,7 +1274,8 @@ pub(crate) fn give_idle_tails(resume: bool) -> (usize, bool) {
     TAIL_CALLS.fetch_add(1, Relaxed);
     TAIL_NS.fetch_add(ns, Relaxed);
     TAIL_MAX_NS.fetch_max(ns, Relaxed);
-    TAIL_HIST[((u64::BITS - (ns >> 10).leading_zeros()) as usize).min(TAIL_BINS - 1)].fetch_add(1, Relaxed);
+    TAIL_HIST[((u64::BITS - (ns >> 10).leading_zeros()) as usize).min(TAIL_BINS - 1)]
+        .fetch_add(1, Relaxed);
     if stop.is_some() {
         TAIL_STOPS.fetch_add(1, Relaxed);
     }
@@ -1259,9 +1332,17 @@ unsafe fn cut_tail(r: *mut Run) -> (usize, bool) {
         (*r).bump = ((HDR + out * size) as u32).min((*r).bump);
         (*r).lazy = true;
         // D4760's split, where on: by the purger for a range still PMD-mapped, none where no page of it is
-        let huge = if crate::thp_partial() >= crate::THP_SPLIT { crate::present::huge_in(base + keep, RUN - keep) } else { Some(false) };
+        let huge = if crate::thp_partial() >= crate::THP_SPLIT {
+            crate::present::huge_in(base + keep, RUN - keep)
+        } else {
+            Some(false)
+        };
         let deferred = huge == Some(true) && crate::purger::ask_split(base + keep);
-        let gone = if deferred { 0 } else { crate::os::age_release_with(base + keep, RUN - keep, huge != Some(false)).unwrap_or(0) };
+        let gone = if deferred {
+            0
+        } else {
+            crate::os::age_release_with(base + keep, RUN - keep, huge != Some(false)).unwrap_or(0)
+        };
         if deferred {
             TAIL_DEFERS.fetch_add(1, Relaxed);
         }
@@ -1288,7 +1369,11 @@ pub(crate) fn thread_retained() -> usize {
     }
     // SAFETY: this heap's runs, read on their owner thread.
     let one = |r: *mut Run| unsafe {
-        let touched = if (*r).lazy { ((*r).bump as usize).next_multiple_of(4096).min(RUN) } else { RUN };
+        let touched = if (*r).lazy {
+            ((*r).bump as usize).next_multiple_of(4096).min(RUN)
+        } else {
+            RUN
+        };
         touched.saturating_sub((*r).used as usize * (*r).size as usize)
     };
     let list = |head: &Cell<*mut Run>| {
@@ -1350,7 +1435,10 @@ pub(crate) fn flush_remote() -> usize {
 /// Abandoned runs whose blocks have all come home (by remote frees) back to the pool; the rest stay for adoption.
 pub(crate) fn sweep_abandoned() -> usize {
     let mut n = 0;
-    for (kind, c) in [GENERAL, CACHE].into_iter().flat_map(|k| (0..NCLS).map(move |c| (k, c))) {
+    for (kind, c) in [GENERAL, CACHE]
+        .into_iter()
+        .flat_map(|k| (0..NCLS).map(move |c| (k, c)))
+    {
         let stack = abandoned(kind, c);
         let mut cur = ab_take_all(stack, ab_lock(kind, c)).unwrap_or(NONE);
         while cur != NONE {
@@ -1442,7 +1530,12 @@ mod exit {
         let k = key();
         if k != 0 {
             // SAFETY: a live key; any non-null value arms its destructor for this thread.
-            unsafe { libc::pthread_setspecific((k - 1) as libc::pthread_key_t, core::ptr::NonNull::<u8>::dangling().as_ptr().cast()) };
+            unsafe {
+                libc::pthread_setspecific(
+                    (k - 1) as libc::pthread_key_t,
+                    core::ptr::NonNull::<u8>::dangling().as_ptr().cast(),
+                )
+            };
         }
     }
 }
@@ -1462,9 +1555,15 @@ pub(crate) mod tests {
             for align in [1, 2, 4, 8, 16, 32, 64, 128] {
                 let c = class_of(size, align);
                 let s = SIZES[c] as usize;
-                assert!(s >= size && s.is_multiple_of(align), "{size} @ {align} -> {s}");
+                assert!(
+                    s >= size && s.is_multiple_of(align),
+                    "{size} @ {align} -> {s}"
+                );
                 if align <= 8 && c > 0 {
-                    assert!((SIZES[c - 1] as usize) < size, "{size}: not the least class");
+                    assert!(
+                        (SIZES[c - 1] as usize) < size,
+                        "{size}: not the least class"
+                    );
                 }
                 assert_eq!(HDR % align, 0);
             }
@@ -1545,11 +1644,22 @@ pub(crate) mod tests {
         trim();
         let h = heap();
         for c in 0..NCLS {
-            assert!(h.cur[c].get() == empty() && h.partial[c].get().is_null() && h.full[c].get().is_null(), "class {c} kept a run");
+            assert!(
+                h.cur[c].get() == empty()
+                    && h.partial[c].get().is_null()
+                    && h.full[c].get().is_null(),
+                "class {c} kept a run"
+            );
         }
         let before = counts();
-        let out: Vec<usize> = std::thread::spawn(|| (0..64).map(|i| alloc(16 + i * 8, 8) as usize).collect()).join().unwrap();
-        assert!(counts().abandoned > before.abandoned, "the dead thread's runs were abandoned");
+        let out: Vec<usize> =
+            std::thread::spawn(|| (0..64).map(|i| alloc(16 + i * 8, 8) as usize).collect())
+                .join()
+                .unwrap();
+        assert!(
+            counts().abandoned > before.abandoned,
+            "the dead thread's runs were abandoned"
+        );
         for p in out {
             // SAFETY: the dead thread's blocks, handed over.
             unsafe { free(p as *mut u8) };
@@ -1560,13 +1670,20 @@ pub(crate) mod tests {
         trim();
         sweep_abandoned();
         for s in ABANDONED.iter() {
-            assert!(s.pop(&Abandoned).is_none(), "an abandoned run with every block home was not given back");
+            assert!(
+                s.pop(&Abandoned).is_none(),
+                "an abandoned run with every block home was not given back"
+            );
         }
         // the cache class: its own runs, left at the idle point, freed by another thread, home through flush_remote
         let live = live_bytes();
-        let blocks: Vec<usize> = (0..if cfg!(miri) { 60 } else { 3000 }).map(|i| cache_alloc(8 + (i % 128) * 8, 8) as usize).collect();
+        let blocks: Vec<usize> = (0..if cfg!(miri) { 60 } else { 3000 })
+            .map(|i| cache_alloc(8 + (i % 128) * 8, 8) as usize)
+            .collect();
         // SAFETY: live blocks of the tier.
-        assert!(blocks.iter().all(|&p| p != 0 && unsafe { is_cache_block(p as *const u8) }));
+        assert!(blocks
+            .iter()
+            .all(|&p| p != 0 && unsafe { is_cache_block(p as *const u8) }));
         assert!(live_bytes() > live);
         idle_point();
         std::thread::spawn(move || {
@@ -1580,7 +1697,10 @@ pub(crate) mod tests {
         flush_remote();
         assert_eq!(live_bytes(), live);
         for s in ABANDONED_CACHE.iter() {
-            assert!(s.pop(&Abandoned).is_none(), "a cache run with every block home stayed out of the pool");
+            assert!(
+                s.pop(&Abandoned).is_none(),
+                "a cache run with every block home stayed out of the pool"
+            );
         }
         crate::flush_shelf();
     }

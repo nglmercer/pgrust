@@ -11,7 +11,8 @@
 //! Its own test binary: the owner slots, the owned flags and the purge delay are process-wide.
 
 #[global_allocator]
-static GLOBAL: init_small::oom::Rescue<mimalloc::MiMalloc> = init_small::oom::Rescue(mimalloc::MiMalloc);
+static GLOBAL: init_small::oom::Rescue<mimalloc::MiMalloc> =
+    init_small::oom::Rescue(mimalloc::MiMalloc);
 
 use std::time::Duration;
 
@@ -43,12 +44,19 @@ const SIZE: usize = 16 << 20;
 fn freed_general_range() -> usize {
     let b = std::hint::black_box(vec![3u8; SIZE]);
     let p = b.as_ptr() as usize;
-    assert!(allocarena::in_arenas(b.as_ptr()) && !allocarena::in_cache_arena(b.as_ptr()), "the block is on a general arena");
+    assert!(
+        allocarena::in_arenas(b.as_ptr()) && !allocarena::in_cache_arena(b.as_ptr()),
+        "the block is on a general arena"
+    );
     drop(b);
     // this thread's pages back to the arena, no forced purge
     // SAFETY: mimalloc's collect on this thread.
     unsafe { libmimalloc_sys::mi_collect(false) };
-    assert!(resident(p, SIZE) >= SIZE * 9 / 10, "freed and pending: {} resident", resident(p, SIZE));
+    assert!(
+        resident(p, SIZE) >= SIZE * 9 / 10,
+        "freed and pending: {} resident",
+        resident(p, SIZE)
+    );
     p
 }
 
@@ -70,12 +78,20 @@ fn h3_one_purge_owner_per_arena_by_cas_and_the_ladders_pressure_purge_stays_owne
     // C1, knob 0 with purge (a) on: pg:mempurge owns the general arenas; the ladder's pressure purge from a plain thread
     // still gives their freed range back, counted apart (M3)
     allocarena::set_general_purge_owned(true);
-    assert!(general_slots().all(|i| allocarena::purge_owner(i) == allocarena::OWNER_PURGER), "(a) took the general arenas");
+    assert!(
+        general_slots().all(|i| allocarena::purge_owner(i) == allocarena::OWNER_PURGER),
+        "(a) took the general arenas"
+    );
     let p = freed_general_range();
     let b0 = pressure_owned();
-    let n = std::thread::spawn(|| allocarena::purge_unused(false)).join().unwrap();
+    let n = std::thread::spawn(|| allocarena::purge_unused(false))
+        .join()
+        .unwrap();
     assert!(n > 0 && gone(p), "C1: the ladder's pressure purge decommitted the purger-owned arena: {n} bytes, {} resident", resident(p, SIZE));
-    assert!(pressure_owned() > b0, "M3: its bytes over owned arenas are counted as purged_by_pressure");
+    assert!(
+        pressure_owned() > b0,
+        "M3: its bytes over owned arenas are counted as purged_by_pressure"
+    );
 
     // both on, pg:mempurge first: every take of the service's is refused and counted, the service owns nothing and purges
     // nothing; pg:mempurge's sweep purges the expired range
@@ -84,37 +100,81 @@ fn h3_one_purge_owner_per_arena_by_cas_and_the_ladders_pressure_purge_stays_owne
     let (taken, refused) = allocarena::take_service_purge();
     assert_eq!((taken, refused), (0, g as u32 + 1), "the service is refused every arena (purge (a) holds the general arenas and the cache arena)");
     assert_eq!(refusals() - r0, g as u64 + 1, "each refusal counted");
-    assert_eq!(allocarena::purge_owner_counts().0, 0, "the service owns no arena");
+    assert_eq!(
+        allocarena::purge_owner_counts().0,
+        0,
+        "the service owns no arena"
+    );
     let p = freed_general_range();
-    assert!((0..allocarena::PURGE_SLOTS).all(|i| !allocarena::service_purge(i, true)) && !gone(p), "the service purges no arena it does not own");
+    assert!(
+        (0..allocarena::PURGE_SLOTS).all(|i| !allocarena::service_purge(i, true)) && !gone(p),
+        "the service purges no arena it does not own"
+    );
     std::thread::sleep(Duration::from_millis(300));
-    assert!(allocarena::purge_general_expired() >= 1 && gone(p), "pg:mempurge's sweep purged its own arena");
+    assert!(
+        allocarena::purge_general_expired() >= 1 && gone(p),
+        "pg:mempurge's sweep purged its own arena"
+    );
 
     // pg:mempurge lets go, the service takes every arena
     allocarena::set_general_purge_owned(false);
     allocarena::set_cache_purge_owned(false);
-    assert!((0..allocarena::PURGE_SLOTS).all(|i| allocarena::purge_owner(i) == allocarena::NO_OWNER), "every slot free");
+    assert!(
+        (0..allocarena::PURGE_SLOTS).all(|i| allocarena::purge_owner(i) == allocarena::NO_OWNER),
+        "every slot free"
+    );
     let (taken, refused) = allocarena::take_service_purge();
-    assert_eq!((taken, refused), (g as u32 + 1, 0), "the service took every arena");
+    assert_eq!(
+        (taken, refused),
+        (g as u32 + 1, 0),
+        "the service took every arena"
+    );
 
     // the other way round: pg:mempurge's take is refused and counted, its entry points skip the service's arenas
     let r0 = refusals();
     allocarena::set_general_purge_owned(true);
     allocarena::set_cache_purge_owned(true);
-    assert_eq!(refusals() - r0, g as u64 + 1, "pg:mempurge is refused every arena the service holds");
-    assert!(general_slots().all(|i| allocarena::purge_owner(i) == allocarena::OWNER_SERVICE), "the slots stay the service's");
+    assert_eq!(
+        refusals() - r0,
+        g as u64 + 1,
+        "pg:mempurge is refused every arena the service holds"
+    );
+    assert!(
+        general_slots().all(|i| allocarena::purge_owner(i) == allocarena::OWNER_SERVICE),
+        "the slots stay the service's"
+    );
     let p = freed_general_range();
     std::thread::sleep(Duration::from_millis(300));
-    assert_eq!(allocarena::purge_general_expired(), 0, "pg:mempurge's sweep skips the service's arenas");
+    assert_eq!(
+        allocarena::purge_general_expired(),
+        0,
+        "pg:mempurge's sweep skips the service's arenas"
+    );
     assert!(!allocarena::purge_cache_now(true), "and its cache purge");
-    assert_eq!(allocarena::purge_after_idle(true, true, 0), 0, "and its idle purge");
+    assert_eq!(
+        allocarena::purge_after_idle(true, true, 0),
+        0,
+        "and its idle purge"
+    );
     let _ = allocarena::purge_unused(true);
-    assert!(!gone(p), "and its pressure tick: no double purge, {} resident", resident(p, SIZE));
-    assert!((0..allocarena::PURGE_SLOTS).any(|i| allocarena::service_purge(i, false)) && gone(p), "the service's purge gave the expired range back");
+    assert!(
+        !gone(p),
+        "and its pressure tick: no double purge, {} resident",
+        resident(p, SIZE)
+    );
+    assert!(
+        (0..allocarena::PURGE_SLOTS).any(|i| allocarena::service_purge(i, false)) && gone(p),
+        "the service's purge gave the expired range back"
+    );
 
     // and the ladder's pressure purge stays owner-agnostic over the service's arenas (C1), counted apart (M3)
     let p = freed_general_range();
     let b0 = pressure_owned();
-    let n = std::thread::spawn(|| allocarena::purge_unused(false)).join().unwrap();
-    assert!(n > 0 && gone(p) && pressure_owned() > b0, "C1 / M3: the pressure purge decommitted the service's arena, counted apart");
+    let n = std::thread::spawn(|| allocarena::purge_unused(false))
+        .join()
+        .unwrap();
+    assert!(
+        n > 0 && gone(p) && pressure_owned() > b0,
+        "C1 / M3: the pressure purge decommitted the service's arena, counted apart"
+    );
 }

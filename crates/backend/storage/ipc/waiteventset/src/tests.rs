@@ -445,6 +445,7 @@ fn syscall_failure_maps_socket_errno_and_renders_m_like_c() {
 fn epoll_ctl_failure_message_is_c_exact() {
     setup_backend();
     // SAFETY: opening a well-known regular device file read-only.
+    #[allow(clippy::manual_c_str_literals)]
     let fd = unsafe { libc::open(b"/dev/null\0".as_ptr().cast(), libc::O_RDONLY) };
     assert!(fd >= 0);
     let set = CreateWaitEventSet(1).unwrap();

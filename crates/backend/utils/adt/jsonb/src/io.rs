@@ -187,6 +187,7 @@ pub fn jsonb_from_cstring<'mcx>(
             return Ok(None);
         }
     }
+    #[allow(clippy::drop_non_drop)]
     drop(sink);
     let val = res.expect("parse succeeded without a result");
     Ok(Some(convert_to_jsonb(mcx, &val)?))

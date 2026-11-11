@@ -1,7 +1,9 @@
 use datum::Datum;
 use types_core::{OIDOID, RECORDOID, TEXTOID, TIMESTAMPTZOID, XIDOID};
 use types_error::PgResult;
-use types_fmgr::{byref_result, varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
+use types_fmgr::{
+    byref_result, varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
+};
 
 use crate::finish::prepared_xact_rows;
 
@@ -51,7 +53,10 @@ fn collect_rows(fcinfo: &Fcinfo) -> PgResult<PreparedRows> {
             Datum::from_u32(row.dbid),
         ];
         let tuple = heaptuple::heap_form_tuple(mcx, &desc, &values, &[false; 5])?;
-        tuples.push(::mcx::std_vec_from_slice("pg_prepared_xacts", tuple.image())?);
+        tuples.push(::mcx::std_vec_from_slice(
+            "pg_prepared_xacts",
+            tuple.image(),
+        )?);
     }
     Ok(PreparedRows { tuples })
 }

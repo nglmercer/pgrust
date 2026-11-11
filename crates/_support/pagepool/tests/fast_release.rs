@@ -71,13 +71,23 @@ fn release_order(fast: bool) {
     assert!(got >= RUN, "released {got}");
     let sps = given_back_in();
     if fast {
-        assert!(sps.contains(&a) && !sps.contains(&b), "fast: the emptier superpage's free runs went first: {sps:x?} (a {a:x}, b {b:x})");
+        assert!(
+            sps.contains(&a) && !sps.contains(&b),
+            "fast: the emptier superpage's free runs went first: {sps:x?} (a {a:x}, b {b:x})"
+        );
     } else {
         assert!(sps.contains(&b) && !sps.contains(&a), "off: the fullest superpage's free runs went first, as before: {sps:x?} (a {a:x}, b {b:x})");
     }
     assert_eq!(after.calls, before.calls + 1, "one return_warm_now counted");
-    assert_eq!(after.step_calls[4], before.step_calls[4] + 1, "the free-run step ran once");
-    assert!(after.step_bytes[4] - before.step_bytes[4] >= RUN as u64, "the free-run step's bytes counted");
+    assert_eq!(
+        after.step_calls[4],
+        before.step_calls[4] + 1,
+        "the free-run step ran once"
+    );
+    assert!(
+        after.step_bytes[4] - before.step_bytes[4] >= RUN as u64,
+        "the free-run step's bytes counted"
+    );
     for b in kept {
         // SAFETY: ours, freed once.
         unsafe { give(b.cast(), BLOCK) };
@@ -101,8 +111,15 @@ fn dead_runs_below_the_bump() {
     let before = r1_counts();
     let got = return_warm_now(usize::MAX);
     let after = r1_counts();
-    assert!(after.step_bytes[1] - before.step_bytes[1] >= (4 * MIB) as u64, "fast: the dead step found the span's dead runs ({got} released)");
-    assert_eq!(resident(p.as_ptr() as usize + 8 * MIB, 4 * MIB), 0, "the dead runs' pages left the process");
+    assert!(
+        after.step_bytes[1] - before.step_bytes[1] >= (4 * MIB) as u64,
+        "fast: the dead step found the span's dead runs ({got} released)"
+    );
+    assert_eq!(
+        resident(p.as_ptr() as usize + 8 * MIB, 4 * MIB),
+        0,
+        "the dead runs' pages left the process"
+    );
     // SAFETY: as above.
     assert_eq!(unsafe { take_pages(p, 8 * MIB, 4 * MIB) }, Zeroed::Yes);
     // nothing dead left: the fast step gives nothing and scans nothing
@@ -122,13 +139,24 @@ fn an_r1_ask_lands() {
     let (kept, _, _) = two_superpages(h);
     let before = r1_counts();
     let asked = return_warm();
-    assert!(asked > 0 && landing(60_000) == asked, "R1 asked {asked} of the purger");
+    assert!(
+        asked > 0 && landing(60_000) == asked,
+        "R1 asked {asked} of the purger"
+    );
     serve_ask_now();
     let after = r1_counts();
     assert_eq!(landing(60_000), 0, "served: no longer landing");
     assert_eq!(after.lands, before.lands + 1, "one ask -> land counted");
-    assert!(after.land_bytes > before.land_bytes && after.land_ns > before.land_ns && after.land_max_ns >= after.land_ns - before.land_ns);
-    assert_eq!(after.land_bins.iter().sum::<u64>(), after.lands, "every land in one bin");
+    assert!(
+        after.land_bytes > before.land_bytes
+            && after.land_ns > before.land_ns
+            && after.land_max_ns >= after.land_ns - before.land_ns
+    );
+    assert_eq!(
+        after.land_bins.iter().sum::<u64>(),
+        after.lands,
+        "every land in one bin"
+    );
     // a serve with no ask counts no land
     serve_ask_now();
     assert_eq!(r1_counts().lands, after.lands);

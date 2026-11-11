@@ -711,6 +711,7 @@ mod tests {
         let k = b.iconst(Type::I64, c);
         let r = b.int_bin(IntBinOp::Add, v, k);
         b.ret(&[r]);
+        #[allow(clippy::drop_non_drop)]
         drop(b);
         (pb.finish(), f)
     }

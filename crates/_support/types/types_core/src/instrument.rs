@@ -189,7 +189,7 @@ impl GravityPipeline {
         match (self.why, self.site) {
             ("", _) => None,
             (why, s) if s < 0 => Some(alloc::string::String::from(why)), // alloc: Cold
-            (why, s) => Some(alloc::format!("{why}@{s}")), // alloc: Cold
+            (why, s) => Some(alloc::format!("{why}@{s}")),               // alloc: Cold
         }
     }
 
@@ -210,8 +210,13 @@ pub fn served_pipes(pipes: &[GravityPipeline], lead_ns: u64) -> alloc::string::S
     if pipes.is_empty() {
         return alloc::string::String::new();
     }
-    let tokens: alloc::vec::Vec<alloc::string::String> = pipes.iter().map(GravityPipeline::token).collect(); // alloc: Cold
-    alloc::format!(" pipes={} lead_ms={:.3}", tokens.join(","), lead_ns as f64 / 1e6) // alloc: Cold
+    let tokens: alloc::vec::Vec<alloc::string::String> =
+        pipes.iter().map(GravityPipeline::token).collect(); // alloc: Cold
+    alloc::format!(
+        " pipes={} lead_ms={:.3}",
+        tokens.join(","),
+        lead_ns as f64 / 1e6
+    ) // alloc: Cold
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -411,24 +416,52 @@ impl HashInstrumentation {
 mod gravity_pipeline_tests {
     use super::*;
 
-    fn row(id: u16, arm: &'static str, width: u16, why: &'static str, site: i16) -> GravityPipeline {
-        GravityPipeline { id, arm, width, ns: 1_000_000, claims: 0, why, site, at: 0, buf: [0; 10] }
+    fn row(
+        id: u16,
+        arm: &'static str,
+        width: u16,
+        why: &'static str,
+        site: i16,
+    ) -> GravityPipeline {
+        GravityPipeline {
+            id,
+            arm,
+            width,
+            ns: 1_000_000,
+            claims: 0,
+            why,
+            site,
+            at: 0,
+            buf: [0; 10],
+        }
     }
 
     #[test]
     fn tokens_name_the_arm_width_and_verdict() {
         assert_eq!(row(0, "section", 16, "", -1).token(), "p0:section/W16");
-        assert_eq!(row(3, "emit", 0, "NoDrivingSite", -1).token(), "p3:emit/NoDrivingSite");
+        assert_eq!(
+            row(3, "emit", 0, "NoDrivingSite", -1).token(),
+            "p3:emit/NoDrivingSite"
+        );
         assert_eq!(row(2, "serial", 0, "Host", 3).token(), "p2:serial/Host@3");
         assert_eq!(row(1, "serial", 0, "", -1).token(), "p1:serial");
-        assert_eq!(row(2, "serial", 0, "Host", 3).verdict().as_deref(), Some("Host@3"));
+        assert_eq!(
+            row(2, "serial", 0, "Host", 3).verdict().as_deref(),
+            Some("Host@3")
+        );
         assert_eq!(row(1, "section", 8, "", -1).verdict(), None);
     }
 
     #[test]
     fn served_pipes_joins_the_rows_and_the_lead() {
-        let rows = [row(0, "section", 8, "", -1), row(1, "emit", 0, "NoDrivingSite", -1)];
-        assert_eq!(served_pipes(&rows, 10_700_000), " pipes=p0:section/W8,p1:emit/NoDrivingSite lead_ms=10.700");
+        let rows = [
+            row(0, "section", 8, "", -1),
+            row(1, "emit", 0, "NoDrivingSite", -1),
+        ];
+        assert_eq!(
+            served_pipes(&rows, 10_700_000),
+            " pipes=p0:section/W8,p1:emit/NoDrivingSite lead_ms=10.700"
+        );
         assert_eq!(served_pipes(&[], 5), "");
     }
 }

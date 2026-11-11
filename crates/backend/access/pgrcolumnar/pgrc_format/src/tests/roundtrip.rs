@@ -13,7 +13,7 @@ use crate::abi::{
 use crate::class::{ClassHint, StorageClass};
 use crate::enc::{EncodingId, Wrapper};
 use crate::geom::{GRANULE_ROWS, OVERSIZE_THRESHOLD};
-use crate::meta::{ProbeAnswer, MetaProbe, Sortedness};
+use crate::meta::{MetaProbe, ProbeAnswer, Sortedness};
 use crate::part::{OverflowSink, StreamSectionHdr, StreamSectionWriter};
 use crate::verbatim::{encode_validity_bitmap, reference_vtables, ConstEncoder, VerbatimEncoder};
 use crate::wire::varlena_4b_u_payload_len;
@@ -540,10 +540,22 @@ fn const_byval_and_varlena_roundtrip() {
 #[test]
 fn const_word_check_matches_canonical_bytes() {
     let classes = [
-        StorageClass::ByvalWord { width: 1, signed: false },
-        StorageClass::ByvalWord { width: 2, signed: true },
-        StorageClass::ByvalWord { width: 4, signed: true },
-        StorageClass::ByvalWord { width: 8, signed: true },
+        StorageClass::ByvalWord {
+            width: 1,
+            signed: false,
+        },
+        StorageClass::ByvalWord {
+            width: 2,
+            signed: true,
+        },
+        StorageClass::ByvalWord {
+            width: 4,
+            signed: true,
+        },
+        StorageClass::ByvalWord {
+            width: 8,
+            signed: true,
+        },
         StorageClass::F32,
         StorageClass::F64,
         StorageClass::Bool,
@@ -779,7 +791,15 @@ fn flatstats_roundtrip_and_meet_laws() {
         r
     };
     let g = vec![
-        mk(-5, 9, 40, 2, 100, KeyKind::Exact, STATSF_COMPUTED | STATSF_ALL_ASCII),
+        mk(
+            -5,
+            9,
+            40,
+            2,
+            100,
+            KeyKind::Exact,
+            STATSF_COMPUTED | STATSF_ALL_ASCII,
+        ),
         mk(3, 77, -12, 0, 99, KeyKind::Exact, STATSF_COMPUTED),
     ];
     let part = mk(-5, 77, 28, 2, 199, KeyKind::Exact, STATSF_COMPUTED);
@@ -787,9 +807,8 @@ fn flatstats_roundtrip_and_meet_laws() {
     assert_eq!(body.len(), flatstats_section_len(2));
     // 8-aligned base (Vec<u8> is not guaranteed): copy into a u64 buffer.
     let mut words = vec![0u64; body.len().div_ceil(8)];
-    let aligned = unsafe {
-        core::slice::from_raw_parts_mut(words.as_mut_ptr() as *mut u8, body.len())
-    };
+    let aligned =
+        unsafe { core::slice::from_raw_parts_mut(words.as_mut_ptr() as *mut u8, body.len()) };
     aligned.copy_from_slice(&body);
     let f = FlatStatsRef::new(aligned).expect("parses");
     assert_eq!(f.n, 3);
@@ -819,7 +838,9 @@ fn flatstats_roundtrip_and_meet_laws() {
 
 #[test]
 fn partdigest_roundtrip() {
-    use crate::meta::{PartDigest, PARTDIGESTF_NDV_EXACT, PARTDIGESTF_ZERO_COMPUTED, PARTDIGEST_LEN};
+    use crate::meta::{
+        PartDigest, PARTDIGESTF_NDV_EXACT, PARTDIGESTF_ZERO_COMPUTED, PARTDIGEST_LEN,
+    };
     let d = PartDigest {
         flags: PARTDIGESTF_NDV_EXACT | PARTDIGESTF_ZERO_COMPUTED,
         ndv: 2_500_042,
@@ -829,8 +850,17 @@ fn partdigest_roundtrip() {
     assert_eq!(b.len(), PARTDIGEST_LEN);
     assert_eq!(PartDigest::decode(&b).expect("decodes"), d);
     assert_eq!(d.ndv_exact(), Some(2_500_042));
-    let nd = PartDigest { flags: 0, ndv: 0, zero_count: 5 };
-    assert_eq!(PartDigest::decode(&nd.encode()).expect("decodes").ndv_exact(), None);
+    let nd = PartDigest {
+        flags: 0,
+        ndv: 0,
+        zero_count: 5,
+    };
+    assert_eq!(
+        PartDigest::decode(&nd.encode())
+            .expect("decodes")
+            .ndv_exact(),
+        None
+    );
 }
 
 /// sortpath: a CodeZones body round-trips its per-granule code ranges and the part rollup; a short body or another

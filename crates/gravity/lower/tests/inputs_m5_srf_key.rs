@@ -2,6 +2,7 @@
 // calls through `node` (a literal placed as a word stays a word; the user's literal-free rule for programs). It used to
 // hash the desc's dump text, which prints every argument's literal, so `generate_series(1, 5)` and `generate_series(1, 6)`
 // keyed apart and shared no program.
+#[allow(unused_imports)]
 use std::path::Path;
 
 use gravity_decompose::{corpus, decompose_in, Op};

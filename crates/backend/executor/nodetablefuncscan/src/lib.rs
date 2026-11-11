@@ -14,12 +14,13 @@ use ::adt_jsonpath_exec::JsonPathVariable;
 use ::adt_xml::xmltable::XmlTableContext;
 use ::datum::{Datum, NullableDatum};
 use ::execexpr::{
-    exec_eval_expr, exec_init_expr_subplans, exec_init_expr_with_case_test_subplans,
-    EvalSlots, ExprState,
+    exec_eval_expr, exec_init_expr_subplans, exec_init_expr_with_case_test_subplans, EvalSlots,
+    ExprState,
 };
 use ::execscan::{exec_scan_epq, exec_scan_extended, ScanNode, ScanState};
 use ::executils::{EStateData, EcxtId, ExecSlotId};
 use ::mcx::{Allocator, Mcx, MemoryContext, PgBox, PgVec};
+use ::tuplestore::Tuplestore;
 use ::types_core::Oid;
 use ::types_error::{PgError, PgResult, ERRCODE_NULL_VALUE_NOT_ALLOWED};
 use ::types_fmgr::{input_function_call, FmgrInfo};
@@ -27,7 +28,6 @@ use ::types_nodes::plannodes::TableFuncScan;
 use ::types_nodes::primnodes::{TableFunc, TableFuncType};
 use ::types_slot::TupleSlotKind;
 use ::types_tuple::{varatt, TupleDescData};
-use ::tuplestore::Tuplestore;
 
 pub fn init_seams() {}
 
@@ -61,7 +61,12 @@ fn make_per_table_ctx(mcx: Mcx<'_>) -> PgResult<NonNull<MemoryContext>> {
     let raw = mcx.allocate(layout).map_err(|_| mcx.oom(layout.size()))?;
     let p: NonNull<MemoryContext> = raw.cast();
     // SAFETY: fresh allocation of the exact layout.
-    unsafe { p.write(mcx.context().new_child_wholesale("TableFunc per value context")) };
+    unsafe {
+        p.write(
+            mcx.context()
+                .new_child_wholesale("TableFunc per value context"),
+        )
+    };
     // SAFETY: fires exactly once, before the arena bytes are reclaimed.
     mcx.context()
         .register_reset_callback(move || unsafe { core::ptr::drop_in_place(p.as_ptr()) });
@@ -75,11 +80,7 @@ impl<'mcx> ScanNode<'mcx> for TableFuncScanState<'mcx> {
     }
 
     // C TableFuncRecheck: nothing to check.
-    fn epq_recheck(
-        &mut self,
-        _estate: &mut EStateData<'mcx>,
-        _slot: ExecSlotId,
-    ) -> PgResult<bool> {
+    fn epq_recheck(&mut self, _estate: &mut EStateData<'mcx>, _slot: ExecSlotId) -> PgResult<bool> {
         Ok(true)
     }
 
@@ -89,7 +90,10 @@ impl<'mcx> ScanNode<'mcx> for TableFuncScanState<'mcx> {
         }
         let mcx = estate.es_query_cxt;
         let slot = estate.slot_mut(self.ss.ss_ScanTupleSlot);
-        self.tstore.as_mut().unwrap().gettupleslot(true, false, slot, mcx)
+        self.tstore
+            .as_mut()
+            .unwrap()
+            .gettupleslot(true, false, slot, mcx)
     }
 }
 
@@ -177,34 +181,31 @@ pub fn exec_init_table_func_scan<'mcx>(
     // NULL cells are FOR ORDINALITY columns.
     let mut colvalexprs: PgVec<'_, Option<PgBox<'mcx, ExprState<'mcx>>>> = PgVec::new_in(mcx);
     let mut passingvalexprs: PgVec<'_, PgBox<'mcx, ExprState<'mcx>>> = PgVec::new_in(mcx);
-    let (docexpr, rowexpr) =
-        ::executils::with_subplan_compile_env(estate, |env| -> PgResult<_> {
-            for e in &tf.ns_uris {
-                ns_uris.push(
-                    exec_init_expr_subplans(mcx, Some(e), pb, env)?
-                        .expect("non-NULL expression"),
-                );
-            }
-            let docexpr = exec_init_expr_subplans(mcx, tf.docexpr, pb, env)?
-                .expect("non-NULL expression");
-            let rowexpr = exec_init_expr_subplans(mcx, tf.rowexpr, pb, env)?;
-            for e in tf.colexprs.iter() {
-                colexprs.push(exec_init_expr_subplans(mcx, e, pb, env)?);
-            }
-            for e in tf.coldefexprs.iter() {
-                coldefexprs.push(exec_init_expr_subplans(mcx, e, pb, env)?);
-            }
-            for e in tf.colvalexprs.iter() {
-                colvalexprs.push(exec_init_expr_with_case_test_subplans(mcx, e, pb, env)?);
-            }
-            for e in tf.passingvalexprs.iter() {
-                passingvalexprs.push(
-                    exec_init_expr_subplans(mcx, Some(e), pb, env)?
-                        .expect("non-NULL expression"),
-                );
-            }
-            Ok((docexpr, rowexpr))
-        })?;
+    let (docexpr, rowexpr) = ::executils::with_subplan_compile_env(estate, |env| -> PgResult<_> {
+        for e in &tf.ns_uris {
+            ns_uris.push(
+                exec_init_expr_subplans(mcx, Some(e), pb, env)?.expect("non-NULL expression"),
+            );
+        }
+        let docexpr =
+            exec_init_expr_subplans(mcx, tf.docexpr, pb, env)?.expect("non-NULL expression");
+        let rowexpr = exec_init_expr_subplans(mcx, tf.rowexpr, pb, env)?;
+        for e in tf.colexprs.iter() {
+            colexprs.push(exec_init_expr_subplans(mcx, e, pb, env)?);
+        }
+        for e in tf.coldefexprs.iter() {
+            coldefexprs.push(exec_init_expr_subplans(mcx, e, pb, env)?);
+        }
+        for e in tf.colvalexprs.iter() {
+            colvalexprs.push(exec_init_expr_with_case_test_subplans(mcx, e, pb, env)?);
+        }
+        for e in tf.passingvalexprs.iter() {
+            passingvalexprs.push(
+                exec_init_expr_subplans(mcx, Some(e), pb, env)?.expect("non-NULL expression"),
+            );
+        }
+        Ok((docexpr, rowexpr))
+    })?;
 
     Ok(TableFuncScanState {
         ss,
@@ -238,7 +239,11 @@ fn eval_armed<'mcx>(
     if expr.has_subplan() || !expr.param_exec_deps().is_empty() {
         ::executils::exec_eval_expr_with_subplans(expr, estate, ecxt)
     } else {
-        let mut slots = EvalSlots { scan: None, inner: None, outer: None };
+        let mut slots = EvalSlots {
+            scan: None,
+            inner: None,
+            outer: None,
+        };
         exec_eval_expr(expr, &mut slots)
     }
 }
@@ -328,8 +333,7 @@ impl<'mcx> TableFuncScanState<'mcx> {
             });
         }
         let plan = self.tf.plan.expect("JSON_TABLE TableFunc.plan");
-        let mut jt =
-            JsonTableExecContext::init(mcx, plan, args, self.tf.colvalexprs.len())?;
+        let mut jt = JsonTableExecContext::init(mcx, plan, args, self.tf.colvalexprs.len())?;
 
         let NullableDatum { value: doc, isnull } = self.eval(&EvalPick::Doc, estate, ecxt)?;
         if isnull {
@@ -356,9 +360,7 @@ impl<'mcx> TableFuncScanState<'mcx> {
                             // SAFETY: the per-tuple context outlives this
                             // evaluation; results are copied into the
                             // tuplestore before its reset.
-                            unsafe {
-                                expr.arm_result_mcx_raw(estate.ecxt(ecxt).per_tuple_mcx())
-                            };
+                            unsafe { expr.arm_result_mcx_raw(estate.ecxt(ecxt).per_tuple_mcx()) };
                             let nd = eval_armed(expr, estate, ecxt)?;
                             (nd.value, nd.isnull)
                         }
@@ -500,8 +502,10 @@ impl<'mcx> TableFuncScanState<'mcx> {
                         per_tuple,
                     )?;
                 } else if self.coldefexprs[colno].is_some() {
-                    let NullableDatum { value, isnull: dnull } =
-                        self.eval(&EvalPick::Def(colno), estate, ecxt)?;
+                    let NullableDatum {
+                        value,
+                        isnull: dnull,
+                    } = self.eval(&EvalPick::Def(colno), estate, ecxt)?;
                     values[colno] = value;
                     isnull = dnull;
                 }
@@ -565,7 +569,9 @@ fn varlena_payload<'m>(mcx: Mcx<'m>, d: Datum) -> PgResult<&'m [u8]> {
     unsafe {
         let flat = if varatt::varatt_is_1b(p) || !varatt::varatt_is_4b_u(p) {
             let image = core::slice::from_raw_parts(p, varatt::varsize_any(p));
-            detoast_seams::detoast_attr::call(mcx, image)?.leak().as_ptr()
+            detoast_seams::detoast_attr::call(mcx, image)?
+                .leak()
+                .as_ptr()
         } else {
             p
         };

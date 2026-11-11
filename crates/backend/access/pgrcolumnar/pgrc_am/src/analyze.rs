@@ -37,20 +37,20 @@
 //! (byte-eq == value-eq for MCVs; recoverable order for histograms).
 
 // Re-exported for the AM facade (`tableam`): the consumer's render gates.
-pub use pgrc_format::class::{CollationClass, StorageClass, TypeSemantics};
-pub use pgrc_format::sidecar::STATS_MCV_K as PGRC_STATS_MCV_K;
+use memledger::charge::Owner;
+use memledger::{ChargedVec, Kind};
 use pgrc_format::bankstats as plane;
+pub use pgrc_format::class::{CollationClass, StorageClass, TypeSemantics};
 use pgrc_format::dirlayout::part_file_name;
 use pgrc_format::ident::schema_fingerprint;
 use pgrc_format::manifest::Manifest;
 use pgrc_format::meta::{StatsRecord, STATSF_COMPUTED};
 use pgrc_format::part::SectionKind;
+pub use pgrc_format::sidecar::STATS_MCV_K as PGRC_STATS_MCV_K;
 use pgrc_format::sidecar::{ColDistribution, SidecarKind};
-use pgrc_meta::fold::{fold_pg_statistic_for, PartColInput};
 pub use pgrc_meta::fold::PgStatColumn;
+use pgrc_meta::fold::{fold_pg_statistic_for, PartColInput};
 use pgrc_read::{PartExpect, TableExpect, VfsPartIo};
-use memledger::charge::Owner;
-use memledger::{ChargedVec, Kind};
 use types_error::{PgError, PgResult};
 use types_rel::Relation;
 
@@ -184,7 +184,9 @@ pub fn plane_records(
     if meta_len < plane::BANKSTATS_HEADER_LEN as u64 || meta_len > file_len {
         return None;
     }
-    let mut meta = crate::alloc::try_filled(meta_len as usize, 0u8, "analyze").ok().or_else(|| crate::accel_skipped(pgrc_format::Accel::BankPlane, meta_len as usize))?; // alloc: Cold
+    let mut meta = crate::alloc::try_filled(meta_len as usize, 0u8, "analyze")
+        .ok()
+        .or_else(|| crate::accel_skipped(pgrc_format::Accel::BankPlane, meta_len as usize))?; // alloc: Cold
     pgrc_read::PartIo::pread_exact(&io, 0, &mut meta, "bankstats meta").ok()?;
     let (header, idents, cols) = plane::decode_meta(&meta).ok()?;
     let bound = header.gen == manifest.header.gen
@@ -202,9 +204,16 @@ pub fn plane_records(
     if !bound {
         return None;
     }
-    let mut out: ChargedVec<ChargedVec<Option<StatsRecord>>> = ChargedVec::new(Some(owner), Kind::Region);
-    if out.try_reserve(attnos.len()).is_err() { // alloc: Exec charged owner
-        return crate::accel_skipped(pgrc_format::Accel::BankPlane, attnos.len().saturating_mul(core::mem::size_of::<ChargedVec<Option<StatsRecord>>>()));
+    let mut out: ChargedVec<ChargedVec<Option<StatsRecord>>> =
+        ChargedVec::new(Some(owner), Kind::Region);
+    if out.try_reserve(attnos.len()).is_err() {
+        // alloc: Exec charged owner
+        return crate::accel_skipped(
+            pgrc_format::Accel::BankPlane,
+            attnos
+                .len()
+                .saturating_mul(core::mem::size_of::<ChargedVec<Option<StatsRecord>>>()),
+        );
     }
     for &attno in attnos {
         let e = cols.iter().find(|c| c.attno == attno)?;
@@ -214,7 +223,8 @@ pub fn plane_records(
         }
         let len = e.len as usize;
         let mut buf: ChargedVec<u8> = ChargedVec::new(Some(owner), Kind::Region);
-        if buf.try_reserve(len).is_err() { // alloc: Exec charged owner
+        if buf.try_reserve(len).is_err() {
+            // alloc: Exec charged owner
             return crate::accel_skipped(pgrc_format::Accel::BankPlane, len);
         }
         buf.resize(len, 0).ok()?; // alloc: Exec charged owner (reserved above: no growth)
@@ -222,8 +232,12 @@ pub fn plane_records(
         let view = plane::ColPayloadRef::new(e, header.part_count, &buf).ok()?;
         let mut col: ChargedVec<Option<StatsRecord>> = ChargedVec::new(Some(owner), Kind::Region);
         let n = manifest.parts.len();
-        if col.try_reserve(n).is_err() { // alloc: Exec charged owner
-            return crate::accel_skipped(pgrc_format::Accel::BankPlane, n.saturating_mul(core::mem::size_of::<Option<StatsRecord>>()));
+        if col.try_reserve(n).is_err() {
+            // alloc: Exec charged owner
+            return crate::accel_skipped(
+                pgrc_format::Accel::BankPlane,
+                n.saturating_mul(core::mem::size_of::<Option<StatsRecord>>()),
+            );
         }
         for (pi, rec) in manifest.parts.iter().enumerate() {
             let r = match view.stats_body(pi) {
@@ -247,17 +261,27 @@ pub fn plane_records(
 
 /// K1 L7 (R15 merge): [`plane_records`] for a caller with no owner of its own to name (pgrc_front's compaction
 /// part-size estimate): the records are charged to the running thread's charge context.
-pub fn plane_records_here(dir: &str, manifest: &Manifest, fp: u64, attnos: &[u32]) -> Option<ChargedVec<ChargedVec<Option<StatsRecord>>>> {
+pub fn plane_records_here(
+    dir: &str,
+    manifest: &Manifest,
+    fp: u64,
+    attnos: &[u32],
+) -> Option<ChargedVec<ChargedVec<Option<StatsRecord>>>> {
     plane_records(dir, manifest, fp, attnos, memledger::charge::context().0)
 }
 
 /// P-1 L2: the part-grain answers of the catalog's generation that is `manifest` (the same number, publisher and part
 /// records): every part's Stats record in memory. `None` when the catalog holds no such generation, or its answers
 /// do not cover the manifest's parts.
-pub(crate) fn catalog_answers(slot: crate::catalog::RelSlot, manifest: &Manifest) -> Option<std::sync::Arc<crate::answers::Answers>> {
+pub(crate) fn catalog_answers(
+    slot: crate::catalog::RelSlot,
+    manifest: &Manifest,
+) -> Option<std::sync::Arc<crate::answers::Answers>> {
     let (gens, _) = crate::catalog::generations(slot)?;
     let h = manifest.header;
-    let g = gens.into_iter().find(|g| g.gen == h.gen && g.publisher_fxid == h.publisher_fxid && !g.composed())?;
+    let g = gens
+        .into_iter()
+        .find(|g| g.gen == h.gen && g.publisher_fxid == h.publisher_fxid && !g.composed())?;
     if g.manifest.parts != manifest.parts {
         return None;
     }
@@ -268,8 +292,11 @@ pub(crate) fn catalog_answers(slot: crate::catalog::RelSlot, manifest: &Manifest
 /// 53200 when refused).
 fn part_slots<T>(owner: Owner, n: usize) -> PgResult<ChargedVec<T>> {
     let mut v = ChargedVec::new(Some(owner), Kind::Region);
-    v.try_reserve(n).map_err(|_| { // alloc: Node charged owner
-        crate::format_error(pgrc_format::FormatError::OutOfMemory { bytes: n.saturating_mul(core::mem::size_of::<T>()) })
+    v.try_reserve(n).map_err(|_| {
+        // alloc: Node charged owner
+        crate::format_error(pgrc_format::FormatError::OutOfMemory {
+            bytes: n.saturating_mul(core::mem::size_of::<T>()),
+        })
     })?;
     Ok(v)
 }
@@ -277,12 +304,18 @@ fn part_slots<T>(owner: Owner, n: usize) -> PgResult<ChargedVec<T>> {
 /// One part's slot pushed (reserved at the part count, so it never grows;
 /// a refusal would be ERROR 53200).
 fn slot_push<T>(v: &mut ChargedVec<T>, x: T) -> PgResult<()> {
-    v.push(x).map_err(|_| crate::format_error(pgrc_format::FormatError::OutOfMemory { bytes: core::mem::size_of::<T>() })) // alloc: Node charged owner (reserved: no growth)
+    v.push(x).map_err(|_| {
+        crate::format_error(pgrc_format::FormatError::OutOfMemory {
+            bytes: core::mem::size_of::<T>(),
+        })
+    }) // alloc: Node charged owner (reserved: no growth)
 }
 
 /// The heap a decoded Stats payload holds, by capacity.
 fn payload_heap(dist: &Vec<(u32, u32, ColDistribution)>) -> u64 {
-    let slots = dist.capacity().saturating_mul(core::mem::size_of::<(u32, u32, ColDistribution)>()) as u64;
+    let slots = dist
+        .capacity()
+        .saturating_mul(core::mem::size_of::<(u32, u32, ColDistribution)>()) as u64;
     slots + dist.iter().map(|(_, _, d)| d.heap_bytes()).sum::<u64>()
 }
 
@@ -317,7 +350,9 @@ pub fn analyze_fold(rel: &Relation<'_>) -> PgResult<AnalyzeFold> {
     let Some(eff) = eff else {
         return Ok(AnalyzeFold::Declined(FoldDecline::NoCommittedPublish));
     };
-    if eff.manifest.header.flags & pgrc_format::manifest::MANIFESTF_SCHEMAS != 0 || eff.manifest.header.schema_fingerprint != fp {
+    if eff.manifest.header.flags & pgrc_format::manifest::MANIFESTF_SCHEMAS != 0
+        || eff.manifest.header.schema_fingerprint != fp
+    {
         return Ok(AnalyzeFold::Declined(FoldDecline::SchemaLagged));
     }
 
@@ -342,7 +377,8 @@ pub fn analyze_fold(rel: &Relation<'_>) -> PgResult<AnalyzeFold> {
     let owner = memledger::charge::context().0;
     // Per column, per part: (part record, part rows, sketch).
     let mut records: Vec<ChargedVec<StatsRecord>> = crate::alloc::try_vec(ncols, "analyze")?;
-    let mut sketches: Vec<ChargedVec<Option<ColDistribution>>> = crate::alloc::try_vec(ncols, "analyze")?;
+    let mut sketches: Vec<ChargedVec<Option<ColDistribution>>> =
+        crate::alloc::try_vec(ncols, "analyze")?;
     for _ in 0..ncols {
         records.push(part_slots(owner, nparts)?);
         sketches.push(part_slots(owner, nparts)?);
@@ -357,8 +393,15 @@ pub fn analyze_fold(rel: &Relation<'_>) -> PgResult<AnalyzeFold> {
 
     // The supply, in order (P-1 L2): the catalog generation's part-grain answers (every part's record in memory, no
     // read); else the plane; `None` from both = every record comes from its section.
-    let answers = catalog_answers((locator.spcOid, locator.dbOid, relfilenumber), &eff.manifest);
-    let plane_recs = if answers.is_some() { None } else { plane_records(&dir, &eff.manifest, fp, &attnos, owner) };
+    let answers = catalog_answers(
+        (locator.spcOid, locator.dbOid, relfilenumber),
+        &eff.manifest,
+    );
+    let plane_recs = if answers.is_some() {
+        None
+    } else {
+        plane_records(&dir, &eff.manifest, fp, &attnos, owner)
+    };
     let source: &'static str = match (&answers, &plane_recs) {
         (Some(_), _) => "answers",
         (None, Some(_)) => "plane",
@@ -404,11 +447,14 @@ pub fn analyze_fold(rel: &Relation<'_>) -> PgResult<AnalyzeFold> {
             }
         };
         let mut dist = pgrc_format::sidecar::decode_stats_payload(&payload).map_err(|e| {
-            Box::new(PgError::error(format!( // alloc: Cold
-                "pgrcolumnar: Stats sidecar payload for part {}: {e:?}",
-                rec.part_no
-            ))
-            .with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED))
+            Box::new(
+                PgError::error(format!(
+                    // alloc: Cold
+                    "pgrcolumnar: Stats sidecar payload for part {}: {e:?}",
+                    rec.part_no
+                ))
+                .with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),
+            )
         })?;
         kept.fit(held + payload_heap(&dist));
 
@@ -416,7 +462,8 @@ pub fn analyze_fold(rel: &Relation<'_>) -> PgResult<AnalyzeFold> {
         let pexpect = PartExpect::from_manifest(rec, fp, relfilenumber);
         let path = format!("{dir}/{}", part_file_name(rec.part_no));
         let cpath = std::ffi::CString::new(path.clone()).map_err(|_| {
-            Box::new(PgError::error(format!( // alloc: Cold
+            Box::new(PgError::error(format!(
+                // alloc: Cold
                 "pgrcolumnar: part path contains NUL: {path}"
             )))
         })?;
@@ -437,7 +484,10 @@ pub fn analyze_fold(rel: &Relation<'_>) -> PgResult<AnalyzeFold> {
 
         for (i, &attno) in attnos.iter().enumerate() {
             // the answers hold the body's last record, the one the plane and the section slice (spec §8.1)
-            let answered = answers.as_ref().and_then(|a| a.part_record(attno, part_ix)).and_then(|b| StatsRecord::decode(&mut pgrc_format::wire::Cur::new(b)).ok());
+            let answered = answers
+                .as_ref()
+                .and_then(|a| a.part_record(attno, part_ix))
+                .and_then(|b| StatsRecord::decode(&mut pgrc_format::wire::Cur::new(b)).ok());
             let planed = if plane_geometry_ok {
                 answered.or_else(|| plane_recs.as_ref().and_then(|p| p[i][part_ix]))
             } else {
@@ -481,7 +531,11 @@ pub fn analyze_fold(rel: &Relation<'_>) -> PgResult<AnalyzeFold> {
         // FT-6: the per-part clustered witness (SortKey section, part
         // grain — attno 0). nkeys == 0 = undeclared (OD-8).
         // sortpath (trunk 11a92c3cccf): a path key orders a value of the column, not the column
-        let lead = crate::footer::part_sort_key(part)?.keys.first().filter(|k| k.pad == 0).map(|k| k.attno);
+        let lead = crate::footer::part_sort_key(part)?
+            .keys
+            .first()
+            .filter(|k| k.pad == 0)
+            .map(|k| k.attno);
         if first_part {
             cluster_lead = lead;
             first_part = false;
@@ -499,15 +553,31 @@ pub fn analyze_fold(rel: &Relation<'_>) -> PgResult<AnalyzeFold> {
     let mut cols = crate::alloc::try_vec(ncols, "analyze")?;
     for (i, s) in schemas.iter().enumerate() {
         let mut inputs: ChargedVec<PartColInput<'_>> = part_slots(owner, nparts)?;
-        let per_part = records[i].iter().zip(part_rows.iter()).zip(sketches[i].iter());
-        let per_part = per_part.map(|((record, &rows), sketch)| PartColInput { part_record: record, rows, sketch: sketch.as_ref() });
+        let per_part = records[i]
+            .iter()
+            .zip(part_rows.iter())
+            .zip(sketches[i].iter());
+        let per_part = per_part.map(|((record, &rows), sketch)| PartColInput {
+            part_record: record,
+            rows,
+            sketch: sketch.as_ref(),
+        });
         inputs.with_vec(|v| v.extend(per_part)); // alloc: Exec charged owner (reserved at the part count: no growth)
         let ndv_est = ndv.get(s.attno as usize - 1).copied().unwrap_or(0) as f64;
         let cluster_declared = cluster_lead == Some(s.attno);
         // FOLDSTATS: the column's value order, which its sketches' bounds follow and the merge keeps
-        let order = pgrc_meta::profile::MetaProfile::derive(s.class, s.collation_class, s.semantics)
-            .map_or(pgrc_meta::fold::HistOrder::Bytes, |p| pgrc_meta::fold::HistOrder::of(&p));
-        let Some(stat) = fold_pg_statistic_for(&inputs, ndv_est, cluster_declared, order, Some((owner, Kind::Region))) else {
+        let order =
+            pgrc_meta::profile::MetaProfile::derive(s.class, s.collation_class, s.semantics)
+                .map_or(pgrc_meta::fold::HistOrder::Bytes, |p| {
+                    pgrc_meta::fold::HistOrder::of(&p)
+                });
+        let Some(stat) = fold_pg_statistic_for(
+            &inputs,
+            ndv_est,
+            cluster_declared,
+            order,
+            Some((owner, Kind::Region)),
+        ) else {
             // Empty relation (total_rows == 0 handled above per part);
             // structurally unreachable here, but decline honestly.
             return Ok(AnalyzeFold::Declined(FoldDecline::NoCommittedPublish));
@@ -526,7 +596,11 @@ pub fn analyze_fold(rel: &Relation<'_>) -> PgResult<AnalyzeFold> {
     // Fold-vintage witness for the S-1 pg_statistic read leg's honest
     // source stamping (this process wrote fold-derived rows for this
     // relation — the consumer records it AFTER the pg_statistic write).
-    Ok(AnalyzeFold::Folded(RelFold { total_rows, cols, source }))
+    Ok(AnalyzeFold::Folded(RelFold {
+        total_rows,
+        cols,
+        source,
+    }))
 }
 
 /// Record that fold-derived pg_statistic rows were WRITTEN for `rel`
@@ -534,11 +608,7 @@ pub fn analyze_fold(rel: &Relation<'_>) -> PgResult<AnalyzeFold> {
 /// work into the command). Process-lifetime witness only.
 pub fn record_fold_vintage(rel: &Relation<'_>) {
     let locator = rel.rd_locator.get();
-    crate::catalog::record_fold_vintage((
-        locator.spcOid,
-        locator.dbOid,
-        locator.relNumber as u64,
-    ));
+    crate::catalog::record_fold_vintage((locator.spcOid, locator.dbOid, locator.relNumber as u64));
 }
 
 /// True when THIS process wrote `rel`'s pg_statistic rows via the fold
@@ -546,11 +616,7 @@ pub fn record_fold_vintage(rel: &Relation<'_>) {
 /// sampled-fallback relations — the conservative AnalyzeSample label.
 pub fn is_fold_vintage(rel: &Relation<'_>) -> bool {
     let locator = rel.rd_locator.get();
-    crate::catalog::is_fold_vintage((
-        locator.spcOid,
-        locator.dbOid,
-        locator.relNumber as u64,
-    ))
+    crate::catalog::is_fold_vintage((locator.spcOid, locator.dbOid, locator.relNumber as u64))
 }
 
 #[cfg(test)]
@@ -565,9 +631,21 @@ mod tests {
             FoldDecline::NoCommittedPublish.cause(),
             FoldDecline::DeletionBearing { part_no: 1 }.cause(),
             FoldDecline::SidecarAbsent { part_no: 1 }.cause(),
-            FoldDecline::SidecarStale { part_no: 1, why: "x" }.cause(),
-            FoldDecline::StatsSectionAbsent { part_no: 1, attno: 1 }.cause(),
-            FoldDecline::StatsWitnessAbsent { part_no: 1, attno: 1 }.cause(),
+            FoldDecline::SidecarStale {
+                part_no: 1,
+                why: "x",
+            }
+            .cause(),
+            FoldDecline::StatsSectionAbsent {
+                part_no: 1,
+                attno: 1,
+            }
+            .cause(),
+            FoldDecline::StatsWitnessAbsent {
+                part_no: 1,
+                attno: 1,
+            }
+            .cause(),
             FoldDecline::NdvSupplyAbsent.cause(),
             FoldDecline::FrontResidue.cause(),
         ];

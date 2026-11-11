@@ -21,6 +21,7 @@ const BLOCKS: u64 = 24;
 const PER_BLOCK: u64 = 10;
 const WIDTH: u16 = 2;
 
+#[allow(dead_code)]
 fn armed(capacity: u64) -> std::sync::MutexGuard<'static, ()> {
     armed_under(LOCK.lock().unwrap_or_else(|p| p.into_inner()), capacity)
 }

@@ -332,6 +332,7 @@ fn stored_row(values: &[u64]) -> Vec<u8> {
 fn a_build_with_a_row_store_spills_and_refills_its_rows_with_the_partition() {
     use gravity_abi::breaker::{HashBuild, BUILD_PARTITION, BUILD_TABLE};
     use gravity_abi::buildrows::RowStore;
+    #[allow(unused_imports)]
     use gravity_driver::{refill_build, scatter_build, SpillFactory, SpillSet};
     let _g = install();
     let mut set = MemSpillFactory.create().unwrap();
@@ -386,6 +387,7 @@ fn a_build_with_a_row_store_spills_and_refills_its_rows_with_the_partition() {
 fn d219_a_stored_build_scattered_twice_into_one_file_refills_every_entry_onto_its_own_row() {
     use gravity_abi::breaker::{HashBuild, BUILD_PARTITION, BUILD_TABLE};
     use gravity_abi::buildrows::RowStore;
+    #[allow(unused_imports)]
     use gravity_driver::{refill_build, scatter_build, SpillFactory, SpillSet};
     let _g = install();
     let mut set = MemSpillFactory.create().unwrap();
@@ -441,6 +443,7 @@ fn d219_a_stored_build_scattered_twice_into_one_file_refills_every_entry_onto_it
 fn a_stored_build_scattered_twice_refills_every_row_into_a_one_slice_store() {
     use gravity_abi::breaker::{HashBuild, BUILD_PARTITION, BUILD_TABLE};
     use gravity_abi::buildrows::RowStore;
+    #[allow(unused_imports)]
     use gravity_driver::{refill_build, scatter_build, SpillFactory, SpillSet};
     let _g = install();
     let mut set = MemSpillFactory.create().unwrap();
@@ -520,6 +523,7 @@ fn a_stream_is_owned_by_its_life_and_a_new_life_starts_empty() {
 fn a_stored_partition_past_the_part_table_splits_on_refill_and_every_row_comes_back() {
     use gravity_abi::breaker::{HashBuild, BUILD_PARTITION, BUILD_TABLE};
     use gravity_abi::buildrows::RowStore;
+    #[allow(unused_imports)]
     use gravity_driver::{refill_build, scatter_build, SpillFactory, SpillSet, SPLIT_BITS};
     let _g = install();
     let mut set = MemSpillFactory.create().unwrap();

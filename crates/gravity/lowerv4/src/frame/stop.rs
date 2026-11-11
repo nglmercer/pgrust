@@ -78,7 +78,7 @@ pub fn held<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, at: &[i32], 
     let old: PgVec<'_, Value> = types.iter().enumerate().map(|(i, &t)| match at.get(i) { Some(&o) => b.load(t, words, o), None => b.iconst(t, 0) }).collect_in(env.mcx);
     b.br(l_join, &old[..]);
     b.switch_to(l_join);
-    mcx::to_vec_in(&b.block_params(l_join)[..], env.mcx)
+    mcx::to_vec_in(b.block_params(l_join), env.mcx)
 }
 
 pub fn exits(b: &mut FunctionBuilder<'_>) -> Exits {
@@ -164,7 +164,7 @@ pub fn define_exits(b: &mut FunctionBuilder<'_>, env: &mut Env, x: &Exits, (l_af
                     b.br(l_after, &[]);
                 }
                 1 => {
-                    let p = mcx::to_vec_in(&b.block_params(l)[..], env.mcx);
+                    let p = mcx::to_vec_in(b.block_params(l), env.mcx);
                     back(b, env, p[0], p[1]);
                     b.br(x.l_status, &[p[2]]);
                 }
@@ -224,7 +224,7 @@ pub fn raise_row(b: &mut FunctionBuilder<'_>, env: &Env, x: &Exits) -> Block {
     let cur = b.current();
     b.switch_to(l);
     env.hir.raised(b);
-    let p = mcx::to_vec_in(&b.block_params(l)[..], env.mcx);
+    let p = mcx::to_vec_in(b.block_params(l), env.mcx);
     let st = raise_status(b, p[0]);
     b.br(x.l_stop_in, &[p[1], p[2], st]);
     b.switch_to(cur);

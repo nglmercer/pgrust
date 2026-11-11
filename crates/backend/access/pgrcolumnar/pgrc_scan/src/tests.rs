@@ -15,7 +15,9 @@ use pgrc_qa::corpus::{
 };
 use pgrc_read::OpenPart;
 use pgrc_write::dict::TextSemantics;
-use pgrc_write::elect::{CandidateSource, CodecCandidates, ColumnPosture, DictPolicy, ReferenceCandidates};
+use pgrc_write::elect::{
+    CandidateSource, CodecCandidates, ColumnPosture, DictPolicy, ReferenceCandidates,
+};
 use pgrc_write::publish::TxnVerdict;
 use pgrc_write::writer::PartCutPolicy;
 use pgrc_write::wvfs::WriteVfs;
@@ -118,7 +120,7 @@ fn scan_of(bf: &BuiltFixture, opts: ScanOptions) -> TableScan {
         columns,
         predicate: None,
         strview_cols: vec![],
-            code_key_cols: vec![],
+        code_key_cols: vec![],
         deletes: Vec::new(),
         opts,
     }
@@ -193,8 +195,14 @@ fn pin_witness_release_on_advance_vs_kill_arm() {
     let h = held.run(1, None).expect("kill arm");
 
     assert_eq!(r.canon, h.canon, "pin posture never changes bytes");
-    assert_eq!(r.pins.pins_taken, r.pins.pins_released, "release arm balance");
-    assert_eq!(h.pins.pins_taken, h.pins.pins_released, "kill arm balance at drain");
+    assert_eq!(
+        r.pins.pins_taken, r.pins.pins_released,
+        "release arm balance"
+    );
+    assert_eq!(
+        h.pins.pins_taken, h.pins.pins_released,
+        "kill arm balance at drain"
+    );
     // The witness direction: serial release arm never holds more than the
     // claim pin + nothing cached beyond the current part (peak <= 2:
     // claim pin + a moment of overlap at advance); the kill arm's peak
@@ -221,9 +229,7 @@ fn pin_witness_release_on_advance_vs_kill_arm() {
 /// face answers `Some` (the grouped sink's decline-21 gate).
 #[test]
 fn nullable_dict_lane_seals_nullable_flag_and_serves_byte_identically() {
-    use pgrc_format::part::{
-        StreamRole, STREAMF_DICT_EXEC, STREAMF_DICT_EXEC_NULLABLE,
-    };
+    use pgrc_format::part::{StreamRole, STREAMF_DICT_EXEC, STREAMF_DICT_EXEC_NULLABLE};
     let rows = 20_000u64;
     let oracle: Vec<Option<OracleVal>> = (0..rows)
         .map(|i| {
@@ -271,7 +277,11 @@ fn nullable_dict_lane_seals_nullable_flag_and_serves_byte_identically() {
     let manifest = pgrc_write::publish::effective_manifest(&mut vfs, &fx.dir, &probe, None)
         .expect("effective")
         .expect("committed");
-    let bf = BuiltFixture { fx, files, manifest };
+    let bf = BuiltFixture {
+        fx,
+        files,
+        manifest,
+    };
 
     // Sealed form: DictCodes values + the NULLABLE flag (never the
     // zero-null flag) + the Validity stream that pairs with it.
@@ -283,15 +293,29 @@ fn nullable_dict_lane_seals_nullable_flag_and_serves_byte_identically() {
         pgrc_format::enc::EncodingId::DictCodes.as_u16(),
         "null-bearing low-NDV text must still dict-elect"
     );
-    assert_eq!(v.entry.flags & STREAMF_DICT_EXEC, 0, "zero-null flag stays null-free-only");
-    assert_ne!(v.entry.flags & STREAMF_DICT_EXEC_NULLABLE, 0, "the J1 nullable mint");
-    assert!(dir.lookup(1, 0, StreamRole::Validity).is_some(), "validity plane present");
+    assert_eq!(
+        v.entry.flags & STREAMF_DICT_EXEC,
+        0,
+        "zero-null flag stays null-free-only"
+    );
+    assert_ne!(
+        v.entry.flags & STREAMF_DICT_EXEC_NULLABLE,
+        0,
+        "the J1 nullable mint"
+    );
+    assert!(
+        dir.lookup(1, 0, StreamRole::Validity).is_some(),
+        "validity plane present"
+    );
 
     // Serve + byte identity, three ways.
     let scan = scan_of(&bf, ScanOptions::default());
     let serial = scan.run(1, None).expect("serial");
     let par = scan.run(4, Some(1)).expect("dop4 skew");
-    assert_eq!(serial.canon, par.canon, "serial vs DOP-4-skew byte identity");
+    assert_eq!(
+        serial.canon, par.canon,
+        "serial vs DOP-4-skew byte identity"
+    );
     assert!(
         serial.census.dict_lanes_published > 0,
         "the nullable lane must PUBLISH (the unlock under test)"
@@ -335,8 +359,14 @@ fn nullable_dict_lane_seals_nullable_flag_and_serves_byte_identically() {
 fn code_bound_guard_fires_exactly_on_out_of_domain_codes() {
     assert!(!code_bound_guard(&[], 5));
     assert!(!code_bound_guard(&[0, 1, 4, 4, 2], 5));
-    assert!(code_bound_guard(&[0, 1, 5, 2], 5), "== ncodes is out of domain");
-    assert!(code_bound_guard(&[u32::MAX], 5), "escape/corrupt code demotes");
+    assert!(
+        code_bound_guard(&[0, 1, 5, 2], 5),
+        "== ncodes is out of domain"
+    );
+    assert!(
+        code_bound_guard(&[u32::MAX], 5),
+        "escape/corrupt code demotes"
+    );
     assert!(!code_bound_guard(&[0], 1));
 }
 
@@ -375,11 +405,15 @@ fn zone_prune_fires_and_census_is_dop_identical() {
         serial.census
     );
     assert!(
-        serial.census.granules_scanned < serial.census.granules_zone_pruned + serial.census.granules_scanned,
+        serial.census.granules_scanned
+            < serial.census.granules_zone_pruned + serial.census.granules_scanned,
         "sanity"
     );
     let par = scan.run(4, Some(2)).expect("dop4");
-    assert_eq!(serial.census, par.census, "verdict census identity at DOP 4");
+    assert_eq!(
+        serial.census, par.census,
+        "verdict census identity at DOP 4"
+    );
     assert_eq!(serial.canon, par.canon, "verdict-plane byte identity");
     // Pruned granules carry the deterministic marker.
     let pruned: usize = serial
@@ -398,6 +432,7 @@ fn zone_prune_fires_and_census_is_dop_identical() {
 /// records, so the process counter is this test's.)
 #[test]
 fn zone_records_match_granule_records_are_counted_and_go_with_the_part() {
+    #[allow(unused_imports)]
     use pgrc_format::meta::{StatsRecord, STATS_RECORD_LEN};
     let fx = int8_fixture(
         "int8_zonerecords",
@@ -416,27 +451,56 @@ fn zone_records_match_granule_records_are_counted_and_go_with_the_part() {
     for part in &parts {
         assert_eq!(part.zone_resident(), 0, "nothing kept before the first ask");
         let r0 = part.resident();
-        let recs = crate::meta::zone_records(part, schema.attno).expect("read").expect("a stats section");
+        let recs = crate::meta::zone_records(part, schema.attno)
+            .expect("read")
+            .expect("a stats section");
         let kept = part.zone_resident();
         let rec_bytes = std::mem::size_of_val(recs) as u64;
-        assert!(kept > rec_bytes, "the records and the cell table: {kept} vs {rec_bytes}");
-        assert_eq!(part.resident() - r0, kept, "the kept bytes, and only they, join the part's resident bytes");
+        assert!(
+            kept > rec_bytes,
+            "the records and the cell table: {kept} vs {rec_bytes}"
+        );
+        assert_eq!(
+            part.resident() - r0,
+            kept,
+            "the kept bytes, and only they, join the part's resident bytes"
+        );
         let meta = crate::meta::ColumnMeta::load(part, profile, schema.attno).expect("load");
         let n = meta.stats_body.as_ref().expect("a stats section").len() / STATS_RECORD_LEN;
         assert!(n > 1, "granule records, then band and part records");
         assert_eq!(recs.len(), n);
         for g in 0..n as u32 + 2 {
-            assert_eq!(recs.get(g as usize).copied().flatten(), meta.granule_record(g), "record {g}");
+            assert_eq!(
+                recs.get(g as usize).copied().flatten(),
+                meta.granule_record(g),
+                "record {g}"
+            );
         }
-        let again = crate::meta::zone_records(part, schema.attno).expect("read").expect("a stats section");
+        let again = crate::meta::zone_records(part, schema.attno)
+            .expect("read")
+            .expect("a stats section");
         assert!(std::ptr::eq(recs, again), "decoded once, then shared");
-        assert!(crate::meta::zone_records(part, schema.attno + 7).expect("read").is_none());
-        assert_eq!(part.zone_resident(), kept, "a second ask and an absent column keep nothing more");
+        assert!(crate::meta::zone_records(part, schema.attno + 7)
+            .expect("read")
+            .is_none());
+        assert_eq!(
+            part.zone_resident(),
+            kept,
+            "a second ask and an absent column keep nothing more"
+        );
     }
     let total: u64 = parts.iter().map(|p| p.zone_resident()).sum();
-    assert_eq!(pgrc_read::mem::zone_bytes() - base, total, "counted sticky in the residency plane");
+    assert_eq!(
+        pgrc_read::mem::zone_bytes() - base,
+        total,
+        "counted sticky in the residency plane"
+    );
     drop(parts);
-    assert_eq!(pgrc_read::mem::zone_bytes(), base, "the records go with their parts");
+    assert_eq!(
+        pgrc_read::mem::zone_bytes(),
+        base,
+        "the records go with their parts"
+    );
 }
 
 /// The frame-lazy residency term surfaces through the scan (SB-7): a
@@ -499,7 +563,10 @@ fn canon_digest_currency_preserves_identity() {
     );
     let serial = scan_digest.run(1, None).expect("serial digest");
     let par = scan_digest.run(4, Some(1)).expect("dop4 digest");
-    assert_eq!(serial.canon, par.canon, "digest currency serial==DOP-4-skew");
+    assert_eq!(
+        serial.canon, par.canon,
+        "digest currency serial==DOP-4-skew"
+    );
     assert_eq!(serial.census, par.census, "census unchanged by currency");
     assert!(serial.canon.values().all(|v| v.len() == 24), "24B/granule");
     // Pure function of the byte canon: fold the byte-currency canon and
@@ -576,7 +643,10 @@ fn dv_application_born_red_counts_and_byte_identity() {
     dv_scan.deletes = vec![Some(Arc::clone(&pd))];
     let serial = dv_scan.run(1, None).expect("dv serial");
     let par = dv_scan.run(4, Some(1)).expect("dv dop4 skew");
-    assert_eq!(serial.canon, par.canon, "Dv-applied dirsha identity (PC-3.4)");
+    assert_eq!(
+        serial.canon, par.canon,
+        "Dv-applied dirsha identity (PC-3.4)"
+    );
     assert_eq!(serial.census, par.census, "Dv census identity at every DOP");
     assert_eq!(serial.census.rows_deleted_skipped, deleted);
     assert_eq!(serial.census.rows_emitted, rows - deleted);
@@ -602,10 +672,19 @@ fn dv_payload_refusals_are_typed() {
 
     let payload = encode_dv(5, 3, &[(0, DvBlockKind::List, &[1u16, 5, 9])]).expect("encode");
     // Identity binds: wrong part, wrong generation.
-    assert!(PartDeletes::from_dv_payload(&payload, 6, 3, 4).is_err(), "part_no");
-    assert!(PartDeletes::from_dv_payload(&payload, 5, 4, 4).is_err(), "dv_gen");
+    assert!(
+        PartDeletes::from_dv_payload(&payload, 6, 3, 4).is_err(),
+        "part_no"
+    );
+    assert!(
+        PartDeletes::from_dv_payload(&payload, 5, 4, 4).is_err(),
+        "dv_gen"
+    );
     // Geometry binds: block granule beyond the part's granule_count.
-    assert!(PartDeletes::from_dv_payload(&payload, 5, 3, 0).is_err(), "granule bound");
+    assert!(
+        PartDeletes::from_dv_payload(&payload, 5, 3, 0).is_err(),
+        "granule bound"
+    );
     // Corruption binds (crc trip inside the frozen DvReader).
     let mut bad = payload.clone();
     let n = bad.len();
@@ -769,7 +848,10 @@ impl ProbeStubs {
                 );
                 let epoch = lane.epoch().0;
                 self.epochs.insert(epoch);
-                let key = self.epoch_keys.entry(epoch).or_insert_with(|| lane.epoch_key());
+                let key = self
+                    .epoch_keys
+                    .entry(epoch)
+                    .or_insert_with(|| lane.epoch_key());
                 assert_eq!(
                     *key,
                     lane.epoch_key(),
@@ -1091,7 +1173,10 @@ fn code_batch_probe_codes_and_epoch_cross_the_abi_into_stub_consumers() {
     }
     // The drive census is a pure function of the scan, never the currency.
     assert_eq!(c1_census, c4_census, "codes-arm census identity (PC-6.3)");
-    assert_eq!(h1_census, h4_census, "hydrated-arm census identity (PC-6.3)");
+    assert_eq!(
+        h1_census, h4_census,
+        "hydrated-arm census identity (PC-6.3)"
+    );
     assert_eq!(c1_census, h1_census, "currency never touches the census");
     assert!(c1_census.dict_lanes_published > 0, "dict lanes crossed");
     assert_eq!(c1_census.rows_deleted_skipped, deleted);
@@ -1134,8 +1219,20 @@ fn code_batch_probe_codes_and_epoch_cross_the_abi_into_stub_consumers() {
         "codes arm memo-bounded: {}",
         c4.hydrations
     );
-    assert_eq!(h1.hydrations, survivors, "hydrated arm hydrates per survivor row");
-    assert_eq!(h4.hydrations, survivors, "hydrated arm hydrates per survivor row");
-    assert!(c1.hydrations < h1.hydrations, "the codes were the currency (dop1)");
-    assert!(c4.hydrations < h4.hydrations, "the codes were the currency (dop4)");
+    assert_eq!(
+        h1.hydrations, survivors,
+        "hydrated arm hydrates per survivor row"
+    );
+    assert_eq!(
+        h4.hydrations, survivors,
+        "hydrated arm hydrates per survivor row"
+    );
+    assert!(
+        c1.hydrations < h1.hydrations,
+        "the codes were the currency (dop1)"
+    );
+    assert!(
+        c4.hydrations < h4.hydrations,
+        "the codes were the currency (dop4)"
+    );
 }

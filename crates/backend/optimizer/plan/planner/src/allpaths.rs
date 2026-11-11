@@ -3,7 +3,9 @@
 
 use types_error::PgResult;
 use types_nodes::parsenodes::RTEKind;
-use types_pathnodes::{JoinlistNode, PathId, PathKey, RelId, RELOPT_BASEREL, RELOPT_OTHER_MEMBER_REL};
+use types_pathnodes::{
+    JoinlistNode, PathId, PathKey, RelId, RELOPT_BASEREL, RELOPT_OTHER_MEMBER_REL,
+};
 
 use crate::pathnode::{add_path, set_cheapest};
 use crate::run::PlannerRun;
@@ -31,7 +33,9 @@ pub fn make_one_rel<'mcx>(
 
     let mut total_pages = 0.0f64;
     for rti in 1..run.root.simple_rel_array_size as usize {
-        let Some(brel) = run.root.simple_rel_array[rti] else { continue };
+        let Some(brel) = run.root.simple_rel_array[rti] else {
+            continue;
+        };
         debug_assert_eq!(run.root.rel(brel).relid as usize, rti);
         if (run.root.rel(brel).reloptkind == RELOPT_BASEREL
             || run.root.rel(brel).reloptkind == types_pathnodes::RELOPT_OTHER_MEMBER_REL)
@@ -49,7 +53,9 @@ pub fn make_one_rel<'mcx>(
 
 fn set_base_rel_sizes(run: &mut PlannerRun<'_>) -> PgResult<()> {
     for rti in 1..run.root.simple_rel_array_size as usize {
-        let Some(rel) = run.root.simple_rel_array[rti] else { continue };
+        let Some(rel) = run.root.simple_rel_array[rti] else {
+            continue;
+        };
         debug_assert_eq!(run.root.rel(rel).relid as usize, rti);
         if run.root.rel(rel).reloptkind != RELOPT_BASEREL {
             continue;
@@ -64,7 +70,9 @@ fn set_base_rel_sizes(run: &mut PlannerRun<'_>) -> PgResult<()> {
 
 fn set_base_rel_pathlists(run: &mut PlannerRun<'_>) -> PgResult<()> {
     for rti in 1..run.root.simple_rel_array_size as usize {
-        let Some(rel) = run.root.simple_rel_array[rti] else { continue };
+        let Some(rel) = run.root.simple_rel_array[rti] else {
+            continue;
+        };
         if run.root.rel(rel).reloptkind != RELOPT_BASEREL {
             continue;
         }
@@ -140,9 +148,7 @@ fn set_rel_size(run: &mut PlannerRun<'_>, rel: RelId, rti: usize) -> PgResult<()
         }
         other => panic!("set_rel_size (allpaths.c): {other:?}; M2 scan lane"),
     }
-    debug_assert!(
-        run.root.rel(rel).rows > 0.0 || crate::joinrels::is_dummy_rel(&run.root, rel)
-    );
+    debug_assert!(run.root.rel(rel).rows > 0.0 || crate::joinrels::is_dummy_rel(&run.root, rel));
     Ok(())
 }
 
@@ -153,8 +159,10 @@ fn set_subquery_pathlist(run: &mut PlannerRun<'_>, rel: RelId, rti: usize) -> Pg
     let required_outer = crate::relnode::relids_copy(run.mcx, &run.root.rel(rel).lateral_relids);
 
     // The copy keeps planning (and qual pushdown) off the RTE contents.
-    let sub_parse =
-        mcx::leak_in(mcx::alloc_in(run.mcx, crate::subselect::query_cells_copy(run.mcx, orig)?)?);
+    let sub_parse = mcx::leak_in(mcx::alloc_in(
+        run.mcx,
+        crate::subselect::query_cells_copy(run.mcx, orig)?,
+    )?);
     let mut run_cond_attrs = types_nodes::Bitmapset::empty();
     crate::pushdown::pushdown_quals_into_subquery(
         run,
@@ -222,7 +230,13 @@ fn set_subquery_pathlist(run: &mut PlannerRun<'_>, rel: RelId, rti: usize) -> Pg
     let sub_tlist_len = run.rel_subroots[idx]
         .processed_tlist
         .map(|tl| tl.len())
-        .unwrap_or_else(|| run.rte(rti).subquery.expect("RTE_SUBQUERY has a subquery").targetList.len());
+        .unwrap_or_else(|| {
+            run.rte(rti)
+                .subquery
+                .expect("RTE_SUBQUERY has a subquery")
+                .targetList
+                .len()
+        });
     let trivial_pathtarget = {
         let rt = run.root.rel_reltarget(rel);
         if rt.exprs.len() != sub_tlist_len {
@@ -254,8 +268,7 @@ fn set_subquery_pathlist(run: &mut PlannerRun<'_>, rel: RelId, rti: usize) -> Pg
     let mut partial_candidates: mcx::PgVec<'_, SubCand<'_>> = mcx::PgVec::new_in(run.mcx);
     {
         let final_rel = crate::planmain::fetch_final_rel(run);
-        let paths =
-            crate::relnode::pgvec_clone_shallow(run.mcx, &run.root.rel(final_rel).pathlist);
+        let paths = crate::relnode::pgvec_clone_shallow(run.mcx, &run.root.rel(final_rel).pathlist);
         for &sp in paths.iter() {
             candidates.push((
                 sp,
@@ -266,9 +279,7 @@ fn set_subquery_pathlist(run: &mut PlannerRun<'_>, rel: RelId, rti: usize) -> Pg
         }
         // allpaths.c: the sub-rel's partial paths become partial SubqueryScan
         // paths when the outer rel allows parallelism.
-        if outer_consider_parallel
-            && types_pathnodes::relids::relids_is_empty(&required_outer)
-        {
+        if outer_consider_parallel && types_pathnodes::relids::relids_is_empty(&required_outer) {
             let partials = crate::relnode::pgvec_clone_shallow(
                 run.mcx,
                 &run.root.rel(final_rel).partial_pathlist,
@@ -418,8 +429,7 @@ fn relation_excluded_by_constraints(
 // nestloop Params.
 pub fn set_dummy_rel_pathlist(run: &mut PlannerRun<'_>, rel: RelId) -> PgResult<()> {
     run.root.rel_reltarget_mut(rel).width = 0;
-    let required_outer =
-        crate::relnode::relids_copy(run.mcx, &run.root.rel(rel).lateral_relids);
+    let required_outer = crate::relnode::relids_copy(run.mcx, &run.root.rel(rel).lateral_relids);
     add_dummy_path(run, rel, &required_outer)
 }
 
@@ -487,7 +497,7 @@ fn set_rel_pathlist(run: &mut PlannerRun<'_>, rel: RelId, rti: usize) -> PgResul
             RTEKind::RTE_VALUES => set_values_pathlist(run, rel)?,
             RTEKind::RTE_TABLEFUNC => set_tablefunc_pathlist(run, rel)?,
             RTEKind::RTE_SUBQUERY => {} // fully handled during set_rel_size
-            RTEKind::RTE_CTE => {} // fully handled during set_rel_size
+            RTEKind::RTE_CTE => {}      // fully handled during set_rel_size
             RTEKind::RTE_NAMEDTUPLESTORE => set_namedtuplestore_pathlist(run, rel)?,
             RTEKind::RTE_RESULT => set_result_pathlist(run, rel)?,
             other => panic!("set_rel_pathlist (allpaths.c): {other:?}; M2 scan lane"),
@@ -570,13 +580,9 @@ fn set_append_rel_size(run: &mut PlannerRun<'_>, rel: RelId, rti: usize) -> PgRe
             let parent_joininfo =
                 crate::relnode::pgvec_clone_shallow(mcx, &run.root.rel(rel).joininfo);
             let nulling = crate::relnode::relids_copy(mcx, &run.root.rel(rel).nulling_relids);
-            let mut childrinfos: mcx::PgVec<'_, types_pathnodes::RinfoId> =
-                mcx::PgVec::new_in(mcx);
+            let mut childrinfos: mcx::PgVec<'_, types_pathnodes::RinfoId> = mcx::PgVec::new_in(mcx);
             for &rid in parent_joininfo.iter() {
-                if !crate::relnode::relids_overlap(
-                    &run.root.rinfo(rid).clause_relids,
-                    &nulling,
-                ) {
+                if !crate::relnode::relids_overlap(&run.root.rinfo(rid).clause_relids, &nulling) {
                     childrinfos.push(crate::inherit::adjust_child_rinfo(
                         run,
                         rid,
@@ -642,7 +648,9 @@ fn set_append_rel_size(run: &mut PlannerRun<'_>, rel: RelId, rti: usize) -> PgRe
             let parentvar = *run.root.expr_node(pid);
             let cid = run.root.rel_reltarget(childrel).exprs[i];
             let childvar = *run.root.expr_node(cid);
-            let Some(pv) = parentvar.as_var() else { continue };
+            let Some(pv) = parentvar.as_var() else {
+                continue;
+            };
             if pv.varno != rti as i32 {
                 continue;
             }
@@ -659,8 +667,11 @@ fn set_append_rel_size(run: &mut PlannerRun<'_>, rel: RelId, rti: usize) -> PgRe
                 child_width = lsyscache::get_typavgwidth(typid, typmod)?;
             }
             debug_assert!(child_width > 0);
-            parent_attrsizes[pndx] =
-                crate::fma_sites::width_accum(parent_attrsizes[pndx], child_width as f64, child_rows);
+            parent_attrsizes[pndx] = crate::fma_sites::width_accum(
+                parent_attrsizes[pndx],
+                child_width as f64,
+                child_rows,
+            );
         }
     }
 
@@ -671,7 +682,8 @@ fn set_append_rel_size(run: &mut PlannerRun<'_>, rel: RelId, rti: usize) -> PgRe
             r.tuples = parent_tuples;
             r.rows = parent_rows;
         }
-        run.root.rel_reltarget_mut(rel).width = (parent_size / parent_rows).round_ties_even() as i32;
+        run.root.rel_reltarget_mut(rel).width =
+            (parent_size / parent_rows).round_ties_even() as i32;
         for i in 0..nattrs {
             run.root.rel_mut(rel).attr_widths[i] =
                 (parent_attrsizes[i] / parent_rows).round_ties_even() as i32;
@@ -721,14 +733,11 @@ pub(crate) fn add_paths_to_append_rel(
     let mut subpaths_valid = true;
     let mut startup_subpaths: mcx::PgVec<'_, types_pathnodes::PathId> = mcx::PgVec::new_in(mcx);
     let mut startup_valid = run.root.rel(rel).consider_startup;
-    let mut all_child_pathkeys: mcx::PgVec<'_, mcx::PgVec<'_, PathKey>> =
-        mcx::PgVec::new_in(mcx);
-    let mut all_child_outers: mcx::PgVec<'_, types_pathnodes::Relids<'_>> =
-        mcx::PgVec::new_in(mcx);
+    let mut all_child_pathkeys: mcx::PgVec<'_, mcx::PgVec<'_, PathKey>> = mcx::PgVec::new_in(mcx);
+    let mut all_child_outers: mcx::PgVec<'_, types_pathnodes::Relids<'_>> = mcx::PgVec::new_in(mcx);
     let mut partial_subpaths: mcx::PgVec<'_, types_pathnodes::PathId> = mcx::PgVec::new_in(mcx);
     let mut partial_subpaths_valid = true;
-    let mut pa_partial_subpaths: mcx::PgVec<'_, types_pathnodes::PathId> =
-        mcx::PgVec::new_in(mcx);
+    let mut pa_partial_subpaths: mcx::PgVec<'_, types_pathnodes::PathId> = mcx::PgVec::new_in(mcx);
     let mut pa_nonpartial_subpaths: mcx::PgVec<'_, types_pathnodes::PathId> =
         mcx::PgVec::new_in(mcx);
     let mut pa_subpaths_valid =
@@ -804,15 +813,14 @@ pub(crate) fn add_paths_to_append_rel(
                         == crate::pathkeys::PathKeysComparison::Equal
                 });
                 if !found {
-                    all_child_pathkeys
-                        .push(crate::relnode::pgvec_clone_shallow(mcx, childkeys));
+                    all_child_pathkeys.push(crate::relnode::pgvec_clone_shallow(mcx, childkeys));
                 }
             }
-            let childouter =
-                crate::pathnode::path_req_outer(run.root.path(childpath).base());
+            let childouter = crate::pathnode::path_req_outer(run.root.path(childpath).base());
             if !relids_is_empty(childouter) {
-                let found =
-                    all_child_outers.iter().any(|existing| relids_equal(existing, childouter));
+                let found = all_child_outers
+                    .iter()
+                    .any(|existing| relids_equal(existing, childouter));
                 if !found {
                     all_child_outers.push(relids_copy(mcx, childouter));
                 }
@@ -863,8 +871,7 @@ pub(crate) fn add_paths_to_append_rel(
             // At least log2(# children) workers: spread across the children.
             parallel_workers =
                 parallel_workers.max((live_childrels.len() as u32).ilog2() as i32 + 1);
-            parallel_workers =
-                parallel_workers.min(crate::gucs::max_parallel_workers_per_gather());
+            parallel_workers = parallel_workers.min(crate::gucs::max_parallel_workers_per_gather());
         }
         debug_assert!(parallel_workers > 0);
         let pid = crate::pathnode::create_append_path(
@@ -923,8 +930,7 @@ pub(crate) fn add_paths_to_append_rel(
         for &sp in pa_partial_subpaths.iter() {
             parallel_workers = parallel_workers.max(run.root.path(sp).base().parallel_workers);
         }
-        parallel_workers =
-            parallel_workers.max((live_childrels.len() as u32).ilog2() as i32 + 1);
+        parallel_workers = parallel_workers.max((live_childrels.len() as u32).ilog2() as i32 + 1);
         parallel_workers = parallel_workers.min(crate::gucs::max_parallel_workers_per_gather());
         debug_assert!(parallel_workers > 0);
         let pid = crate::pathnode::create_append_path(
@@ -1017,7 +1023,12 @@ fn get_cheapest_parameterized_child_path<'mcx>(
                 continue;
             }
             if let Some(b) = best {
-                if crate::pathnode::compare_path_costs_at(run, b, pid, crate::pathnode::CostSelector::Total) <= 0
+                if crate::pathnode::compare_path_costs_at(
+                    run,
+                    b,
+                    pid,
+                    crate::pathnode::CostSelector::Total,
+                ) <= 0
                 {
                     continue;
                 }
@@ -1036,7 +1047,12 @@ fn get_cheapest_parameterized_child_path<'mcx>(
                         required_outer
                     ));
                     if let Some(b) = best {
-                        if crate::pathnode::compare_path_costs_at(run, b, np, crate::pathnode::CostSelector::Total) <= 0
+                        if crate::pathnode::compare_path_costs_at(
+                            run,
+                            b,
+                            np,
+                            crate::pathnode::CostSelector::Total,
+                        ) <= 0
                         {
                             continue;
                         }
@@ -1073,9 +1089,7 @@ fn generate_orderedappend_paths<'mcx>(
     let ordered = run.root.rel(rel).part_scheme.is_some()
         && is_simple_rel
         && match &run.root.rel(rel).boundinfo {
-            Some(bi) => {
-                crate::partprune::partitions_are_ordered(bi, &run.root.rel(rel).live_parts)
-            }
+            Some(bi) => crate::partprune::partitions_are_ordered(bi, &run.root.rel(rel).live_parts),
             None => false,
         };
     if ordered {
@@ -1100,10 +1114,7 @@ fn generate_orderedappend_paths<'mcx>(
         let match_partition_order_desc = !match_partition_order
             && (crate::pathkeys::pathkeys_contained_in(pathkeys, &partition_pathkeys_desc)
                 || (!partition_pathkeys_desc_partial
-                    && crate::pathkeys::pathkeys_contained_in(
-                        &partition_pathkeys_desc,
-                        pathkeys,
-                    )));
+                    && crate::pathkeys::pathkeys_contained_in(&partition_pathkeys_desc, pathkeys)));
 
         // Reversed partition order: build the subpath lists back-to-front.
         let (first_index, end_index, direction) = if match_partition_order_desc {
@@ -1172,8 +1183,7 @@ fn generate_orderedappend_paths<'mcx>(
             }
 
             if match_partition_order {
-                startup_subpaths
-                    .push(get_singleton_append_subpath(&run.root, cheapest_startup));
+                startup_subpaths.push(get_singleton_append_subpath(&run.root, cheapest_startup));
                 total_subpaths.push(get_singleton_append_subpath(&run.root, cheapest_total));
                 if let Some(f) = cheapest_fractional {
                     fractional_subpaths.push(get_singleton_append_subpath(&run.root, f));
@@ -1331,7 +1341,11 @@ fn set_function_pathlist(run: &mut PlannerRun<'_>, rel: RelId, rti: usize) -> Pg
             let fn_relids =
                 types_pathnodes::relids::relids_copy(run.mcx, &run.root.rel(rel).relids);
             pathkeys = crate::pathkeys::build_expression_pathkey(
-                run, var, INT8_LESS_OPERATOR, &fn_relids, false,
+                run,
+                var,
+                INT8_LESS_OPERATOR,
+                &fn_relids,
+                false,
             )?;
         }
     }
@@ -1383,7 +1397,11 @@ fn set_plain_rel_size(run: &mut PlannerRun<'_>, rel: RelId) -> PgResult<()> {
 fn set_foreign_size(run: &mut PlannerRun<'_>, rel: RelId, rti: usize) -> PgResult<()> {
     crate::costsize::set_foreign_size_estimates(run, rel)?;
     let relid = run.rte(rti).relid;
-    let kind = run.root.rel(rel).fdwroutine.expect("foreign rel has fdwroutine");
+    let kind = run
+        .root
+        .rel(rel)
+        .fdwroutine
+        .expect("foreign rel has fdwroutine");
     (crate::fdwplan::fdw_plan_routine(kind).get_foreign_rel_size)(run, rel, relid)?;
     let rows = crate::costsize::clamp_row_est(run.root.rel(rel).rows);
     let r = run.root.rel_mut(rel);
@@ -1395,7 +1413,11 @@ fn set_foreign_size(run: &mut PlannerRun<'_>, rel: RelId, rti: usize) -> PgResul
 // set_foreign_pathlist (allpaths.c).
 fn set_foreign_pathlist(run: &mut PlannerRun<'_>, rel: RelId, rti: usize) -> PgResult<()> {
     let relid = run.rte(rti).relid;
-    let kind = run.root.rel(rel).fdwroutine.expect("foreign rel has fdwroutine");
+    let kind = run
+        .root
+        .rel(rel)
+        .fdwroutine
+        .expect("foreign rel has fdwroutine");
     (crate::fdwplan::fdw_plan_routine(kind).get_foreign_paths)(run, rel, relid)?;
     Ok(())
 }
@@ -1574,9 +1596,7 @@ fn set_plain_rel_pathlist(run: &mut PlannerRun<'_>, rel: RelId) -> PgResult<()> 
     create_pgrcolumnar_sorted_paths(run, rel, &required_outer)?;
 
     // C: partial paths only when required_outer == NULL.
-    if run.root.rel(rel).consider_parallel
-        && crate::relnode::relids_is_empty(&required_outer)
-    {
+    if run.root.rel(rel).consider_parallel && crate::relnode::relids_is_empty(&required_outer) {
         create_plain_partial_paths(run, rel)?;
     }
 
@@ -1602,7 +1622,8 @@ fn create_pgrcolumnar_sorted_paths<'mcx>(
         return Ok(());
     }
     let relid_index = run.root.rel(rel).relid;
-    let mut vars: Vec<(i16, types_nodes::node_tree::Node<'mcx>)> = ::mcx::std_vec_with_capacity("optimizer", nsorted)?;
+    let mut vars: Vec<(i16, types_nodes::node_tree::Node<'mcx>)> =
+        ::mcx::std_vec_with_capacity("optimizer", nsorted)?;
     for i in 0..nsorted {
         let attno = run.root.rel(rel).pgrcolumnar_sorted_attnos[i];
         let found = run.root.rel_reltarget(rel).exprs.iter().find_map(|&id| {
@@ -1630,9 +1651,8 @@ fn create_pgrcolumnar_sorted_paths<'mcx>(
         let mut cand: mcx::PgVec<'mcx, types_pathnodes::PathKey> = mcx::PgVec::new_in(run.mcx);
         for j in std::iter::once(lead).chain((0..vars.len()).filter(|&j| j != lead)) {
             let (_, expr) = vars[j];
-            let Some(pk) = crate::pathkeys::make_pathkey_from_sortinfo_existing(
-                run, expr, &relids,
-            )?
+            let Some(pk) =
+                crate::pathkeys::make_pathkey_from_sortinfo_existing(run, expr, &relids)?
             else {
                 break;
             };
@@ -1657,10 +1677,19 @@ fn create_pgrcolumnar_sorted_paths<'mcx>(
         if run.root.rel(rel).amflags & types_pathnodes::AMFLAG_PGRCOLUMNAR != 0 {
             // D4469 road 2: the scan merges its parts' sorted streams (createplan marks it); the planner's estimate of
             // their count prices the merge
-            let (parts, granules) = (run.root.rel(rel).pgrcolumnar_parts, run.root.rel(rel).pgrcolumnar_granules.max(1));
+            let (parts, granules) = (
+                run.root.rel(rel).pgrcolumnar_parts,
+                run.root.rel(rel).pgrcolumnar_granules.max(1),
+            );
             let base = run.root.path(id).base();
             let granule = (base.total_cost - base.startup_cost) / granules as f64;
-            let (startup, cost) = costsize::pgrc_merge::merge_cost(parts, base.rows, granule, costsize::gucs::cpu_operator_cost(), costsize::gucs::cpu_tuple_cost());
+            let (startup, cost) = costsize::pgrc_merge::merge_cost(
+                parts,
+                base.rows,
+                granule,
+                costsize::gucs::cpu_operator_cost(),
+                costsize::gucs::cpu_tuple_cost(),
+            );
             let base = run.root.path_mut(id).base_mut();
             base.startup_cost += startup;
             base.total_cost += startup + cost;
@@ -1690,7 +1719,12 @@ fn create_plain_partial_paths(run: &mut PlannerRun<'_>, rel: RelId) -> PgResult<
     if parallel_workers <= 0 {
         return Ok(());
     }
-    let p = crate::pathnode::create_seqscan_path(run, rel, &crate::relnode::RELIDS_UNSET, parallel_workers)?;
+    let p = crate::pathnode::create_seqscan_path(
+        run,
+        rel,
+        &crate::relnode::RELIDS_UNSET,
+        parallel_workers,
+    )?;
     crate::pathnode::add_partial_path(run, rel, p);
     Ok(())
 }

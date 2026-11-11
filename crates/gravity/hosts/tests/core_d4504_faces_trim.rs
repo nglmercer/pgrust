@@ -12,6 +12,7 @@ use gravity_driver::{blank_site, BindingRef, CommandId, Identity, PerTuple, Pins
 use gravity_hosts::ops::scan::pgrc::granule_source::{GranuleRangeSource, GranuleRecipe, PartIoSpec, PartList, PartSpec, Resolved};
 use gravity_parallel::{ClaimSize, GranuleRange, MorselSource};
 use gravity_program::{ZoneOp, ZonePred};
+#[allow(unused_imports)]
 use memledger::{charge, Consumer, Holder, Owner};
 use pgrc_format::dirlayout::part_file_name;
 use pgrc_qa::corpus::{build_fixture, int8_fixture};

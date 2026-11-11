@@ -575,6 +575,7 @@ mod phase1 {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_constants)]
     fn the_phase1_table_probes_two_slots_evicts_the_home_and_drains_into_partitioned_buffers() {
         let l = RecordLayout::new_nn(&[KeyKind::I64], &[SlotKind::Count]);
         let limit = 256 << 10;
@@ -615,6 +616,7 @@ mod phase1 {
                 for i in 0..b.recs {
                     let r = unsafe { gravity_abi::breaker::Rec::at(b.ptr.add(i * l.size() as usize) as *mut u8, &l) };
                     assert_eq!(r.route().part(t.pbits as u32), part);
+                    #[allow(unused_must_use)]
                     a.find_or_insert(r.keys()).unwrap().fold(&r);
                 }
             }
@@ -820,7 +822,7 @@ mod phase1 {
             assert!(unsafe { T1::drain_below(t, 0, i64::MAX) });
         }
         for i in 0..300u64 {
-            insert(t, [(((i * 31) % 997))]);
+            insert(t, [((i * 31) % 997)]);
         }
         let h = unsafe { (*t).held() } as usize;
         assert!(h > 4000, "held {h}");
@@ -1263,6 +1265,7 @@ fn a_run_sized_for_its_rows_opens_at_twice_them_and_doubles_within_its_region() 
 /// an empty side's other, adds N, Sx by `float8_pl`, and taints (D432: Sxx = +Inf, the final raises) an infinite Sxx from
 /// finite ones (avg over {1e200, -1e200}) or an Sx overflow; a tainted side keeps its taint.
 #[test]
+#[allow(clippy::assertions_on_constants)]
 fn float_merges_raise_where_pg_raises() {
     assert!(float8_pl(1.5e308, 1.5e308).is_err());
     assert_eq!(float8_pl(f64::INFINITY, 1.0).ok(), Some(f64::INFINITY));

@@ -369,6 +369,7 @@ mod tests {
             ("the element length", desc(true, 66, 0, ElemFacts { len: 8, ..INT4 }, 0)),
             ("a by-reference element", desc(true, 66, 0, ElemFacts { byval: false, ..INT4 }, 0)),
             ("the element alignment", desc(true, 66, 0, ElemFacts { align: b'd' as i8, ..INT4 }, 0)),
+            #[allow(clippy::unusual_byte_groupings)]
             ("a user key's set", Desc { user: 0x75_7365_72, ..desc(true, 66, 0, INT4, 1) }.sealed()),
         ];
         let mut seen = std::collections::BTreeMap::from([(base, "int4lt ANY")]);

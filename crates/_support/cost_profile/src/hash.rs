@@ -18,7 +18,10 @@ pub const HASHBUILD_L2: Load = Load { num: 1, den: 8 };
 /// abi's HashBuild tables of at most this many rows sit at `BUILD_SPARSE_LOAD` on machine `m`: the rows whose sparse
 /// table fits `HASHBUILD_L2` of its L2 share (2,048 on the reference machine; 256 on a c6a thread's 256 KiB).
 pub const fn hashbuild_sparse_rows(m: &Machine) -> u64 {
-    m.l2_share() / HASHBUILD_L2.den * HASHBUILD_L2.num / HASHBUILD_ENTRY_BYTES / BUILD_SPARSE_LOAD.den * BUILD_SPARSE_LOAD.num
+    m.l2_share() / HASHBUILD_L2.den * HASHBUILD_L2.num
+        / HASHBUILD_ENTRY_BYTES
+        / BUILD_SPARSE_LOAD.den
+        * BUILD_SPARSE_LOAD.num
 }
 
 pub const fn rows_within(load: Load, m: &Machine) -> u64 {
@@ -47,7 +50,11 @@ const fn ceil_log2(n: u64) -> u32 {
 
 pub const fn cap_bits_at(rows: u64, load: Load) -> u32 {
     let want = (rows as u128 * load.den as u128).div_ceil(load.num as u128);
-    let want = if want > u64::MAX as u128 { u64::MAX } else { want as u64 };
+    let want = if want > u64::MAX as u128 {
+        u64::MAX
+    } else {
+        want as u64
+    };
     let bits = ceil_log2(want);
     if bits < BUILD_MIN_CAP_BITS {
         BUILD_MIN_CAP_BITS
@@ -79,7 +86,14 @@ pub const fn dense_span_max(rows: u64, m: &Machine) -> u64 {
 /// The capacity bits of abi's HashBuild for `rows` rows on machine `m`: `BUILD_SPARSE_LOAD` up to
 /// `hashbuild_sparse_rows`, else `BUILD_LOAD`.
 pub const fn hashbuild_cap_bits(rows: u64, m: &Machine) -> u32 {
-    cap_bits_at(rows, if rows <= hashbuild_sparse_rows(m) { BUILD_SPARSE_LOAD } else { BUILD_LOAD })
+    cap_bits_at(
+        rows,
+        if rows <= hashbuild_sparse_rows(m) {
+            BUILD_SPARSE_LOAD
+        } else {
+            BUILD_LOAD
+        },
+    )
 }
 
 pub const AGG_GROW_LOAD: Load = Load { num: 3, den: 4 };
@@ -106,7 +120,11 @@ pub const T1_TABLE_BYTES: u64 = 512 << 10;
 /// reference, 2.1x slower at 2 MiB, a whole L2). The planner (gravity_paths, via `t1_pool_records`) and the run time (abi
 /// `t1_default_bytes`) both read it over `machine::host()`, so plan cost and run time agree.
 pub const fn t1_table_bytes(m: &Machine) -> u64 {
-    let q = (if m.l2 < L2_SHARE_FLOOR { L2_SHARE_FLOOR } else { m.l2 }) / 4;
+    let q = (if m.l2 < L2_SHARE_FLOOR {
+        L2_SHARE_FLOOR
+    } else {
+        m.l2
+    }) / 4;
     1u64 << (63 - q.leading_zeros())
 }
 /// The most a phase-1 table opened at a group bound takes (`t1_fit_bytes`): the reference's table.
@@ -122,7 +140,11 @@ pub const fn t1_fit_bytes(groups: u64, rec: u64, m: &Machine) -> u64 {
         return q;
     }
     let fit = (2 * groups).next_power_of_two().saturating_mul(rec);
-    let max = if q > T1_FIT_MAX_BYTES { q } else { T1_FIT_MAX_BYTES };
+    let max = if q > T1_FIT_MAX_BYTES {
+        q
+    } else {
+        T1_FIT_MAX_BYTES
+    };
     if fit > q && fit <= max {
         fit
     } else {
@@ -149,7 +171,11 @@ pub const fn t1_pool_records(room: u64, rec: u64, groups: u64, m: &Machine) -> u
     let t1 = t1_fit_bytes(groups, rec, m);
     let table = if t1 < avail / 2 { t1 } else { avail / 2 };
     let slots = table / rec;
-    let cap = if slots < 2 { 2 } else { 1u64 << (63 - slots.leading_zeros()) };
+    let cap = if slots < 2 {
+        2
+    } else {
+        1u64 << (63 - slots.leading_zeros())
+    };
     let opened = if cap / 8 < 2 { 2 } else { cap / 8 };
     avail.saturating_sub(cap * rec + 4 * cap + 4 * opened) / rec
 }
@@ -165,72 +191,201 @@ mod tests {
     #[test]
     fn a_phase_1_pool_keeps_three_quarters_of_its_records() {
         let r = Machine::REFERENCE;
-        assert_eq!(t1_table_bytes(&r), T1_TABLE_BYTES, "D06: the reference keeps 512 KiB");
-        assert_eq!(t1_table_bytes(&Machine::detected(None, 512 << 10, 2, 8)), 128 << 10, "a c6a core: 512 KiB / 4");
-        assert_eq!((t1_pool_records(8 << 20, 32, 0, &r), t1_fold_records(8 << 20, 32, 0, &r)), (243_427, 182_570));
-        assert_eq!(t1_pool_records(8 << 20, 40, 0, &r), 200_578, "D2078's extreme pass-1 record (measured 245 blocks of 817)");
+        assert_eq!(
+            t1_table_bytes(&r),
+            T1_TABLE_BYTES,
+            "D06: the reference keeps 512 KiB"
+        );
+        assert_eq!(
+            t1_table_bytes(&Machine::detected(None, 512 << 10, 2, 8)),
+            128 << 10,
+            "a c6a core: 512 KiB / 4"
+        );
+        assert_eq!(
+            (
+                t1_pool_records(8 << 20, 32, 0, &r),
+                t1_fold_records(8 << 20, 32, 0, &r)
+            ),
+            (243_427, 182_570)
+        );
+        assert_eq!(
+            t1_pool_records(8 << 20, 40, 0, &r),
+            200_578,
+            "D2078's extreme pass-1 record (measured 245 blocks of 817)"
+        );
         assert_eq!(t1_fold_records(T1_HDR_BYTES, 32, 0, &r), 0);
-        assert!(t1_fold_records(16 << 20, 32, 0, &r) > 2 * t1_fold_records(8 << 20, 32, 0, &r), "the table stays at 512 KiB");
+        assert!(
+            t1_fold_records(16 << 20, 32, 0, &r) > 2 * t1_fold_records(8 << 20, 32, 0, &r),
+            "the table stays at 512 KiB"
+        );
     }
 
     #[test]
     fn a_bound_sizes_the_table_that_holds_it_up_to_the_reference_table() {
         let (r, c6a) = (Machine::REFERENCE, Machine::detected(None, 512 << 10, 2, 8));
         for g in [0, 1, 3_000, 10_000, 1 << 20] {
-            assert_eq!(t1_fit_bytes(g, 32, &r), T1_TABLE_BYTES, "the reference keeps 512 KiB at any bound ({g})");
+            assert_eq!(
+                t1_fit_bytes(g, 32, &r),
+                T1_TABLE_BYTES,
+                "the reference keeps 512 KiB at any bound ({g})"
+            );
             assert_eq!(t1_pool_records(8 << 20, 32, g, &r), 243_427);
         }
-        assert_eq!(t1_fit_bytes(0, 32, &c6a), 128 << 10, "no bound: the default");
-        assert_eq!(t1_fit_bytes(1_000, 32, &c6a), 128 << 10, "2,048 slots fit the default");
-        assert_eq!(t1_fit_bytes(3_000, 32, &c6a), 256 << 10, "8,192 slots of 32 bytes");
-        assert_eq!(t1_fit_bytes(8_000, 32, &c6a), 512 << 10, "16,384 slots: the cap");
-        assert_eq!(t1_fit_bytes(10_000, 32, &c6a), 128 << 10, "32,768 slots are past the cap: the default, no table holds them");
-        assert_eq!(t1_fit_bytes(3_000, 48, &c6a), 384 << 10, "a record that is not a power of two");
-        assert!(t1_pool_records(8 << 20, 32, 3_000, &c6a) < t1_pool_records(8 << 20, 32, 0, &c6a), "the larger table leaves less pool");
+        assert_eq!(
+            t1_fit_bytes(0, 32, &c6a),
+            128 << 10,
+            "no bound: the default"
+        );
+        assert_eq!(
+            t1_fit_bytes(1_000, 32, &c6a),
+            128 << 10,
+            "2,048 slots fit the default"
+        );
+        assert_eq!(
+            t1_fit_bytes(3_000, 32, &c6a),
+            256 << 10,
+            "8,192 slots of 32 bytes"
+        );
+        assert_eq!(
+            t1_fit_bytes(8_000, 32, &c6a),
+            512 << 10,
+            "16,384 slots: the cap"
+        );
+        assert_eq!(
+            t1_fit_bytes(10_000, 32, &c6a),
+            128 << 10,
+            "32,768 slots are past the cap: the default, no table holds them"
+        );
+        assert_eq!(
+            t1_fit_bytes(3_000, 48, &c6a),
+            384 << 10,
+            "a record that is not a power of two"
+        );
+        assert!(
+            t1_pool_records(8 << 20, 32, 3_000, &c6a) < t1_pool_records(8 << 20, 32, 0, &c6a),
+            "the larger table leaves less pool"
+        );
     }
 
     #[test]
     fn the_reference_machine_takes_the_fitted_bounds() {
         let m = Machine::REFERENCE;
-        assert_eq!((rows_within(SPARSE_LOADS[0], &m), rows_within(SPARSE_LOADS[1], &m)), (8192, 16384));
-        assert_eq!([2048, 8192, 8193, 16384, 16385].map(|r| build_load(r, &m).den), [8, 8, 4, 4, 2]);
-        assert_eq!((build_cap_bits(8192, &m), build_cap_bits(16384, &m), build_cap_bits(16385, &m)), (16, 16, 16));
-        assert_eq!((build_cap_bits(0, &m), build_cap_bits(1 << 20, &m), build_cap_bits((1 << 20) + 1, &m)), (10, 21, 22));
+        assert_eq!(
+            (
+                rows_within(SPARSE_LOADS[0], &m),
+                rows_within(SPARSE_LOADS[1], &m)
+            ),
+            (8192, 16384)
+        );
+        assert_eq!(
+            [2048, 8192, 8193, 16384, 16385].map(|r| build_load(r, &m).den),
+            [8, 8, 4, 4, 2]
+        );
+        assert_eq!(
+            (
+                build_cap_bits(8192, &m),
+                build_cap_bits(16384, &m),
+                build_cap_bits(16385, &m)
+            ),
+            (16, 16, 16)
+        );
+        assert_eq!(
+            (
+                build_cap_bits(0, &m),
+                build_cap_bits(1 << 20, &m),
+                build_cap_bits((1 << 20) + 1, &m)
+            ),
+            (10, 21, 22)
+        );
     }
 
     #[test]
     fn an_smt_thread_holds_fewer_sparse_records() {
         let m = Machine::detected(Some(32 << 10), 512 << 10, 2, 8);
-        assert_eq!((rows_within(SPARSE_LOADS[0], &m), rows_within(SPARSE_LOADS[1], &m)), (1024, 2048));
-        assert_eq!([1024, 1025, 2048, 2049].map(|r| build_load(r, &m).den), [8, 4, 4, 2]);
+        assert_eq!(
+            (
+                rows_within(SPARSE_LOADS[0], &m),
+                rows_within(SPARSE_LOADS[1], &m)
+            ),
+            (1024, 2048)
+        );
+        assert_eq!(
+            [1024, 1025, 2048, 2049].map(|r| build_load(r, &m).den),
+            [8, 4, 4, 2]
+        );
     }
 
     #[test]
     fn a_dense_span_follows_the_keyhash_directory() {
         let m = Machine::REFERENCE;
-        let reach = |heads: u64| heads * HEAD_BYTES * DENSE_REACH.num / DENSE_REACH.den / DENSE_VALUE_BYTES;
+        let reach =
+            |heads: u64| heads * HEAD_BYTES * DENSE_REACH.num / DENSE_REACH.den / DENSE_VALUE_BYTES;
         assert_eq!(dense_span_max(0, &m), 0);
-        assert_eq!([8192, 16384, 1 << 18, (1 << 18) + 1].map(|r| dense_span_max(r, &m)), [1 << 16, 1 << 16, 1 << 19, 1 << 20].map(reach));
+        assert_eq!(
+            [8192, 16384, 1 << 18, (1 << 18) + 1].map(|r| dense_span_max(r, &m)),
+            [1 << 16, 1 << 16, 1 << 19, 1 << 20].map(reach)
+        );
         assert_eq!(dense_span_max(u64::MAX, &m), u64::MAX);
     }
 
     #[test]
     fn abis_hashbuild_keeps_its_bound() {
         let r = Machine::REFERENCE;
-        assert_eq!(hashbuild_sparse_rows(&r), 2048, "D155's measured bound on the reference machine");
-        assert_eq!(hashbuild_sparse_rows(&Machine::detected(None, 256 << 10, 1, 16)), 256);
-        assert_eq!((hashbuild_cap_bits(0, &r), hashbuild_cap_bits(2048, &r), hashbuild_cap_bits(2049, &r)), (10, 14, 13));
-        assert_eq!((hashbuild_cap_bits(1 << 20, &r), hashbuild_cap_bits((1 << 20) + 1, &r)), (21, 22));
+        assert_eq!(
+            hashbuild_sparse_rows(&r),
+            2048,
+            "D155's measured bound on the reference machine"
+        );
+        assert_eq!(
+            hashbuild_sparse_rows(&Machine::detected(None, 256 << 10, 1, 16)),
+            256
+        );
+        assert_eq!(
+            (
+                hashbuild_cap_bits(0, &r),
+                hashbuild_cap_bits(2048, &r),
+                hashbuild_cap_bits(2049, &r)
+            ),
+            (10, 14, 13)
+        );
+        assert_eq!(
+            (
+                hashbuild_cap_bits(1 << 20, &r),
+                hashbuild_cap_bits((1 << 20) + 1, &r)
+            ),
+            (21, 22)
+        );
     }
 
     #[test]
     fn every_build_fits_its_directory_at_its_load() {
-        for m in [Machine::REFERENCE, Machine::detected(Some(32 << 10), 512 << 10, 2, 8)] {
-            for rows in (0..200_000u64).step_by(997).chain([1023, 1024, 1025, 8191, 8192, 8193, 16384, 16385, 1 << 31, u64::MAX / 4]) {
+        for m in [
+            Machine::REFERENCE,
+            Machine::detected(Some(32 << 10), 512 << 10, 2, 8),
+        ] {
+            for rows in (0..200_000u64).step_by(997).chain([
+                1023,
+                1024,
+                1025,
+                8191,
+                8192,
+                8193,
+                16384,
+                16385,
+                1 << 31,
+                u64::MAX / 4,
+            ]) {
                 let (bits, l) = (build_cap_bits(rows, &m), build_load(rows, &m));
                 let cap = 1u128 << bits;
-                assert!(rows as u128 * l.den as u128 <= cap * l.num as u128, "{rows} rows in {cap} heads");
-                assert!(bits == BUILD_MIN_CAP_BITS || rows as u128 * l.den as u128 > (cap / 2) * l.num as u128, "{rows}: the least power of two");
+                assert!(
+                    rows as u128 * l.den as u128 <= cap * l.num as u128,
+                    "{rows} rows in {cap} heads"
+                );
+                assert!(
+                    bits == BUILD_MIN_CAP_BITS
+                        || rows as u128 * l.den as u128 > (cap / 2) * l.num as u128,
+                    "{rows}: the least power of two"
+                );
             }
         }
     }

@@ -226,7 +226,7 @@ unsafe fn grow_to_at(st: &mut State<'_>, bytes: usize, counted: Option<u64>) -> 
     let (d, len) = (st.bytes.as_mut_ptr(), st.bytes.len());
     if !fresh {
         core::ptr::copy(d.add(end - t), d.add(len - t), t);
-        (wr::<u64>(d, TOP, (len - t) as u64), wr::<u64>(d, END, len as u64));
+        wr::<u64>(d, TOP, (len - t) as u64); wr::<u64>(d, END, len as u64);
     }
     wr::<u32>(d, LIMIT, len.min(u32::MAX as usize) as u32);
     Ok(())
@@ -282,7 +282,7 @@ pub(crate) unsafe fn rf_need(t: &Rt) -> usize {
 /// A fresh leader of `len` bytes headed as worker region `s`, with no records and no images.
 pub(crate) unsafe fn head(d: *mut u8, s: *const u8, len: usize) {
     core::ptr::copy_nonoverlapping(s, d, layout::base(layout::pay_of(s)));
-    (wr::<u64>(d, N, 0), wr::<u64>(d, TOP, len as u64), wr::<u64>(d, END, len as u64), wr::<i64>(d, LO, i64::MAX), wr::<i64>(d, HI, i64::MIN));
+    wr::<u64>(d, N, 0); wr::<u64>(d, TOP, len as u64); wr::<u64>(d, END, len as u64); wr::<i64>(d, LO, i64::MAX); wr::<i64>(d, HI, i64::MIN);
     wr::<u32>(d, LIMIT, len.min(u32::MAX as usize) as u32);
 }
 
@@ -366,7 +366,7 @@ pub(crate) unsafe fn lay_out(d: *mut u8, len: usize) -> gravity_driver::Result<(
             wr::<u64>(d, N, 0);
             wr::<u8>(d, 15, KIND);
             // the driver zeroes only the first 64 header bytes: a region no row opened never spilled
-            (wr::<u8>(d, crate::ops::hashjoin::spill::build::SPILL, 0), wr::<u8>(d, crate::ops::hashjoin::spill::build::PBITS, 0), wr::<u64>(d, crate::ops::hashjoin::spill::build::SPILLED, 0));
+            wr::<u8>(d, crate::ops::hashjoin::spill::build::SPILL, 0); wr::<u8>(d, crate::ops::hashjoin::spill::build::PBITS, 0); wr::<u64>(d, crate::ops::hashjoin::spill::build::SPILLED, 0);
         }
         _ => {}
     }
@@ -440,7 +440,7 @@ unsafe fn split(t: &Rt) {
         }
     }
     (i..t.n).for_each(|k| *t.link(k) &= !LOW);
-    (wr::<u64>(t.d, N, i as u64), wr::<u64>(t.d, KEPT, (t.n - i) as u64), wr::<u8>(t.d, FLAGS, rd::<u8>(t.d, FLAGS) | F_SPLIT));
+    wr::<u64>(t.d, N, i as u64); wr::<u64>(t.d, KEPT, (t.n - i) as u64); wr::<u8>(t.d, FLAGS, rd::<u8>(t.d, FLAGS) | F_SPLIT);
 }
 
 /// The marks array placed past the records, its offset in `MARKS` (the directory follows it, `Rt::dir`); its bytes
@@ -448,7 +448,8 @@ unsafe fn split(t: &Rt) {
 pub(crate) unsafe fn place_marks(t: &Rt) -> gravity_driver::Result<()> {
     t.room(t.marks_at(), t.n + t.kept)?;
     crate::lifetime::hashjoin::built(core::slice::from_raw_parts_mut(t.d.add(t.marks_at()), t.n + t.kept));
-    Ok(wr::<u64>(t.d, MARKS, t.marks_at() as u64))
+    wr::<u64>(t.d, MARKS, t.marks_at() as u64);
+    Ok(())
 }
 
 /// A live partial's header words, the partitioned merge's plan reads them (build_part.rs `plan`).
@@ -513,7 +514,10 @@ pub(crate) fn prepare_parts(leader: &mut State<'_>, partials: &[Partial<'_>]) ->
             grow_to_exact(leader, t.dir() + bits::need(d), t.n as u64)?;
             bits::prepare(&Rt::of(leader.bytes.as_mut_ptr(), leader.bytes.len()));
             wr::<u8>(leader.bytes.as_mut_ptr(), RF_BITS, 0);
-            return Ok(wr::<u8>(leader.bytes.as_mut_ptr(), PHASE, 2));
+            return {
+                wr::<u8>(leader.bytes.as_mut_ptr(), PHASE, 2);
+                Ok(())
+            };
         }
         // the jobs chain into DENSE slots or KeyHash heads; a marking build takes no DENSE slots (dense raw.rs `lay`)
         let (at, span) = (t.dir(), crate::ops::hashjoin::strategies::dense::span_of(d, t.n).filter(|_| !t.marks));
@@ -634,6 +638,7 @@ pub(crate) unsafe fn pay_of(d: *const u8) -> usize {
 }
 
 /// Stamp `pay` payload columns into the header at `d` (both bytes, so a header not zeroed past 64 bytes reads right).
+#[allow(dead_code)]
 pub(crate) unsafe fn set_pay(d: *mut u8, pay: usize) {
     debug_assert!(pay <= layout::MAX_PAY);
     wr::<u8>(d, crate::ops::hashjoin::build::PAY, pay as u8);
@@ -645,6 +650,7 @@ mod pay_tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::assertions_on_constants, unused_attributes)]
     fn the_width_round_trips_past_a_byte() {
         let mut h = [0xA5u8; 192];
         for pay in [0, 1, 32, 255, 256, 1000, layout::MAX_PAY] {

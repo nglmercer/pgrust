@@ -1757,6 +1757,7 @@ mod tests {
                 // Role DDL only ever names fuzz roles.
                 for pfx in ["CREATE ROLE ", "ALTER ROLE ", "GRANT ", "REVOKE ", "SET ROLE "] {
                     if let Some(rest) = sql.strip_prefix(pfx) {
+                        #[allow(clippy::if_same_then_else)]
                         if pfx == "GRANT " || pfx == "REVOKE " {
                             assert!(rest.starts_with("fz_role_"), "{sql}");
                         } else {

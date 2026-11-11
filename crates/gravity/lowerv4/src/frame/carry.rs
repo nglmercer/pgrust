@@ -41,13 +41,13 @@ impl CarryMech for Store {
         // D528: an exit no row leaves through is not emitted
         if crate::frame::frame::reached(b, l_stop) {
             b.switch_to(l_stop);
-            let p = mcx::to_vec_in(&b.block_params(l_stop)[..], env.mcx);
+            let p = mcx::to_vec_in(b.block_params(l_stop), env.mcx);
             end.window_end(b, env, &Carry { out: p[0], accs: mcx::to_vec_in(&p[3..], env.mcx) });
             b.br(x.l_stop_in, &p[..3]);
         }
         if crate::frame::frame::reached(b, l_full) {
             b.switch_to(l_full);
-            let p = mcx::to_vec_in(&b.block_params(l_full)[..], env.mcx);
+            let p = mcx::to_vec_in(b.block_params(l_full), env.mcx);
             end.window_end(b, env, &Carry { out: p[0], accs: mcx::to_vec_in(&p[2..], env.mcx) });
             b.br(x.l_full, &p[..2]);
         }
@@ -72,7 +72,7 @@ pub(crate) fn through<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, ro
     env.x.l_stop_in = stop_in;
     let here = b.current();
     b.switch_to(l_seen);
-    let p = mcx::to_vec_in(&b.block_params(l_seen)[..], env.mcx);
+    let p = mcx::to_vec_in(b.block_params(l_seen), env.mcx);
     let past = b.icmp(IntCond::Eq, p[1], row.next);
     let at = b.icmp(IntCond::Eq, p[1], row.at);
     let known = b.int_bin(IntBinOp::Or, past, at);

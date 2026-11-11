@@ -15,6 +15,7 @@ use gravity_decompose::join::{JoinDesc, JoinKey, JoinKeyDecl};
 use gravity_decompose::Op;
 use gravity_program::protos::{Proto, ProtoKind};
 use mcx::{CollectIn, PgVec};
+#[allow(unused_imports)]
 use types_nodes::Node;
 
 use crate::effects::ops_raise_free;
@@ -56,6 +57,7 @@ pub(crate) fn declare(px: &mut Px<'_, '_>, sh: &Shape, decls: &[JoinKeyDecl<'_>]
     if !crate::face::source::on(crate::admit::refusal::Variant::Strategy(JOIN_RTFILTER)) {
         return;
     }
+    #[allow(clippy::nonminimal_bool)]
     if !matches!(d.key.kind, Some(KeyKind::I32 | KeyKind::I64 | KeyKind::Date | KeyKind::Timestamp)) && !(decls.len() == 1 && text_fp_key(&d.key) && text_fp_ok(px)) {
         return;
     }
@@ -123,6 +125,7 @@ pub(crate) fn declare_swapped(px: &mut Px<'_, '_>, s: &crate::ops::hashjoin::fac
     if !crate::face::source::on(crate::admit::refusal::Variant::Strategy(JOIN_RTFILTER)) {
         return;
     }
+    #[allow(clippy::nonminimal_bool)]
     if !matches!(d.key.kind, Some(KeyKind::I32 | KeyKind::I64 | KeyKind::Date | KeyKind::Timestamp)) && !(decls.len() == 1 && text_fp_key(&d.key) && text_fp_ok(px)) {
         return;
     }
@@ -299,10 +302,10 @@ mod tests {
             let mut got = Vec::new();
             // SAFETY: `buf` (4 KiB) holds the header and three 24-byte records (two key words and the link) from HDR.
             let n = unsafe {
-                (wr::<u8>(d, 15, KIND), wr::<u8>(d, PHASE, 2), wr::<u8>(d, FLAGS, flags), wr::<u8>(d, WORDS, 2), wr::<u32>(d, REC, 24));
-                (wr::<u64>(d, N, 3), wr::<i64>(d, LO, 5), wr::<i64>(d, HI, 40));
+                wr::<u8>(d, 15, KIND); wr::<u8>(d, PHASE, 2); wr::<u8>(d, FLAGS, flags); wr::<u8>(d, WORDS, 2); wr::<u32>(d, REC, 24);
+                wr::<u64>(d, N, 3); wr::<i64>(d, LO, 5); wr::<i64>(d, HI, 40);
                 for (i, (a, b)) in [(40i64, 7i64), (5, -3), (17, 1 << 40)].into_iter().enumerate() {
-                    (wr::<i64>(d, HDR + 24 * i, a), wr::<i64>(d, HDR + 24 * i + 8, b));
+                    wr::<i64>(d, HDR + 24 * i, a); wr::<i64>(d, HDR + 24 * i + 8, b);
                 }
                 export(d, &[], None, &mut |k, a, b| got.push((k, a as i64, b as i64)))
             };

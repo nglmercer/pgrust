@@ -6,17 +6,16 @@
 //! them). BuildRestoreCommand is re-exported from the `archive` crate (C home
 //! src/common/archive.c).
 
-#![allow(non_snake_case)]
-#![allow(clippy::result_large_err)]
+#![allow(clippy::result_large_err, non_snake_case)]
 
 use elog::{ereport, PCT_M};
 use init_small::globals as g;
-use types_storage::waiteventset::{WL_EXIT_ON_PM_DEATH, WL_LATCH_SET, WL_TIMEOUT};
 use transam_xlog::{
-    IsTLHistoryFileName, StatusFilePath, XLByteToSeg, XLogArchivingActive, XLogArchivingAlways,
-    XLogFileName, GetRecoveryState, RECOVERY_STATE_ARCHIVE, XLOGDIR,
+    GetRecoveryState, IsTLHistoryFileName, StatusFilePath, XLByteToSeg, XLogArchivingActive,
+    XLogArchivingAlways, XLogFileName, RECOVERY_STATE_ARCHIVE, XLOGDIR,
 };
 use types_error::{ErrorLocation, PgResult, DEBUG1, DEBUG2, DEBUG3, ERROR, FATAL, LOG, WARNING};
+use types_storage::waiteventset::{WL_EXIT_ON_PM_DEATH, WL_LATCH_SET, WL_TIMEOUT};
 
 #[cfg(test)]
 mod tests;
@@ -57,7 +56,9 @@ pub fn RestoreArchivedFile(
 
     // Owner-unported guard mirrors C's NULL restore_command.
     let restore_command = if guc_tables::vars::recoveryRestoreCommand.installed() {
-        guc_tables::vars::recoveryRestoreCommand.read().unwrap_or_default()
+        guc_tables::vars::recoveryRestoreCommand
+            .read()
+            .unwrap_or_default()
     } else {
         String::new()
     };
@@ -95,8 +96,12 @@ pub fn RestoreArchivedFile(
         XLogFileName(0, 0, wal_segsz)
     };
 
-    let xlog_restore_cmd =
-        BuildRestoreCommand(&restore_command, &xlogpath, xlogfname, &last_restart_point_fname)?;
+    let xlog_restore_cmd = BuildRestoreCommand(
+        &restore_command,
+        &xlogpath,
+        xlogfname,
+        &last_restart_point_fname,
+    )?;
 
     ereport(DEBUG3)
         .errmsg_internal(format!("executing restore command \"{xlog_restore_cmd}\""))
@@ -133,7 +138,8 @@ pub fn RestoreArchivedFile(
                 // false is returned to let the standby recovery loop poll again.
                 // Any other size mismatch (or non-standby) is FATAL. StandbyMode
                 // is ported, so honor the check instead of always erroring.
-                let elevel = if xlogrecovery_seams::standby_mode::call() && st.size < expected_size {
+                let elevel = if xlogrecovery_seams::standby_mode::call() && st.size < expected_size
+                {
                     DEBUG1
                 } else {
                     FATAL
@@ -157,9 +163,7 @@ pub fn RestoreArchivedFile(
                 .with_saved_errno(en)
                 .errcode_for_file_access()
                 .errmsg(format!("could not stat file \"{xlogpath}\": {PCT_M}"))
-                .errdetail(
-                    "\"restore_command\" returned a zero exit status, but stat() failed.",
-                )
+                .errdetail("\"restore_command\" returned a zero exit status, but stat() failed.")
                 .finish(loc("RestoreArchivedFile"))?;
         }
     }
@@ -174,7 +178,11 @@ pub fn RestoreArchivedFile(
         ipc::proc_exit(1, g::MyProcPid());
     }
 
-    let elevel = if wait_error::wait_result_is_any_signal(rc, true) { FATAL } else { DEBUG2 };
+    let elevel = if wait_error::wait_result_is_any_signal(rc, true) {
+        FATAL
+    } else {
+        DEBUG2
+    };
     ereport(elevel)
         .errmsg(format!(
             "could not restore file \"{xlogfname}\" from archive: {}",
@@ -279,7 +287,9 @@ pub fn XLogArchiveNotify(xlog: &str) -> PgResult<()> {
         ereport(LOG)
             .with_saved_errno(saved_errno())
             .errcode_for_file_access()
-            .errmsg(format!("could not create archive status file \"{archive_status_path}\": {PCT_M}"))
+            .errmsg(format!(
+                "could not create archive status file \"{archive_status_path}\": {PCT_M}"
+            ))
             .finish(loc("XLogArchiveNotify"))?;
         return Ok(());
     }
@@ -287,7 +297,9 @@ pub fn XLogArchiveNotify(xlog: &str) -> PgResult<()> {
         ereport(LOG)
             .with_saved_errno(saved_errno())
             .errcode_for_file_access()
-            .errmsg(format!("could not write archive status file \"{archive_status_path}\": {PCT_M}"))
+            .errmsg(format!(
+                "could not write archive status file \"{archive_status_path}\": {PCT_M}"
+            ))
             .finish(loc("XLogArchiveNotify"))?;
         return Ok(());
     }
@@ -302,7 +314,10 @@ pub fn XLogArchiveNotify(xlog: &str) -> PgResult<()> {
     Ok(())
 }
 
-pub fn XLogArchiveNotifySeg(segno: types_core::XLogSegNo, tli: types_core::TimeLineID) -> PgResult<()> {
+pub fn XLogArchiveNotifySeg(
+    segno: types_core::XLogSegNo,
+    tli: types_core::TimeLineID,
+) -> PgResult<()> {
     debug_assert!(tli != 0);
     XLogArchiveNotify(&XLogFileName(tli, segno, transam_xlog::wal_segment_size()))
 }
@@ -324,7 +339,9 @@ pub fn XLogArchiveForceDone(xlog: &str) -> PgResult<()> {
         ereport(LOG)
             .with_saved_errno(saved_errno())
             .errcode_for_file_access()
-            .errmsg(format!("could not create archive status file \"{archive_done}\": {PCT_M}"))
+            .errmsg(format!(
+                "could not create archive status file \"{archive_done}\": {PCT_M}"
+            ))
             .finish(loc("XLogArchiveForceDone"))?;
         return Ok(());
     }
@@ -332,7 +349,9 @@ pub fn XLogArchiveForceDone(xlog: &str) -> PgResult<()> {
         ereport(LOG)
             .with_saved_errno(saved_errno())
             .errcode_for_file_access()
-            .errmsg(format!("could not write archive status file \"{archive_done}\": {PCT_M}"))
+            .errmsg(format!(
+                "could not write archive status file \"{archive_done}\": {PCT_M}"
+            ))
             .finish(loc("XLogArchiveForceDone"))?;
         return Ok(());
     }

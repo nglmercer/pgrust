@@ -67,11 +67,21 @@ impl AggStateNode {
     /// exact reservation keeps this one fill from moving the ones it already pushed.
     pub fn add_set_contexts(&mut self, n: usize, mut make: impl FnMut() -> MemoryContext) {
         let sets = self.sets.get_mut();
-        debug_assert!(sets.is_empty(), "add_set_contexts runs once, at init: a second fill would move the set contexts");
-        debug_assert_eq!(self.cur_set.get(), NO_SET, "add_set_contexts runs before any set is selected");
+        debug_assert!(
+            sets.is_empty(),
+            "add_set_contexts runs once, at init: a second fill would move the set contexts"
+        );
+        debug_assert_eq!(
+            self.cur_set.get(),
+            NO_SET,
+            "add_set_contexts runs before any set is selected"
+        );
         sets.reserve_exact(n);
         for _ in 0..n {
-            sets.push(SetContext { ctx: make(), callbacks: ::alloc::vec::Vec::new() });
+            sets.push(SetContext {
+                ctx: make(),
+                callbacks: ::alloc::vec::Vec::new(),
+            });
         }
     }
 
@@ -160,7 +170,9 @@ impl AggStateNode {
         // SAFETY: single-threaded backend; no other borrow escapes this module.
         unsafe {
             if cur != NO_SET {
-                (&mut *self.sets.get())[cur as usize].callbacks.push((func, arg));
+                (&mut *self.sets.get())[cur as usize]
+                    .callbacks
+                    .push((func, arg));
             } else {
                 (*self.callbacks.get()).push((func, arg));
             }
@@ -249,9 +261,9 @@ mod tests {
 
     #[test]
     fn allocation_carrier_survives_partition_reset() {
-        let raw = ::alloc::boxed::Box::into_raw(::alloc::boxed::Box::new(
-            AggStateNode::new(MemoryContext::new_bump("reset-carrier-test")),
-        ));
+        let raw = ::alloc::boxed::Box::into_raw(::alloc::boxed::Box::new(AggStateNode::new(
+            MemoryContext::new_bump("reset-carrier-test"),
+        )));
         let mut owner = NonNull::new(raw).unwrap();
         let carrier = owner.cast::<FmNode>();
         // SAFETY: owner is the live allocation pointer; reset's exclusive borrow ends before reads.

@@ -544,6 +544,7 @@ pub fn numeric_round_common(num: Num<'_>, scale: i32) -> PgResult<NumericImage> 
         return Ok(NumericImage::from_num(num));
     }
 
+    #[allow(clippy::manual_clamp)]
     let scale = scale
         .max(-(NUMERIC_WEIGHT_MAX + 1) * DEC_DIGITS - 1)
         .min(NUMERIC_DSCALE_MAX);
@@ -561,6 +562,7 @@ pub fn numeric_trunc_common(num: Num<'_>, scale: i32) -> PgResult<NumericImage> 
         return Ok(NumericImage::from_num(num));
     }
 
+    #[allow(clippy::manual_clamp)]
     let scale = scale
         .max(-(NUMERIC_WEIGHT_MAX + 1) * DEC_DIGITS)
         .min(NUMERIC_DSCALE_MAX);

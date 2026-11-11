@@ -18,8 +18,8 @@ use ::mcx::{Mcx, MemoryContext, PgVec};
 use ::types_core::{Oid, INVALID_PROC_NUMBER, RELPERSISTENCE_PERMANENT};
 use ::types_error::PgResult;
 use ::types_rel::{
-    FormData_pg_class, FormData_pg_index, LockInfoData, LockRelId, Relation, RelationData, LOCKMODE,
-    RELKIND_INDEX, REPLICA_IDENTITY_DEFAULT,
+    FormData_pg_class, FormData_pg_index, LockInfoData, LockRelId, Relation, RelationData,
+    LOCKMODE, RELKIND_INDEX, REPLICA_IDENTITY_DEFAULT,
 };
 use ::types_tuple::tupdesc::{CompactAttribute, FormData_pg_attribute};
 use ::types_tuple::TupleDescData;
@@ -56,15 +56,15 @@ pub(crate) fn amproc_of(opfamily: Oid, procnum: u16) -> Option<Oid> {
         (OPFAMILY_ARRAY_PREFIX, GIN_COMPARE_PARTIAL_PROC) => 2700, // gin_cmp_prefix
         (OPFAMILY_ARRAY_PREFIX, _) => 0,
 
-        (OPFAMILY_TEXT_ARRAY_CMP, GIN_COMPARE_PROC) => 360,          // bttextcmp
-        (OPFAMILY_TEXT_ARRAY_CMP, GIN_EXTRACTVALUE_PROC) => 2743,    // ginarrayextract
-        (OPFAMILY_TEXT_ARRAY_CMP, GIN_EXTRACTQUERY_PROC) => 2774,    // ginqueryarrayextract
-        (OPFAMILY_TEXT_ARRAY_CMP, GIN_CONSISTENT_PROC) => 2744,      // ginarrayconsistent
+        (OPFAMILY_TEXT_ARRAY_CMP, GIN_COMPARE_PROC) => 360, // bttextcmp
+        (OPFAMILY_TEXT_ARRAY_CMP, GIN_EXTRACTVALUE_PROC) => 2743, // ginarrayextract
+        (OPFAMILY_TEXT_ARRAY_CMP, GIN_EXTRACTQUERY_PROC) => 2774, // ginqueryarrayextract
+        (OPFAMILY_TEXT_ARRAY_CMP, GIN_CONSISTENT_PROC) => 2744, // ginarrayconsistent
         (OPFAMILY_TEXT_ARRAY_CMP, GIN_COMPARE_PARTIAL_PROC) => 2700, // gin_cmp_prefix
         (OPFAMILY_TEXT_ARRAY_CMP, _) => 0,
 
-        (OPFAMILY_TRI_ONLY, GIN_EXTRACTVALUE_PROC) => 2743,  // ginarrayextract
-        (OPFAMILY_TRI_ONLY, GIN_EXTRACTQUERY_PROC) => 2774,  // ginqueryarrayextract
+        (OPFAMILY_TRI_ONLY, GIN_EXTRACTVALUE_PROC) => 2743, // ginarrayextract
+        (OPFAMILY_TRI_ONLY, GIN_EXTRACTQUERY_PROC) => 2774, // ginqueryarrayextract
         (OPFAMILY_TRI_ONLY, GIN_TRICONSISTENT_PROC) => 3920, // ginarraytriconsistent
         (OPFAMILY_TRI_ONLY, _) => 0,
 
@@ -89,7 +89,11 @@ fn one_col_tupdesc(mcx: Mcx<'_>, text_keys: bool) -> TupleDescData<'_> {
     // the opclass has no FUNCTION 1 (ginutil.c:147).
     let mut attrs = PgVec::new_in(mcx);
     attrs.push(FormData_pg_attribute {
-        atttypid: if text_keys { ::types_core::TEXTOID } else { ::types_core::INT4OID },
+        atttypid: if text_keys {
+            ::types_core::TEXTOID
+        } else {
+            ::types_core::INT4OID
+        },
         attlen: if text_keys { -1 } else { 4 },
         attnum: 1,
         atttypmod: -1,
@@ -139,7 +143,10 @@ fn index_rel(mcx: Mcx<'_>, opfamily: Oid, text_keys: bool) -> Relation<'_> {
         rd_firstRelfilelocatorSubid: Cell::new(0),
         rd_droppedSubid: Cell::new(0),
         rd_lockInfo: LockInfoData {
-            lockRelId: LockRelId { relId: 6143, dbId: 5 },
+            lockRelId: LockRelId {
+                relId: 6143,
+                dbId: 5,
+            },
         },
         rd_rel: FormData_pg_class {
             relname,
@@ -221,7 +228,10 @@ fn extract_procs_resolve_independently_like_c() {
     let state = initGinState(&rel)
         .unwrap_or_else(|e| panic!("C's initGinState accepts this opclass: {}", e.message()));
     let col = state.col(1);
-    assert!(!col.can_partial_match, "no FUNCTION 5: canPartialMatch is false");
+    assert!(
+        !col.can_partial_match,
+        "no FUNCTION 5: canPartialMatch is false"
+    );
 }
 
 // ginutil.c:196-206: canPartialMatch is "proc 5 is registered", whatever
@@ -235,7 +245,10 @@ fn compare_partial_proc_is_recorded_on_any_opclass_shape() {
     let rel = index_rel(cx.mcx(), OPFAMILY_ARRAY_PREFIX, false);
     let state = initGinState(&rel)
         .unwrap_or_else(|e| panic!("C's initGinState accepts this opclass: {}", e.message()));
-    assert!(state.col(1).can_partial_match, "FUNCTION 5 registered: canPartialMatch is true");
+    assert!(
+        state.col(1).can_partial_match,
+        "FUNCTION 5 registered: canPartialMatch is true"
+    );
 }
 
 // ginutil.c:139-146: FUNCTION 1 is fmgr_info_copy'd from index_getprocinfo

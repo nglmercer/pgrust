@@ -124,7 +124,11 @@ fn get_rmgr_unregistered_errors_like_rmgr_not_found() {
         Ok(_) => panic!("expected RmgrNotFound error"),
     };
     assert_eq!(err.message, "resource manager with ID 131 not registered");
-    assert!(err.hint.as_deref().unwrap().contains("shared_preload_libraries"));
+    assert!(err
+        .hint
+        .as_deref()
+        .unwrap()
+        .contains("shared_preload_libraries"));
 }
 
 #[test]
@@ -140,6 +144,7 @@ fn unported_redo_panics_loudly() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn btree_redo_unknown_opcode_errors_loudly() {
     let mut rec = xlogreader_seams::DecodedXLogRecord::default();
     rec.xl_info = 0xF0;

@@ -117,7 +117,11 @@ fn predicate_classify<'mcx>(
         return Ok((PredClass::Or, PredIter::List(b.args.as_slice())));
     }
     if let Some(saop) = node.as_scalar_array_op_expr() {
-        let class = if saop.useOr { PredClass::Or } else { PredClass::And };
+        let class = if saop.useOr {
+            PredClass::Or
+        } else {
+            PredClass::And
+        };
         if let Some(arraynode) = saop.args.as_slice().get(1).copied() {
             if let Some(c) = arraynode.as_const() {
                 if !c.constisnull {
@@ -199,7 +203,11 @@ fn arrayconst_components<'mcx>(
     saop: &types_nodes::primnodes::ScalarArrayOpExpr<'mcx>,
 ) -> PgResult<PgVec<'mcx, Node<'mcx>>> {
     let scalar = saop.args.nth(0);
-    let arrayconst = saop.args.nth(1).as_const().expect("classified as Const array");
+    let arrayconst = saop
+        .args
+        .nth(1)
+        .as_const()
+        .expect("classified as Const array");
     let img = array_const_image(mcx, arrayconst.constvalue)?;
     let elemtype = arrayfuncs::arr_elemtype(img);
     let (elmlen, elmbyval, elmalign) = lsyscache::get_typlenbyvalalign(elemtype)?;
@@ -230,7 +238,13 @@ fn arrayexpr_components<'mcx>(
     saop: &types_nodes::primnodes::ScalarArrayOpExpr<'mcx>,
 ) -> PgResult<PgVec<'mcx, Node<'mcx>>> {
     let scalar = saop.args.nth(0);
-    let elements = saop.args.nth(1).as_array_expr().expect("classified as ArrayExpr").elements.as_slice();
+    let elements = saop
+        .args
+        .nth(1)
+        .as_array_expr()
+        .expect("classified as ArrayExpr")
+        .elements
+        .as_slice();
     let mut out = PgVec::new_in(mcx);
     for &elem in elements {
         out.push(make_saop_op_expr(mcx, saop, scalar, elem)?);
@@ -509,10 +523,7 @@ fn predicate_implied_by_simple_clause<'mcx>(
 
     if let Some(predntest) = predicate.as_null_test() {
         // Strong implication of "foo IS NOT NULL" by a clause strict for foo.
-        if predntest.nulltesttype == NullTestType::IS_NOT_NULL
-            && !weak
-            && !predntest.argisrow
-        {
+        if predntest.nulltesttype == NullTestType::IS_NOT_NULL && !weak && !predntest.argisrow {
             if let Some(arg) = predntest.arg {
                 if clause_is_strict_for(mcx, clause, arg, true)? {
                     return Ok(true);
@@ -855,6 +866,7 @@ fn operator_predicate_proof<'mcx>(
         }
         // The clause returns NULL: vacuously proven for every proof type
         // except weak implication, where NULL => NULL still works.
+        #[allow(clippy::nonminimal_bool)]
         if !(weak && !refute_it) {
             return Ok(true);
         }
@@ -921,7 +933,11 @@ fn operator_same_subexprs_proof<'mcx>(
         return Ok(true);
     }
     let entry = lookup_proof_cache(mcx, pred_op, clause_op, refute_it)?;
-    Ok(if refute_it { entry.same_subexprs_refutes } else { entry.same_subexprs_implies })
+    Ok(if refute_it {
+        entry.same_subexprs_refutes
+    } else {
+        entry.same_subexprs_implies
+    })
 }
 
 fn get_btree_test_op<'mcx>(
@@ -931,7 +947,11 @@ fn get_btree_test_op<'mcx>(
     refute_it: bool,
 ) -> PgResult<Oid> {
     let entry = lookup_proof_cache(mcx, pred_op, clause_op, refute_it)?;
-    Ok(if refute_it { entry.refute_test_op } else { entry.implic_test_op })
+    Ok(if refute_it {
+        entry.refute_test_op
+    } else {
+        entry.implic_test_op
+    })
 }
 
 #[derive(Clone, Copy, Default)]
@@ -1002,11 +1022,11 @@ fn lookup_proof_cache<'mcx>(
         if slot.is_none() {
             // Backend-lifetime table (C: hash_create at first use); flushed
             // wholesale on pg_amop changes.
-            let cache_mcx =
-                ::mcx::session_root("Btree proof lookup cache").mcx();
+            let cache_mcx = ::mcx::session_root("Btree proof lookup cache").mcx();
             // D4682: the teardown retires this root; clear the slot first, so a reused thread's next
             // session builds a new one.
             ::mcx::register_session_cleanup(Box::new(|| {
+                #[allow(clippy::drop_non_drop)]
                 let _ = OPR_PROOF_CACHE.try_with(|c| drop(c.borrow_mut().take()));
             }));
             inval::invalidate::CacheRegisterSyscacheCallback(
@@ -1014,13 +1034,19 @@ fn lookup_proof_cache<'mcx>(
                 invalidate_opr_proof_cache_callback,
                 datum::Datum::null(),
             )?;
-            *slot = Some(ManuallyDrop::new(PgHashMap::with_capacity_in(256, cache_mcx)));
+            *slot = Some(ManuallyDrop::new(PgHashMap::with_capacity_in(
+                256, cache_mcx,
+            )));
         }
         Ok(slot.as_ref().unwrap().get(&key).copied())
     })?;
 
     if let Some(e) = existing {
-        if if refute_it { e.have_refute } else { e.have_implic } {
+        if if refute_it {
+            e.have_refute
+        } else {
+            e.have_implic
+        } {
             return Ok(e);
         }
     }
@@ -1052,8 +1078,11 @@ fn lookup_proof_cache<'mcx>(
                 RC_IMPLIES_TABLE[cc][pc]
             };
 
-            let test_cmptype =
-                if refute_it { RC_REFUTE_TABLE[cc][pc] } else { RC_IMPLIC_TABLE[cc][pc] };
+            let test_cmptype = if refute_it {
+                RC_REFUTE_TABLE[cc][pc]
+            } else {
+                RC_IMPLIC_TABLE[cc][pc]
+            };
             if test_cmptype == 0 {
                 continue;
             }
@@ -1104,8 +1133,8 @@ fn lookup_proof_cache<'mcx>(
 mod tests {
     use super::*;
     use mcx::MemoryContext;
-    use types_nodes::primnodes::{BoolExpr, BoolExprType, NullTest, Var, VarReturningType};
     use types_nodes::bitmapset::Bitmapset;
+    use types_nodes::primnodes::{BoolExpr, BoolExprType, NullTest, Var, VarReturningType};
 
     fn var<'mcx>(mcx: Mcx<'mcx>, attno: i16) -> Node<'mcx> {
         Node::mk(
@@ -1292,7 +1321,10 @@ mod tests {
         );
 
         // Valid plane, unchanged: nelems is the dims product.
-        assert_eq!(const_array_nelems(mcx, &corrupt_array_const(mcx, 1, &[3])).unwrap(), 3);
+        assert_eq!(
+            const_array_nelems(mcx, &corrupt_array_const(mcx, 1, &[3])).unwrap(),
+            3
+        );
         assert_eq!(
             const_array_nelems(mcx, &corrupt_array_const(mcx, 2, &[3, 4])).unwrap(),
             12
@@ -1311,7 +1343,8 @@ mod tests {
         assert_eq!(e.message(), size_msg);
         assert_eq!(e.sqlstate, types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED);
         // int32 product overflow -> C's second ereturn.
-        let e = const_array_nelems(mcx, &corrupt_array_const(mcx, 2, &[100_000, 100_000])).unwrap_err();
+        let e =
+            const_array_nelems(mcx, &corrupt_array_const(mcx, 2, &[100_000, 100_000])).unwrap_err();
         assert_eq!(e.message(), size_msg);
         // Over MaxArraySize (but no int32 overflow) -> C's third ereturn.
         let e = const_array_nelems(mcx, &corrupt_array_const(mcx, 1, &[200_000_000])).unwrap_err();
@@ -1393,8 +1426,8 @@ mod tests {
     }
 
     fn array_const_in_form<'mcx>(mcx: Mcx<'mcx>, payload: &[u8], form: Form) -> Const {
-        let mut img = mcx::vec_with_capacity_in(mcx, payload.len() + 8 + payload.len() / 8 + 2)
-            .unwrap();
+        let mut img =
+            mcx::vec_with_capacity_in(mcx, payload.len() + 8 + payload.len() / 8 + 2).unwrap();
         match form {
             Form::Plain => {
                 mcx::vec_append_bytes(&mut img, &datum::varlena::set_varsize_4b(4 + payload.len()))
@@ -1517,8 +1550,7 @@ mod tests {
     fn proof_cache_store_keeps_mid_lookup_invalidation() {
         OPR_PROOF_CACHE.with(|cell| {
             let cache_mcx = ::mcx::session_root("Btree proof lookup cache").mcx();
-            *cell.borrow_mut() =
-                Some(ManuallyDrop::new(PgHashMap::with_capacity_in(8, cache_mcx)));
+            *cell.borrow_mut() = Some(ManuallyDrop::new(PgHashMap::with_capacity_in(8, cache_mcx)));
         });
         let key = (901, 902);
         store_proof_half(key, false, 903, true);

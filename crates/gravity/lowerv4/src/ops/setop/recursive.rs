@@ -44,13 +44,13 @@
 //!   `thin_pull`); a union read through another CTE's plan the lowering runs whole first (`IterDesc::through`) is named
 //!   in the protocol's `peer`, and a counted pull refuses it;
 //! - each generation checks for interrupts (`m9_gen_check`, D2231), beside the frame's per-window cancel byte.
-//! DEFERRED-VOL (the volatile family): the count and order of volatile or user-code calls a whole
-//! generation, the seed and a once-run term input make, and where a held error sits among rows a Hash Join or a hashed
-//! Agg / SetOp hands on in another order than PG's (D1383, D1384, D2045).
-//! Named debt: an unstreamed generation runs whole (D2034); the CTE's store keeps every row in memory where PG's tuplestore spills
-//! past work_mem (D1377, the spools' named grant growth; the two tables reuse their arenas each generation, D2035 fixed;
-//! a grouping in the term reuses its owner chunks across generations, D2641 fixed in the driver's pull reattach); a
-//! UNION's set is the process allocator's (fallible), not the statement's grant, as PG's table grows past work_mem.
+//!   DEFERRED-VOL (the volatile family): the count and order of volatile or user-code calls a whole
+//!   generation, the seed and a once-run term input make, and where a held error sits among rows a Hash Join or a hashed
+//!   Agg / SetOp hands on in another order than PG's (D1383, D1384, D2045).
+//!   Named debt: an unstreamed generation runs whole (D2034); the CTE's store keeps every row in memory where PG's tuplestore spills
+//!   past work_mem (D1377, the spools' named grant growth; the two tables reuse their arenas each generation, D2035 fixed;
+//!   a grouping in the term reuses its owner chunks across generations, D2641 fixed in the driver's pull reattach); a
+//!   UNION's set is the process allocator's (fallible), not the statement's grant, as PG's table grows past work_mem.
 use core::cell::Cell as Once;
 
 use gravity_abi::status::raise;

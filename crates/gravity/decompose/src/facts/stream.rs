@@ -676,7 +676,8 @@ fn scan_spine<'p>(b: &Builder<'p, '_>, input: Option<Node<'p>>) -> bool {
 /// Whether `n` is an Index or Index Only Scan of a heap relation.
 fn heap_index_scan<'p>(b: &Builder<'p, '_>, n: Node<'p>) -> bool {
     let heap = |scanrelid: u32| b.stmt.rtable.iter().nth((scanrelid as usize).wrapping_sub(1)).and_then(|e| e.as_range_tbl_entry()).is_some_and(|r| b.facts.rel(r.relid).is_some_and(|f| f.am == crate::catalog::Am::Heap));
-    n.as_index_scan().map(|s| s.scan.scanrelid).or_else(|| n.as_index_only_scan().map(|s| s.scan.scanrelid)).is_some_and(|r| heap(r as u32))
+    #[allow(clippy::redundant_closure)]
+    n.as_index_scan().map(|s| s.scan.scanrelid).or_else(|| n.as_index_only_scan().map(|s| s.scan.scanrelid)).is_some_and(|r| heap(r))
 }
 
 /// D2922 (R1): whether `input` is a Merge Append whose every arm is an Index or Index Only Scan of a heap relation (a

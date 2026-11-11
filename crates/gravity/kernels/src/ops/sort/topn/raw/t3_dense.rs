@@ -65,6 +65,7 @@ impl Fills {
 
     /// The run's leading records noted already: the coarser depths' fills (this depth's on a re-read) past the position. # Safety — `WORDS` words.
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn quiet(w: *const u64, split: SubSplit) -> usize {
         let mut thr = 0u64;
         // `depth + reread` is at most `DEPTHS` (a same-depth re-read at the deepest depth); the clamp never binds
@@ -76,6 +77,7 @@ impl Fills {
 
     /// After a run of `nrecs`: `v` the fold's return, `fill` the delivered index it filled at (`v < 0`; recorded, the stream rewound). # Safety — `WORDS` words.
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn advance(w: *mut u64, split: SubSplit, nrecs: usize, v: i64, fill: u64) {
         if v < 0 {
             // `depth < DEPTHS` (`merge.rs` splits while `Depth::new` holds); the clamp never binds
@@ -87,6 +89,7 @@ impl Fills {
     }
 
     /// The table's end (its reduce): the next table's stream starts at 0. # Safety — `w` the `WORDS` words.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn reset(w: *mut u64) {
         *w = 0;
     }
@@ -302,7 +305,7 @@ impl Area {
     /// # Safety — `groups` the opened-group counter, `bad` the flag word, `slots` the zero-initialised `span`
     /// index words (the group's 1-based accumulator), `recs` room for `span` accumulators of `acc` bytes,
     /// `fill` a writable word.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
     pub unsafe fn over(groups: *mut u32, bad: *mut u32, slots: *mut u32, recs: *mut u8, acc: usize, lo: i64, span: u32, quiet: usize, fill: *mut u64) -> Area {
         Area { groups, bad, slots, recs, acc, lo, span, quiet, fill }
     }
@@ -433,6 +436,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_constants, unused_attributes)]
     fn the_hook_counts_pairs_and_folds_slots_then_appends() {
         let (lo, span, n) = (1_000i64, 977u32, 3_000usize);
         let p = plan(lo, lo + span as i64 - 1, true);
@@ -473,6 +477,7 @@ mod tests {
         assert_eq!(unsafe { (*r2).buffered }, done1 as u64);
         let mut large = vec![0u64; 1 << 16]; // alloc: Cold
         let r2 = unsafe { T1::at(large.as_mut_ptr() as *mut u8, &acc, 3, 4_096, (large.len() * 8) as u32) as *mut T1 };
+        #[allow(unused_attributes)]
         assert_eq!(unsafe { d.append(r2) }, 0);
         assert_eq!(unsafe { (*r2).buffered } as usize, model.len() - done1 as usize);
         assert!(T1_HDR < 640 * 8);

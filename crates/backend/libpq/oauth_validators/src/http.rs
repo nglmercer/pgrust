@@ -47,7 +47,9 @@ pub fn parse_url(s: &str) -> Result<Url, String> {
         return Err(format!("userinfo is not allowed in URL \"{s}\""));
     }
     let (host, port) = if let Some(r) = authority.strip_prefix('[') {
-        let end = r.find(']').ok_or_else(|| format!("bad IPv6 host in URL \"{s}\""))?;
+        let end = r
+            .find(']')
+            .ok_or_else(|| format!("bad IPv6 host in URL \"{s}\""))?;
         (&r[..end], r[end + 1..].strip_prefix(':'))
     } else {
         match authority.rsplit_once(':') {
@@ -59,7 +61,9 @@ pub fn parse_url(s: &str) -> Result<Url, String> {
         return Err(format!("missing host in URL \"{s}\""));
     }
     let port = match port {
-        Some(p) => p.parse::<u16>().map_err(|_| format!("bad port in URL \"{s}\""))?,
+        Some(p) => p
+            .parse::<u16>()
+            .map_err(|_| format!("bad port in URL \"{s}\""))?,
         None if https => 443,
         None => 80,
     };
@@ -72,7 +76,12 @@ pub fn parse_url(s: &str) -> Result<Url, String> {
     } else {
         path.to_string()
     };
-    Ok(Url { https, host: host.to_string(), port, path })
+    Ok(Url {
+        https,
+        host: host.to_string(),
+        port,
+        path,
+    })
 }
 
 #[derive(Clone, Debug, Default)]
@@ -142,8 +151,10 @@ fn connect(url: &Url, opts: &HttpOptions) -> Result<Stream, String> {
         Some(e) => format!("could not connect to \"{}\": {e}", url.origin()),
         None => format!("could not resolve \"{}\": no addresses", url.host),
     })?;
-    tcp.set_read_timeout(Some(opts.timeout)).map_err(|e| e.to_string())?;
-    tcp.set_write_timeout(Some(opts.timeout)).map_err(|e| e.to_string())?;
+    tcp.set_read_timeout(Some(opts.timeout))
+        .map_err(|e| e.to_string())?;
+    tcp.set_write_timeout(Some(opts.timeout))
+        .map_err(|e| e.to_string())?;
     if !url.https {
         return Ok(Stream::Plain(tcp));
     }
@@ -171,7 +182,10 @@ pub fn post_form(
 ) -> Result<Response, String> {
     let mut headers = vec![
         ("Accept", "application/json".to_string()),
-        ("Content-Type", "application/x-www-form-urlencoded".to_string()),
+        (
+            "Content-Type",
+            "application/x-www-form-urlencoded".to_string(),
+        ),
     ];
     if let Some(auth) = basic_auth {
         headers.push(("Authorization", format!("Basic {auth}")));
@@ -233,17 +247,22 @@ fn request(
     let mut content_length: Option<usize> = None;
     let mut chunked = false;
     for line in lines {
-        let Some((k, v)) = line.split_once(':') else { continue };
+        let Some((k, v)) = line.split_once(':') else {
+            continue;
+        };
         let v = v.trim();
         if k.eq_ignore_ascii_case("content-length") {
             content_length = Some(v.parse().map_err(|_| "bad Content-Length")?);
-        } else if k.eq_ignore_ascii_case("transfer-encoding") && v.to_ascii_lowercase().contains("chunked") {
+        } else if k.eq_ignore_ascii_case("transfer-encoding")
+            && v.to_ascii_lowercase().contains("chunked")
+        {
             chunked = true;
         }
     }
     let mut rest = Vec::new();
     let body_prefix = &raw[header_end + 4..];
-    rest.try_reserve_exact(body_prefix.len()).map_err(|_| "out of memory")?;
+    rest.try_reserve_exact(body_prefix.len())
+        .map_err(|_| "out of memory")?;
     rest.extend_from_slice(body_prefix);
     let want = if chunked { None } else { content_length };
     loop {
@@ -272,7 +291,11 @@ fn request(
 }
 
 fn host_header(url: &Url) -> String {
-    let host = if url.host.contains(':') { format!("[{}]", url.host) } else { url.host.clone() };
+    let host = if url.host.contains(':') {
+        format!("[{}]", url.host)
+    } else {
+        url.host.clone()
+    };
     let default = if url.https { 443 } else { 80 };
     if url.port == default {
         host

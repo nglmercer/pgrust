@@ -197,6 +197,7 @@ enum CharTest {
 enum Special {
     None_,
     Tags,
+    #[allow(clippy::upper_case_acronyms)]
     FURL,
     Hyphen,
     VerVersion,

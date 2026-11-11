@@ -300,7 +300,7 @@ fn cstring(b: &mut FunctionBuilder<'_>, d: Value, null: Value) -> [Value; 3] {
     let p = b.conv(ConvOp::IntToPtr, Type::Ptr, d);
     let (head, body, out) = (b.create_block(&[Type::I64]), b.create_block(&[]), b.create_block(&[Type::I64]));
     b.br(head, &[zero]);
-    (b.switch_to(head), b.mark_loop_header(head));
+    b.switch_to(head); b.mark_loop_header(head);
     let i = b.block_params(head)[0];
     let more = b.icmp(IntCond::Slt, i, last);
     b.cond_br(more, (body, &[]), (out, &[i]));
@@ -356,7 +356,7 @@ fn find(b: &mut FunctionBuilder<'_>, p: Value, first: Value, last: Value, lit: &
     let (one, t, f) = (b.iconst(Type::I64, 1), b.bconst(true), b.bconst(false));
     let (head, body, cmp, out) = (b.create_block(&[Type::I64]), b.create_block(&[]), b.create_block(&[]), b.create_block(&[Type::Bool]));
     b.br(head, &[first]);
-    (b.switch_to(head), b.mark_loop_header(head));
+    b.switch_to(head); b.mark_loop_header(head);
     let i = b.block_params(head)[0];
     let more = b.icmp(IntCond::Sle, i, last);
     b.cond_br(more, (body, &[]), (out, &[f]));
@@ -629,7 +629,7 @@ pub(crate) fn word_test(b: &mut FunctionBuilder<'_>, env: &mut Env, p: Value, le
     let l0 = b.load_zext(Type::I8, lp, 0);
     let ln = { let q = b.ptr_add(lp, n1, 1, 0); b.load_zext(Type::I8, q, 0) };
     b.br(head, &[first]);
-    (b.switch_to(head), b.mark_loop_header(head));
+    b.switch_to(head); b.mark_loop_header(head);
     let i = b.block_params(head)[0];
     let more = b.icmp(IntCond::Sle, i, last);
     b.cond_br(more, (body, &[]), (out, &[f]));
@@ -696,7 +696,7 @@ fn pad_into(b: &mut FunctionBuilder<'_>, src: Value, dst: Value, m: Value, n: Va
     let (zero, one, sp) = (b.iconst(Type::I64, 0), b.iconst(Type::I64, 1), b.iconst(Type::I8, 0x20));
     let (head, body, out) = (b.create_block(&[Type::I64]), b.create_block(&[]), b.create_block(&[]));
     b.br(head, &[zero]);
-    (b.switch_to(head), b.mark_loop_header(head));
+    b.switch_to(head); b.mark_loop_header(head);
     let i = b.block_params(head)[0];
     let more = b.icmp(IntCond::Slt, i, n);
     b.cond_br(more, (body, &[]), (out, &[]));
@@ -1447,7 +1447,7 @@ pub(crate) mod tests {
         assert_eq!(cut_like(&long_ascii, "%c%", Cut::Name), Some(false), "byte 64 is cut");
         let long_mb = format!("{a63}é{}", "x".repeat(5));
         assert_eq!(cut_like(&long_mb, "%é%", Cut::Name), Some(false), "a character across byte 63 is cut whole");
-        assert_eq!(cut_like(&long_mb, &format!("{a63}"), Cut::Name), Some(true), "62 bytes left");
+        assert_eq!(cut_like(&long_mb, &a63.to_string(), Cut::Name), Some(true), "62 bytes left");
         assert_eq!(cut_like("short", "short", Cut::Name), Some(true), "under 64 bytes: as is");
     }
 

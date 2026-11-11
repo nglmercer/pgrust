@@ -12,10 +12,10 @@ use types_pathnodes::{
     SpecialJoinInfo, JOIN_INNER, JOIN_LEFT, JOIN_RIGHT, RTE_RELATION,
 };
 
-mod fused;
+pub mod exec_sizing;
 #[cfg(test)]
 mod fma_tests;
-pub mod exec_sizing;
+mod fused;
 pub mod gucs;
 pub mod pgrc_cost;
 pub mod pgrc_merge;
@@ -72,9 +72,17 @@ pub fn pgrc_qual_cost_multiplier(class: u8, op: QualOp) -> f64 {
     if class & 2 != 0 && op == QualOp::Eq {
         0.25
     } else if class & 1 != 0 {
-        if op == QualOp::Eq { 0.375 } else { 0.5 }
+        if op == QualOp::Eq {
+            0.375
+        } else {
+            0.5
+        }
     } else if class & 4 != 0 {
-        if op == QualOp::Other { 0.75 } else { 0.625 }
+        if op == QualOp::Other {
+            0.75
+        } else {
+            0.625
+        }
     } else {
         1.0
     }
@@ -82,7 +90,11 @@ pub fn pgrc_qual_cost_multiplier(class: u8, op: QualOp) -> f64 {
 
 // The multiplier for `args` = one base-rel Var (through RelabelType) plus
 // constants; None when the shape or the relation carries no class.
-fn pgrc_qual_scale(run: Option<&PlannerRun<'_>>, args: &types_nodes::list::NodeList<'_>, op: QualOp) -> Option<f64> {
+fn pgrc_qual_scale(
+    run: Option<&PlannerRun<'_>>,
+    args: &types_nodes::list::NodeList<'_>,
+    op: QualOp,
+) -> Option<f64> {
     let root = &run?.root;
     let mut var: Option<(i32, i16)> = None;
     for a in args {
@@ -119,7 +131,11 @@ fn qual_op_kind(opno: types_core::Oid, args: &types_nodes::list::NodeList<'_>) -
         return Ok(QualOp::Eq);
     }
     let neg = lsyscache::get_negator(opno)?;
-    Ok(if neg != 0 && lsyscache::op_mergejoinable(neg, ty)? { QualOp::Neq } else { QualOp::Other })
+    Ok(if neg != 0 && lsyscache::op_mergejoinable(neg, ty)? {
+        QualOp::Neq
+    } else {
+        QualOp::Other
+    })
 }
 
 // cost_qual_eval (costsize.c) with the rinfo->eval_cost cache (lesson 10).
@@ -150,7 +166,10 @@ pub fn cost_qual_eval(run: &mut PlannerRun<'_>, quals: &[RinfoId]) -> PgResult<Q
 }
 /// D454: `node`'s eval cost as PostgreSQL computes it, without gravity §3 #7's pgrc class multipliers (an order that
 /// must stay PostgreSQL's: createplan.rs `order_qual_clauses` when a qual can raise).
-pub fn cost_qual_eval_node_pg<'mcx>(run: &mut PlannerRun<'mcx>, node: Node<'mcx>) -> PgResult<QualCost> {
+pub fn cost_qual_eval_node_pg<'mcx>(
+    run: &mut PlannerRun<'mcx>,
+    node: Node<'mcx>,
+) -> PgResult<QualCost> {
     let mut cost = QualCost::default();
     cost_qual_eval_walker(Some(run), node, &mut cost, false)?;
     Ok(cost)
@@ -173,10 +192,9 @@ fn cost_qual_eval_walker<'mcx>(
     scale: bool,
 ) -> PgResult<()> {
     match node.node_tag() {
-        NodeTag::T_Var
-        | NodeTag::T_Const
-        | NodeTag::T_Param
-        | NodeTag::T_MergeSupportFunc => Ok(()),
+        NodeTag::T_Var | NodeTag::T_Const | NodeTag::T_Param | NodeTag::T_MergeSupportFunc => {
+            Ok(())
+        }
         // C's "treat all these as having cost 1" arm (with MinMaxExpr,
         // XmlExpr, CoerceToDomain, JsonExpr below): a flat cpu_operator_cost.
         // These two are childless leaves, so no recursion.
@@ -195,7 +213,9 @@ fn cost_qual_eval_walker<'mcx>(
             let f = node.as_func_expr().unwrap();
             let before = cost.per_tuple;
             planner_seams::add_function_cost::call(f.funcid, cost)?;
-            if let Some(m) = pgrc_qual_scale(run.as_deref().filter(|_| scale), &f.args, QualOp::Other) {
+            if let Some(m) =
+                pgrc_qual_scale(run.as_deref().filter(|_| scale), &f.args, QualOp::Other)
+            {
                 cost.per_tuple = before + (cost.per_tuple - before) * m;
             }
             for arg in &f.args {
@@ -213,7 +233,11 @@ fn cost_qual_eval_walker<'mcx>(
             };
             let before = cost.per_tuple;
             planner_seams::add_function_cost::call(opfuncid, cost)?;
-            if let Some(m) = pgrc_qual_scale(run.as_deref().filter(|_| scale), &o.args, qual_op_kind(o.opno, &o.args)?) {
+            if let Some(m) = pgrc_qual_scale(
+                run.as_deref().filter(|_| scale),
+                &o.args,
+                qual_op_kind(o.opno, &o.args)?,
+            ) {
                 cost.per_tuple = before + (cost.per_tuple - before) * m;
             }
             for arg in &o.args {
@@ -221,11 +245,19 @@ fn cost_qual_eval_walker<'mcx>(
             }
             Ok(())
         }
-        NodeTag::T_RelabelType => cost_qual_eval_walker(run.as_deref_mut(), node.as_relabel_type().unwrap().arg, cost, scale),
+        NodeTag::T_RelabelType => cost_qual_eval_walker(
+            run.as_deref_mut(),
+            node.as_relabel_type().unwrap().arg,
+            cost,
+            scale,
+        ),
         // C: no charge for FieldSelect itself.
-        NodeTag::T_FieldSelect => {
-            cost_qual_eval_walker(run.as_deref_mut(), node.as_field_select().unwrap().arg, cost, scale)
-        }
+        NodeTag::T_FieldSelect => cost_qual_eval_walker(
+            run.as_deref_mut(),
+            node.as_field_select().unwrap().arg,
+            cost,
+            scale,
+        ),
         // C charges both I/O functions of the coercion.
         NodeTag::T_CoerceViaIO => {
             let c = node.as_coerce_via_io().unwrap();
@@ -239,7 +271,12 @@ fn cost_qual_eval_walker<'mcx>(
         // through to expression_tree_walker for the argument.
         NodeTag::T_CoerceToDomain => {
             cost.per_tuple += gucs::cpu_operator_cost();
-            cost_qual_eval_walker(run.as_deref_mut(), node.as_coerce_to_domain().unwrap().arg, cost, scale)
+            cost_qual_eval_walker(
+                run.as_deref_mut(),
+                node.as_coerce_to_domain().unwrap().arg,
+                cost,
+                scale,
+            )
         }
         // C charges the per-element expression once per estimated element,
         // then its fall-through walks both children generically as well.
@@ -253,17 +290,22 @@ fn cost_qual_eval_walker<'mcx>(
                 };
                 cost.startup += perelem.startup;
                 if perelem.per_tuple > 0.0 {
-                    let len = planner_seams::estimate_array_length::call(run.as_deref_mut(), a.arg)?;
+                    let len =
+                        planner_seams::estimate_array_length::call(run.as_deref_mut(), a.arg)?;
                     cost.per_tuple =
-                        fused::array_coerce_per_tuple(cost.per_tuple, perelem.per_tuple, len); // costsize.c:4976
+                        fused::array_coerce_per_tuple(cost.per_tuple, perelem.per_tuple, len);
+                    // costsize.c:4976
                 }
                 cost_qual_eval_walker(run.as_deref_mut(), elemexpr, cost, scale)?;
             }
             cost_qual_eval_walker(run.as_deref_mut(), a.arg, cost, scale)
         }
-        NodeTag::T_ConvertRowtypeExpr => {
-            cost_qual_eval_walker(run.as_deref_mut(), node.as_convert_rowtype_expr().unwrap().arg, cost, scale)
-        }
+        NodeTag::T_ConvertRowtypeExpr => cost_qual_eval_walker(
+            run.as_deref_mut(),
+            node.as_convert_rowtype_expr().unwrap().arg,
+            cost,
+            scale,
+        ),
         // Boolean connectives are free in C; NullTest is "cheap" (no charge).
         NodeTag::T_BoolExpr => {
             for arg in &node.as_bool_expr().unwrap().args {
@@ -293,17 +335,22 @@ fn cost_qual_eval_walker<'mcx>(
             if sa.hashfuncid != 0 {
                 // Hashed SAOP: build the table at startup, then one hash +
                 // one comparison per tuple.
-                let mut hcosts = QualCost { startup: 0.0, per_tuple: 0.0 };
+                let mut hcosts = QualCost {
+                    startup: 0.0,
+                    per_tuple: 0.0,
+                };
                 planner_seams::add_function_cost::call(sa.hashfuncid, &mut hcosts)?;
                 cost.startup += sacosts.startup + hcosts.startup;
                 let estarraylen =
                     planner_seams::estimate_array_length::call(run.as_deref_mut(), arraynode)?;
-                cost.startup = fused::saop_hash_startup(cost.startup, estarraylen, hcosts.per_tuple); // costsize.c:4904
+                cost.startup =
+                    fused::saop_hash_startup(cost.startup, estarraylen, hcosts.per_tuple); // costsize.c:4904
                 cost.per_tuple += hcosts.per_tuple + sacosts.per_tuple;
             } else {
                 // C: the operator runs against about half the array elements.
                 cost.startup += sacosts.startup;
-                let len = planner_seams::estimate_array_length::call(run.as_deref_mut(), arraynode)?;
+                let len =
+                    planner_seams::estimate_array_length::call(run.as_deref_mut(), arraynode)?;
                 cost.per_tuple += sacosts.per_tuple * len * 0.5;
             }
             for arg in sa.args.iter() {
@@ -388,7 +435,12 @@ fn cost_qual_eval_walker<'mcx>(
         // C arbitrarily uses the first alternative's cost.
         NodeTag::T_AlternativeSubPlan => {
             let asp = node.as_alternative_sub_plan().unwrap();
-            cost_qual_eval_walker(run.as_deref_mut(), asp.subplans.first().expect("alternatives"), cost, scale)
+            cost_qual_eval_walker(
+                run.as_deref_mut(),
+                asp.subplans.first().expect("alternatives"),
+                cost,
+                scale,
+            )
         }
         // The SubPlan's own costs, precomputed by cost_subplan; C does not
         // descend into the testexpr (already included) or args.
@@ -407,8 +459,18 @@ fn cost_qual_eval_walker<'mcx>(
             }
             for w in &c.args {
                 let cw = w.as_case_when().expect("CaseWhen");
-                cost_qual_eval_walker(run.as_deref_mut(), cw.expr.expect("CaseWhen.expr"), cost, scale)?;
-                cost_qual_eval_walker(run.as_deref_mut(), cw.result.expect("CaseWhen.result"), cost, scale)?;
+                cost_qual_eval_walker(
+                    run.as_deref_mut(),
+                    cw.expr.expect("CaseWhen.expr"),
+                    cost,
+                    scale,
+                )?;
+                cost_qual_eval_walker(
+                    run.as_deref_mut(),
+                    cw.result.expect("CaseWhen.result"),
+                    cost,
+                    scale,
+                )?;
             }
             match c.defresult {
                 Some(d) => cost_qual_eval_walker(run.as_deref_mut(), d, cost, scale),
@@ -477,12 +539,10 @@ fn cost_qual_eval_walker<'mcx>(
             }
             Ok(())
         }
-        NodeTag::T_JsonIsPredicate => {
-            match node.as_json_is_predicate().unwrap().expr {
-                Some(e) => cost_qual_eval_walker(run.as_deref_mut(), e, cost, scale),
-                None => Ok(()),
-            }
-        }
+        NodeTag::T_JsonIsPredicate => match node.as_json_is_predicate().unwrap().expr {
+            Some(e) => cost_qual_eval_walker(run.as_deref_mut(), e, cost, scale),
+            None => Ok(()),
+        },
         NodeTag::T_JsonBehavior => match node.as_json_behavior().unwrap().expr {
             Some(e) => cost_qual_eval_walker(run.as_deref_mut(), e, cost, scale),
             None => Ok(()),
@@ -499,7 +559,11 @@ fn cost_qual_eval_walker<'mcx>(
         }
         NodeTag::T_TableFunc => {
             let tf = node.as_table_func().unwrap();
-            for a in tf.ns_uris.iter().chain(tf.colvalexprs.iter().flatten()).chain(tf.passingvalexprs.iter())
+            for a in tf
+                .ns_uris
+                .iter()
+                .chain(tf.colvalexprs.iter().flatten())
+                .chain(tf.passingvalexprs.iter())
             {
                 cost_qual_eval_walker(run.as_deref_mut(), a, cost, scale)?;
             }
@@ -590,20 +654,25 @@ pub fn compute_gather_rows(rows: f64, parallel_workers: i32) -> f64 {
     clamp_row_est(rows * get_parallel_divisor(parallel_workers))
 }
 
-
 // Gather setup / per-tuple transfer prices: C's parallel_setup_cost /
 // parallel_tuple_cost.
 fn gather_setup_cost(_run: &PlannerRun<'_>) -> f64 {
     gucs::parallel_setup_cost()
 }
 
+#[allow(dead_code)]
 fn gather_tuple_cost(_run: &PlannerRun<'_>) -> f64 {
     gucs::parallel_tuple_cost()
 }
 
 // cost_gather (costsize.c); no parameterized Gather paths exist (required
 // outer is empty at every ported call site).
-pub fn cost_gather(run: &mut PlannerRun<'_>, path_id: types_pathnodes::PathId, rel: RelId, rows: Option<f64>) {
+pub fn cost_gather(
+    run: &mut PlannerRun<'_>,
+    path_id: types_pathnodes::PathId,
+    rel: RelId,
+    rows: Option<f64>,
+) {
     let rel_rows = run.root.rel(rel).rows;
     let (sub_id, sub_startup, sub_total, sub_disabled) = {
         let PathNode::GatherPath(g) = run.root.path(path_id) else {
@@ -626,16 +695,16 @@ pub fn cost_gather(run: &mut PlannerRun<'_>, path_id: types_pathnodes::PathId, r
     let mut run_cost = sub_total - sub_startup;
     startup_cost += setup_cost;
     run_cost = fmadd(tuple_cost, p.rows, run_cost); // costsize.c:467
-    // GL-Q2829-FIX-1 plain-Gather leader-consumption floor (doc at
-    // gucs::DEFAULT_GATHER_LEADER_MIN_TUPLE_COST; DEFAULT ON since the
-    // regexp-keyed-grouping-class flip — 0 via the env restores):
-    // raw-row Gather rows are consumed LEADER-SERIALLY by the parent —
-    // that work does not ride the cheap-exchange transport discount, and
-    // discounting it is what elects the ship-every-row-to-the-leader
-    // aggregation family at fresh-stats estimate regimes. Heap
-    // partial-agg-fed Gathers are exempt (heap_partial_agg_fed).
-    // Self-scoping per-row: low-row Gathers and LIMIT-prorated consumers
-    // barely feel it.
+                                                    // GL-Q2829-FIX-1 plain-Gather leader-consumption floor (doc at
+                                                    // gucs::DEFAULT_GATHER_LEADER_MIN_TUPLE_COST; DEFAULT ON since the
+                                                    // regexp-keyed-grouping-class flip — 0 via the env restores):
+                                                    // raw-row Gather rows are consumed LEADER-SERIALLY by the parent —
+                                                    // that work does not ride the cheap-exchange transport discount, and
+                                                    // discounting it is what elects the ship-every-row-to-the-leader
+                                                    // aggregation family at fresh-stats estimate regimes. Heap
+                                                    // partial-agg-fed Gathers are exempt (heap_partial_agg_fed).
+                                                    // Self-scoping per-row: low-row Gathers and LIMIT-prorated consumers
+                                                    // barely feel it.
     if !partial_agg_fed {
         run_cost += gather_leader_uplift(tuple_cost, p.rows);
     }
@@ -653,7 +722,9 @@ fn heap_partial_agg_fed(run: &PlannerRun<'_>, sub_id: types_pathnodes::PathId) -
     let mut id = peel_projection(run, sub_id);
     match run.root.path(id) {
         PathNode::SortPath(s) => id = peel_projection(run, s.subpath.unwrap_or(id)),
-        PathNode::IncrementalSortPath(s) => id = peel_projection(run, s.spath.subpath.unwrap_or(id)),
+        PathNode::IncrementalSortPath(s) => {
+            id = peel_projection(run, s.spath.subpath.unwrap_or(id))
+        }
         _ => {}
     }
     matches!(
@@ -777,9 +848,14 @@ fn gm_leader_uplift(tuple_cost: f64, rows: f64) -> f64 {
 // slower than the hash plan it fuzzily displaced).
 // The scan's restriction clauses: the rel's baserestrictinfo plus the
 // path's pushed-down ppi clauses.
-fn scan_rinfos<'mcx>(run: &PlannerRun<'mcx>, rel: RelId, path_id: types_pathnodes::PathId) -> PgVec<'mcx, RinfoId> {
+fn scan_rinfos<'mcx>(
+    run: &PlannerRun<'mcx>,
+    rel: RelId,
+    path_id: types_pathnodes::PathId,
+) -> PgVec<'mcx, RinfoId> {
     let mcx = run.mcx;
-    let mut rids = types_pathnodes::relids::pgvec_clone_shallow(mcx, &run.root.rel(rel).baserestrictinfo);
+    let mut rids =
+        types_pathnodes::relids::pgvec_clone_shallow(mcx, &run.root.rel(rel).baserestrictinfo);
     if let Some(ppi) = run.root.path(path_id).base().param_info.as_deref() {
         for &rid in ppi.ppi_clauses.iter() {
             rids.push(rid);
@@ -806,7 +882,8 @@ fn scan_attrs<'mcx>(
     let mut all = target.clone_in(mcx).expect("clone target attrs");
     for &rid in scan_rinfos(run, rel, path_id).iter() {
         let clause = *run.root.expr_node(run.root.rinfo(rid).clause);
-        vars::pull_varattnos(mcx, clause, varno, &mut all).expect("pull_varattnos over baserestrictinfo");
+        vars::pull_varattnos(mcx, clause, varno, &mut all)
+            .expect("pull_varattnos over baserestrictinfo");
     }
     (target, all)
 }
@@ -821,7 +898,9 @@ fn pgrcolumnar_scan_col_fraction(
         let r = run.root.rel(rel);
         // M5a: plancat's S-2 consult populates pgrcolumnar_col_bytes
         // (section-table byte accounting from sealed footers).
-        if r.amflags & types_pathnodes::AMFLAG_PGRCOLUMNAR == 0 || r.pgrcolumnar_col_bytes.is_empty() {
+        if r.amflags & types_pathnodes::AMFLAG_PGRCOLUMNAR == 0
+            || r.pgrcolumnar_col_bytes.is_empty()
+        {
             return 1.0;
         }
     }
@@ -871,7 +950,12 @@ fn pgrc_model_applies(run: &PlannerRun<'_>, rel: RelId) -> bool {
 // (a SubPlan's outer reference, in the ancestor's plan_params).
 fn pgrc_correlated_param(run: &PlannerRun<'_>, p: &types_nodes::primnodes::Param) -> bool {
     matches!(p.paramkind, types_nodes::primnodes::ParamKind::PARAM_EXEC)
-        && run.suspended_roots.iter().any(|s| s.root.plan_params.iter().any(|&pid| s.root.planner_param_item(pid).paramId == p.paramid))
+        && run.suspended_roots.iter().any(|s| {
+            s.root
+                .plan_params
+                .iter()
+                .any(|&pid| s.root.planner_param_item(pid).paramId == p.paramid)
+        })
 }
 
 // What `pgrc_column_op` finds in a restriction clause.
@@ -891,19 +975,37 @@ enum ColumnOp {
 // `Var op Const` / `Var op Param` (either order, through RelabelType) on
 // `varno`, as pgrc_zonequal::column_op reads it, with a correlated Param read
 // per call.
-fn pgrc_column_op(run: &PlannerRun<'_>, clause: Node<'_>, varno: i32) -> PgResult<Option<ColumnOp>> {
-    let Some(c) = pgrc_zonequal::column_operands(clause, varno) else { return Ok(None) };
-    if c.other.as_param().is_some_and(|p| pgrc_correlated_param(run, p)) {
+fn pgrc_column_op(
+    run: &PlannerRun<'_>,
+    clause: Node<'_>,
+    varno: i32,
+) -> PgResult<Option<ColumnOp>> {
+    let Some(c) = pgrc_zonequal::column_operands(clause, varno) else {
+        return Ok(None);
+    };
+    if c.other
+        .as_param()
+        .is_some_and(|p| pgrc_correlated_param(run, p))
+    {
         return Ok(Some(ColumnOp::PerCall(c.attno)));
     }
-    let key = c.other.as_const().and_then(|k| pgrc_zonequal::const_key(k, c.vartype));
-    let op = pgrc_zonequal::zone_op(c.opno, c.vartype)?.map(|z| if c.commuted { z.commuted() } else { z });
+    let key = c
+        .other
+        .as_const()
+        .and_then(|k| pgrc_zonequal::const_key(k, c.vartype));
+    let op =
+        pgrc_zonequal::zone_op(c.opno, c.vartype)?
+            .map(|z| if c.commuted { z.commuted() } else { z });
     Ok(Some(ColumnOp::Compare(c.attno, op, key, c.vartype)))
 }
 
 // One restriction clause as the model sees it, plus its ordering key
 // (order_qual_clauses' security level).
-fn pgrc_qual(run: &mut PlannerRun<'_>, rel: RelId, rid: RinfoId) -> PgResult<(pgrc_cost::Qual, u32)> {
+fn pgrc_qual(
+    run: &mut PlannerRun<'_>,
+    rel: RelId,
+    rid: RinfoId,
+) -> PgResult<(pgrc_cost::Qual, u32)> {
     use pgrc_cost::{Qual, QualKind};
     use types_tuple::htup::FirstLowInvalidHeapAttributeNumber;
     let cost = cost_qual_eval(run, &[rid])?;
@@ -911,25 +1013,41 @@ fn pgrc_qual(run: &mut PlannerRun<'_>, rel: RelId, rid: RinfoId) -> PgResult<(pg
     let varno = run.root.rel(rel).relid as i32;
     let ri = run.root.rinfo(rid);
     let clause = *run.root.expr_node(ri.clause);
-    let selectivity = if (0.0..=1.0).contains(&ri.norm_selec) { ri.norm_selec } else { 1.0 };
-    let security_level =
-        if ri.leakproof && cost.per_tuple < 10.0 * gucs::cpu_operator_cost() { 0 } else { ri.security_level };
+    let selectivity = if (0.0..=1.0).contains(&ri.norm_selec) {
+        ri.norm_selec
+    } else {
+        1.0
+    };
+    let security_level = if ri.leakproof && cost.per_tuple < 10.0 * gucs::cpu_operator_cost() {
+        0
+    } else {
+        ri.security_level
+    };
     let mut bms = types_nodes::Bitmapset::empty();
     vars::pull_varattnos(mcx, clause, varno, &mut bms)?;
-    let lanes: Vec<i16> =
-        bms.iter().map(|m| (m + FirstLowInvalidHeapAttributeNumber) as i16).filter(|a| *a > 0).collect();
+    let lanes: Vec<i16> = bms
+        .iter()
+        .map(|m| (m + FirstLowInvalidHeapAttributeNumber) as i16)
+        .filter(|a| *a > 0)
+        .collect();
     let r = run.root.rel(rel);
     let (attno, kind) = match pgrc_column_op(run, clause, varno)? {
         Some(ColumnOp::PerCall(attno)) => (attno, QualKind::Row),
         Some(ColumnOp::Compare(attno, op, key, vartype)) => {
-            let class = r.pgrcolumnar_col_qual_class.get(attno as usize - 1).copied().unwrap_or(0);
+            let class = r
+                .pgrcolumnar_col_qual_class
+                .get(attno as usize - 1)
+                .copied()
+                .unwrap_or(0);
             let zoned = r.pgrcolumnar_zones.iter().any(|z| z.attno == attno);
             let kind = match (op, key) {
                 (Some(op), Some(key)) if zoned => QualKind::Zone { op, key },
                 (Some(pgrc_cost::ZoneOp::Eq), _) if class & 2 != 0 => {
                     // P5-12: the writer's k for the column's values (a fixed length's bytes, a varlena's header)
                     let typlen = lsyscache::get_typlen(vartype)?;
-                    QualKind::Bloom { k: pgrc_cost::bloom_k(if typlen > 0 { typlen as u64 } else { 4 }) }
+                    QualKind::Bloom {
+                        k: pgrc_cost::bloom_k(if typlen > 0 { typlen as u64 } else { 4 }),
+                    }
                 }
                 _ if class & 4 != 0 => QualKind::Dict,
                 _ => QualKind::Row,
@@ -940,12 +1058,26 @@ fn pgrc_qual(run: &mut PlannerRun<'_>, rel: RelId, rid: RinfoId) -> PgResult<(pg
             // A one-column function/LIKE clause on a dictionary column is
             // dictionary-grain (item 7's class); anything else runs per row.
             let dict = lanes.len() == 1
-                && r.pgrcolumnar_col_qual_class.get(lanes[0] as usize - 1).is_some_and(|c| c & 4 != 0)
+                && r.pgrcolumnar_col_qual_class
+                    .get(lanes[0] as usize - 1)
+                    .is_some_and(|c| c & 4 != 0)
                 && clause.as_bool_expr().is_none();
-            (lanes.first().copied().unwrap_or(0), if dict { QualKind::Dict } else { QualKind::Row })
+            (
+                lanes.first().copied().unwrap_or(0),
+                if dict { QualKind::Dict } else { QualKind::Row },
+            )
         }
     };
-    Ok((Qual { kind, attno, selectivity, per_tuple: cost.per_tuple, lanes }, security_level))
+    Ok((
+        Qual {
+            kind,
+            attno,
+            selectivity,
+            per_tuple: cost.per_tuple,
+            lanes,
+        },
+        security_level,
+    ))
 }
 
 /// The pgrc scan model over a granule subset.
@@ -971,7 +1103,15 @@ pub fn pgrc_scan_cost_over_granules(
     let (_, seq_page_cost) = get_tablespace_page_costs(run.mcx, reltablespace)?;
     let granules = granules.clamp(1, total.max(1));
     let tuples = tuples * granules as f64 / total.max(1) as f64;
-    let priced = pgrc_scan_cost(run, rel, path_id, rows.min(tuples), tuples, seq_page_cost, Some(granules))?;
+    let priced = pgrc_scan_cost(
+        run,
+        rel,
+        path_id,
+        rows.min(tuples),
+        tuples,
+        seq_page_cost,
+        Some(granules),
+    )?;
     Ok(Some(priced))
 }
 
@@ -992,7 +1132,10 @@ fn pgrc_scan_cost(
     for &rid in rids.iter() {
         quals.push(pgrc_qual(run, rel, rid)?);
     }
-    quals.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.per_tuple.partial_cmp(&b.0.per_tuple).unwrap()));
+    quals.sort_by(|a, b| {
+        a.1.cmp(&b.1)
+            .then(a.0.per_tuple.partial_cmp(&b.0.per_tuple).unwrap())
+    });
     let quals: Vec<pgrc_cost::Qual> = quals.into_iter().map(|(q, _)| q).collect();
 
     let (target, all) = scan_attrs(run, rel, path_id);
@@ -1005,14 +1148,22 @@ fn pgrc_scan_cost(
         if whole_row || all.is_member(m) {
             lanes.push(Lane {
                 attno: attno as i16,
-                codec: r.pgrcolumnar_col_codec.get(i).copied().unwrap_or(pgrc_cost::CODEC_UNKNOWN),
+                codec: r
+                    .pgrcolumnar_col_codec
+                    .get(i)
+                    .copied()
+                    .unwrap_or(pgrc_cost::CODEC_UNKNOWN),
                 bytes,
                 ncodes: r.pgrcolumnar_col_ncodes.get(i).copied().unwrap_or(0),
                 in_target: whole_row || target.is_member(m),
             });
         }
     }
-    let zones: Vec<(i16, pgrc_cost::ZoneSummary<'_>)> = r.pgrcolumnar_zones.iter().map(|z| (z.attno, pgrc_zone_summary(z))).collect();
+    let zones: Vec<(i16, pgrc_cost::ZoneSummary<'_>)> = r
+        .pgrcolumnar_zones
+        .iter()
+        .map(|z| (z.attno, pgrc_zone_summary(z)))
+        .collect();
     let knobs = Knobs {
         cpu_tuple_cost: gucs::cpu_tuple_cost(),
         cpu_operator_cost: gucs::cpu_operator_cost(),
@@ -1024,7 +1175,14 @@ fn pgrc_scan_cost(
         tuple_fraction: gucs::pgrc_tuple_cost_fraction(),
         qual_fraction: gucs::pgrc_qual_cost_fraction(),
     };
-    let scan = Scan { tuples, rows, granules: granules_override.unwrap_or(r.pgrcolumnar_granules), lanes: &lanes, quals: &quals, zones: &zones };
+    let scan = Scan {
+        tuples,
+        rows,
+        granules: granules_override.unwrap_or(r.pgrcolumnar_granules),
+        lanes: &lanes,
+        quals: &quals,
+        zones: &zones,
+    };
     if gucs::pgrc_census_trace() {
         pgrc_census_trace(r, &quals, &zones);
     }
@@ -1038,20 +1196,39 @@ fn pgrc_scan_cost(
 // the heap page IO an ixfetch never does: per fetched tuple, the front's share of the rows at a front (segment)
 // fetch, the rest at a sealed fetch of the scan's needed lanes (its quals' and target's columns, as the executor's
 // fetch decodes them; at least one).
-fn pgrc_index_fetch_cost(run: &PlannerRun<'_>, rel: RelId, path_id: types_pathnodes::PathId, tuples_fetched: f64, indexonly: bool) -> f64 {
+fn pgrc_index_fetch_cost(
+    run: &PlannerRun<'_>,
+    rel: RelId,
+    path_id: types_pathnodes::PathId,
+    tuples_fetched: f64,
+    indexonly: bool,
+) -> f64 {
     use types_tuple::htup::FirstLowInvalidHeapAttributeNumber;
     let (_, all) = scan_attrs(run, rel, path_id);
     let r = run.root.rel(rel);
     let lanes = if all.is_member(0 - FirstLowInvalidHeapAttributeNumber) {
         f64::from(r.max_attr.max(1))
     } else {
-        all.iter().filter(|&m| m + FirstLowInvalidHeapAttributeNumber > 0).count().max(1) as f64
+        all.iter()
+            .filter(|&m| m + FirstLowInvalidHeapAttributeNumber > 0)
+            .count()
+            .max(1) as f64
     };
     let (front, sealed) = (r.pgrcolumnar_front_rows, r.tuples.max(0.0));
-    let front_share = if front + sealed > 0.0 { front / (front + sealed) } else { 1.0 };
-    let sealed_fetch = gucs::pgrc_fetch_sealed_cost() + gucs::pgrc_fetch_lane_cost() * (lanes - 1.0);
-    let per_fetch = front_share * gucs::pgrc_fetch_front_cost() + (1.0 - front_share) * sealed_fetch;
-    let fetches = if indexonly { tuples_fetched * (1.0 - r.allvisfrac) } else { tuples_fetched };
+    let front_share = if front + sealed > 0.0 {
+        front / (front + sealed)
+    } else {
+        1.0
+    };
+    let sealed_fetch =
+        gucs::pgrc_fetch_sealed_cost() + gucs::pgrc_fetch_lane_cost() * (lanes - 1.0);
+    let per_fetch =
+        front_share * gucs::pgrc_fetch_front_cost() + (1.0 - front_share) * sealed_fetch;
+    let fetches = if indexonly {
+        tuples_fetched * (1.0 - r.allvisfrac)
+    } else {
+        tuples_fetched
+    };
     fetches * per_fetch
 }
 
@@ -1072,15 +1249,36 @@ fn pgrc_zone_summary<'a>(z: &'a types_pathnodes::PgrcZoneCol<'_>) -> pgrc_cost::
 // census from the summary beside the exact walk over the ranges plancat copied for the
 // trace, one stderr line each — `pgrc census: rel=<relid> attno=<a> <op> <key>
 // summary=<survived>/<mixed> exact=<survived>/<mixed> of <granules>`.
-fn pgrc_census_trace(r: &types_pathnodes::RelOptInfo<'_>, quals: &[pgrc_cost::Qual], zones: &[(i16, pgrc_cost::ZoneSummary<'_>)]) {
+fn pgrc_census_trace(
+    r: &types_pathnodes::RelOptInfo<'_>,
+    quals: &[pgrc_cost::Qual],
+    zones: &[(i16, pgrc_cost::ZoneSummary<'_>)],
+) {
     for q in quals {
-        let pgrc_cost::QualKind::Zone { op, key } = q.kind else { continue };
-        let Some((_, z)) = zones.iter().find(|(a, _)| *a == q.attno) else { continue };
+        let pgrc_cost::QualKind::Zone { op, key } = q.kind else {
+            continue;
+        };
+        let Some((_, z)) = zones.iter().find(|(a, _)| *a == q.attno) else {
+            continue;
+        };
         let est = z.census(op, key);
-        let exact = r.pgrcolumnar_zones.iter().find(|c| c.attno == q.attno).map(|c| pgrc_cost::census(c.ranges, op, key)).unwrap_or_default();
+        let exact = r
+            .pgrcolumnar_zones
+            .iter()
+            .find(|c| c.attno == q.attno)
+            .map(|c| pgrc_cost::census(c.ranges, op, key))
+            .unwrap_or_default();
         eprintln!(
             "pgrc census: rel={} attno={} {:?} {} summary={:.2}/{:.2} exact={}/{} of {}",
-            r.relid, q.attno, op, key, est.survived, est.mixed, exact.survived, exact.mixed, z.granules
+            r.relid,
+            q.attno,
+            op,
+            key,
+            est.survived,
+            est.mixed,
+            exact.survived,
+            exact.mixed,
+            z.granules
         );
     }
 }
@@ -1129,11 +1327,15 @@ pub fn cost_seqscan(
         let priced = pgrc_scan_cost(run, rel, path_id, rows, tuples, spc_seq_page_cost, None)?;
         (0.0, priced.run + target_per_tuple * rows)
     } else {
-        let disk = spc_seq_page_cost * pages as f64 * pgrcolumnar_scan_col_fraction(run, rel, path_id);
+        let disk =
+            spc_seq_page_cost * pages as f64 * pgrcolumnar_scan_col_fraction(run, rel, path_id);
         let cpu_per_tuple = gucs::cpu_tuple_cost() + qpqual_cost.per_tuple;
         // costsize.c:331+333: GCC fuses the FIRST product into the add; the
         // tlist product rounds on its own.
-        (disk, fused::run_from_product(cpu_per_tuple, tuples, target_per_tuple, rows))
+        (
+            disk,
+            fused::run_from_product(cpu_per_tuple, tuples, target_per_tuple, rows),
+        )
     };
 
     let parallel_workers = run.root.path(path_id).base().parallel_workers;
@@ -1185,7 +1387,8 @@ pub fn cost_samplescan(
         None => base_rows,
     };
     let mut startup_cost = 0.0;
-    let (spc_random_page_cost, spc_seq_page_cost) = get_tablespace_page_costs(run.mcx, reltablespace)?;
+    let (spc_random_page_cost, spc_seq_page_cost) =
+        get_tablespace_page_costs(run.mcx, reltablespace)?;
     // NextSampleBlock implies random access, else sequential (as C).
     let spc_page_cost = if tsm.has_next_sample_block() {
         spc_random_page_cost
@@ -1326,7 +1529,10 @@ pub fn set_namedtuplestore_size_estimates(run: &mut PlannerRun<'_>, rel: RelId) 
     debug_assert!(rti > 0);
     let enrtuples = {
         let rte = run.rte(rti);
-        debug_assert_eq!(rte.rtekind, types_nodes::parsenodes::RTEKind::RTE_NAMEDTUPLESTORE);
+        debug_assert_eq!(
+            rte.rtekind,
+            types_nodes::parsenodes::RTEKind::RTE_NAMEDTUPLESTORE
+        );
         rte.enrtuples
     };
     run.root.rel_mut(rel).tuples = if enrtuples < 0.0 { 1000.0 } else { enrtuples };
@@ -1384,7 +1590,12 @@ pub fn cost_recursive_union(
     };
     let (r_total, r_rows, r_disabled, r_width) = {
         let p = run.root.path(rterm).base();
-        (p.total_cost, p.rows, p.disabled_nodes, run.root.path_pathtarget(rterm).width)
+        (
+            p.total_cost,
+            p.rows,
+            p.disabled_nodes,
+            run.root.path_pathtarget(rterm).width,
+        )
     };
     // costsize.c:1843/1844/1851: each `+= a * b` is one fmadd.
     let total_cost = fmadd(10.0, r_total, n_total);
@@ -1666,7 +1877,8 @@ pub fn cost_index(
         )
     };
     let tuples_fetched = clamp_row_est(am.index_selectivity * baserel_tuples);
-    let (spc_random_page_cost, spc_seq_page_cost) = get_tablespace_page_costs(run.mcx, reltablespace)?;
+    let (spc_random_page_cost, spc_seq_page_cost) =
+        get_tablespace_page_costs(run.mcx, reltablespace)?;
 
     let (max_io_cost, min_io_cost, rand_heap_pages) = if loop_count > 1.0 {
         // Repeated scans: scale tuples by the scan count in the Mackert and
@@ -1752,7 +1964,8 @@ pub fn cost_index(
     if run.root.rel(baserel_id).amflags & types_pathnodes::AMFLAG_PGRCOLUMNAR != 0 {
         run_cost += pgrc_index_fetch_cost(run, baserel_id, path_id, tuples_fetched, indexonly);
     } else {
-        run_cost += fused::index_io_cost(am.index_correlation, min_io_cost, max_io_cost); // costsize.c:797
+        run_cost += fused::index_io_cost(am.index_correlation, min_io_cost, max_io_cost);
+        // costsize.c:797
     }
 
     let qpqual_cost = cost_qual_eval(run, &qpquals)?;
@@ -1763,8 +1976,12 @@ pub fn cost_index(
     let target = run.root.path_pathtarget(path_id);
     startup_cost += target.cost.startup;
     // costsize.c:810/814
-    let mut cpu_run_cost =
-        fused::run_from_zero(cpu_per_tuple, tuples_fetched, target.cost.per_tuple, path_rows);
+    let mut cpu_run_cost = fused::run_from_zero(
+        cpu_per_tuple,
+        tuples_fetched,
+        target.cost.per_tuple,
+        path_rows,
+    );
 
     let parallel_workers = run.root.path(path_id).base().parallel_workers;
     if parallel_workers > 0 {
@@ -1788,7 +2005,11 @@ pub fn cost_bitmap_tree_node(run: &PlannerRun<'_>, path_id: types_pathnodes::Pat
         PathNode::IndexPath(ip) => (
             // Per-tuple bitmap-manipulation charge: a one-tuple bitmap scan
             // must not tie the plain indexscan.
-            fmadd(0.1 * gucs::cpu_operator_cost(), ip.path.rows, ip.indextotalcost), // costsize.c:1135
+            fmadd(
+                0.1 * gucs::cpu_operator_cost(),
+                ip.path.rows,
+                ip.indextotalcost,
+            ), // costsize.c:1135
             ip.indexselectivity,
         ),
         PathNode::BitmapAndPath(ap) => (ap.path.total_cost, ap.bitmapselectivity),
@@ -1958,7 +2179,8 @@ pub fn cost_bitmap_heap_scan(
 
     let mut startup_cost = index_total_cost;
     let t = if pages > 1 { pages as f64 } else { 1.0 };
-    let (spc_random_page_cost, spc_seq_page_cost) = get_tablespace_page_costs(run.mcx, reltablespace)?;
+    let (spc_random_page_cost, spc_seq_page_cost) =
+        get_tablespace_page_costs(run.mcx, reltablespace)?;
     // Interpolate between random (few pages) and sequential (most of the
     // table) per-page cost, nonlinearly, as C.
     let cost_per_page =
@@ -1982,11 +2204,15 @@ pub fn cost_bitmap_heap_scan(
     // IX1 L4 (P2): a pgrcolumnar heap's bitmap fetches are IXPLAN-1's per-row fetches, not heap page reads, so one
     // index's bitmap never undercuts that index's plain path (it adds the bitmap node and the recheck quals); every
     // other heap keeps C's term.
-    let (io_pages, io_per_page) = if run.root.rel(rel).amflags & types_pathnodes::AMFLAG_PGRCOLUMNAR != 0 {
-        (1.0, pgrc_index_fetch_cost(run, rel, path_id, tuples_fetched, false))
-    } else {
-        (pages_fetched, cost_per_page)
-    };
+    let (io_pages, io_per_page) =
+        if run.root.rel(rel).amflags & types_pathnodes::AMFLAG_PGRCOLUMNAR != 0 {
+            (
+                1.0,
+                pgrc_index_fetch_cost(run, rel, path_id, tuples_fetched, false),
+            )
+        } else {
+            (pages_fetched, cost_per_page)
+        };
     let target = run.root.path_pathtarget(path_id);
     startup_cost += target.cost.startup;
     // costsize.c:1077/1105/1110
@@ -2033,6 +2259,7 @@ pub fn cost_material(
 }
 
 // cost_tidscan (costsize.c).
+#[allow(clippy::if_same_then_else)]
 pub fn cost_tidscan(
     run: &mut PlannerRun<'_>,
     path_id: PathId,
@@ -2143,7 +2370,8 @@ pub fn cost_tidrangescan(
     let nseqpages = pages - 1.0;
 
     let tid_qual_cost = cost_qual_eval(run, &quals)?;
-    let (spc_random_page_cost, spc_seq_page_cost) = get_tablespace_page_costs(run.mcx, reltablespace)?;
+    let (spc_random_page_cost, spc_seq_page_cost) =
+        get_tablespace_page_costs(run.mcx, reltablespace)?;
 
     let qpqual_cost = get_restriction_qual_cost(run, rel, path_id)?;
     // TID quals are assumed a subset of the qpquals (C's XXX note).
@@ -2235,7 +2463,8 @@ pub fn cost_hashed_distinct_sets(
         let depth = (nbatches.ln() / (num_partitions.max(2) as f64).ln()).ceil();
         let pages = relation_byte_size(input_tuples, input_width) / BLCKSZ as f64;
         let pages_written = pages * depth * 2.0;
-        startup += pages_written * gucs::random_page_cost() + depth * input_tuples * 2.0 * gucs::cpu_tuple_cost();
+        startup += pages_written * gucs::random_page_cost()
+            + depth * input_tuples * 2.0 * gucs::cpu_tuple_cost();
         total += pages_written * gucs::seq_page_cost();
     }
     let p = run.root.path_mut(path_id).base_mut();
@@ -2285,7 +2514,11 @@ pub fn cost_agg_shape(
         }
         total_cost += aggcosts.transCost.startup;
         total_cost = fmadd(aggcosts.transCost.per_tuple, input_tuples, total_cost); // costsize.c:2728
-        total_cost = fmadd(gucs::cpu_operator_cost() * num_group_cols as f64, input_tuples, total_cost); // costsize.c:2745
+        total_cost = fmadd(
+            gucs::cpu_operator_cost() * num_group_cols as f64,
+            input_tuples,
+            total_cost,
+        ); // costsize.c:2745
         total_cost += aggcosts.finalCost.startup;
         total_cost = fmadd(aggcosts.finalCost.per_tuple, num_groups, total_cost); // costsize.c:2747
         total_cost = fmadd(gucs::cpu_tuple_cost(), num_groups, total_cost); // costsize.c:2748
@@ -2297,7 +2530,11 @@ pub fn cost_agg_shape(
         }
         startup_cost += aggcosts.transCost.startup;
         startup_cost = fmadd(aggcosts.transCost.per_tuple, input_tuples, startup_cost); // costsize.c:2728
-        startup_cost = fmadd(gucs::cpu_operator_cost() * num_group_cols as f64, input_tuples, startup_cost); // costsize.c:2760
+        startup_cost = fmadd(
+            gucs::cpu_operator_cost() * num_group_cols as f64,
+            input_tuples,
+            startup_cost,
+        ); // costsize.c:2760
         startup_cost += aggcosts.finalCost.startup;
         total_cost = startup_cost;
         total_cost = fmadd(aggcosts.finalCost.per_tuple, num_groups, total_cost); // costsize.c:2764
@@ -2358,7 +2595,16 @@ pub fn cost_agg_shape(
         for &q in quals {
             let clause = *run.root.expr_node(q);
             rids.push(planner_seams::make_restrictinfo::call(
-                run, clause, true, false, false, false, 0, relids::relids_empty(), relids::relids_empty(), relids::relids_empty(),
+                run,
+                clause,
+                true,
+                false,
+                false,
+                false,
+                0,
+                relids::relids_empty(),
+                relids::relids_empty(),
+                relids::relids_empty(),
             )?);
         }
         let sel = planner_seams::clauselist_selectivity::call(
@@ -2426,10 +2672,17 @@ pub fn cost_group(
     let mut total_cost = input_total_cost;
 
     // costsize.c:3214: (cop * tuples) rounds, the tail multiply fuses.
-    total_cost = fmadd(gucs::cpu_operator_cost() * input_tuples, num_group_cols as f64, total_cost);
+    total_cost = fmadd(
+        gucs::cpu_operator_cost() * input_tuples,
+        num_group_cols as f64,
+        total_cost,
+    );
 
     if !quals.is_empty() {
-        let mut qual_cost = QualCost { startup: 0.0, per_tuple: 0.0 };
+        let mut qual_cost = QualCost {
+            startup: 0.0,
+            per_tuple: 0.0,
+        };
         for &q in quals {
             let node = *run.root.expr_node(q);
             let c = cost_qual_eval_node(Some(&mut *run), node)?;
@@ -2445,7 +2698,16 @@ pub fn cost_group(
         for &q in quals {
             let clause = *run.root.expr_node(q);
             rids.push(planner_seams::make_restrictinfo::call(
-                run, clause, true, false, false, false, 0, relids::relids_empty(), relids::relids_empty(), relids::relids_empty(),
+                run,
+                clause,
+                true,
+                false,
+                false,
+                false,
+                0,
+                relids::relids_empty(),
+                relids::relids_empty(),
+                relids::relids_empty(),
             )?);
         }
         let sel = planner_seams::clauselist_selectivity::call(
@@ -2573,9 +2835,7 @@ pub fn expr_type_typmod(node: Node<'_>) -> (u32, i32) {
             let v = node.as_var().unwrap();
             (v.vartype, v.vartypmod)
         }
-        NodeTag::T_PlaceHolderVar => {
-            expr_type_typmod(node.as_place_holder_var().unwrap().phexpr)
-        }
+        NodeTag::T_PlaceHolderVar => expr_type_typmod(node.as_place_holder_var().unwrap().phexpr),
         NodeTag::T_RelabelType => {
             let r = node.as_relabel_type().unwrap();
             (r.resulttype, r.resulttypmod)
@@ -2858,7 +3118,11 @@ fn cost_tuplesort(
         // costsize.c:1957/1958: the page-access product and the seq-page
         // product fuse; the N log N and 0.25 products round on their own.
         let page_cost = fmadd(gucs::seq_page_cost(), 0.75, gucs::random_page_cost() * 0.25);
-        fmadd(npageaccesses, page_cost, comparison_cost * tuples * log2(tuples))
+        fmadd(
+            npageaccesses,
+            page_cost,
+            comparison_cost * tuples * log2(tuples),
+        )
     } else if tuples > 2.0 * output_tuples || input_bytes > sort_mem_bytes as f64 {
         comparison_cost * tuples * log2(2.0 * output_tuples)
     } else {
@@ -3283,9 +3547,12 @@ pub fn cost_append(run: &mut PlannerRun<'_>, path_id: types_pathnodes::PathId) {
             disabled += s.disabled_nodes;
             rows = clamp_row_est(rows);
         }
-        total +=
-            append_nonpartial_cost(run, &subpaths, first_partial as usize, parallel_workers);
-        total = fmadd(gucs::cpu_tuple_cost() * APPEND_CPU_COST_MULTIPLIER, rows, total); // costsize.c:2402
+        total += append_nonpartial_cost(run, &subpaths, first_partial as usize, parallel_workers);
+        total = fmadd(
+            gucs::cpu_tuple_cost() * APPEND_CPU_COST_MULTIPLIER,
+            rows,
+            total,
+        ); // costsize.c:2402
         let p = run.root.path_mut(path_id).base_mut();
         p.rows = rows;
         p.disabled_nodes = disabled;
@@ -3321,7 +3588,9 @@ pub fn cost_append(run: &mut PlannerRun<'_>, path_id: types_pathnodes::PathId) {
                 if pathkeys_contained_in(&pathkeys, &s.pathkeys) {
                     (s.rows, s.disabled_nodes, s.startup_cost, s.total_cost)
                 } else {
-                    let width = s.pathtarget_id.map_or(0, |pt| run.root.pathtarget(pt).width);
+                    let width = s
+                        .pathtarget_id
+                        .map_or(0, |pt| run.root.pathtarget(pt).width);
                     let (d, st, t) = cost_sort_shape(
                         s.disabled_nodes,
                         s.total_cost,
@@ -3339,7 +3608,11 @@ pub fn cost_append(run: &mut PlannerRun<'_>, path_id: types_pathnodes::PathId) {
             total += s_total;
         }
     }
-    total = fmadd(gucs::cpu_tuple_cost() * APPEND_CPU_COST_MULTIPLIER, rows, total); // costsize.c:2402
+    total = fmadd(
+        gucs::cpu_tuple_cost() * APPEND_CPU_COST_MULTIPLIER,
+        rows,
+        total,
+    ); // costsize.c:2402
     let p = run.root.path_mut(path_id).base_mut();
     p.rows = rows;
     p.disabled_nodes = disabled;
@@ -3363,7 +3636,11 @@ pub fn cost_merge_append(
     let comparison_cost = 2.0 * gucs::cpu_operator_cost();
     let startup_cost = comparison_cost * n * log_n;
     let mut run_cost = tuples * comparison_cost * log_n;
-    run_cost = fmadd(gucs::cpu_tuple_cost() * APPEND_CPU_COST_MULTIPLIER, tuples, run_cost); // costsize.c:2463
+    run_cost = fmadd(
+        gucs::cpu_tuple_cost() * APPEND_CPU_COST_MULTIPLIER,
+        tuples,
+        run_cost,
+    ); // costsize.c:2463
     let p = run.root.path_mut(path_id).base_mut();
     p.disabled_nodes = input_disabled_nodes;
     p.startup_cost = startup_cost + input_startup_cost;
@@ -3655,7 +3932,8 @@ pub fn initial_cost_nestloop(
     if !early_stop {
         run_cost += inner_run_cost;
         if outer_path_rows > 1.0 {
-            run_cost = fmadd(outer_path_rows - 1.0, inner_rescan_run_cost, run_cost); // costsize.c:3327
+            run_cost = fmadd(outer_path_rows - 1.0, inner_rescan_run_cost, run_cost);
+            // costsize.c:3327
         }
     }
 
@@ -3811,7 +4089,13 @@ pub fn initial_cost_hashjoin(
 ) -> JoinCostWorkspace {
     let (o_rows, o_startup, o_total, o_disabled, o_workers) = {
         let o = run.root.path(outer_path).base();
-        (o.rows, o.startup_cost, o.total_cost, o.disabled_nodes, o.parallel_workers)
+        (
+            o.rows,
+            o.startup_cost,
+            o.total_cost,
+            o.disabled_nodes,
+            o.parallel_workers,
+        )
     };
     let (i_rows, i_startup, i_total, i_disabled) = {
         let i = run.root.path(inner_path).base();
@@ -3916,7 +4200,8 @@ pub fn final_cost_hashjoin(
     let virtualbuckets = numbuckets as f64 * numbatches as f64;
 
     // A unique-ified inner is assumed perfectly hashable (C's UniquePath arm).
-    #[allow(unused_assignments)] // Rust-structural: C declares uninitialized (costsize.c:4294); the by-value seam made this initializer dead
+    #[allow(unused_assignments)]
+    // Rust-structural: C declares uninitialized (costsize.c:4294); the by-value seam made this initializer dead
     let mut innerbucketsize = 1.0f64;
     let mut innermcvfreq = 1.0f64;
     let inner_relids = run.root.rel(inner_parent).relids.clone();
@@ -3926,11 +4211,8 @@ pub fn final_cost_hashjoin(
         innermcvfreq = 0.0;
         PgVec::new_in(run.mcx)
     } else {
-        let (other, bs) = planner_seams::estimate_multivariate_bucketsize::call(
-            run,
-            inner_parent,
-            &hcls,
-        )?;
+        let (other, bs) =
+            planner_seams::estimate_multivariate_bucketsize::call(run, inner_parent, &hcls)?;
         innerbucketsize = bs;
         other
     };
@@ -4365,6 +4647,7 @@ pub fn approx_tuple_count(
     Ok(crate::clamp_row_est(selec * outer_tuples * inner_tuples))
 }
 
+#[allow(clippy::if_same_then_else)]
 pub fn final_cost_mergejoin(
     run: &mut PlannerRun<'_>,
     path: &mut MergePath<'_>,
@@ -4437,9 +4720,12 @@ pub fn final_cost_mergejoin(
         true
     } else if path.innersortkeys.is_empty() && !exec_supports_mark_restore(run, inner_path) {
         true
-    } else { gucs::enable_material()
-        && !path.innersortkeys.is_empty() && crate::relation_byte_size(inner_path_rows, inner_width)
-            > init_small::globals::work_mem() as f64 * 1024.0 };
+    } else {
+        gucs::enable_material()
+            && !path.innersortkeys.is_empty()
+            && crate::relation_byte_size(inner_path_rows, inner_width)
+                > init_small::globals::work_mem() as f64 * 1024.0
+    };
 
     run_cost += if path.materialize_inner {
         mat_inner_cost
@@ -4492,7 +4778,14 @@ pub fn set_joinrel_size_estimates<'mcx>(
     let outer_rows = run.root.rel(outer_rel).rows;
     let inner_rows = run.root.rel(inner_rel).rows;
     let nrows = calc_joinrel_size_estimate(
-        run, joinrel, outer_rel, inner_rel, outer_rows, inner_rows, sjinfo, restrictlist,
+        run,
+        joinrel,
+        outer_rel,
+        inner_rel,
+        outer_rows,
+        inner_rows,
+        sjinfo,
+        restrictlist,
     )?;
     run.root.rel_mut(joinrel).rows = nrows;
     Ok(())
@@ -4511,7 +4804,14 @@ pub fn get_parameterized_joinrel_size<'mcx>(
     let outer_rows = run.root.path(outer_path).base().rows;
     let inner_rows = run.root.path(inner_path).base().rows;
     let mut nrows = calc_joinrel_size_estimate(
-        run, rel, outer_rel, inner_rel, outer_rows, inner_rows, sjinfo, restrict_clauses,
+        run,
+        rel,
+        outer_rel,
+        inner_rel,
+        outer_rows,
+        inner_rows,
+        sjinfo,
+        restrict_clauses,
     )?;
     if nrows > run.root.rel(rel).rows {
         nrows = run.root.rel(rel).rows;
@@ -4621,7 +4921,9 @@ fn get_foreign_key_join_selectivity<'mcx>(
         // selectivity so it isn't double-counted.
         if run.root.foreign_key(fkid).nconst_ec > 0 {
             for i in 0..nkeys {
-                let Some(ec) = run.root.foreign_key(fkid).eclass[i] else { continue };
+                let Some(ec) = run.root.foreign_key(fkid).eclass[i] else {
+                    continue;
+                };
                 if !run.root.ec(ec).ec_has_const {
                     continue;
                 }
@@ -4746,7 +5048,13 @@ mod tests {
         const NUMERICOID: u32 = 1700;
         let arg = Node::mk(
             mcx,
-            Var { varno: 1, varattno: 1, vartype: NUMERICOID, vartypmod: 655366, ..Default::default() },
+            Var {
+                varno: 1,
+                varattno: 1,
+                vartype: NUMERICOID,
+                vartypmod: 655366,
+                ..Default::default()
+            },
         )
         .unwrap();
         // numeric(12,4): ((12 << 16) | 4) + VARHDRSZ = 786440
@@ -4825,8 +5133,8 @@ mod tests {
         assert_eq!(floor, 0.1, "the floor IS C's parallel_tuple_cost default");
         assert_eq!(floor, gucs::DEFAULT_GM_LEADER_MIN_TUPLE_COST);
         let rows = 6_680_000.0; // the witnessed catastrophe stream
-        // Product default (heap 0.01): uplift = (0.1-0.01)*rows*1.05 —
-        // the exact delta the witnessed ptc=0.1 bisection added.
+                                // Product default (heap 0.01): uplift = (0.1-0.01)*rows*1.05 —
+                                // the exact delta the witnessed ptc=0.1 bisection added.
         let up = super::gm_leader_uplift(0.01, rows);
         assert!((up - 0.09 * rows * 1.05).abs() < 1e-6);
         let bisection_total = 0.1 * rows * 1.05;
@@ -4862,12 +5170,19 @@ mod tests {
         let floor = gucs::gather_leader_min_tuple_cost();
         assert_eq!(floor, 0.1, "the floor IS C's parallel_tuple_cost default");
         assert_eq!(floor, gucs::DEFAULT_GATHER_LEADER_MIN_TUPLE_COST);
-        assert_eq!(floor, gucs::DEFAULT_GM_LEADER_MIN_TUPLE_COST, "GM-floor derivation parity");
+        assert_eq!(
+            floor,
+            gucs::DEFAULT_GM_LEADER_MIN_TUPLE_COST,
+            "GM-floor derivation parity"
+        );
         let rows = 8_713_000.0; // the witnessed ship-to-leader stream
-        // A half-default rate (0.005): floored to the C rate.
+                                // A half-default rate (0.005): floored to the C rate.
         let up_cb = super::gather_leader_uplift(0.005, rows);
         assert!((up_cb - 0.095 * rows).abs() < 1e-6);
-        assert!((0.005 * rows + up_cb - 0.1 * rows).abs() < 1e-6, "floored == C-rate total");
+        assert!(
+            (0.005 * rows + up_cb - 0.1 * rows).abs() < 1e-6,
+            "floored == C-rate total"
+        );
         // Heap default (0.01): floored the same way.
         let up = super::gather_leader_uplift(0.01, rows);
         assert!((up - 0.09 * rows).abs() < 1e-6);
@@ -4962,7 +5277,12 @@ mod tests {
         };
         let outer = mk_path();
         let inner = mk_path();
-        let pk = |ec| PathKey { pk_eclass: Some(ec), pk_opfamily: 1976, pk_cmptype: 1, pk_nulls_first: false };
+        let pk = |ec| PathKey {
+            pk_eclass: Some(ec),
+            pk_opfamily: 1976,
+            pk_cmptype: 1,
+            pk_nulls_first: false,
+        };
         // (JoinCostWorkspace is not Debug, so no expect_err.)
         let err = match super::initial_cost_mergejoin(
             &mut run,
@@ -4977,6 +5297,9 @@ mod tests {
             Err(e) => e,
             Ok(_) => panic!("C elog(ERROR)s on mismatched merge pathkeys"),
         };
-        assert_eq!(err.message(), "left and right pathkeys do not match in mergejoin");
+        assert_eq!(
+            err.message(),
+            "left and right pathkeys do not match in mergejoin"
+        );
     }
 }

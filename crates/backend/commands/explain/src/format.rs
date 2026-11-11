@@ -7,8 +7,7 @@ use stringinfo::StringInfo;
 use types_error::{PgError, PgResult};
 
 use crate::state::{
-    ExplainState, EXPLAIN_FORMAT_JSON, EXPLAIN_FORMAT_TEXT, EXPLAIN_FORMAT_XML,
-    EXPLAIN_FORMAT_YAML,
+    ExplainState, EXPLAIN_FORMAT_JSON, EXPLAIN_FORMAT_TEXT, EXPLAIN_FORMAT_XML, EXPLAIN_FORMAT_YAML,
 };
 
 const X_OPENING: i32 = 0;
@@ -18,7 +17,10 @@ const X_NOWHITESPACE: i32 = 4;
 
 // StringInfo append is fallible; the write! adapter parks the PgError so the
 // caller can surface it as C's ereport does.
-pub(crate) struct Si<'a, 'b>(pub(crate) &'a mut stringinfo::StringInfo<'b>, pub(crate) Option<Box<PgError>>);
+pub(crate) struct Si<'a, 'b>(
+    pub(crate) &'a mut stringinfo::StringInfo<'b>,
+    pub(crate) Option<Box<PgError>>,
+);
 
 impl Write for Si<'_, '_> {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
@@ -92,7 +94,11 @@ fn escape_yaml(buf: &mut StringInfo<'_>, s: &str) -> PgResult<()> {
     escape_json(buf, s)
 }
 
-pub fn ExplainPropertyList(qlabel: &str, data: &[impl AsRef<str>], es: &mut ExplainState<'_>) -> PgResult<()> {
+pub fn ExplainPropertyList(
+    qlabel: &str,
+    data: &[impl AsRef<str>],
+    es: &mut ExplainState<'_>,
+) -> PgResult<()> {
     match es.format {
         EXPLAIN_FORMAT_TEXT => {
             ExplainIndentText(es)?;
@@ -108,8 +114,7 @@ pub fn ExplainPropertyList(qlabel: &str, data: &[impl AsRef<str>], es: &mut Expl
         EXPLAIN_FORMAT_XML => {
             ExplainXMLTag(qlabel, X_OPENING, es)?;
             for item in data {
-                es.str
-                    .append_spaces(es.indent as usize * 2 + 2)?;
+                es.str.append_spaces(es.indent as usize * 2 + 2)?;
                 append!(es, "<Item>")?;
                 escape_xml(&mut es.str, item.as_ref())?;
                 append!(es, "</Item>\n")?;
@@ -134,8 +139,7 @@ pub fn ExplainPropertyList(qlabel: &str, data: &[impl AsRef<str>], es: &mut Expl
             append!(es, "{qlabel}: ")?;
             for item in data {
                 append!(es, "\n")?;
-                es.str
-                    .append_spaces(es.indent as usize * 2 + 2)?;
+                es.str.append_spaces(es.indent as usize * 2 + 2)?;
                 append!(es, "- ")?;
                 escape_yaml(&mut es.str, item.as_ref())?;
             }
@@ -229,7 +233,12 @@ pub fn ExplainPropertyText(qlabel: &str, value: &str, es: &mut ExplainState<'_>)
     Ok(())
 }
 
-pub fn ExplainPropertyInteger(qlabel: &str, unit: Option<&str>, value: i64, es: &mut ExplainState<'_>) -> PgResult<()> {
+pub fn ExplainPropertyInteger(
+    qlabel: &str,
+    unit: Option<&str>,
+    value: i64,
+    es: &mut ExplainState<'_>,
+) -> PgResult<()> {
     ExplainProperty(qlabel, unit, &format!("{value}"), true, es)?;
     Ok(())
 }
@@ -326,11 +335,15 @@ pub fn ExplainCloseGroup(
             append!(es, "\n")?;
             es.str.append_spaces(2 * es.indent as usize)?;
             append!(es, "{}", if labeled { '}' } else { ']' })?;
-            es.grouping_stack.pop().expect("JSON grouping stack underflow");
+            es.grouping_stack
+                .pop()
+                .expect("JSON grouping stack underflow");
         }
         EXPLAIN_FORMAT_YAML => {
             es.indent -= 1;
-            es.grouping_stack.pop().expect("YAML grouping stack underflow");
+            es.grouping_stack
+                .pop()
+                .expect("YAML grouping stack underflow");
         }
     }
     Ok(())
@@ -351,7 +364,8 @@ pub fn ExplainOpenSetAsideGroup(
             es.indent += depth;
         }
         EXPLAIN_FORMAT_YAML => {
-            es.grouping_stack.push(if labelname.is_some() { 1 } else { 0 });
+            es.grouping_stack
+                .push(if labelname.is_some() { 1 } else { 0 });
             es.indent += depth;
         }
     }
@@ -379,7 +393,11 @@ pub fn ExplainRestoreGroup(es: &mut ExplainState<'_>, depth: i32, state_save: &i
     }
 }
 
-pub fn ExplainDummyGroup(objtype: &str, labelname: Option<&str>, es: &mut ExplainState<'_>) -> PgResult<()> {
+pub fn ExplainDummyGroup(
+    objtype: &str,
+    labelname: Option<&str>,
+    es: &mut ExplainState<'_>,
+) -> PgResult<()> {
     match es.format {
         EXPLAIN_FORMAT_TEXT => {}
         EXPLAIN_FORMAT_XML => ExplainXMLTag(objtype, X_CLOSE_IMMEDIATE, es)?,
@@ -437,10 +455,14 @@ pub fn ExplainEndOutput(es: &mut ExplainState<'_>) -> PgResult<()> {
         EXPLAIN_FORMAT_JSON => {
             es.indent -= 1;
             append!(es, "\n]")?;
-            es.grouping_stack.pop().expect("JSON grouping stack underflow");
+            es.grouping_stack
+                .pop()
+                .expect("JSON grouping stack underflow");
         }
         EXPLAIN_FORMAT_YAML => {
-            es.grouping_stack.pop().expect("YAML grouping stack underflow");
+            es.grouping_stack
+                .pop()
+                .expect("YAML grouping stack underflow");
         }
     }
     Ok(())
@@ -481,8 +503,7 @@ pub fn ExplainIndentText(es: &mut ExplainState<'_>) -> PgResult<()> {
     debug_assert_eq!(es.format, EXPLAIN_FORMAT_TEXT);
     let bytes = es.str.as_bytes();
     if bytes.is_empty() || bytes[bytes.len() - 1] == b'\n' {
-        es.str
-            .append_spaces(es.indent as usize * 2)?;
+        es.str.append_spaces(es.indent as usize * 2)?;
     }
     Ok(())
 }
@@ -491,7 +512,10 @@ pub fn ExplainIndentText(es: &mut ExplainState<'_>) -> PgResult<()> {
 // comma, when the group already has members).
 fn ExplainJSONLineEnding(es: &mut ExplainState<'_>) -> PgResult<()> {
     debug_assert_eq!(es.format, EXPLAIN_FORMAT_JSON);
-    let top = es.grouping_stack.last_mut().expect("JSON grouping stack underflow");
+    let top = es
+        .grouping_stack
+        .last_mut()
+        .expect("JSON grouping stack underflow");
     if *top != 0 {
         es.str.append_byte(b',')?;
     } else {
@@ -505,13 +529,15 @@ fn ExplainJSONLineEnding(es: &mut ExplainState<'_>) -> PgResult<()> {
 // line; every later property starts a fresh indented line.
 fn ExplainYAMLLineStarting(es: &mut ExplainState<'_>) -> PgResult<()> {
     debug_assert_eq!(es.format, EXPLAIN_FORMAT_YAML);
-    let top = es.grouping_stack.last_mut().expect("YAML grouping stack underflow");
+    let top = es
+        .grouping_stack
+        .last_mut()
+        .expect("YAML grouping stack underflow");
     if *top == 0 {
         *top = 1;
     } else {
         es.str.append_byte(b'\n')?;
-        es.str
-            .append_spaces(es.indent as usize * 2)?;
+        es.str.append_spaces(es.indent as usize * 2)?;
     }
     Ok(())
 }

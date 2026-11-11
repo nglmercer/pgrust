@@ -16,12 +16,12 @@
 //!   pointers into the pinned page) instead of reading the row again; `row_late` resumes from the kept offset.
 //! - A qual that branches on its data inside (an IN list, AND / OR, CASE, COALESCE, GREATEST / LEAST) keeps out of the
 //!   mask (filter.rs `row_quals`): the mask cannot take those branches away and would pay the qual for every row.
-//! Picked per window by measurement, never by the planner's selectivity (consts.rs): decayed counts of the rows the mask
-//! read, its passing rows and its outcome flips (adjacent rows that differ: what the branch could not predict), from the
-//! blocks that ran it, against measured op costs: a window runs the mask body while flips x FLIP >= rows x ROW + passes x
-//! PASS (`COSTS`: a flip's mispredict saved, the bit a row costs, the walk's second read of a passing row), and every
-//! PROBE-th window runs it whatever the counts say, to measure again. Measurement knob (process env, read at lowering):
-//! `PGRUST_GRAVITY_MASK_ROWS_COSTS=flip,row,pass` (three integers 0..=1000). Budget 360 lines.
+//!   Picked per window by measurement, never by the planner's selectivity (consts.rs): decayed counts of the rows the mask
+//!   read, its passing rows and its outcome flips (adjacent rows that differ: what the branch could not predict), from the
+//!   blocks that ran it, against measured op costs: a window runs the mask body while flips x FLIP >= rows x ROW + passes x
+//!   PASS (`COSTS`: a flip's mispredict saved, the bit a row costs, the walk's second read of a passing row), and every
+//!   PROBE-th window runs it whatever the counts say, to measure again. Measurement knob (process env, read at lowering):
+//!   `PGRUST_GRAVITY_MASK_ROWS_COSTS=flip,row,pass` (three integers 0..=1000). Budget 360 lines.
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{Block, ConvOp, IntBinOp, IntCond, IntUnOp, StackSlot, Type, Value};
 use mcx::{CollectIn, GrowIn, PgVec};
@@ -255,7 +255,7 @@ pub(crate) fn body<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, m: &M
             crate::refuse!(env.node, crate::admit::refusal::Reason::Bug { payload: "a mask.rows step without its row test" })
         };
         pass = Some(pass.map_or(p, |a| b.int_bin(IntBinOp::And, a, p)));
-        if !b.const_of(e).is_some_and(|(_, c)| c == 0) {
+        if b.const_of(e).is_none_or(|(_, c)| c != 0) {
             err = Some(err.map_or(e, |a| b.int_bin(IntBinOp::Or, a, e)));
         }
     }

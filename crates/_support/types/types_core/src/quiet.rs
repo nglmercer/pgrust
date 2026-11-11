@@ -28,7 +28,10 @@ pub const NUMERIC_BTCMP: u32 = 1769;
 
 /// The int4 / int8 / int84 / int48 comparisons (`=`, `<>`, `<`, `>`, `<=`, `>=`; pg_proc oids): leakproof in the catalog;
 /// listed for a reader without one (runs/topk_groups.rs D449 `pure`).
-pub const INT_CMP: [u32; 24] = [65, 144, 66, 147, 149, 150, 467, 468, 469, 470, 471, 472, 474, 475, 476, 477, 478, 479, 852, 853, 854, 855, 856, 857];
+pub const INT_CMP: [u32; 24] = [
+    65, 144, 66, 147, 149, 150, 467, 468, 469, 470, 471, 472, 474, 475, 476, 477, 478, 479, 852,
+    853, 854, 855, 856, 857,
+];
 
 pub fn int_cmp(funcid: u32) -> bool {
     INT_CMP.contains(&funcid)
@@ -54,7 +57,10 @@ pub const fn int_mod_quiet(funcid: u32, divisor: Option<i64>) -> bool {
 /// int8div / int42div / int84div / int82div also on a -1 one over the dividend type's minimum (int.c / int8.c: "smallint
 /// out of range", "integer out of range", "bigint out of range"). The others cannot overflow.
 pub const fn int_div(funcid: u32) -> bool {
-    matches!(funcid, 153 | 154 | 466 | 172 | 173 | 1281 | 1277 | 948 | 840)
+    matches!(
+        funcid,
+        153 | 154 | 466 | 172 | 173 | 1281 | 1277 | 948 | 840
+    )
 }
 
 /// `x / divisor` under `int_div` raises nothing (div_by_const, main 2026-10-03 19:43Z): `divisor` is a non-null constant
@@ -129,14 +135,67 @@ pub enum DtUnit {
 const DELTA_UNITS: &[(&str, DtUnit)] = {
     use DtUnit::*;
     &[
-        ("@", Other), ("ago", Other), ("c", Century), ("cent", Century), ("centuries", Century), ("century", Century), ("d", Day), ("day", Day),
-        ("days", Day), ("dec", Decade), ("decade", Decade), ("decades", Decade), ("decs", Decade), ("h", Hour), ("hour", Hour), ("hours", Hour),
-        ("hr", Hour), ("hrs", Hour), ("m", Min), ("microsecon", Usec), ("mil", Millennium), ("millennia", Millennium), ("millennium", Millennium),
-        ("millisecon", Msec), ("mils", Millennium), ("min", Min), ("mins", Min), ("minute", Min), ("minutes", Min), ("mon", Month), ("mons", Month),
-        ("month", Month), ("months", Month), ("ms", Msec), ("msec", Msec), ("msecond", Msec), ("mseconds", Msec), ("msecs", Msec), ("qtr", Quarter),
-        ("quarter", Quarter), ("s", Sec), ("sec", Sec), ("second", Sec), ("seconds", Sec), ("secs", Sec), ("timezone", Tz), ("timezone_h", TzHour),
-        ("timezone_m", TzMin), ("us", Usec), ("usec", Usec), ("usecond", Usec), ("useconds", Usec), ("usecs", Usec), ("w", Week), ("week", Week),
-        ("weeks", Week), ("y", Year), ("year", Year), ("years", Year), ("yr", Year), ("yrs", Year),
+        ("@", Other),
+        ("ago", Other),
+        ("c", Century),
+        ("cent", Century),
+        ("centuries", Century),
+        ("century", Century),
+        ("d", Day),
+        ("day", Day),
+        ("days", Day),
+        ("dec", Decade),
+        ("decade", Decade),
+        ("decades", Decade),
+        ("decs", Decade),
+        ("h", Hour),
+        ("hour", Hour),
+        ("hours", Hour),
+        ("hr", Hour),
+        ("hrs", Hour),
+        ("m", Min),
+        ("microsecon", Usec),
+        ("mil", Millennium),
+        ("millennia", Millennium),
+        ("millennium", Millennium),
+        ("millisecon", Msec),
+        ("mils", Millennium),
+        ("min", Min),
+        ("mins", Min),
+        ("minute", Min),
+        ("minutes", Min),
+        ("mon", Month),
+        ("mons", Month),
+        ("month", Month),
+        ("months", Month),
+        ("ms", Msec),
+        ("msec", Msec),
+        ("msecond", Msec),
+        ("mseconds", Msec),
+        ("msecs", Msec),
+        ("qtr", Quarter),
+        ("quarter", Quarter),
+        ("s", Sec),
+        ("sec", Sec),
+        ("second", Sec),
+        ("seconds", Sec),
+        ("secs", Sec),
+        ("timezone", Tz),
+        ("timezone_h", TzHour),
+        ("timezone_m", TzMin),
+        ("us", Usec),
+        ("usec", Usec),
+        ("usecond", Usec),
+        ("useconds", Usec),
+        ("usecs", Usec),
+        ("w", Week),
+        ("week", Week),
+        ("weeks", Week),
+        ("y", Year),
+        ("year", Year),
+        ("years", Year),
+        ("yr", Year),
+        ("yrs", Year),
     ]
 };
 
@@ -144,21 +203,39 @@ const DELTA_UNITS: &[(&str, DtUnit)] = {
 /// `s`, `y` win in DecodeUnits). Any other `datetktbl` row is a token of another type, `Other` by absence.
 const SPECIAL_UNITS: &[(&str, DtUnit)] = {
     use DtUnit::*;
-    &[("dow", Dow), ("doy", Doy), ("epoch", Epoch), ("isodow", IsoDow), ("isoyear", IsoYear), ("j", Julian), ("jd", Julian), ("julian", Julian), ("mm", Min)]
+    &[
+        ("dow", Dow),
+        ("doy", Doy),
+        ("epoch", Epoch),
+        ("isodow", IsoDow),
+        ("isoyear", IsoYear),
+        ("j", Julian),
+        ("jd", Julian),
+        ("julian", Julian),
+        ("mm", Min),
+    ]
 };
 
 /// datetime.c `datebsearch`'s match: `strncmp(key, token, TOKMAXLEN)` over NUL-terminated strings, TOKMAXLEN 10.
 /// `key` is the unit's own bytes: downcasing them first is ASCII-case-insensitive equality with a lowercase token.
 fn token_matches(key: &[u8], token: &str) -> bool {
     let t = token.as_bytes();
-    if t.len() < 10 { key.eq_ignore_ascii_case(t) } else { key.len() >= 10 && key[..10].eq_ignore_ascii_case(&t[..10]) }
+    if t.len() < 10 {
+        key.eq_ignore_ascii_case(t)
+    } else {
+        key.len() >= 10 && key[..10].eq_ignore_ascii_case(&t[..10])
+    }
 }
 
 /// `unit` (a unit text's bytes) decoded as PostgreSQL 18.6 does: downcased (downcase_truncate_identifier: ASCII A-Z; a
 /// high-bit byte matches no token either way), `deltatktbl` first, then `datetktbl` when `special` (the part functions;
 /// date_trunc reads DecodeUnits alone). `None`: no table names it (UNKNOWN_FIELD).
 pub fn dt_unit(unit: &[u8], special: bool) -> Option<DtUnit> {
-    let find = |tbl: &[(&str, DtUnit)]| tbl.iter().find(|(t, _)| token_matches(unit, t)).map(|e| e.1);
+    let find = |tbl: &[(&str, DtUnit)]| {
+        tbl.iter()
+            .find(|(t, _)| token_matches(unit, t))
+            .map(|e| e.1)
+    };
     find(DELTA_UNITS).or_else(|| special.then(|| find(SPECIAL_UNITS)).flatten())
 }
 
@@ -190,8 +267,25 @@ pub fn datetime_unit_quiet(funcid: u32, unit: &[u8]) -> Option<bool> {
         return None;
     }
     let trunc = matches!(funcid, 2020 | 1217);
-    let Some(u) = dt_unit(unit, !trunc) else { return Some(false) };
-    let common = matches!(u, Year | Decade | Century | Millennium | Julian | IsoYear | Dow | IsoDow | Doy | Epoch | Day | Week | Month | Quarter);
+    let Some(u) = dt_unit(unit, !trunc) else {
+        return Some(false);
+    };
+    let common = matches!(
+        u,
+        Year | Decade
+            | Century
+            | Millennium
+            | Julian
+            | IsoYear
+            | Dow
+            | IsoDow
+            | Doy
+            | Epoch
+            | Day
+            | Week
+            | Month
+            | Quarter
+    );
     let time = matches!(u, Usec | Msec | Sec | Min | Hour);
     Some(match funcid {
         6199 => common,
@@ -234,7 +328,9 @@ pub const fn case_map_quiet(funcid: u32, collid: u32) -> bool {
 /// and interval too: NEW-44; a decompose unit test holds the two equal), or it orders a comparison first that lowerv4's
 /// pgrcolumnar reading keeps loud and the later quals lose their zone verdicts.
 pub const fn agg_quiet(aggfnoid: u32, collid: u32) -> bool {
-    matches!(aggfnoid, 2803 | 2147) || extremum_quiet(aggfnoid) || text_extremum_quiet(aggfnoid, collid)
+    matches!(aggfnoid, 2803 | 2147)
+        || extremum_quiet(aggfnoid)
+        || text_extremum_quiet(aggfnoid, collid)
 }
 
 /// A type whose own comparison raises on no input (its btree `=` / `<` / cmp, its hash, `min` / `max`'s `*_larger` /
@@ -244,7 +340,25 @@ pub const fn agg_quiet(aggfnoid: u32, collid: u32) -> bool {
 /// Text and the other collatable types compare under a collation (`text_extremum_quiet`); arrays, records, enums,
 /// bpchar, inet, bytea and user types are not listed.
 pub const fn compare_quiet(typoid: u32) -> bool {
-    matches!(typoid, 20 | 21 | 23 | 26 | 27 | 700 | 701 | 790 | 1082 | 1083 | 1114 | 1184 | 1186 | 1266 | 1700 | 3220 | 5069)
+    matches!(
+        typoid,
+        20 | 21
+            | 23
+            | 26
+            | 27
+            | 700
+            | 701
+            | 790
+            | 1082
+            | 1083
+            | 1114
+            | 1184
+            | 1186
+            | 1266
+            | 1700
+            | 3220
+            | 5069
+    )
 }
 
 /// `count(DISTINCT x)` (`count(any)`, pg_proc 2147) over a `compare_quiet` type `argtype`: the sort or hash that drops
@@ -383,7 +497,12 @@ pub const fn int_arith_range(op: IntOp, a: (i128, i128), b: (i128, i128)) -> (i1
 
 /// AGB-20: `op` over operands in ranges `a` and `b` keeps its exact result inside the result type's range `ty`
 /// (`int_arith`), so it raises on no input.
-pub const fn int_arith_quiet(op: IntOp, ty: (i128, i128), a: (i128, i128), b: (i128, i128)) -> bool {
+pub const fn int_arith_quiet(
+    op: IntOp,
+    ty: (i128, i128),
+    a: (i128, i128),
+    b: (i128, i128),
+) -> bool {
     let r = int_arith_range(op, a, b);
     r.0 >= ty.0 && r.1 <= ty.1
 }
@@ -521,10 +640,21 @@ pub const fn epoch_clock_value(op: u32) -> bool {
 /// header 0x8000) keeps the weight in its header's low 7 bits (0x0040 its sign), the long form (header 0x0000 / 0x4000)
 /// in the int16 after it; the base-10000 digits follow. NaN and the infinities (header 0xC000 / 0xD000 / 0xF000) are not.
 pub fn epoch_ns_k_quiet(payload: &[u8]) -> bool {
-    let word = |i: usize| payload.get(i..i + 2).map(|b| u16::from_le_bytes([b[0], b[1]]));
+    let word = |i: usize| {
+        payload
+            .get(i..i + 2)
+            .map(|b| u16::from_le_bytes([b[0], b[1]]))
+    };
     let Some(h) = word(0) else { return false };
     let (weight, at) = match h & 0xC000 {
-        0x8000 => (if h & 0x0040 != 0 { (h & 0x003F) as i32 - 64 } else { (h & 0x003F) as i32 }, 2),
+        0x8000 => (
+            if h & 0x0040 != 0 {
+                (h & 0x003F) as i32 - 64
+            } else {
+                (h & 0x003F) as i32
+            },
+            2,
+        ),
         0x0000 | 0x4000 => match word(2) {
             Some(w) => (w as i16 as i32, 4),
             None => return false,
@@ -535,7 +665,11 @@ pub fn epoch_ns_k_quiet(payload: &[u8]) -> bool {
         return false;
     }
     let (mut int, mut frac) = (0i128, false);
-    for (i, d) in payload[at..].chunks_exact(2).map(|b| u16::from_le_bytes([b[0], b[1]])).enumerate() {
+    for (i, d) in payload[at..]
+        .chunks_exact(2)
+        .map(|b| u16::from_le_bytes([b[0], b[1]]))
+        .enumerate()
+    {
         let e = weight - i as i32;
         if d >= 10_000 {
             return false;
@@ -587,11 +721,35 @@ pub const fn int_bitwise(funcid: u32) -> bool {
 /// attnum raise nothing; its privilege text is the third argument. The last field: the argument count, the text last.
 pub const PRIVILEGES: [(u32, &[&str], bool, usize); 6] = [
     (2710, &["USAGE", "MEMBER", "SET"], true, 2),
-    (1927, &["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN"], false, 2),
-    (3029, &["SELECT", "INSERT", "UPDATE", "REFERENCES"], false, 2),
+    (
+        1927,
+        &[
+            "SELECT",
+            "INSERT",
+            "UPDATE",
+            "DELETE",
+            "TRUNCATE",
+            "REFERENCES",
+            "TRIGGER",
+            "MAINTAIN",
+        ],
+        false,
+        2,
+    ),
+    (
+        3029,
+        &["SELECT", "INSERT", "UPDATE", "REFERENCES"],
+        false,
+        2,
+    ),
     (3143, &["USAGE"], false, 2),
     (2261, &["EXECUTE"], false, 2),
-    (3023, &["SELECT", "INSERT", "UPDATE", "REFERENCES"], false, 3),
+    (
+        3023,
+        &["SELECT", "INSERT", "UPDATE", "REFERENCES"],
+        false,
+        3,
+    ),
 ];
 
 /// Whether `funcid` is one of the `PRIVILEGES` functions. A caller reads the privilege text's image only then: reading a
@@ -621,11 +779,22 @@ pub fn privilege_quiet(funcid: u32, privilege: &[u8]) -> Option<bool> {
     let space = |b: &u8| matches!(b, b' ' | b'\t' | b'\n' | b'\x0b' | b'\x0c' | b'\r');
     let known = |chunk: &[u8]| {
         let start = chunk.iter().position(|b| !space(b)).unwrap_or(chunk.len());
-        let end = chunk.iter().rposition(|b| !space(b)).map_or(start, |e| e + 1);
+        let end = chunk
+            .iter()
+            .rposition(|b| !space(b))
+            .map_or(start, |e| e + 1);
         let chunk = &chunk[start..end];
-        let options: &[&str] = if *role { &["", " WITH GRANT OPTION", " WITH ADMIN OPTION"] } else { &["", " WITH GRANT OPTION"] };
+        let options: &[&str] = if *role {
+            &["", " WITH GRANT OPTION", " WITH ADMIN OPTION"]
+        } else {
+            &["", " WITH GRANT OPTION"]
+        };
         names.iter().any(|n| {
-            options.iter().any(|o| chunk.len() == n.len() + o.len() && chunk[..n.len()].eq_ignore_ascii_case(n.as_bytes()) && chunk[n.len()..].eq_ignore_ascii_case(o.as_bytes()))
+            options.iter().any(|o| {
+                chunk.len() == n.len() + o.len()
+                    && chunk[..n.len()].eq_ignore_ascii_case(n.as_bytes())
+                    && chunk[n.len()..].eq_ignore_ascii_case(o.as_bytes())
+            })
         })
     };
     Some(privilege.split(|&b| b == b',').all(known))
@@ -657,7 +826,9 @@ pub fn bit_index(funcid: u32, len: i32, n: Option<i64>) -> Option<bool> {
 
 /// The `pg_*_is_visible` functions (table, type, function, operator, opclass, opfamily, conversion, statistics object,
 /// text search parser / dictionary / template / configuration, collation): NULL for an oid with no object, never a raise.
-pub const VISIBLE: [u32; 13] = [2079, 2080, 2081, 2082, 2083, 3829, 2093, 3403, 3756, 3757, 3768, 3758, 3815];
+pub const VISIBLE: [u32; 13] = [
+    2079, 2080, 2081, 2082, 2083, 3829, 2093, 3403, 3756, 3757, 3768, 3758, 3815,
+];
 
 /// `point(float8, float8)` (pg_proc 1440, geo_ops.c construct_point): stores its two arguments in a new Point, never a
 /// raise, whatever the floats (NaN and infinities included). D1911: regress create_index#108 / #109's target entry
@@ -721,7 +892,11 @@ pub const OCTET_LENGTH: [u32; 2] = [1374, 1375];
 /// the namespace, the name, the language and the body itself (`sql_body`), read from the catalog at the lowering (a
 /// pg_proc change moves the catalog epoch the program cache keys on). Regress create_function_sql#92 and heldout
 /// scan-0016: information_schema.parameters' and key_column_usage's target-list set function.
-pub const EXPANDARRAY: (&str, &str, &str) = ("information_schema", "_pg_expandarray", "SELECT * FROM pg_catalog.unnest($1) WITH ORDINALITY");
+pub const EXPANDARRAY: (&str, &str, &str) = (
+    "information_schema",
+    "_pg_expandarray",
+    "SELECT * FROM pg_catalog.unnest($1) WITH ORDINALITY",
+);
 
 /// pg_language's `sql` (SQLlanguageId).
 pub const SQL_LANGUAGE: u32 = 14;
@@ -729,13 +904,36 @@ pub const SQL_LANGUAGE: u32 = 14;
 /// A function in namespace `nsp`, named `name`, of language `lang`, whose body is `src`, raises on no input of its argument
 /// types: `EXPANDARRAY`'s exact row (a replaced body, another schema or language is not the rule's).
 pub fn sql_body(nsp: &[u8], name: &[u8], lang: u32, src: &[u8]) -> bool {
-    lang == SQL_LANGUAGE && nsp == EXPANDARRAY.0.as_bytes() && name == EXPANDARRAY.1.as_bytes() && src == EXPANDARRAY.2.as_bytes()
+    lang == SQL_LANGUAGE
+        && nsp == EXPANDARRAY.0.as_bytes()
+        && name == EXPANDARRAY.1.as_bytes()
+        && src == EXPANDARRAY.2.as_bytes()
 }
 
 /// A call of builtin `funcid` raises on no input of its argument types though `pg_proc` does not mark it leakproof: the
 /// one answer the effects home reads beside the catalog (each list above whose rule needs no argument).
 pub fn call(funcid: u32) -> bool {
-    numeric_cmp(funcid) || funcid == NUMERIC_BTCMP || jsonb_field(funcid) || shape_read(funcid) || int_series(funcid) || array_unnest(funcid) || array_subscripts(funcid) || int_bitwise(funcid) || start_time(funcid) || VISIBLE.contains(&funcid) || ENUM_EQ.contains(&funcid) || funcid == CONSTRUCT_POINT || TEMP_SCHEMA.contains(&funcid) || funcid == TEXTCAT || CHAR_TEXT.contains(&funcid) || SESSION.contains(&funcid) || funcid == NAMECONCATOID || funcid == JSONB_EXISTS || JSONB_CONTAINS.contains(&funcid) || TEXT_LENGTH.contains(&funcid) || OCTET_LENGTH.contains(&funcid)
+    numeric_cmp(funcid)
+        || funcid == NUMERIC_BTCMP
+        || jsonb_field(funcid)
+        || shape_read(funcid)
+        || int_series(funcid)
+        || array_unnest(funcid)
+        || array_subscripts(funcid)
+        || int_bitwise(funcid)
+        || start_time(funcid)
+        || VISIBLE.contains(&funcid)
+        || ENUM_EQ.contains(&funcid)
+        || funcid == CONSTRUCT_POINT
+        || TEMP_SCHEMA.contains(&funcid)
+        || funcid == TEXTCAT
+        || CHAR_TEXT.contains(&funcid)
+        || SESSION.contains(&funcid)
+        || funcid == NAMECONCATOID
+        || funcid == JSONB_EXISTS
+        || JSONB_CONTAINS.contains(&funcid)
+        || TEXT_LENGTH.contains(&funcid)
+        || OCTET_LENGTH.contains(&funcid)
 }
 
 /// D3816: the pinned non-acting builtins, (pg_proc oid, may raise). pg_proc marks each VOLATILE only because what it
@@ -752,11 +950,22 @@ pub fn call(funcid: u32) -> bool {
 ///   heavyweight lock and checks no privilege; it raises on no input.
 /// - pg_stat_have_stats 6230 (pgstatfuncs.c, D4778): looks its key up in the shared stats and the backend's pending
 ///   entries and creates none; it raises 22023 on a kind name that is none (pgstat_get_kind_from_str).
-/// The raise column is each builtin's own answer, kept as data: `call` takes none of them, since a VOLATILE call is never
-/// quiet (a reading that asks a call's raise answer reads its no-VOLATILE promise from it too), so each one that runs ahead
-/// goes through errorhold's plan-order recheck. pg_relation_size(regclass), 2325, is LANGUAGE sql (the planner inlines it
-/// to 2332's call) and stays out, so it fails closed. Each entry is a reviewed rule.
-pub const NON_ACTING: [(u32, bool); 10] = [(1371, false), (2168, true), (2286, false), (2322, true), (2323, true), (2324, true), (2332, true), (2997, false), (2998, false), (6230, true)];
+///   The raise column is each builtin's own answer, kept as data: `call` takes none of them, since a VOLATILE call is never
+///   quiet (a reading that asks a call's raise answer reads its no-VOLATILE promise from it too), so each one that runs ahead
+///   goes through errorhold's plan-order recheck. pg_relation_size(regclass), 2325, is LANGUAGE sql (the planner inlines it
+///   to 2332's call) and stays out, so it fails closed. Each entry is a reviewed rule.
+pub const NON_ACTING: [(u32, bool); 10] = [
+    (1371, false),
+    (2168, true),
+    (2286, false),
+    (2322, true),
+    (2323, true),
+    (2324, true),
+    (2332, true),
+    (2997, false),
+    (2998, false),
+    (6230, true),
+];
 
 /// `Some(may_raise)` when builtin `funcid` is one of `NON_ACTING`.
 pub fn non_acting(funcid: u32) -> Option<bool> {
@@ -792,7 +1001,10 @@ pub const fn io_text_target(t: u32) -> bool {
 /// (date_out prints an infinite date by name) and time. The timestamps are not listed (timestamp2tm's "timestamp out of
 /// range"), nor any array, record, range or user type (their output functions recurse into user code).
 pub const fn out_quiet(t: u32) -> bool {
-    matches!(t, 16 | 18 | 19 | 20 | 21 | 23 | 25 | 26 | 700 | 701 | 1042 | 1043 | 1700 | 2950 | 1082 | 1083)
+    matches!(
+        t,
+        16 | 18 | 19 | 20 | 21 | 23 | 25 | 26 | 700 | 701 | 1042 | 1043 | 1700 | 2950 | 1082 | 1083
+    )
 }
 
 /// An I/O coercion from `src` to `dst` (CoerceViaIO: `src`'s output function, then `dst`'s input function at typmod -1)
@@ -809,8 +1021,13 @@ pub const fn io_quiet(src: u32, dst: u32) -> bool {
 /// timestamptz raise on an infinite value ("XML does not support infinite date values"), bytea's encoding allocates, a
 /// user type's output function is user code: none is listed.
 pub const fn xml_value_quiet(t: u32) -> bool {
-    matches!(t, 16 | 19 | 20 | 21 | 23 | 25 | 26 | 700 | 701 | 1042 | 1043 | 1700 | 142)
-        || matches!(t, 1000 | 1003 | 1016 | 1005 | 1007 | 1009 | 1028 | 1021 | 1022 | 1014 | 1015 | 1231 | 143)
+    matches!(
+        t,
+        16 | 19 | 20 | 21 | 23 | 25 | 26 | 700 | 701 | 1042 | 1043 | 1700 | 142
+    ) || matches!(
+        t,
+        1000 | 1003 | 1016 | 1005 | 1007 | 1009 | 1028 | 1021 | 1022 | 1014 | 1015 | 1231 | 143
+    )
 }
 
 /// C1: one builtin fact, `(pg_proc oid, proname, where PostgreSQL 18.6 shows it)`. The place reads `<file under the
@@ -982,13 +1199,41 @@ pub fn call_local_draw(funcid: u32) -> bool {
 /// session's last values, the session's PRNG seed. A statement that calls one keeps PostgreSQL's order for each such
 /// call: a held one run ahead would change what the reader returns or what the setter's later draws see.
 pub const CALL_LOCAL_STATE: [Fact; 7] = [
-    (1575, "currval", "backend/commands/sequence.c currval_oid: the session's last value of the sequence"),
-    (2559, "lastval", "backend/commands/sequence.c lastval: the session's last nextval value of any sequence"),
-    (4032, "pg_sequence_last_value", "backend/commands/sequence.c pg_sequence_last_value: reads the sequence tuple's last_value"),
-    (6427, "pg_get_sequence_data", "backend/commands/sequence.c pg_get_sequence_data: reads the sequence tuple"),
-    (1576, "setval", "backend/commands/sequence.c setval_oid: do_setval moves the sequence"),
-    (1765, "setval", "backend/commands/sequence.c setval3_oid: do_setval moves the sequence, is_called given"),
-    (1599, "setseed", "backend/utils/adt/pseudorandomfuncs.c setseed: seeds the session's PRNG"),
+    (
+        1575,
+        "currval",
+        "backend/commands/sequence.c currval_oid: the session's last value of the sequence",
+    ),
+    (
+        2559,
+        "lastval",
+        "backend/commands/sequence.c lastval: the session's last nextval value of any sequence",
+    ),
+    (
+        4032,
+        "pg_sequence_last_value",
+        "backend/commands/sequence.c pg_sequence_last_value: reads the sequence tuple's last_value",
+    ),
+    (
+        6427,
+        "pg_get_sequence_data",
+        "backend/commands/sequence.c pg_get_sequence_data: reads the sequence tuple",
+    ),
+    (
+        1576,
+        "setval",
+        "backend/commands/sequence.c setval_oid: do_setval moves the sequence",
+    ),
+    (
+        1765,
+        "setval",
+        "backend/commands/sequence.c setval3_oid: do_setval moves the sequence, is_called given",
+    ),
+    (
+        1599,
+        "setseed",
+        "backend/utils/adt/pseudorandomfuncs.c setseed: seeds the session's PRNG",
+    ),
 ];
 
 /// Builtin `funcid` reads or sets the state a `CALL_LOCAL_ACT` call moves (`CALL_LOCAL_STATE`).
@@ -1250,7 +1495,7 @@ pub const DISPATCH: [Dispatch; 113] = {
 
 /// Where `DISPATCH` function `funcid` reaches; None: no DISPATCH function.
 pub fn dispatch(funcid: u32) -> Option<Reach> {
-    DISPATCH.iter().find(|d| d.0.0 == funcid).map(|d| d.1)
+    DISPATCH.iter().find(|d| d.0 .0 == funcid).map(|d| d.1)
 }
 
 /// The procs every named composite compares and hashes by (its column types' own procs, called per live column; rowtypes.c),
@@ -1264,9 +1509,21 @@ pub const RECORD_KEY_PROCS: [Fact; 3] = [
 /// The procs every enum compares and hashes by (pg_enum's sort order; no component call), in the order equality,
 /// comparison, hash. Moved from decompose effects/mod.rs `of_procs_at` (AGC-20).
 pub const ENUM_KEY_PROCS: [Fact; 3] = [
-    (3508, "enum_eq", "backend/utils/adt/enum.c enum_eq: compares the two values' oids"),
-    (3514, "enum_cmp", "backend/utils/adt/enum.c enum_cmp: enum_cmp_internal, by pg_enum's enumsortorder"),
-    (3515, "hashenum", "backend/access/hash/hashfunc.c hashenum: hashes the value's oid"),
+    (
+        3508,
+        "enum_eq",
+        "backend/utils/adt/enum.c enum_eq: compares the two values' oids",
+    ),
+    (
+        3514,
+        "enum_cmp",
+        "backend/utils/adt/enum.c enum_cmp: enum_cmp_internal, by pg_enum's enumsortorder",
+    ),
+    (
+        3515,
+        "hashenum",
+        "backend/access/hash/hashfunc.c hashenum: hashes the value's oid",
+    ),
 ];
 
 /// Every C1 fact table, by name: decompose tests/effects_home.rs pins each row.
@@ -1292,7 +1549,10 @@ mod tests {
     #[test]
     fn array_eq_quiet_takes_one_listed_array_type() {
         use super::array_eq_quiet as q;
-        assert!(q(744, 1009, 1009) && q(390, 1007, 1007), "text[] = text[], int4[] <> int4[]");
+        assert!(
+            q(744, 1009, 1009) && q(390, 1007, 1007),
+            "text[] = text[], int4[] <> int4[]"
+        );
         assert!(!q(744, 1009, 1007), "two array types");
         assert!(!q(744, 2277, 2277), "anyarray");
         assert!(!q(744, 1021, 1021), "float4[]: not listed");
@@ -1306,8 +1566,16 @@ mod tests {
         assert_eq!(q(3032, 8, Some(7)), Some(true));
         assert_eq!(q(3032, 8, Some(8)), Some(false), "past the last bit");
         assert_eq!(q(3032, 8, Some(-1)), Some(false));
-        assert_eq!(q(3032, -1, Some(0)), Some(false), "a length no typmod states");
-        assert_eq!(q(3032, 8, None), Some(false), "a NULL or non-constant index");
+        assert_eq!(
+            q(3032, -1, Some(0)),
+            Some(false),
+            "a length no typmod states"
+        );
+        assert_eq!(
+            q(3032, 8, None),
+            Some(false),
+            "a NULL or non-constant index"
+        );
         assert_eq!(q(723, 8, Some(0)), None, "bytea's get_bit reads no typmod");
     }
 
@@ -1316,16 +1584,39 @@ mod tests {
         use super::epoch_ns_k_quiet as q;
         // numeric.c images (little-endian): the short form's header 0x8000 | dscale << 7 | weight, then base-10000 digits
         assert!(q(&[0x02, 0x80, 0x0a, 0x00]), "1e9 (weight 2, digits [10])");
-        assert!(q(&[0x02, 0xa0, 0x0a, 0x00]), "-1e9 (the short form's sign 0x2000)");
-        assert!(!q(&[0x82, 0x80, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x88, 0x13]), "1000000000.5");
+        assert!(
+            q(&[0x02, 0xa0, 0x0a, 0x00]),
+            "-1e9 (the short form's sign 0x2000)"
+        );
+        assert!(
+            !q(&[0x82, 0x80, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x88, 0x13]),
+            "1000000000.5"
+        );
         assert!(!q(&[0x03, 0x80, 0x01, 0x00]), "1e12 (weight 3)");
-        assert!(q(&[0x02, 0x80, 0x09, 0x00, 0x0f, 0x27, 0x0f, 0x27]), "999999999 (digits [9, 9999, 9999])");
+        assert!(
+            q(&[0x02, 0x80, 0x09, 0x00, 0x0f, 0x27, 0x0f, 0x27]),
+            "999999999 (digits [9, 9999, 9999])"
+        );
         assert!(q(&[0x00, 0x80]), "0");
-        assert!(q(&[0xff, 0x80, 0x88, 0x13]), "0.5 (weight -1: the sign 0x0040 over 0x3F, dscale 1)");
-        assert!(q(&[0x00, 0x00, 0x02, 0x00, 0x0a, 0x00]), "1e9 in the long form (weight int16 2)");
-        assert!(!q(&[0x00, 0xc0]) && !q(&[0x00, 0xd0]) && !q(&[0x00, 0xf0]), "NaN, infinity, -infinity");
+        assert!(
+            q(&[0xff, 0x80, 0x88, 0x13]),
+            "0.5 (weight -1: the sign 0x0040 over 0x3F, dscale 1)"
+        );
+        assert!(
+            q(&[0x00, 0x00, 0x02, 0x00, 0x0a, 0x00]),
+            "1e9 in the long form (weight int16 2)"
+        );
+        assert!(
+            !q(&[0x00, 0xc0]) && !q(&[0x00, 0xd0]) && !q(&[0x00, 0xf0]),
+            "NaN, infinity, -infinity"
+        );
         assert!(!q(&[]) && !q(&[0x02, 0x80, 0x0a]), "a short or odd image");
-        assert!(super::epoch_clock_value(3) && super::epoch_clock_value(4) && !super::epoch_clock_value(7), "CURRENT_TIMESTAMP[(n)], not LOCALTIMESTAMP");
+        assert!(
+            super::epoch_clock_value(3)
+                && super::epoch_clock_value(4)
+                && !super::epoch_clock_value(7),
+            "CURRENT_TIMESTAMP[(n)], not LOCALTIMESTAMP"
+        );
     }
 
     #[test]
@@ -1336,18 +1627,40 @@ mod tests {
     /// D3816: the pinned non-acting list is exactly these oids with these raise answers; an addition is a reviewed change.
     #[test]
     fn non_acting_is_exactly_the_pinned_oids() {
-        let pinned = [(1371, false), (2168, true), (2286, false), (2322, true), (2323, true), (2324, true), (2332, true), (2997, false), (2998, false), (6230, true)];
+        let pinned = [
+            (1371, false),
+            (2168, true),
+            (2286, false),
+            (2322, true),
+            (2323, true),
+            (2324, true),
+            (2332, true),
+            (2997, false),
+            (2998, false),
+            (6230, true),
+        ];
         assert_eq!(super::NON_ACTING, pinned);
-        assert_eq!(super::non_acting(2325), None, "pg_relation_size(regclass) is LANGUAGE sql: out");
+        assert_eq!(
+            super::non_acting(2325),
+            None,
+            "pg_relation_size(regclass) is LANGUAGE sql: out"
+        );
         assert_eq!(super::non_acting(1), None);
         for (oid, raises) in pinned {
-            assert!(!super::call(oid), "oid {oid} (may raise {raises}): VOLATILE, so never quiet");
+            assert!(
+                !super::call(oid),
+                "oid {oid} (may raise {raises}): VOLATILE, so never quiet"
+            );
         }
     }
 
     #[test]
     fn row_number_rank_and_dense_rank_are_quiet_window_calls() {
-        assert!(super::window_quiet(3100, 0) && super::window_quiet(3101, 0) && super::window_quiet(3102, 0));
+        assert!(
+            super::window_quiet(3100, 0)
+                && super::window_quiet(3101, 0)
+                && super::window_quiet(3102, 0)
+        );
         assert!(!super::window_quiet(3105, 1) && !super::window_quiet(3114, 2)); // ntile and nth_value raise on a bad argument
         assert!(!super::window_quiet(3100, 1));
     }
@@ -1356,17 +1669,43 @@ mod tests {
 
     #[test]
     fn integer_arithmetic_is_quiet_when_its_operand_ranges_keep_the_result_in_its_type() {
-        let (add4, mul8, add2, neg4) = (int_arith(177).unwrap(), int_arith(1276).unwrap(), int_arith(176).unwrap(), int_arith(212).unwrap());
-        assert!(int_arith_quiet(add4.0, add4.1, I2, I2), "s::int4 + t::int4 over int2 columns");
-        assert!(!int_arith_quiet(add4.0, add4.1, I4, I4), "int4col + int4col can leave int4");
-        assert!(int_arith_quiet(mul8.0, mul8.1, I4, I4), "a::int8 * b over int4 columns: |a * b| <= 2^62");
-        assert!(!int_arith_quiet(mul8.0, mul8.1, I8, I4), "int8col * int4col can leave int8");
-        assert!(!int_arith_quiet(add2.0, add2.1, I2, I2), "int2 + int2 is int2: it can leave it");
-        assert!(!int_arith_quiet(neg4.0, neg4.1, I4, I4), "-int4col: -INT_MIN leaves int4");
+        let (add4, mul8, add2, neg4) = (
+            int_arith(177).unwrap(),
+            int_arith(1276).unwrap(),
+            int_arith(176).unwrap(),
+            int_arith(212).unwrap(),
+        );
+        assert!(
+            int_arith_quiet(add4.0, add4.1, I2, I2),
+            "s::int4 + t::int4 over int2 columns"
+        );
+        assert!(
+            !int_arith_quiet(add4.0, add4.1, I4, I4),
+            "int4col + int4col can leave int4"
+        );
+        assert!(
+            int_arith_quiet(mul8.0, mul8.1, I4, I4),
+            "a::int8 * b over int4 columns: |a * b| <= 2^62"
+        );
+        assert!(
+            !int_arith_quiet(mul8.0, mul8.1, I8, I4),
+            "int8col * int4col can leave int8"
+        );
+        assert!(
+            !int_arith_quiet(add2.0, add2.1, I2, I2),
+            "int2 + int2 is int2: it can leave it"
+        );
+        assert!(
+            !int_arith_quiet(neg4.0, neg4.1, I4, I4),
+            "-int4col: -INT_MIN leaves int4"
+        );
         assert!(int_arith_quiet(neg4.0, neg4.1, I2, I2), "-(s::int4)");
         assert_eq!(int_arith_range(IntOp::Sub, (0, 10), (-3, 4)), (-4, 13));
         assert_eq!(int_arith_range(IntOp::Mul, (-2, 3), (-5, 7)), (-15, 21));
-        assert!(int_widen(481) && int_widen(313) && int_widen(754) && !int_widen(480), "int4(int8) narrows: it can raise");
+        assert!(
+            int_widen(481) && int_widen(313) && int_widen(754) && !int_widen(480),
+            "int4(int8) narrows: it can raise"
+        );
         assert_eq!(int_arith(1726), None, "numeric_mul is no integer operation");
     }
 
@@ -1376,11 +1715,38 @@ mod tests {
         assert_eq!(num_arith(1726), Some((NumOp::Mul, 2)));
         assert_eq!(num_arith(1771), Some((NumOp::Neg, 1)));
         assert_eq!(num_arith(1740), Some((NumOp::Cast, 1)), "numeric(int4)");
-        assert_eq!(num_arith(1727), None, "numeric_div: its quotient's digits are not its operands'");
-        assert_eq!((num_arith(1712), num_arith(1711), num_arith(2167)), (Some((NumOp::Integral, 1)), Some((NumOp::Integral, 1)), Some((NumOp::Integral, 1))), "floor / ceil / ceiling(numeric)");
-        assert_eq!(num_arith(2309), None, "floor(float8) is no numeric operation");
-        assert!(!call(1712) && !call(1711), "numeric floor / ceil raise past numeric's weight: only under a digits bound");
-        assert_eq!((int_digits(21), int_digits(23), int_digits(20), int_digits(1700)), (Some(5), Some(10), Some(19), None));
+        assert_eq!(
+            num_arith(1727),
+            None,
+            "numeric_div: its quotient's digits are not its operands'"
+        );
+        assert_eq!(
+            (num_arith(1712), num_arith(1711), num_arith(2167)),
+            (
+                Some((NumOp::Integral, 1)),
+                Some((NumOp::Integral, 1)),
+                Some((NumOp::Integral, 1))
+            ),
+            "floor / ceil / ceiling(numeric)"
+        );
+        assert_eq!(
+            num_arith(2309),
+            None,
+            "floor(float8) is no numeric operation"
+        );
+        assert!(
+            !call(1712) && !call(1711),
+            "numeric floor / ceil raise past numeric's weight: only under a digits bound"
+        );
+        assert_eq!(
+            (
+                int_digits(21),
+                int_digits(23),
+                int_digits(20),
+                int_digits(1700)
+            ),
+            (Some(5), Some(10), Some(19), None)
+        );
     }
 
     #[test]
@@ -1389,53 +1755,129 @@ mod tests {
         assert_eq!(pattern_quiet(850, b"\\", 100), Some(false));
         assert_eq!(pattern_quiet(1633, b"a\\\\", 100), Some(true));
         assert_eq!(pattern_quiet(851, b"r%\\", 0), Some(false));
-        assert_eq!(pattern_quiet(850, b"%x%", 0), Some(false), "LIKE under an unset collation raises 42P22");
-        assert_eq!(pattern_quiet(1633, b"%x%", 0), Some(false), "ILIKE under an unset collation raises 42P22");
-        assert_eq!(pattern_quiet(1254, b"^r2", 0), Some(false), "a regex under an unset collation raises 42P22");
+        assert_eq!(
+            pattern_quiet(850, b"%x%", 0),
+            Some(false),
+            "LIKE under an unset collation raises 42P22"
+        );
+        assert_eq!(
+            pattern_quiet(1633, b"%x%", 0),
+            Some(false),
+            "ILIKE under an unset collation raises 42P22"
+        );
+        assert_eq!(
+            pattern_quiet(1254, b"^r2", 0),
+            Some(false),
+            "a regex under an unset collation raises 42P22"
+        );
         assert_eq!(pattern_quiet(1254, b"^r2", 100), Some(true));
         assert_eq!(pattern_quiet(850, b"%x%", 12345), Some(false));
         assert_eq!(pattern_quiet(67, b"x", 100), None);
         assert!(numeric_cmp(1721) && !numeric_cmp(2338));
-        assert!(call(2854) && call(2855) && !call(2853), "the temp-schema functions (DC-14)");
+        assert!(
+            call(2854) && call(2855) && !call(2853),
+            "the temp-schema functions (DC-14)"
+        );
         assert!(int_mod(156) && int_mod(945) && !int_mod(154));
     }
 
     #[test]
     fn an_integer_modulus_is_quiet_by_a_nonzero_constant_only() {
-        for f in [155, 156, 945, 940, 941, 947] {   // int2mod, int4mod, int8mod; mod(int2 / int4 / int8, same type)
-            assert!(!int_mod_quiet(f, Some(0)), "{f}: a zero divisor raises 22012");
-            assert!(!int_mod_quiet(f, None), "{f}: a NULL (or non-constant) divisor is not taken");
+        for f in [155, 156, 945, 940, 941, 947] {
+            // int2mod, int4mod, int8mod; mod(int2 / int4 / int8, same type)
+            assert!(
+                !int_mod_quiet(f, Some(0)),
+                "{f}: a zero divisor raises 22012"
+            );
+            assert!(
+                !int_mod_quiet(f, None),
+                "{f}: a NULL (or non-constant) divisor is not taken"
+            );
             // -1: INT16_MIN / INT32_MIN / INT64_MIN % -1 is 0 in PostgreSQL, never an overflow
-            assert!(int_mod_quiet(f, Some(-1)) && int_mod_quiet(f, Some(1)) && int_mod_quiet(f, Some(7)));
+            assert!(
+                int_mod_quiet(f, Some(-1))
+                    && int_mod_quiet(f, Some(1))
+                    && int_mod_quiet(f, Some(7))
+            );
         }
-        assert!(!int_mod_quiet(154, Some(7)) && !int_mod_quiet(1728, Some(7)), "int4div, numeric_mod: not the rule's");
+        assert!(
+            !int_mod_quiet(154, Some(7)) && !int_mod_quiet(1728, Some(7)),
+            "int4div, numeric_mod: not the rule's"
+        );
     }
 
     #[test]
     fn an_integer_division_is_quiet_by_a_constant_other_than_zero_and_minus_one() {
         for f in [153, 154, 466, 172, 173, 1281, 1277, 948, 840] {
-            assert!(!int_div_quiet(f, Some(0)), "{f}: a zero divisor raises 22012");
-            assert!(!int_div_quiet(f, Some(-1)), "{f}: -1 raises 22003 over the dividend type's minimum (declined for all)");
-            assert!(!int_div_quiet(f, None), "{f}: a NULL (or non-constant) divisor is not taken");
-            assert!(int_div_quiet(f, Some(1)) && int_div_quiet(f, Some(10)) && int_div_quiet(f, Some(-2)) && int_div_quiet(f, Some(i64::MIN)));
+            assert!(
+                !int_div_quiet(f, Some(0)),
+                "{f}: a zero divisor raises 22012"
+            );
+            assert!(
+                !int_div_quiet(f, Some(-1)),
+                "{f}: -1 raises 22003 over the dividend type's minimum (declined for all)"
+            );
+            assert!(
+                !int_div_quiet(f, None),
+                "{f}: a NULL (or non-constant) divisor is not taken"
+            );
+            assert!(
+                int_div_quiet(f, Some(1))
+                    && int_div_quiet(f, Some(10))
+                    && int_div_quiet(f, Some(-2))
+                    && int_div_quiet(f, Some(i64::MIN))
+            );
         }
-        assert!(!int_div_quiet(156, Some(7)) && !int_div_quiet(1727, Some(7)) && !int_div_quiet(217, Some(7)), "int4mod, numeric_div, float8div: not the rule's");
+        assert!(
+            !int_div_quiet(156, Some(7))
+                && !int_div_quiet(1727, Some(7))
+                && !int_div_quiet(217, Some(7)),
+            "int4mod, numeric_div, float8div: not the rule's"
+        );
         assert_eq!(divisor_quiet(154, Some(10)), Some(true));
         assert_eq!(divisor_quiet(154, Some(-1)), Some(false));
-        assert_eq!(divisor_quiet(156, Some(-1)), Some(true), "int4mod by -1 is 0");
+        assert_eq!(
+            divisor_quiet(156, Some(-1)),
+            Some(true),
+            "int4mod by -1 is 0"
+        );
         assert_eq!(divisor_quiet(156, Some(0)), Some(false));
-        assert_eq!(divisor_quiet(941, Some(7)), Some(true), "mod(int4, int4) is int4mod");
-        assert_eq!(divisor_quiet(947, Some(0)), Some(false), "mod(int8, int8) by 0 raises as int8mod does");
-        assert_eq!(divisor_quiet(1728, Some(7)), None, "numeric_mod: not the rule's");
+        assert_eq!(
+            divisor_quiet(941, Some(7)),
+            Some(true),
+            "mod(int4, int4) is int4mod"
+        );
+        assert_eq!(
+            divisor_quiet(947, Some(0)),
+            Some(false),
+            "mod(int8, int8) by 0 raises as int8mod does"
+        );
+        assert_eq!(
+            divisor_quiet(1728, Some(7)),
+            None,
+            "numeric_mod: not the rule's"
+        );
         assert_eq!(divisor_quiet(177, Some(7)), None, "int4pl: no divisor");
     }
 
     #[test]
     fn an_integer_word_reads_its_low_bytes_sign_extended() {
-        assert_eq!(int_word(usize::MAX, 4), Some(-1), "Int32GetDatum(-1) sign-extends");
-        assert_eq!(int_word(0xFFFF_FFFF, 4), Some(-1), "a zero-extended word reads the same");
+        assert_eq!(
+            int_word(usize::MAX, 4),
+            Some(-1),
+            "Int32GetDatum(-1) sign-extends"
+        );
+        assert_eq!(
+            int_word(0xFFFF_FFFF, 4),
+            Some(-1),
+            "a zero-extended word reads the same"
+        );
         assert_eq!(int_word(0xFFFF, 2), Some(-1));
-        assert_eq!(int_word(0x1_0000, 2), Some(0), "an int2 reads its low 16 bits");
+        assert_eq!(
+            int_word(0x1_0000, 2),
+            Some(0),
+            "an int2 reads its low 16 bits"
+        );
         assert_eq!(int_word(10, 8), Some(10));
         assert_eq!(int_word(usize::MAX, 8), Some(-1));
         assert_eq!(int_word(10, 1), None);
@@ -1443,28 +1885,60 @@ mod tests {
 
     #[test]
     fn a_call_is_quiet_by_its_own_rule_only() {
-        assert!(call(1067) && call(1069) && call(2079) && call(3478) && call(1718) && call(2331) && call(1769));
-        assert!(call(1191) && call(1192), "generate_subscripts: no subscript past the dimension, no error");
-        assert!(!call(1066) && !call(1068), "generate_series with a step: a zero step raises");
-        assert!(!call(156) && !call(154), "int4mod needs its divisor; int4div raises");
+        assert!(
+            call(1067)
+                && call(1069)
+                && call(2079)
+                && call(3478)
+                && call(1718)
+                && call(2331)
+                && call(1769)
+        );
+        assert!(
+            call(1191) && call(1192),
+            "generate_subscripts: no subscript past the dimension, no error"
+        );
+        assert!(
+            !call(1066) && !call(1068),
+            "generate_series with a step: a zero step raises"
+        );
+        assert!(
+            !call(156) && !call(154),
+            "int4mod needs its divisor; int4div raises"
+        );
     }
 
     #[test]
     fn the_start_times_are_quiet_the_clock_is_not_listed() {
-        for f in [1299, 2647, 2648] {   // now(), transaction_timestamp(), statement_timestamp()
+        for f in [1299, 2647, 2648] {
+            // now(), transaction_timestamp(), statement_timestamp()
             assert!(start_time(f) && call(f), "{f}");
         }
-        assert!(!call(2649) && !call(274), "clock_timestamp(), timeofday(): not the rule's");
-        assert!((0..=8).all(start_time_value), "CURRENT_DATE .. LOCALTIMESTAMP(n)");
-        assert!(!(9..=14).any(start_time_value), "CURRENT_ROLE .. CURRENT_SCHEMA: not the rule's");
+        assert!(
+            !call(2649) && !call(274),
+            "clock_timestamp(), timeofday(): not the rule's"
+        );
+        assert!(
+            (0..=8).all(start_time_value),
+            "CURRENT_DATE .. LOCALTIMESTAMP(n)"
+        );
+        assert!(
+            !(9..=14).any(start_time_value),
+            "CURRENT_ROLE .. CURRENT_SCHEMA: not the rule's"
+        );
     }
 
     #[test]
     fn integer_bitwise_operators_are_quiet_shifts_are_not_listed() {
-        for f in [1892, 1893, 1894, 1895, 1898, 1899, 1900, 1901, 1904, 1905, 1906, 1907] {
+        for f in [
+            1892, 1893, 1894, 1895, 1898, 1899, 1900, 1901, 1904, 1905, 1906, 1907,
+        ] {
             assert!(int_bitwise(f) && call(f), "{f}");
         }
-        assert!(!int_bitwise(1902) && !int_bitwise(1903) && !int_bitwise(1896), "int4shl, int4shr, int2shl: not the rule's");
+        assert!(
+            !int_bitwise(1902) && !int_bitwise(1903) && !int_bitwise(1896),
+            "int4shl, int4shr, int2shl: not the rule's"
+        );
     }
 
     #[test]
@@ -1472,7 +1946,15 @@ mod tests {
         for f in [2710, 1927, 3029, 3143, 3023] {
             assert!(privilege_fn(f), "{f}");
         }
-        assert_eq!((privilege_args(2710), privilege_args(3023), privilege_args(3022)), (Some(2), Some(3), None), "3022: a column name");
+        assert_eq!(
+            (
+                privilege_args(2710),
+                privilege_args(3023),
+                privilege_args(3022)
+            ),
+            (Some(2), Some(3), None),
+            "3022: a column name"
+        );
         // textlike, texteq, int4pl, has_table_privilege's name form (text, text)
         for f in [850, 67, 177, 1922] {
             assert!(!privilege_fn(f), "{f}");
@@ -1483,27 +1965,96 @@ mod tests {
     fn a_privilege_text_is_quiet_when_acl_c_accepts_every_chunk() {
         assert_eq!(privilege_quiet(2710, b"USAGE"), Some(true));
         assert_eq!(privilege_quiet(2710, b"usage"), Some(true), "pg_strcasecmp");
-        assert_eq!(privilege_quiet(2710, b" member , SET WITH ADMIN OPTION "), Some(true));
-        assert_eq!(privilege_quiet(1927, b"INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER"), Some(true));
-        assert_eq!(privilege_quiet(1927, b"maintain with grant option"), Some(true));
-        assert_eq!(privilege_quiet(3029, b"INSERT, UPDATE, REFERENCES"), Some(true));
+        assert_eq!(
+            privilege_quiet(2710, b" member , SET WITH ADMIN OPTION "),
+            Some(true)
+        );
+        assert_eq!(
+            privilege_quiet(
+                1927,
+                b"INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER"
+            ),
+            Some(true)
+        );
+        assert_eq!(
+            privilege_quiet(1927, b"maintain with grant option"),
+            Some(true)
+        );
+        assert_eq!(
+            privilege_quiet(3029, b"INSERT, UPDATE, REFERENCES"),
+            Some(true)
+        );
         assert_eq!(privilege_quiet(3143, b"USAGE"), Some(true));
-        assert_eq!(privilege_quiet(3143, b"USAGE WITH ADMIN OPTION"), Some(false), "admin option is a role's only");
-        assert_eq!(privilege_quiet(2261, b"EXECUTE"), Some(true), "has_function_privilege(oid, text)");
-        assert_eq!(privilege_quiet(2261, b"execute with grant option"), Some(true));
-        assert_eq!(privilege_quiet(2261, b"USAGE"), Some(false), "not a function privilege");
-        assert_eq!(privilege_quiet(2260, b"EXECUTE"), None, "has_function_privilege(text, text): a literal name can raise");
-        assert_eq!(privilege_quiet(3029, b"DELETE"), Some(false), "not a column privilege");
+        assert_eq!(
+            privilege_quiet(3143, b"USAGE WITH ADMIN OPTION"),
+            Some(false),
+            "admin option is a role's only"
+        );
+        assert_eq!(
+            privilege_quiet(2261, b"EXECUTE"),
+            Some(true),
+            "has_function_privilege(oid, text)"
+        );
+        assert_eq!(
+            privilege_quiet(2261, b"execute with grant option"),
+            Some(true)
+        );
+        assert_eq!(
+            privilege_quiet(2261, b"USAGE"),
+            Some(false),
+            "not a function privilege"
+        );
+        assert_eq!(
+            privilege_quiet(2260, b"EXECUTE"),
+            None,
+            "has_function_privilege(text, text): a literal name can raise"
+        );
+        assert_eq!(
+            privilege_quiet(3029, b"DELETE"),
+            Some(false),
+            "not a column privilege"
+        );
         assert_eq!(privilege_quiet(1927, b"USAGE"), Some(false));
-        assert_eq!(privilege_quiet(1927, b""), Some(false), "an empty chunk raises");
-        assert_eq!(privilege_quiet(1927, b"SELECT,"), Some(false), "a trailing comma is an empty chunk");
-        assert_eq!(privilege_quiet(1927, b"SELECT  WITH GRANT OPTION"), Some(false), "no whitespace freedom inside a name");
+        assert_eq!(
+            privilege_quiet(1927, b""),
+            Some(false),
+            "an empty chunk raises"
+        );
+        assert_eq!(
+            privilege_quiet(1927, b"SELECT,"),
+            Some(false),
+            "a trailing comma is an empty chunk"
+        );
+        assert_eq!(
+            privilege_quiet(1927, b"SELECT  WITH GRANT OPTION"),
+            Some(false),
+            "no whitespace freedom inside a name"
+        );
         assert_eq!(privilege_quiet(1927, b"SEL\xc9CT"), Some(false));
-        assert_eq!(privilege_quiet(2709, b"USAGE"), None, "pg_has_role(name, text): a literal name can raise");
-        assert_eq!(privilege_quiet(1922, b"SELECT"), None, "has_table_privilege(name, text, text): not the rule's");
-        assert_eq!(privilege_quiet(3023, b"SELECT, INSERT, UPDATE, REFERENCES"), Some(true), "information_schema.columns");
-        assert_eq!(privilege_quiet(3023, b"update with grant option"), Some(true));
-        assert_eq!(privilege_quiet(3023, b"DELETE"), Some(false), "not a column privilege");
+        assert_eq!(
+            privilege_quiet(2709, b"USAGE"),
+            None,
+            "pg_has_role(name, text): a literal name can raise"
+        );
+        assert_eq!(
+            privilege_quiet(1922, b"SELECT"),
+            None,
+            "has_table_privilege(name, text, text): not the rule's"
+        );
+        assert_eq!(
+            privilege_quiet(3023, b"SELECT, INSERT, UPDATE, REFERENCES"),
+            Some(true),
+            "information_schema.columns"
+        );
+        assert_eq!(
+            privilege_quiet(3023, b"update with grant option"),
+            Some(true)
+        );
+        assert_eq!(
+            privilege_quiet(3023, b"DELETE"),
+            Some(false),
+            "not a column privilege"
+        );
     }
 
     #[test]
@@ -1513,41 +2064,73 @@ mod tests {
 
     #[test]
     fn expandarray_reads_quiet_only_with_its_pg_body() {
-        let (nsp, name, src) = (EXPANDARRAY.0.as_bytes(), EXPANDARRAY.1.as_bytes(), EXPANDARRAY.2.as_bytes());
+        let (nsp, name, src) = (
+            EXPANDARRAY.0.as_bytes(),
+            EXPANDARRAY.1.as_bytes(),
+            EXPANDARRAY.2.as_bytes(),
+        );
         assert!(sql_body(nsp, name, SQL_LANGUAGE, src));
-        assert!(!sql_body(nsp, name, SQL_LANGUAGE, b"SELECT $1[1], 1 / 0"), "a replaced body");
-        assert!(!sql_body(b"public", name, SQL_LANGUAGE, src) && !sql_body(nsp, name, 13, src), "another schema or language");
+        assert!(
+            !sql_body(nsp, name, SQL_LANGUAGE, b"SELECT $1[1], 1 / 0"),
+            "a replaced body"
+        );
+        assert!(
+            !sql_body(b"public", name, SQL_LANGUAGE, src) && !sql_body(nsp, name, 13, src),
+            "another schema or language"
+        );
     }
 
     #[test]
     fn jsonb_exists_is_quiet() {
-        assert!(call(JSONB_EXISTS) && !call(4048) && !call(4049), "jsonb ?| / ?& are not the rule's");
+        assert!(
+            call(JSONB_EXISTS) && !call(4048) && !call(4049),
+            "jsonb ?| / ?& are not the rule's"
+        );
     }
 
     #[test]
     fn jsonb_containment_is_quiet_path_reads_are_not_listed() {
         assert!(call(4046) && call(4050), "jsonb @> / <@");
-        assert!(!call(3940) && !call(4011), "jsonb_extract_path_text, jsonb_path_match_opr: not the rule's");
+        assert!(
+            !call(3940) && !call(4011),
+            "jsonb_extract_path_text, jsonb_path_match_opr: not the rule's"
+        );
     }
 
     #[test]
     fn text_length_is_quiet_its_neighbours_are_not_listed() {
-        assert!(TEXT_LENGTH.iter().all(|&f| call(f)), "length / char_length / character_length / textlen of text");
-        assert!(!call(1318) && !call(2010), "length(bpchar) bpcharlen, length(bytea) byteaoctetlen: not the rule's");
+        assert!(
+            TEXT_LENGTH.iter().all(|&f| call(f)),
+            "length / char_length / character_length / textlen of text"
+        );
+        assert!(
+            !call(1318) && !call(2010),
+            "length(bpchar) bpcharlen, length(bytea) byteaoctetlen: not the rule's"
+        );
     }
 
     #[test]
     fn octet_length_of_text_and_bpchar_is_quiet() {
-        assert!(OCTET_LENGTH.iter().all(|&f| call(f)), "octet_length of text / bpchar");
-        assert!(!call(720) && !call(1682), "octet_length(bytea), octet_length(bit): not the rule's");
+        assert!(
+            OCTET_LENGTH.iter().all(|&f| call(f)),
+            "octet_length of text / bpchar"
+        );
+        assert!(
+            !call(720) && !call(1682),
+            "octet_length(bytea), octet_length(bit): not the rule's"
+        );
     }
 
     #[test]
     fn jsonb_field_and_element_accessors_are_quiet_path_extraction_is_not_listed() {
-        for f in [3478, 3214, 3215, 3216] {   // -> text, ->> text, -> int4, ->> int4
+        for f in [3478, 3214, 3215, 3216] {
+            // -> text, ->> text, -> int4, ->> int4
             assert!(jsonb_field(f), "{f}");
         }
-        assert!(!jsonb_field(3217) && !jsonb_field(3940), "jsonb_extract_path(_text): not the rule's");
+        assert!(
+            !jsonb_field(3217) && !jsonb_field(3940),
+            "jsonb_extract_path(_text): not the rule's"
+        );
     }
 
     #[test]
@@ -1555,16 +2138,30 @@ mod tests {
         for f in [877, 936] {
             assert!(substr_quiet(f, Some(1)) && substr_quiet(f, Some(0)), "{f}");
             assert!(!substr_quiet(f, Some(-1)), "{f}: a negative length raises");
-            assert!(!substr_quiet(f, None), "{f}: a NULL or non-constant length is the other class");
+            assert!(
+                !substr_quiet(f, None),
+                "{f}: a NULL or non-constant length is the other class"
+            );
         }
-        assert!(!substr_quiet(883, Some(1)), "substr(text, int4): not the rule's");
+        assert!(
+            !substr_quiet(883, Some(1)),
+            "substr(text, int4): not the rule's"
+        );
     }
 
     #[test]
     fn left_and_right_are_quiet_for_any_constant_but_int32_min() {
         for f in [3060, 3061] {
-            assert!(left_right_quiet(f, Some(4)) && left_right_quiet(f, Some(-4)) && left_right_quiet(f, Some(0)), "{f}");
-            assert!(!left_right_quiet(f, Some(i32::MIN as i64)), "{f}: INT32_MIN's negation overflows");
+            assert!(
+                left_right_quiet(f, Some(4))
+                    && left_right_quiet(f, Some(-4))
+                    && left_right_quiet(f, Some(0)),
+                "{f}"
+            );
+            assert!(
+                !left_right_quiet(f, Some(i32::MIN as i64)),
+                "{f}: INT32_MIN's negation overflows"
+            );
             assert!(!left_right_quiet(f, None), "{f}");
         }
         assert!(!left_right_quiet(877, Some(4)), "substr: not the rule's");
@@ -1576,11 +2173,23 @@ mod tests {
             for c in [100, 950, 951] {
                 assert!(case_map_quiet(f, c), "{f} under {c}");
             }
-            assert!(!case_map_quiet(f, 0), "{f}: an unset collation raises 42P22");
-            assert!(!case_map_quiet(f, 12345), "{f}: another collation (its own locale lookup and provider)");
+            assert!(
+                !case_map_quiet(f, 0),
+                "{f}: an unset collation raises 42P22"
+            );
+            assert!(
+                !case_map_quiet(f, 12345),
+                "{f}: another collation (its own locale lookup and provider)"
+            );
         }
-        assert!(!case_map_quiet(3848, 100), "lower(anyrange): not the rule's");
-        assert!(!case_map_quiet(4235, 100), "lower(anymultirange): not the rule's");
+        assert!(
+            !case_map_quiet(3848, 100),
+            "lower(anyrange): not the rule's"
+        );
+        assert!(
+            !case_map_quiet(4235, 100),
+            "lower(anymultirange): not the rule's"
+        );
     }
 
     #[test]
@@ -1590,46 +2199,91 @@ mod tests {
                 assert!(text_extremum_quiet(f, c), "{f} under {c}");
             }
             assert!(!text_extremum_quiet(f, 12345), "{f}: another collation");
-            assert!(!text_extremum_quiet(f, 0), "{f}: an indeterminate collation raises 42P22 at the first comparison");
+            assert!(
+                !text_extremum_quiet(f, 0),
+                "{f}: an indeterminate collation raises 42P22 at the first comparison"
+            );
         }
-        assert!(!text_extremum_quiet(2130, 100), "max(numeric): not the rule's");
+        assert!(
+            !text_extremum_quiet(2130, 100),
+            "max(numeric): not the rule's"
+        );
     }
 
     #[test]
     fn extrema_are_quiet_over_the_comparison_quiet_types_only() {
         // max / min of int8 int4 int2 oid float4 float8 date time timetz money timestamp timestamptz interval numeric tid
         // pg_lsn xid8 (PostgreSQL 18.6 pg_proc oids).
-        for f in [2115, 2116, 2117, 2118, 2119, 2120, 2122, 2123, 2124, 2125, 2126, 2127, 2128, 2130, 2797, 4189, 5099] {
+        for f in [
+            2115, 2116, 2117, 2118, 2119, 2120, 2122, 2123, 2124, 2125, 2126, 2127, 2128, 2130,
+            2797, 4189, 5099,
+        ] {
             assert!(extremum_quiet(f), "max {f}");
         }
-        for f in [2131, 2132, 2133, 2134, 2135, 2136, 2138, 2139, 2140, 2141, 2142, 2143, 2144, 2146, 2798, 4190, 5100] {
+        for f in [
+            2131, 2132, 2133, 2134, 2135, 2136, 2138, 2139, 2140, 2141, 2142, 2143, 2144, 2146,
+            2798, 4190, 5100,
+        ] {
             assert!(extremum_quiet(f), "min {f}");
         }
         // text (a collation: text_extremum_quiet), anyarray, record, bpchar, inet, anyenum, bytea; sum(int4).
-        for f in [2129, 2145, 2050, 2051, 6373, 6374, 2244, 2245, 3564, 3565, 3526, 3527, 6395, 6396, 2108] {
+        for f in [
+            2129, 2145, 2050, 2051, 6373, 6374, 2244, 2245, 3564, 3565, 3526, 3527, 6395, 6396,
+            2108,
+        ] {
             assert!(!extremum_quiet(f), "{f}");
         }
-        for t in [20, 21, 23, 26, 27, 700, 701, 790, 1082, 1083, 1114, 1184, 1186, 1266, 1700, 3220, 5069] {
+        for t in [
+            20, 21, 23, 26, 27, 700, 701, 790, 1082, 1083, 1114, 1184, 1186, 1266, 1700, 3220, 5069,
+        ] {
             assert!(compare_quiet(t), "type {t}");
         }
-        assert!(distinct_count_quiet(2147, 1700) && distinct_count_quiet(2147, 1186), "count(DISTINCT numeric / interval)");
-        assert!(!distinct_count_quiet(2147, 25) && !distinct_count_quiet(2803, 23), "count(DISTINCT text); count(*)");
+        assert!(
+            distinct_count_quiet(2147, 1700) && distinct_count_quiet(2147, 1186),
+            "count(DISTINCT numeric / interval)"
+        );
+        assert!(
+            !distinct_count_quiet(2147, 25) && !distinct_count_quiet(2803, 23),
+            "count(DISTINCT text); count(*)"
+        );
         for t in [25, 1042, 1043, 17, 869, 2277, 2249] {
-            assert!(!compare_quiet(t), "type {t}: collatable, an array, a record, inet or bytea: not listed");
+            assert!(
+                !compare_quiet(t),
+                "type {t}: collatable, an array, a record, inet or bytea: not listed"
+            );
         }
     }
 
     #[test]
     fn agg_quiet_is_the_counts_and_the_comparison_quiet_extrema() {
-        assert!(agg_quiet(2803, 0) && agg_quiet(2147, 0), "count(*), count(any)");
+        assert!(
+            agg_quiet(2803, 0) && agg_quiet(2147, 0),
+            "count(*), count(any)"
+        );
         for f in 2115..=5100u32 {
-            assert_eq!(agg_quiet(f, 0), matches!(f, 2803 | 2147) || extremum_quiet(f), "{f}: the counts and every extremum_quiet aggregate");
+            assert_eq!(
+                agg_quiet(f, 0),
+                matches!(f, 2803 | 2147) || extremum_quiet(f),
+                "{f}: the counts and every extremum_quiet aggregate"
+            );
         }
-        assert!(agg_quiet(2124, 0) && agg_quiet(2140, 0) && agg_quiet(2128, 0) && agg_quiet(2144, 0), "timetz / interval: NEW-44");
-        assert!(agg_quiet(2797, 0) && agg_quiet(4189, 0) && agg_quiet(5100, 0), "tid, pg_lsn, xid8");
-        assert!(agg_quiet(2129, 100) && !agg_quiet(2129, 12345), "max(text): text_extremum_quiet's collations");
+        assert!(
+            agg_quiet(2124, 0) && agg_quiet(2140, 0) && agg_quiet(2128, 0) && agg_quiet(2144, 0),
+            "timetz / interval: NEW-44"
+        );
+        assert!(
+            agg_quiet(2797, 0) && agg_quiet(4189, 0) && agg_quiet(5100, 0),
+            "tid, pg_lsn, xid8"
+        );
+        assert!(
+            agg_quiet(2129, 100) && !agg_quiet(2129, 12345),
+            "max(text): text_extremum_quiet's collations"
+        );
         for f in [2108, 2101, 2114, 3526, 2244, 3564, 2050, 2100] {
-            assert!(!agg_quiet(f, 100), "{f}: sum / avg / an enum, bpchar, inet or array extremum");
+            assert!(
+                !agg_quiet(f, 100),
+                "{f}: sum / avg / an enum, bpchar, inet or array extremum"
+            );
         }
     }
 
@@ -1639,10 +2293,19 @@ mod tests {
             for src in [23, 20, 21, 1700, 701, 16, 25, 1082, 2950] {
                 assert!(io_quiet(src, dst), "{src} -> {dst}");
             }
-            assert!(!io_quiet(1114, dst) && !io_quiet(1184, dst), "a timestamp's output may raise out of range");
-            assert!(!io_quiet(1007, dst) && !io_quiet(2249, dst) && !io_quiet(16384, dst), "an array, a record, a user type");
+            assert!(
+                !io_quiet(1114, dst) && !io_quiet(1184, dst),
+                "a timestamp's output may raise out of range"
+            );
+            assert!(
+                !io_quiet(1007, dst) && !io_quiet(2249, dst) && !io_quiet(16384, dst),
+                "an array, a record, a user type"
+            );
         }
-        assert!(!io_quiet(25, 23) && !io_quiet(25, 1082) && !io_quiet(25, 1700), "int4in, date_in, numeric_in parse");
+        assert!(
+            !io_quiet(25, 23) && !io_quiet(25, 1082) && !io_quiet(25, 1700),
+            "int4in, date_in, numeric_in parse"
+        );
     }
 
     #[test]
@@ -1651,20 +2314,29 @@ mod tests {
             assert!(xml_value_quiet(t), "{t}");
         }
         for t in [1082, 1114, 1184, 17, 2249, 16384, 1182] {
-            assert!(!xml_value_quiet(t), "{t}: date / timestamps raise on infinity, bytea, a record, a user type, date[]");
+            assert!(
+                !xml_value_quiet(t),
+                "{t}: date / timestamps raise on infinity, bytea, a record, a user type, date[]"
+            );
         }
     }
 
     #[test]
     fn textcat_is_quiet_its_one_raise_is_a_resource_limit() {
         assert!(call(TEXTCAT), "text || text");
-        assert!(!call(2003) && !call(2004) && !call(2011), "textanycat, anytextcat (an output function), byteacat: not the rule's");
+        assert!(
+            !call(2003) && !call(2004) && !call(2011),
+            "textanycat, anytextcat (an output function), byteacat: not the rule's"
+        );
     }
 
     #[test]
     fn char_text_conversions_are_quiet() {
         assert!(call(946) && call(944), "text(\"char\"), \"char\"(text)");
-        assert!(!call(1714) && !call(1717), "convert_from, convert_to: not the rule's");
+        assert!(
+            !call(1714) && !call(1717),
+            "convert_from, convert_to: not the rule's"
+        );
     }
 
     #[test]
@@ -1682,16 +2354,36 @@ mod tests {
         assert_eq!(dt_unit(b"now", true), None);
         assert_eq!(datetime_unit_quiet(6202, b"minute"), Some(true));
         assert_eq!(datetime_unit_quiet(6202, b"epoch"), Some(true));
-        assert_eq!(datetime_unit_quiet(6202, b"timezone"), Some(false), "not supported for a finite timestamp");
+        assert_eq!(
+            datetime_unit_quiet(6202, b"timezone"),
+            Some(false),
+            "not supported for a finite timestamp"
+        );
         assert_eq!(datetime_unit_quiet(6203, b"timezone_m"), Some(true));
-        assert_eq!(datetime_unit_quiet(6199, b"hour"), Some(false), "not supported for date");
+        assert_eq!(
+            datetime_unit_quiet(6199, b"hour"),
+            Some(false),
+            "not supported for date"
+        );
         assert_eq!(datetime_unit_quiet(6199, b"isodow"), Some(true));
         assert_eq!(datetime_unit_quiet(2021, b"fortnight"), Some(false));
         assert_eq!(datetime_unit_quiet(2020, b"day"), Some(true));
-        assert_eq!(datetime_unit_quiet(2020, b"month"), Some(false), "below the earliest timestamp");
-        assert_eq!(datetime_unit_quiet(2020, b"epoch"), Some(false), "DecodeUnits alone");
+        assert_eq!(
+            datetime_unit_quiet(2020, b"month"),
+            Some(false),
+            "below the earliest timestamp"
+        );
+        assert_eq!(
+            datetime_unit_quiet(2020, b"epoch"),
+            Some(false),
+            "DecodeUnits alone"
+        );
         assert_eq!(datetime_unit_quiet(1217, b"second"), Some(true));
-        assert_eq!(datetime_unit_quiet(1217, b"hour"), Some(false), "an LMT offset");
+        assert_eq!(
+            datetime_unit_quiet(1217, b"hour"),
+            Some(false),
+            "an LMT offset"
+        );
         assert_eq!(datetime_unit_quiet(1258, b"day"), None);
     }
 
@@ -1703,6 +2395,10 @@ mod tests {
         assert_eq!(const_arg(3061, 2), Some(1));
         assert_eq!(const_arg(877, 2), None);
         assert_eq!(const_arg(156, 2), None);
-        assert!(text_arg_quiet(877, Some(1)) && text_arg_quiet(3061, Some(-2)) && !text_arg_quiet(156, Some(7)));
+        assert!(
+            text_arg_quiet(877, Some(1))
+                && text_arg_quiet(3061, Some(-2))
+                && !text_arg_quiet(156, Some(7))
+        );
     }
 }

@@ -82,12 +82,12 @@ impl Memo<'_> {
     /// entry's end.
     pub(crate) fn replay<'e>(&self, b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, x: &Exits, (l_r, htypes, l_done): (Block, &[Type], Block), each: Replay<'_, 'e>) {
         b.switch_to(l_r);
-        let p = mcx::to_vec_in(&b.block_params(l_r)[..], env.mcx);
+        let p = mcx::to_vec_in(b.block_params(l_r), env.mcx);
         let (start, n) = self.bounds(b, env, p[0]);
         let (l_rh, l_row) = crate::frame::cancel::header(b, env.ctx, x.l_cancel, htypes, env.mcx);
         b.br(l_rh, &mcx::concat_in(&[&[start][..], &p[1..]], env.mcx));
         b.switch_to(l_row);
-        let q = mcx::to_vec_in(&b.block_params(l_row)[..], env.mcx);
+        let q = mcx::to_vec_in(b.block_params(l_row), env.mcx);
         let (j, rc) = (q[0], Carry::from_params(&q[1..], env.mcx));
         let l_body = b.create_block(&[]);
         let more = b.icmp(IntCond::Slt, j, n);

@@ -18,7 +18,15 @@ pub fn parse_ident_line(
     macro_rules! ident_error {
         ($cline:expr, $msg:expr) => {{
             let msg: String = $msg.to_string();
-            report_config(elevel, $cline, "parse_ident_line", msg.clone(), None, line_num, &file_name)?;
+            report_config(
+                elevel,
+                $cline,
+                "parse_ident_line",
+                msg.clone(),
+                None,
+                line_num,
+                &file_name,
+            )?;
             tok_line.err_msg = Some(msg);
             return Ok(None);
         }};
@@ -91,7 +99,13 @@ pub fn check_ident_usermap(
     let roleid = acl_seams::get_role_oid::call(pg_user, true)?;
 
     if token_has_regexp(&ident_line.system_user) {
-        return check_ident_usermap_regexp(ident_line, pg_user, system_user, case_insensitive, roleid);
+        return check_ident_usermap_regexp(
+            ident_line,
+            pg_user,
+            system_user,
+            case_insensitive,
+            roleid,
+        );
     }
 
     // Not a regular expression, so make a complete match.
@@ -172,6 +186,7 @@ fn check_ident_usermap_regexp(
         let cap = &system_user[so..eo];
         // Substitute the first "\\1" in pg_user with the captured bytes,
         // mirroring C's memcpy-based expansion at the byte level.
+        #[allow(clippy::unnecessary_unwrap)]
         let ofs = backref.expect("checked above");
         let mut expanded_bytes = ::mcx::std_vec_with_capacity("hba", hay.len() - 2 + cap.len())?;
         expanded_bytes.extend_from_slice(&hay[..ofs]);
@@ -183,6 +198,11 @@ fn check_ident_usermap_regexp(
         pg_tok
     };
 
-    let found = check_role(pg_user, roleid, std::slice::from_ref(check_tok), case_insensitive)?;
+    let found = check_role(
+        pg_user,
+        roleid,
+        std::slice::from_ref(check_tok),
+        case_insensitive,
+    )?;
     Ok((found, false))
 }

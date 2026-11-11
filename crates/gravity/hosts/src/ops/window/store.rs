@@ -174,7 +174,7 @@ impl Store {
 
     fn release_segs(&mut self, j: u64) {
         // most calls free nothing (a partition that starts inside the front segment): they open no step
-        if !self.segs.front().is_some_and(|s| s.last < j) {
+        if self.segs.front().is_none_or(|s| s.last >= j) {
             return;
         }
         // a label-only step (no tick): a long release is checker 2's under its own label

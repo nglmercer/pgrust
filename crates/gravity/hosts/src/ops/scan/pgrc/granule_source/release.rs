@@ -266,7 +266,7 @@ impl StmtDicts {
     pub(super) fn credit(&self, p: usize, n: u64) -> bool {
         let g = self.granules[p];
         let now = self.done[p].fetch_add(n, Ordering::AcqRel) + n;
-        g > 0 && now % g == 0
+        g > 0 && now.is_multiple_of(g)
     }
 
     /// Drop part `p`'s dictionaries and the statement's use of it: every claim of the pass left the part.

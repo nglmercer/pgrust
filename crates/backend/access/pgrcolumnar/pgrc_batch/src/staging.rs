@@ -1,12 +1,11 @@
-
 use ::datum::Datum;
 use ::types_tuple::tupdesc::CompactAttribute;
 use ::types_tuple::tupmacs::fetch_att;
 use ::types_tuple::varatt;
 
+use crate::batch::Column;
 use crate::rep::ColRep;
 use crate::selection::Selection;
-use crate::batch::Column;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StagingClass {
@@ -19,11 +18,15 @@ impl StagingClass {
     pub fn from_catalog(typlen: i16, typbyval: bool) -> Option<StagingClass> {
         if typbyval {
             match typlen {
-                1 | 2 | 4 | 8 => Some(StagingClass::ByvalWord { width: typlen as u8 }),
+                1 | 2 | 4 | 8 => Some(StagingClass::ByvalWord {
+                    width: typlen as u8,
+                }),
                 _ => None,
             }
         } else if typlen > 0 {
-            Some(StagingClass::FixedRef { width: typlen as u16 })
+            Some(StagingClass::FixedRef {
+                width: typlen as u16,
+            })
         } else if typlen == -1 {
             Some(StagingClass::VarlenaPtr)
         } else {
@@ -40,7 +43,9 @@ impl StagingClass {
         match self {
             StagingClass::ByvalWord { .. } => ColRep::ByvalWord,
             StagingClass::FixedRef { width } => ColRep::FixedRef { width },
-            StagingClass::VarlenaPtr => ColRep::Varlena { inline_proven: false },
+            StagingClass::VarlenaPtr => ColRep::Varlena {
+                inline_proven: false,
+            },
         }
     }
 
@@ -144,7 +149,9 @@ impl Column {
                 return false;
             }
         }
-        self.rep = ColRep::Varlena { inline_proven: true };
+        self.rep = ColRep::Varlena {
+            inline_proven: true,
+        };
         true
     }
 }

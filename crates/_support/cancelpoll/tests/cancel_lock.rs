@@ -22,7 +22,10 @@ fn a_canceled_lock_wait_ends_within_the_poll_bound() {
     let m = Arc::new(Mutex::new(7u32));
     cancelpoll::scoped(&ABORT, || {
         let mut step = cancelpoll::step("cancel_lock: a free lock");
-        assert_eq!(*cancelpoll::lock_or_cancel(&mut step, &m).expect("a free lock is taken"), 7);
+        assert_eq!(
+            *cancelpoll::lock_or_cancel(&mut step, &m).expect("a free lock is taken"),
+            7
+        );
     });
 
     // a holder keeps the lock 2 s
@@ -35,7 +38,10 @@ fn a_canceled_lock_wait_ends_within_the_poll_bound() {
     });
     let t0 = Instant::now();
     while !held.load(Relaxed) {
-        assert!(t0.elapsed() < Duration::from_secs(5), "the holder did not take the lock");
+        assert!(
+            t0.elapsed() < Duration::from_secs(5),
+            "the holder did not take the lock"
+        );
         std::thread::sleep(Duration::from_millis(1));
     }
     let canceller = std::thread::spawn(|| {
@@ -50,15 +56,28 @@ fn a_canceled_lock_wait_ends_within_the_poll_bound() {
     });
     let took = t0.elapsed();
     canceller.join().expect("the canceller");
-    assert_eq!(r, Err(cancelpoll::Canceled), "the cancel ended the wait ({took:?})");
+    assert_eq!(
+        r,
+        Err(cancelpoll::Canceled),
+        "the cancel ended the wait ({took:?})"
+    );
     assert!(seen, "the stop is the kernel call's (cancelpoll::seen)");
-    assert!(took >= CANCEL_AT.saturating_sub(Duration::from_millis(10)), "it waited for the holder until the cancel: {took:?}");
-    assert!(took < CANCEL_AT + BOUND, "the cancel ended the wait within the poll bound, not the holder's 2 s: {took:?}");
+    assert!(
+        took >= CANCEL_AT.saturating_sub(Duration::from_millis(10)),
+        "it waited for the holder until the cancel: {took:?}"
+    );
+    assert!(
+        took < CANCEL_AT + BOUND,
+        "the cancel ended the wait within the poll bound, not the holder's 2 s: {took:?}"
+    );
 
     holder.join().expect("the holder");
     ABORT.store(0, Relaxed);
     cancelpoll::scoped(&ABORT, || {
         let mut step = cancelpoll::step("cancel_lock: the lock freed");
-        assert_eq!(*cancelpoll::lock_or_cancel(&mut step, &m).expect("the freed lock is taken"), 7);
+        assert_eq!(
+            *cancelpoll::lock_or_cancel(&mut step, &m).expect("the freed lock is taken"),
+            7
+        );
     });
 }

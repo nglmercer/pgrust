@@ -12,10 +12,10 @@
 //! - one key derived from one code lane (e.g. `regexp_replace(col, ..)`): index the source code. The record keys by
 //!   the row's image, which every row of one code shares (an IMMUTABLE / STABLE function of the code: KEYED sets
 //!   `dense` for those only); two codes of one value are two records the flush merges.
-//! The key itself is never evaluated here: the image is the row's, computed as the hashed path computes it, so a
-//! per-entry value (percode.table) is read per row, a faulting entry re-evaluates per row and raises where PostgreSQL
-//! raises, and a VOLATILE key never reaches a front. Codes are part-local; a window reads one dictionary per lane, and
-//! the window-end flush keeps two parts' codes apart by construction (codefront.rs).
+//!   The key itself is never evaluated here: the image is the row's, computed as the hashed path computes it, so a
+//!   per-entry value (percode.table) is read per row, a faulting entry re-evaluates per row and raises where PostgreSQL
+//!   raises, and a VOLATILE key never reaches a front. Codes are part-local; a window reads one dictionary per lane, and
+//!   the window-end flush keeps two parts' codes apart by construction (codefront.rs).
 //!
 //! A table the plain front takes (one plain code key) is declined, so the resolver passes it to code.front_part; float
 //! slots are declined as there (a merge reassociates float partials: V4R-2 keeps overflow exact).

@@ -25,8 +25,8 @@
 
 use crate::bitpack;
 use crate::constants::{
-    EXP_ARR, FACT_ARR, FRAC_ARR, MAGIC_NUMBER, SAMPLES_PER_VECTOR,
-    SAMPLING_EARLY_EXIT_THRESHOLD, VECTOR_SIZE,
+    EXP_ARR, FACT_ARR, FRAC_ARR, MAGIC_NUMBER, SAMPLES_PER_VECTOR, SAMPLING_EARLY_EXIT_THRESHOLD,
+    VECTOR_SIZE,
 };
 
 /// The f32 profile's exponent ceiling (reference: 10^10 is the last power
@@ -66,7 +66,11 @@ pub(crate) fn encode_value32(n: f32, exponent: u8, factor: u8) -> i32 {
     // fast_round is computed unconditionally (pure fp ops) and selected
     // against the sentinel: csel, not a branch (the classic.rs shape).
     let rounded = fast_round64(scaled) as i32;
-    if is_impossible_to_encode_i32(scaled) { ENCODING_UPPER_LIMIT_I32 as i32 } else { rounded }
+    if is_impossible_to_encode_i32(scaled) {
+        ENCODING_UPPER_LIMIT_I32 as i32
+    } else {
+        rounded
+    }
 }
 
 #[inline]
@@ -137,7 +141,11 @@ pub(crate) fn find_top_k_combinations32(sampled_vectors: &[Vec<f32>]) -> Vec<(u8
         *votes.entry((best_e, best_f)).or_insert(0) += 1;
     }
     let mut ranked: Vec<((u8, u8), u32)> = votes.into_iter().collect();
-    ranked.sort_by(|a, b| b.1.cmp(&a.1).then(b.0 .0.cmp(&a.0 .0)).then(b.0 .1.cmp(&a.0 .1)));
+    ranked.sort_by(|a, b| {
+        b.1.cmp(&a.1)
+            .then(b.0 .0.cmp(&a.0 .0))
+            .then(b.0 .1.cmp(&a.0 .1))
+    });
     ranked.truncate(crate::constants::MAX_K_COMBINATIONS);
     ranked.into_iter().map(|(c, _)| c).collect()
 }
@@ -290,9 +298,17 @@ pub(crate) fn decode_packed_into32(
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn decode_vector32(v: &AlpF32Vector, out: &mut Vec<f32>) {
     let mut buf = [0.0f32; VECTOR_SIZE];
-    decode_packed_into32(&v.packed, v.bit_width as u32, v.exponent, v.factor, v.for_base, &mut buf);
+    decode_packed_into32(
+        &v.packed,
+        v.bit_width as u32,
+        v.exponent,
+        v.factor,
+        v.for_base,
+        &mut buf,
+    );
     for (&pos, &bits) in v.exc_positions.iter().zip(v.exc_values.iter()) {
         buf[pos as usize] = f32::from_bits(bits);
     }

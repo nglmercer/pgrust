@@ -89,6 +89,7 @@ fn windows(src: &mut HeapRangeSource) -> Vec<(u32, u16, u32)> {
         if rows == 0 {
             return out;
         }
+        #[allow(clippy::drop_non_drop)]
         drop(w);
         out.push((rows, site.page_flags, site.pos.block));
     }
@@ -108,6 +109,7 @@ fn offsets(src: &mut HeapRangeSource, natts: usize) -> Vec<(u16, Vec<u16>)> {
             return out;
         }
         let offs = unsafe { core::slice::from_raw_parts(w.lanes()[natts].ptr as *const u16, rows) }.to_vec();
+        #[allow(clippy::drop_non_drop)]
         drop(w);
         out.push((site.page_flags, offs));
     }
@@ -239,6 +241,7 @@ fn a_late_lane_is_deformed_for_the_survivors_only() {
     let sel = [1u32, 4, 7];
     let mut a = Lane::NONE;
     assert_eq!(src.lane(LANE_LATE as u16 | 1, &sel, &mut a).unwrap() as usize, rows);
+    #[allow(clippy::needless_range_loop)]
     for r in 0..rows {
         let picked = sel.contains(&(r as u32));
         assert_eq!(unsafe { a.is_valid(r) }, picked, "row {r}");

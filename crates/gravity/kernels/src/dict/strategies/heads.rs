@@ -142,6 +142,7 @@ unsafe fn tally_window(ctx: *mut Ctx, k: usize, dir: *mut u64) -> i64 {
         let at = |i: usize| match l.width { 2 => *(l.ptr.ptr() as *const u16).add(i) as u32, 8 => *(l.ptr.ptr() as *const u64).add(i) as u32, _ => *(l.ptr.ptr() as *const u32).add(i) };
         let mut past = false;
         let _ = util::for_each_row(s, |i| {
+            #[allow(clippy::unnecessary_cast)]
             let x = if util::row_valid(l.valid.ptr() as *const u64, i) { at(i) as usize } else { slots - 1 };
             match x < slots {
                 true => *t.add(x) += 1,
@@ -319,6 +320,7 @@ unsafe fn walk(ctx: *mut Ctx, k: usize, mark: u64, mut memo: Option<*mut u64>) -
                 } else {
                     let mut past = false;
                     let _ = util::for_each_row(s, |i| {
+                        #[allow(clippy::unnecessary_cast)]
                         let x = if util::row_valid(l.valid.ptr() as *const u64, i) { at(i) as usize } else { slots - 1 };
                         if x < slots {
                             *t.add(x) += 1;
@@ -347,6 +349,7 @@ unsafe fn walk(ctx: *mut Ctx, k: usize, mark: u64, mut memo: Option<*mut u64>) -
             }
             None => {
                 util::for_each_row(s, |i| {
+                    #[allow(clippy::unnecessary_cast)]
                     let valid = util::row_valid(l.valid.ptr() as *const u64, i);
                     c += if code == NULL_CODE { !valid } else { valid && at(i) == code } as i64;
                     true

@@ -11,16 +11,16 @@ use mcx::MemoryContext;
 use types_error::{PgResult, COMMERROR, DEBUG2, DEBUG4, DEBUG5, FATAL};
 use types_startup::Port;
 
+use crate::{
+    loc, sendAuthRequest, set_authn_id, PqMsg_GSSResponse, AUTH_REQ_GSS_CONT,
+    PG_MAX_AUTH_TOKEN_LENGTH, STATUS_ERROR,
+};
 use be_gssapi_common::gss_ffi::{
     self, gss_buffer_desc, gss_cred_id_t, gss_ctx_id_t, gss_name_t, GssApi, GSS_C_DELEG_FLAG,
     GSS_S_COMPLETE, GSS_S_CONTINUE_NEEDED,
 };
 use be_gssapi_common::{
     acquire_keytab_cred, gss_setenv, pg_GSS_error, pg_store_delegated_credential,
-};
-use crate::{
-    loc, sendAuthRequest, set_authn_id, AUTH_REQ_GSS_CONT, PG_MAX_AUTH_TOKEN_LENGTH,
-    PqMsg_GSSResponse, STATUS_ERROR,
 };
 
 struct GssState<'a> {
@@ -87,7 +87,9 @@ pub(crate) fn pg_GSS_recvauth(port: &mut Port) -> PgResult<i32> {
     // failed", auth.c:1045-1049). Only fall back to the (serialized)
     // environment variable when the extension is unavailable (e.g. Heimdal /
     // macOS GSS.framework).
-    let keyfile = guc_tables::vars::pg_krb_server_keyfile.read().unwrap_or_default();
+    let keyfile = guc_tables::vars::pg_krb_server_keyfile
+        .read()
+        .unwrap_or_default();
     let mut pending_keytab: Option<CString> = None;
     if !keyfile.is_empty() {
         match CString::new(keyfile.as_str()) {
@@ -150,7 +152,10 @@ pub(crate) fn pg_GSS_recvauth(port: &mut Port) -> PgResult<i32> {
             value: token.as_ptr() as *mut c_void,
         };
 
-        elog(DEBUG4, format!("processing received GSS token of length {}", gbuf.length))?;
+        elog(
+            DEBUG4,
+            format!("processing received GSS token of length {}", gbuf.length),
+        )?;
 
         // First token: bind the configured keytab to the acceptor credential
         // now (see above). C's gss_accept_sec_context with GSS_C_NO_CREDENTIAL
@@ -183,7 +188,11 @@ pub(crate) fn pg_GSS_recvauth(port: &mut Port) -> PgResult<i32> {
                 &mut state.outbuf,
                 &mut gflags,
                 core::ptr::null_mut(),
-                if accept_delegation { &mut delegated_creds } else { core::ptr::null_mut() },
+                if accept_delegation {
+                    &mut delegated_creds
+                } else {
+                    core::ptr::null_mut()
+                },
             )
         };
 
@@ -204,7 +213,13 @@ pub(crate) fn pg_GSS_recvauth(port: &mut Port) -> PgResult<i32> {
         }
 
         if state.outbuf.length != 0 {
-            elog(DEBUG4, format!("sending GSS response token of length {}", state.outbuf.length))?;
+            elog(
+                DEBUG4,
+                format!(
+                    "sending GSS response token of length {}",
+                    state.outbuf.length
+                ),
+            )?;
 
             // SAFETY: outbuf holds length valid bytes from the library.
             let out = unsafe {
@@ -246,7 +261,6 @@ pub(crate) fn pg_GSS_checkauth_encrypted(port: &mut Port) -> PgResult<i32> {
 // auth.c pg_GSS_checkauth (auth.c:1074): map the authenticated principal to
 // the claimed username.
 fn pg_GSS_checkauth(api: &GssApi, name: gss_name_t, port: &mut Port) -> PgResult<i32> {
-
     let mut min_stat: u32 = 0;
     let mut gbuf = gss_buffer_desc::empty();
     // SAFETY: name is the live src_name from the completed context.
@@ -258,8 +272,7 @@ fn pg_GSS_checkauth(api: &GssApi, name: gss_name_t, port: &mut Port) -> PgResult
     }
 
     // SAFETY: gss_display_name returned length valid bytes.
-    let princ_bytes =
-        unsafe { core::slice::from_raw_parts(gbuf.value as *const u8, gbuf.length) };
+    let princ_bytes = unsafe { core::slice::from_raw_parts(gbuf.value as *const u8, gbuf.length) };
     // C copies gbuf by length into a NUL-terminated string (memcpy + trailing
     // '\0'); an interior NUL survives that copy and later truncation-matches the
     // realm/usermap via pg_strcasecmp/strcmp. Reject it here so the principal is
@@ -285,24 +298,30 @@ fn pg_GSS_checkauth(api: &GssApi, name: gss_name_t, port: &mut Port) -> PgResult
     set_authn_id(port, &princ)?;
     port.gss.as_mut().unwrap().principal = Some(princ.clone());
 
-    let hba = port.hba.as_ref().expect("pg_GSS_checkauth: port->hba is NULL");
+    let hba = port
+        .hba
+        .as_ref()
+        .expect("pg_GSS_checkauth: port->hba is NULL");
     let caseins = guc_tables::vars::pg_krb_caseins_users.read();
 
-    let map_user =
-        match map_principal(&princ, hba.include_realm, hba.krb_realm.as_deref(), caseins) {
-            Ok(u) => u,
-            Err(RealmMismatch::Mismatch { realm, configured }) => {
-                elog(
-                    DEBUG2,
-                    format!("GSSAPI realm ({realm}) and configured realm ({configured}) don't match"),
-                )?;
-                return Ok(STATUS_ERROR);
-            }
-            Err(RealmMismatch::NoRealm) => {
-                elog(DEBUG2, "GSSAPI did not return realm but realm matching was requested")?;
-                return Ok(STATUS_ERROR);
-            }
-        };
+    let map_user = match map_principal(&princ, hba.include_realm, hba.krb_realm.as_deref(), caseins)
+    {
+        Ok(u) => u,
+        Err(RealmMismatch::Mismatch { realm, configured }) => {
+            elog(
+                DEBUG2,
+                format!("GSSAPI realm ({realm}) and configured realm ({configured}) don't match"),
+            )?;
+            return Ok(STATUS_ERROR);
+        }
+        Err(RealmMismatch::NoRealm) => {
+            elog(
+                DEBUG2,
+                "GSSAPI did not return realm but realm matching was requested",
+            )?;
+            return Ok(STATUS_ERROR);
+        }
+    };
 
     hba::check_usermap(
         hba.usermap.as_deref(),
@@ -399,7 +418,10 @@ mod tests {
         ) -> OM_uint32 {
             0
         }
-        unsafe extern "C" fn release_buffer(_: *mut OM_uint32, b: *mut gss_buffer_desc) -> OM_uint32 {
+        unsafe extern "C" fn release_buffer(
+            _: *mut OM_uint32,
+            b: *mut gss_buffer_desc,
+        ) -> OM_uint32 {
             RELEASED.fetch_add(1, Ordering::SeqCst);
             // SAFETY: the test passes its own live buffer descriptor.
             unsafe {
@@ -439,7 +461,10 @@ mod tests {
             ctx: core::ptr::null_mut(),
             name: core::ptr::null_mut(),
             acceptor_cred: core::ptr::null_mut(),
-            outbuf: gss_buffer_desc { length: token.len(), value: token.as_mut_ptr().cast() },
+            outbuf: gss_buffer_desc {
+                length: token.len(),
+                value: token.as_mut_ptr().cast(),
+            },
             port: &mut port,
         };
         drop(state);
@@ -454,7 +479,11 @@ mod tests {
             port: &mut port,
         };
         drop(state);
-        assert_eq!(RELEASED.load(Ordering::SeqCst), 1, "an empty buffer is not released");
+        assert_eq!(
+            RELEASED.load(Ordering::SeqCst),
+            1,
+            "an empty buffer is not released"
+        );
     }
 
     // The keytab/ccache env writes on the GSS auth path must be serialized
@@ -491,26 +520,69 @@ mod tests {
 
     #[test]
     fn principal_realm_mapping() {
-        assert_eq!(ok(map_principal("alice@EXAMPLE.COM", true, None, false)), Some("alice@EXAMPLE.COM"));
-        assert_eq!(ok(map_principal("alice@EXAMPLE.COM", false, None, false)), Some("alice"));
         assert_eq!(
-            ok(map_principal("alice@EXAMPLE.COM", false, Some("EXAMPLE.COM"), false)),
+            ok(map_principal("alice@EXAMPLE.COM", true, None, false)),
+            Some("alice@EXAMPLE.COM")
+        );
+        assert_eq!(
+            ok(map_principal("alice@EXAMPLE.COM", false, None, false)),
             Some("alice")
         );
-        assert_eq!(ok(map_principal("alice@EXAMPLE.COM", false, Some("OTHER.COM"), false)), None);
         assert_eq!(
-            ok(map_principal("alice@example.com", false, Some("EXAMPLE.COM"), true)),
+            ok(map_principal(
+                "alice@EXAMPLE.COM",
+                false,
+                Some("EXAMPLE.COM"),
+                false
+            )),
             Some("alice")
         );
-        assert_eq!(ok(map_principal("alice@example.com", false, Some("EXAMPLE.COM"), false)), None);
+        assert_eq!(
+            ok(map_principal(
+                "alice@EXAMPLE.COM",
+                false,
+                Some("OTHER.COM"),
+                false
+            )),
+            None
+        );
+        assert_eq!(
+            ok(map_principal(
+                "alice@example.com",
+                false,
+                Some("EXAMPLE.COM"),
+                true
+            )),
+            Some("alice")
+        );
+        assert_eq!(
+            ok(map_principal(
+                "alice@example.com",
+                false,
+                Some("EXAMPLE.COM"),
+                false
+            )),
+            None
+        );
         // No realm returned but realm matching requested.
-        assert_eq!(ok(map_principal("alice", false, Some("EXAMPLE.COM"), false)), None);
+        assert_eq!(
+            ok(map_principal("alice", false, Some("EXAMPLE.COM"), false)),
+            None
+        );
         // Empty krb_realm behaves as unset (C strlen check).
-        assert_eq!(ok(map_principal("alice", false, Some(""), false)), Some("alice"));
+        assert_eq!(
+            ok(map_principal("alice", false, Some(""), false)),
+            Some("alice")
+        );
         assert_eq!(ok(map_principal("alice", true, None, false)), Some("alice"));
         // include_realm with realm match keeps the full principal.
         assert_eq!(
-            ok(map_principal("alice@EXAMPLE.COM", true, Some("EXAMPLE.COM"), false)),
+            ok(map_principal(
+                "alice@EXAMPLE.COM",
+                true,
+                Some("EXAMPLE.COM"),
+                false
+            )),
             Some("alice@EXAMPLE.COM")
         );
     }

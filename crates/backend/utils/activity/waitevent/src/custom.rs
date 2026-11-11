@@ -104,6 +104,7 @@ pub fn WaitEventCustomShmemSize() -> PgResult<usize> {
 }
 
 #[allow(non_snake_case)] // C-parity name
+#[allow(clippy::field_reassign_with_default)]
 pub fn WaitEventCustomShmemInit() -> PgResult<()> {
     if CUSTOM.get().is_some() {
         return Ok(());

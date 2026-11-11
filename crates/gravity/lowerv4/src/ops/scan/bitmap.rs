@@ -27,6 +27,7 @@ use crate::frame::frame::{SourceMaker, Win};
 use crate::frame::px::Px;
 use crate::frame::row::{Carry, RowVals};
 use crate::frame::site::{index_site, Reader, CTID_AT, EXEC_KEY};
+#[allow(unused_imports)]
 use crate::graph::Gx;
 use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::lifetime::bound::{self, Feed, KeyAt};
@@ -151,13 +152,10 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     let params: PgVec<'_, i16> = slots.iter().map(|&w| if w & EXEC_KEY != 0 { -1 } else { w as i16 }).collect_in(px.mcx());
     let mut d = SiteDesc::index_source(px.arena, site.relation, indexid, &attnos, &params[..], &site.out_attnos);
     for l in site.lanes().iter() {
-        match l.id {
-            SiteLane::Attr(_) => {
-                if let Some(i) = d.lane_index(l.id) {
-                    d.lanes[i] = *l;
-                }
+        if let SiteLane::Attr(_) = l.id {
+            if let Some(i) = d.lane_index(l.id) {
+                d.lanes[i] = *l;
             }
-            _ => {}
         }
     }
     // a walk reading no column (count(*)) keeps the RowId lane alone: the window's row count drives it, with no by-value

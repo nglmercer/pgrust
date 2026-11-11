@@ -56,6 +56,7 @@ macro_rules! register {
 
         impl $name {
             #[inline]
+            #[allow(unused_comparisons)]
             pub const fn new(idx: u8) -> Result<Self, EncodeError> {
                 if idx >= $min && idx <= $max {
                     Ok(Self { idx })

@@ -19,8 +19,7 @@ fn restore_page_reverses_stream_into_offnum_order() {
     struct P([u8; BLCKSZ]);
     let mut p = P([0u8; BLCKSZ]);
     // SAFETY: owned aligned scratch page.
-    let mut pm =
-        unsafe { PageMut::from_raw(core::ptr::NonNull::new(p.0.as_mut_ptr()).unwrap()) };
+    let mut pm = unsafe { PageMut::from_raw(core::ptr::NonNull::new(p.0.as_mut_ptr()).unwrap()) };
     bt_pageinit(&mut pm);
     bt_restore_page(&mut pm, &stream).unwrap();
 
@@ -36,7 +35,10 @@ fn restore_page_reverses_stream_into_offnum_order() {
     let off3 = r.item_id(3).lp_off();
     let off1 = r.item_id(1).lp_off();
     assert!(off3 < off1);
-    assert_eq!(r.pd_special() as usize - r.pd_upper() as usize, 16 + 24 + 16);
+    assert_eq!(
+        r.pd_special() as usize - r.pd_upper() as usize,
+        16 + 24 + 16
+    );
 }
 
 // Malformed replayed WAL (truncated main data, truncated/zero-size tuple
@@ -54,7 +56,9 @@ fn require_len_rejects_short_main_data() {
     // A record with rmid=RM_BTREE_ID and truncated main data (0 is legal).
     let e = require_len(&[], SizeOfBtreeInsert, "t").err().unwrap();
     assert!(is_corrupted(&e));
-    let e = require_len(&[0u8; 9], SizeOfBtreeUnlinkPage, "t").err().unwrap();
+    let e = require_len(&[0u8; 9], SizeOfBtreeUnlinkPage, "t")
+        .err()
+        .unwrap();
     assert!(is_corrupted(&e));
     // Exactly the required length succeeds.
     assert!(require_len(&[0u8; SizeOfBtreeSplit], SizeOfBtreeSplit, "t").is_ok());
@@ -139,19 +143,33 @@ fn xlog_update_posting_rejects_inflated_and_malformed() {
     // ndeleted >= norig: nhtids would underflow (panic in debug, wrap in release
     // feeding a huge newsize into out[..newsize]).
     let del_all = [0u8; 6]; // 3 delete offsets
-    assert!(is_corrupted(&xlog_update_posting(&orig, &del_all, &mut out).err().unwrap()));
+    assert!(is_corrupted(
+        &xlog_update_posting(&orig, &del_all, &mut out)
+            .err()
+            .unwrap()
+    ));
 
     // ndeleted == 0: nhtids == norig, also rejected (C Assert nhtids < norig).
-    assert!(is_corrupted(&xlog_update_posting(&orig, &[], &mut out).err().unwrap()));
+    assert!(is_corrupted(
+        &xlog_update_posting(&orig, &[], &mut out).err().unwrap()
+    ));
 
     // Target tuple that is not a posting list at all.
     let plain = vec![0u8; 16];
-    assert!(is_corrupted(&xlog_update_posting(&plain, &[0u8; 2], &mut out).err().unwrap()));
+    assert!(is_corrupted(
+        &xlog_update_posting(&plain, &[0u8; 2], &mut out)
+            .err()
+            .unwrap()
+    ));
 
     // A posting header claiming more TIDs than its body contains.
     let mut short = posting_tuple(8, 5);
     short.truncate(8 + 6); // only room for 1 TID, header says 5
-    assert!(is_corrupted(&xlog_update_posting(&short, &[0u8; 2], &mut out).err().unwrap()));
+    assert!(is_corrupted(
+        &xlog_update_posting(&short, &[0u8; 2], &mut out)
+            .err()
+            .unwrap()
+    ));
 
     // A well-formed single-TID delete succeeds.
     let one = [0u8, 0]; // delete posting entry index 0
@@ -177,7 +195,16 @@ fn posting_extent_must_lie_inside_item_and_page() {
     use super::check_posting_extent;
     let hdr = super::SizeOfPageHeaderData;
     assert!(check_posting_extent(hdr, 64, 64, "t").is_ok());
-    assert!(check_posting_extent(hdr - 1, 64, 8, "t").is_err(), "inside the header");
-    assert!(check_posting_extent(hdr, 16, 24, "t").is_err(), "size past lp_len");
-    assert!(check_posting_extent(super::BLCKSZ - 8, 64, 16, "t").is_err(), "past the page");
+    assert!(
+        check_posting_extent(hdr - 1, 64, 8, "t").is_err(),
+        "inside the header"
+    );
+    assert!(
+        check_posting_extent(hdr, 16, 24, "t").is_err(),
+        "size past lp_len"
+    );
+    assert!(
+        check_posting_extent(super::BLCKSZ - 8, 64, 16, "t").is_err(),
+        "past the page"
+    );
 }

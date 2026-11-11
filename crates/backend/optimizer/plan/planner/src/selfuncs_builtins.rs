@@ -3,15 +3,29 @@
 //! The planner calls the native implementations in this crate directly; these
 //! rows exist for catalog-dispatch parity (CREATE OPERATOR ... RESTRICT/JOIN,
 //! regproc lookups). Bodies are the shared internal-dispatch panic.
-use types_fmgr::{fc_internal_dispatch_only, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData};
 use types_error::PgResult;
+use types_fmgr::{fc_internal_dispatch_only, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData};
 
 const fn sel(foid: types_core::Oid, name: &'static str) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs: 4, strict: true, retset: false, func: fc_internal_dispatch_only }
+    FmgrBuiltin {
+        foid,
+        name,
+        nargs: 4,
+        strict: true,
+        retset: false,
+        func: fc_internal_dispatch_only,
+    }
 }
 
 const fn joinsel(foid: types_core::Oid, name: &'static str) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs: 5, strict: true, retset: false, func: fc_internal_dispatch_only }
+    FmgrBuiltin {
+        foid,
+        name,
+        nargs: 5,
+        strict: true,
+        retset: false,
+        func: fc_internal_dispatch_only,
+    }
 }
 
 // geo_selfuncs.c:48-95: the six geometric estimators ignore their arguments
@@ -33,12 +47,34 @@ const_sel!(positionjoinsel, 0.1);
 const_sel!(contsel, 0.001);
 const_sel!(contjoinsel, 0.001);
 
-const fn geosel(foid: types_core::Oid, name: &'static str, func: types_fmgr::PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs: 4, strict: true, retset: false, func }
+const fn geosel(
+    foid: types_core::Oid,
+    name: &'static str,
+    func: types_fmgr::PGFunction,
+) -> FmgrBuiltin {
+    FmgrBuiltin {
+        foid,
+        name,
+        nargs: 4,
+        strict: true,
+        retset: false,
+        func,
+    }
 }
 
-const fn geojoinsel(foid: types_core::Oid, name: &'static str, func: types_fmgr::PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs: 5, strict: true, retset: false, func }
+const fn geojoinsel(
+    foid: types_core::Oid,
+    name: &'static str,
+    func: types_fmgr::PGFunction,
+) -> FmgrBuiltin {
+    FmgrBuiltin {
+        foid,
+        name,
+        nargs: 5,
+        strict: true,
+        retset: false,
+        func,
+    }
 }
 
 pub const SELFUNCS_BUILTINS: &[FmgrBuiltin] = &[
@@ -100,9 +136,19 @@ mod tests {
 
     #[test]
     fn geo_estimators_return_c_constants() {
-        let want = [(139, 0.005), (140, 0.005), (1300, 0.1), (1301, 0.1), (1302, 0.001), (1303, 0.001)];
+        let want = [
+            (139, 0.005),
+            (140, 0.005),
+            (1300, 0.1),
+            (1301, 0.1),
+            (1302, 0.001),
+            (1303, 0.001),
+        ];
         for (foid, v) in want {
-            let row = super::SELFUNCS_BUILTINS.iter().find(|r| r.foid == foid).unwrap();
+            let row = super::SELFUNCS_BUILTINS
+                .iter()
+                .find(|r| r.foid == foid)
+                .unwrap();
             let mut fcinfo = types_fmgr::LocalFcinfo::<0>::fresh(0);
             let d = (row.func)(None, &mut fcinfo).unwrap();
             assert!(!fcinfo.isnull);

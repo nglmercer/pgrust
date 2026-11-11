@@ -4,6 +4,7 @@
 
 #[path = "compiler_contracts_fixture.rs"]
 mod fixture;
+#[rustfmt::skip]
 #[path = "../../test-support/oracle.rs"]
 mod oracle;
 #[path = "compiler_contracts_refusals.rs"]

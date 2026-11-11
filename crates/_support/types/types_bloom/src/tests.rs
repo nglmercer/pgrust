@@ -22,6 +22,7 @@ fn default_options_match_c() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn options_roundtrip_and_varlena_header() {
     let mut opts = BloomOptions::default();
     opts.bloom_length = 7;
@@ -39,7 +40,10 @@ fn myrand_stream_matches_c_oracle() {
         (0, [16806, 282475248, 1622650072, 984943657, 1144108929]),
         (1, [33613, 564950497, 1097816498, 1969887315, 140734212]),
         (42, [722700, 1409017471, 1054476434, 1550388000, 1952043755]),
-        (0x7fffffff, [33613, 564950497, 1097816498, 1969887315, 140734212]),
+        (
+            0x7fffffff,
+            [33613, 564950497, 1097816498, 1969887315, 140734212],
+        ),
         (
             0x80000000,
             [2147466839, 1865008397, 524833573, 1162539988, 1003374716],
@@ -68,11 +72,41 @@ fn sign_value_matches_c_oracle() {
         expect: &'static [u16],
     }
     let cases = [
-        Case { attno: 0, hash: 0x12345678, bits: 2, len: 5, expect: &[0, 0, 16392, 0, 0] },
-        Case { attno: 1, hash: 0x12345678, bits: 2, len: 5, expect: &[4, 0, 0, 32768, 0] },
-        Case { attno: 0, hash: 0, bits: 2, len: 5, expect: &[0, 0, 0, 1, 256] },
-        Case { attno: 1, hash: 0xffffffff, bits: 3, len: 5, expect: &[8, 0, 8, 0, 4096] },
-        Case { attno: 0, hash: 0xcafebabe, bits: 4, len: 1, expect: &[17440] },
+        Case {
+            attno: 0,
+            hash: 0x12345678,
+            bits: 2,
+            len: 5,
+            expect: &[0, 0, 16392, 0, 0],
+        },
+        Case {
+            attno: 1,
+            hash: 0x12345678,
+            bits: 2,
+            len: 5,
+            expect: &[4, 0, 0, 32768, 0],
+        },
+        Case {
+            attno: 0,
+            hash: 0,
+            bits: 2,
+            len: 5,
+            expect: &[0, 0, 0, 1, 256],
+        },
+        Case {
+            attno: 1,
+            hash: 0xffffffff,
+            bits: 3,
+            len: 5,
+            expect: &[8, 0, 8, 0, 4096],
+        },
+        Case {
+            attno: 0,
+            hash: 0xcafebabe,
+            bits: 4,
+            len: 1,
+            expect: &[17440],
+        },
     ];
     for c in &cases {
         let mut sign = vec![0u16; c.len as usize];
@@ -81,8 +115,12 @@ fn sign_value_matches_c_oracle() {
     }
     let mut sign = vec![0u16; 256];
     add_value_bits(&mut sign, 31, 0x01020304, 2, 256);
-    let set: Vec<(usize, u16)> =
-        sign.iter().enumerate().filter(|(_, &w)| w != 0).map(|(i, &w)| (i, w)).collect();
+    let set: Vec<(usize, u16)> = sign
+        .iter()
+        .enumerate()
+        .filter(|(_, &w)| w != 0)
+        .map(|(i, &w)| (i, w))
+        .collect();
     assert_eq!(set, vec![(42, 64), (208, 2048)]);
 }
 
@@ -132,6 +170,7 @@ fn page_init_add_item_free_space() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn metapage_fill_and_accessors() {
     let mut page = vec![0u8; types_core::BLCKSZ];
     bloom_init_page(&mut page, BLOOM_META);

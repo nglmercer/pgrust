@@ -606,7 +606,11 @@ fn value_faithful_inversion_round_trips() {
     // D2950: a sign-extended "char" byte >= 0x80 has no key.
     assert_eq!(unsigned_small_key(u32::MAX as u64 + 1), None);
     assert_eq!(unsigned_small_key(0x80u8 as i8 as i64 as u64), None);
-    assert_eq!(d.exact_key_to_datum_word(-1), None, "outside the embed image");
+    assert_eq!(
+        d.exact_key_to_datum_word(-1),
+        None,
+        "outside the embed image"
+    );
     assert_eq!(d.exact_key_to_datum_word(u32::MAX as i64 + 1), None);
     // UnsignedWordFlip: the sign-bit flip is an involution on all of u64.
     let d = KeyDerivation::UnsignedWordFlip;
@@ -634,6 +638,10 @@ fn value_faithful_inversion_round_trips() {
         KeyDerivation::None,
     ] {
         assert!(!d.value_faithful(), "{d:?} must not claim value-faithful");
-        assert_eq!(d.exact_key_to_datum_word(0), None, "{d:?} must refuse inversion");
+        assert_eq!(
+            d.exact_key_to_datum_word(0),
+            None,
+            "{d:?} must refuse inversion"
+        );
     }
 }

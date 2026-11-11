@@ -1,3 +1,4 @@
+#![allow(clippy::missing_transmute_annotations)]
 //! dlopen/dlsym binding to the system libpam, resolved once per process
 //! (pg_locale icu_ffi precedent). No build-time PAM dependency. Constants
 //! and struct layouts follow OpenPAM (macOS/BSD) and Linux-PAM; the two
@@ -48,9 +49,19 @@ pub const PAM_USER: c_int = 2;
 pub const PAM_RHOST: c_int = 4;
 pub const PAM_CONV: c_int = 5;
 
-#[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd"))]
+#[cfg(any(
+    target_os = "macos",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
 pub const PAM_CONV_ERR: c_int = 6;
-#[cfg(not(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd")))]
+#[cfg(not(any(
+    target_os = "macos",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd"
+)))]
 pub const PAM_CONV_ERR: c_int = 19;
 
 pub struct PamApi {
@@ -60,13 +71,15 @@ pub struct PamApi {
         conv: *const pam_conv,
         pamh: *mut *mut pam_handle_t,
     ) -> c_int,
-    pub pam_set_item:
-        unsafe extern "C" fn(pamh: *mut pam_handle_t, item_type: c_int, item: *const c_void) -> c_int,
+    pub pam_set_item: unsafe extern "C" fn(
+        pamh: *mut pam_handle_t,
+        item_type: c_int,
+        item: *const c_void,
+    ) -> c_int,
     pub pam_authenticate: unsafe extern "C" fn(pamh: *mut pam_handle_t, flags: c_int) -> c_int,
     pub pam_acct_mgmt: unsafe extern "C" fn(pamh: *mut pam_handle_t, flags: c_int) -> c_int,
     pub pam_end: unsafe extern "C" fn(pamh: *mut pam_handle_t, status: c_int) -> c_int,
-    pub pam_strerror:
-        unsafe extern "C" fn(pamh: *mut pam_handle_t, errnum: c_int) -> *const c_char,
+    pub pam_strerror: unsafe extern "C" fn(pamh: *mut pam_handle_t, errnum: c_int) -> *const c_char,
 }
 
 pub fn pam_strerror_str(api: &PamApi, pamh: *mut pam_handle_t, errnum: c_int) -> String {

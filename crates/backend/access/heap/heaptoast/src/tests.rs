@@ -2,8 +2,7 @@ use super::*;
 use ::datum::Datum;
 use ::mcx::{Mcx, MemoryContext, PgVec};
 use ::types_core::{
-    BlockNumber, Buffer, Oid, BLCKSZ, BTREE_AM_OID, INVALID_PROC_NUMBER,
-    RELPERSISTENCE_PERMANENT,
+    BlockNumber, Buffer, Oid, BLCKSZ, BTREE_AM_OID, INVALID_PROC_NUMBER, RELPERSISTENCE_PERMANENT,
 };
 use ::types_fmgr::FmgrInfo;
 use ::types_nbtree::{
@@ -20,8 +19,8 @@ use ::types_tuple::itemptr::ItemPointerData;
 use ::types_tuple::varatt::{set_varsize_4b_word, VARHDRSZ};
 use ::types_tuple::{
     heap_deform_tuple, CompactAttribute, FormData_pg_attribute, HeapTupleData, NameData,
-    TupleDescData, TYPALIGN_INT, TYPSTORAGE_EXTENDED, TYPSTORAGE_EXTERNAL, TYPSTORAGE_PLAIN,
-    HEAP_XMAX_INVALID,
+    TupleDescData, HEAP_XMAX_INVALID, TYPALIGN_INT, TYPSTORAGE_EXTENDED, TYPSTORAGE_EXTERNAL,
+    TYPSTORAGE_PLAIN,
 };
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -156,13 +155,11 @@ fn install_seams() {
         heapam_visibility_seams::heap_tuple_is_surely_dead::set(|_, _| Ok(false));
         heapam_visibility_seams::heap_tuple_header_is_only_locked::set(|_| Ok(false));
         heapam_visibility_seams::heap_tuple_satisfies_update::set(|htup, _cid, _buf| {
-            Ok(
-                if (htup.t_data().t_infomask & HEAP_XMAX_INVALID) != 0 {
-                    ::tableam_vocab::TM_Result::TM_Ok
-                } else {
-                    ::tableam_vocab::TM_Result::TM_SelfModified
-                },
-            )
+            Ok(if (htup.t_data().t_infomask & HEAP_XMAX_INVALID) != 0 {
+                ::tableam_vocab::TM_Result::TM_Ok
+            } else {
+                ::tableam_vocab::TM_Result::TM_SelfModified
+            })
         });
         heapam_visibility_seams::heap_tuple_set_hint_bits::set(|hdr, _buf, infomask, _xid| {
             hdr.t_infomask |= infomask;
@@ -199,7 +196,6 @@ fn install_seams() {
             Ok(v)
         });
         relation_seams::relation_open::set(|mcx, relid, _lockmode| Ok(fixture_rel(mcx, relid)));
-
     });
     test_boot::boot_wal("heaptoast");
     ensure_active_snapshot();
@@ -212,8 +208,7 @@ fn ensure_active_snapshot() {
     }
     ARMED.with(|armed| {
         if !armed.get() {
-            let leaked: &'static MemoryContext =
-                Box::leak(Box::new(MemoryContext::new("snap")));
+            let leaked: &'static MemoryContext = Box::leak(Box::new(MemoryContext::new("snap")));
             snapmgr::PushActiveSnapshot(&Rc::new(SnapshotData::sentinel(
                 leaked.mcx(),
                 SnapshotType::SNAPSHOT_MVCC,
@@ -313,7 +308,10 @@ fn rel_from<'mcx>(
         rd_firstRelfilelocatorSubid: Cell::new(0),
         rd_droppedSubid: Cell::new(0),
         rd_lockInfo: LockInfoData {
-            lockRelId: LockRelId { relId: oid, dbId: 5 },
+            lockRelId: LockRelId {
+                relId: oid,
+                dbId: 5,
+            },
         },
         rd_rel,
         rd_att,
@@ -326,13 +324,17 @@ fn rel_from<'mcx>(
         pgstat_enabled: Cell::new(false),
         pgstat_link: core::cell::Cell::new((0, core::ptr::null_mut())),
         rd_amcache: Default::default(),
-        rd_amcache_hash: Default::default(), rd_amcache_gin: Default::default(), rd_amcache_spgist: Default::default(), rd_amcache_bloom: Default::default(),
+        rd_amcache_hash: Default::default(),
+        rd_amcache_gin: Default::default(),
+        rd_amcache_spgist: Default::default(),
+        rd_amcache_bloom: Default::default(),
         rd_support: vec_of(&vec![0; opcintype.len()]),
         rd_supportinfo: Default::default(),
         rd_opcoptions: Default::default(),
         rd_indexlist: Default::default(),
-            rd_trigdesc: Default::default(),
-            rd_hastriggers: false, rd_hasrules: false,
+        rd_trigdesc: Default::default(),
+        rd_hastriggers: false,
+        rd_hasrules: false,
     };
     Relation::open(data, Some(noop_close))
 }
@@ -342,7 +344,12 @@ fn fixture_rel<'mcx>(mcx: Mcx<'mcx>, oid: Oid) -> Relation<'mcx> {
         MAIN_REL => rel_from(
             mcx,
             oid,
-            base_class(oid, RELKIND_RELATION, ::tableam_vocab::HEAP_TABLE_AM_OID, TOAST_REL),
+            base_class(
+                oid,
+                RELKIND_RELATION,
+                ::tableam_vocab::HEAP_TABLE_AM_OID,
+                TOAST_REL,
+            ),
             tupdesc(mcx, &[att(1, -1, false, TYPSTORAGE_EXTENDED)]),
             None,
             &[],
@@ -350,7 +357,12 @@ fn fixture_rel<'mcx>(mcx: Mcx<'mcx>, oid: Oid) -> Relation<'mcx> {
         MAIN3_REL => rel_from(
             mcx,
             oid,
-            base_class(oid, RELKIND_RELATION, ::tableam_vocab::HEAP_TABLE_AM_OID, TOAST_REL),
+            base_class(
+                oid,
+                RELKIND_RELATION,
+                ::tableam_vocab::HEAP_TABLE_AM_OID,
+                TOAST_REL,
+            ),
             tupdesc(
                 mcx,
                 &[
@@ -365,7 +377,12 @@ fn fixture_rel<'mcx>(mcx: Mcx<'mcx>, oid: Oid) -> Relation<'mcx> {
         TOAST_REL => rel_from(
             mcx,
             oid,
-            base_class(oid, RELKIND_TOASTVALUE, ::tableam_vocab::HEAP_TABLE_AM_OID, 0),
+            base_class(
+                oid,
+                RELKIND_TOASTVALUE,
+                ::tableam_vocab::HEAP_TABLE_AM_OID,
+                0,
+            ),
             tupdesc(
                 mcx,
                 &[
@@ -386,7 +403,10 @@ fn fixture_rel<'mcx>(mcx: Mcx<'mcx>, oid: Oid) -> Relation<'mcx> {
                 base_class(oid, RELKIND_INDEX, BTREE_AM_OID, 0),
                 tupdesc(
                     mcx,
-                    &[att(1, 4, true, TYPSTORAGE_PLAIN), att(2, 4, true, TYPSTORAGE_PLAIN)],
+                    &[
+                        att(1, 4, true, TYPSTORAGE_PLAIN),
+                        att(2, 4, true, TYPSTORAGE_PLAIN),
+                    ],
                 ),
                 Some(FormData_pg_index {
                     indexrelid: oid,
@@ -404,14 +424,26 @@ fn fixture_rel<'mcx>(mcx: Mcx<'mcx>, oid: Oid) -> Relation<'mcx> {
                     indxmin: 0,
                     indkey,
                     has_indpred: false,
-        indexprs_src: None,
-        indpred_src: None,
+                    indexprs_src: None,
+                    indpred_src: None,
                 }),
                 &[26, 23],
             );
             idx.rd_supportinfo.borrow_mut().extend([
-                Some(FmgrInfo::new(nbt_compare::builtins::fc_btoidcmp, 356, 2, true, false)),
-                Some(FmgrInfo::new(nbt_compare::builtins::fc_btint4cmp, 351, 2, true, false)),
+                Some(FmgrInfo::new(
+                    nbt_compare::builtins::fc_btoidcmp,
+                    356,
+                    2,
+                    true,
+                    false,
+                )),
+                Some(FmgrInfo::new(
+                    nbt_compare::builtins::fc_btint4cmp,
+                    351,
+                    2,
+                    true,
+                    false,
+                )),
             ]);
             idx
         }
@@ -438,7 +470,12 @@ fn new_btpage(flags: u16, level: u32) -> Box<TestPage> {
         btpo_cycleid: 0,
     };
     // SAFETY: in-bounds aligned special-area write on an owned page.
-    unsafe { p.0.as_mut_ptr().add(special).cast::<BTPageOpaqueData>().write(opaque) };
+    unsafe {
+        p.0.as_mut_ptr()
+            .add(special)
+            .cast::<BTPageOpaqueData>()
+            .write(opaque)
+    };
     p
 }
 
@@ -456,7 +493,12 @@ fn bt_meta() -> Box<TestPage> {
         btm_allequalimage: true,
     };
     // SAFETY: metapage payload write on an owned page.
-    unsafe { p.0.as_mut_ptr().add(24).cast::<BTMetaPageData>().write(metad) };
+    unsafe {
+        p.0.as_mut_ptr()
+            .add(24)
+            .cast::<BTMetaPageData>()
+            .write(metad)
+    };
     p
 }
 
@@ -466,7 +508,12 @@ fn bt_add_tuple(p: &mut TestPage, tid: ItemPointerData, valueid: Oid, seq: i32) 
     let pd_upper = u16::from_ne_bytes([p.0[14], p.0[15]]) as usize;
     let off = pd_upper - itupsz;
     // SAFETY: owned page bytes; ItemPointerData is a 6B POD.
-    unsafe { p.0.as_mut_ptr().add(off).cast::<ItemPointerData>().write_unaligned(tid) };
+    unsafe {
+        p.0.as_mut_ptr()
+            .add(off)
+            .cast::<ItemPointerData>()
+            .write_unaligned(tid)
+    };
     p.0[off + 6..off + 8].copy_from_slice(&(itupsz as u16).to_ne_bytes());
     p.0[off + 8..off + 12].copy_from_slice(&valueid.to_ne_bytes());
     p.0[off + 12..off + 16].copy_from_slice(&seq.to_ne_bytes());
@@ -500,8 +547,7 @@ fn toast_heap_entries(mcx: Mcx<'_>) -> Vec<(Oid, i32, ItemPointerData)> {
             let (ptr, len) = page.item_raw(id);
             let tid = ItemPointerData::new(blk as u32, off);
             // SAFETY: in-page tuple image.
-            let tup =
-                unsafe { HeapTupleData::from_raw_parts(ptr.cast_mut(), len, tid, TOAST_REL) };
+            let tup = unsafe { HeapTupleData::from_raw_parts(ptr.cast_mut(), len, tid, TOAST_REL) };
             if (tup.t_data().t_infomask & HEAP_XMAX_INVALID) == 0 {
                 continue;
             }
@@ -509,8 +555,8 @@ fn toast_heap_entries(mcx: Mcx<'_>) -> Vec<(Oid, i32, ItemPointerData)> {
             // SAFETY: chunk tuples match the toast descriptor.
             let valueid =
                 unsafe { ::types_tuple::heap_getattr(&tup, 1, &desc, &mut isnull) }.as_oid();
-            let seq = unsafe { ::types_tuple::heap_getattr(&tup, 2, &desc, &mut isnull) }
-                .as_usize() as i32;
+            let seq = unsafe { ::types_tuple::heap_getattr(&tup, 2, &desc, &mut isnull) }.as_usize()
+                as i32;
             out.push((valueid, seq, tid));
         }
     }
@@ -578,7 +624,10 @@ fn insert_row(mcx: Mcx<'_>, rel: &Relation<'_>, payloads: &[&[u8]]) -> ItemPoint
 }
 
 fn stored_attrs(mcx: Mcx<'_>, rel: &Relation<'_>, tid: ItemPointerData) -> Vec<Vec<u8>> {
-    let buf = with_fake(|f| f.tables[&rel.rd_id][::types_tuple::itemptr::ItemPointerGetBlockNumberNoCheck(&tid) as usize]);
+    let buf = with_fake(|f| {
+        f.tables[&rel.rd_id]
+            [::types_tuple::itemptr::ItemPointerGetBlockNumberNoCheck(&tid) as usize]
+    });
     let addr = with_fake(|f| f.pages[(buf - 1) as usize]);
     // SAFETY: leaked test page, always live.
     let page = unsafe { PageRef::from_raw(NonNull::new(addr as *mut u8).unwrap()) };
@@ -795,7 +844,9 @@ fn forged_toastrelid_at_non_toast_relation_is_rejected() {
     let err = detoast::detoast_attr(mcx, &forged_image).err().unwrap();
     assert_eq!(err.sqlstate(), ::types_error::ERRCODE_DATA_CORRUPTED);
 
-    let err = detoast::detoast_attr_slice(mcx, &forged_image, 0, 10).err().unwrap();
+    let err = detoast::detoast_attr_slice(mcx, &forged_image, 0, 10)
+        .err()
+        .unwrap();
     assert_eq!(err.sqlstate(), ::types_error::ERRCODE_DATA_CORRUPTED);
 }
 
@@ -929,16 +980,18 @@ fn fetch_datum_refuses_non_ondisk_datum_with_c_error() {
     let inline = text_value(mcx, b"not a toast pointer, just an inline text value");
 
     let err = toast_fetch_datum(mcx, &inline).expect_err("non-ondisk datum is an ERROR");
-    assert_eq!(err.message(), "toast_fetch_datum shouldn't be called for non-ondisk datums");
+    assert_eq!(
+        err.message(),
+        "toast_fetch_datum shouldn't be called for non-ondisk datums"
+    );
 
-    let err = toast_fetch_datum_slice(mcx, &inline, 0, 10)
-        .expect_err("non-ondisk datum is an ERROR");
+    let err =
+        toast_fetch_datum_slice(mcx, &inline, 0, 10).expect_err("non-ondisk datum is an ERROR");
     assert_eq!(
         err.message(),
         "toast_fetch_datum_slice shouldn't be called for non-ondisk datums"
     );
 }
-
 
 fn locator(oid: Oid) -> ::types_storage::RelFileLocator {
     ::types_storage::RelFileLocator::new(0, 0, oid)
@@ -953,24 +1006,30 @@ fn install_raw_reads() {
             RAW_READS.fetch_add(1, Ordering::Relaxed);
             with_fake(|f| {
                 let Some(&buf) = f.tables[&loc.relNumber].get(blk as usize) else {
-                    return Err(Box::new(::types_error::PgError::error(format!("could not read block {blk}"))));
+                    return Err(Box::new(::types_error::PgError::error(format!(
+                        "could not read block {blk}"
+                    ))));
                 };
                 f.pins[(buf - 1) as usize] += 1;
                 Ok(buf)
             })
         });
-        smgr_seams::smgr_nblocks::set(|loc, _fork| with_fake(|f| Ok(f.tables[&loc.locator.relNumber].len() as BlockNumber)));
+        smgr_seams::smgr_nblocks::set(|loc, _fork| {
+            with_fake(|f| Ok(f.tables[&loc.locator.relNumber].len() as BlockNumber))
+        });
     });
 }
 
 fn published_map() -> std::sync::Arc<crate::worker::ToastMap> {
-    std::sync::Arc::new(crate::worker::ToastMap::new(vec![crate::worker::PublishedToast {
-        toastrelid: TOAST_REL,
-        relname: "pg_toast_19999".into(),
-        heap: locator(TOAST_REL),
-        index: locator(TOAST_IDX),
-        permanent: true,
-    }]))
+    std::sync::Arc::new(crate::worker::ToastMap::new(vec![
+        crate::worker::PublishedToast {
+            toastrelid: TOAST_REL,
+            relname: "pg_toast_19999".into(),
+            heap: locator(TOAST_REL),
+            index: locator(TOAST_IDX),
+            permanent: true,
+        },
+    ]))
 }
 
 fn pins_held() -> i32 {
@@ -999,7 +1058,12 @@ fn bt_add_raw(p: &mut TestPage, bytes: &[u8]) {
     let mut iid = ::types_storage::bufpage::ItemIdData::new(0, 0, 0);
     iid.set_normal(off as u16, bytes.len() as u16);
     // SAFETY: line-pointer slot in the owned page.
-    unsafe { p.0.as_mut_ptr().add(pd_lower).cast::<::types_storage::bufpage::ItemIdData>().write(iid) };
+    unsafe {
+        p.0.as_mut_ptr()
+            .add(pd_lower)
+            .cast::<::types_storage::bufpage::ItemIdData>()
+            .write(iid)
+    };
     put_u16(p, 12, (pd_lower + 4) as u16);
     put_u16(p, 14, off as u16);
 }
@@ -1024,7 +1088,11 @@ fn pivot(child: u32, natts: u16, valueid: Oid, seq: i32) -> Vec<u8> {
 fn leaf_item(tid: ItemPointerData, valueid: Oid, seq: i32) -> Vec<u8> {
     let mut t = vec![0u8; 16];
     // SAFETY: ItemPointerData is a 6B POD.
-    unsafe { t.as_mut_ptr().cast::<ItemPointerData>().write_unaligned(tid) };
+    unsafe {
+        t.as_mut_ptr()
+            .cast::<ItemPointerData>()
+            .write_unaligned(tid)
+    };
     t[6..8].copy_from_slice(&16u16.to_ne_bytes());
     t[8..12].copy_from_slice(&valueid.to_ne_bytes());
     t[12..16].copy_from_slice(&seq.to_ne_bytes());
@@ -1043,7 +1111,12 @@ fn posting_item(tids: &[ItemPointerData], valueid: Oid, seq: i32) -> Vec<u8> {
     t[12..16].copy_from_slice(&seq.to_ne_bytes());
     for (i, tid) in tids.iter().enumerate() {
         // SAFETY: in-bounds 6B POD write.
-        unsafe { t.as_mut_ptr().add(16 + 6 * i).cast::<ItemPointerData>().write_unaligned(*tid) };
+        unsafe {
+            t.as_mut_ptr()
+                .add(16 + 6 * i)
+                .cast::<ItemPointerData>()
+                .write_unaligned(*tid)
+        };
     }
     t
 }
@@ -1079,18 +1152,37 @@ fn worker_fetch_equals_catalog_fetch() {
     let p1 = external(mcx, &rel, &plain);
     let p2 = external(mcx, &rel, &comp);
     rebuild_toast_index(mcx);
-    let catalog: Vec<Vec<u8>> = [&p1, &p2].iter().map(|p| detoast::detoast_attr(mcx, p).unwrap().to_vec()).collect();
-    let slice = detoast::detoast_attr_slice(mcx, &p1, 1990, 2100).unwrap().to_vec();
+    let catalog: Vec<Vec<u8>> = [&p1, &p2]
+        .iter()
+        .map(|p| detoast::detoast_attr(mcx, p).unwrap().to_vec())
+        .collect();
+    let slice = detoast::detoast_attr_slice(mcx, &p1, 1990, 2100)
+        .unwrap()
+        .to_vec();
 
     let pins0 = pins_held();
     let reads0 = RAW_READS.load(Ordering::Relaxed);
     let _e = crate::worker::enter(published_map());
-    assert_eq!(detoast::detoast_attr(mcx, &p1).unwrap().to_vec(), catalog[0]);
-    assert_eq!(detoast::detoast_attr(mcx, &p2).unwrap().to_vec(), catalog[1]);
+    assert_eq!(
+        detoast::detoast_attr(mcx, &p1).unwrap().to_vec(),
+        catalog[0]
+    );
+    assert_eq!(
+        detoast::detoast_attr(mcx, &p2).unwrap().to_vec(),
+        catalog[1]
+    );
     assert_eq!(&catalog[0][VARHDRSZ..], &plain[..]);
     assert_eq!(&catalog[1][VARHDRSZ..], &comp[..]);
-    assert_eq!(detoast::detoast_attr_slice(mcx, &p1, 1990, 2100).unwrap().to_vec(), slice);
-    assert!(RAW_READS.load(Ordering::Relaxed) > reads0, "the entered map reads by locator");
+    assert_eq!(
+        detoast::detoast_attr_slice(mcx, &p1, 1990, 2100)
+            .unwrap()
+            .to_vec(),
+        slice
+    );
+    assert!(
+        RAW_READS.load(Ordering::Relaxed) > reads0,
+        "the entered map reads by locator"
+    );
     assert_eq!(pins_held(), pins0, "every raw pin released");
 }
 
@@ -1107,9 +1199,19 @@ fn worker_fetch_unpublished_toast_relation_is_a_named_error() {
     rebuild_toast_index(mcx);
     let _e = crate::worker::enter(std::sync::Arc::new(crate::worker::ToastMap::default()));
     let err = detoast::detoast_attr(mcx, &p).unwrap_err();
-    assert!(err.message().contains("not among the statement's toast relations"), "{}", err.message());
+    assert!(
+        err.message()
+            .contains("not among the statement's toast relations"),
+        "{}",
+        err.message()
+    );
     let err = detoast::detoast_attr_slice(mcx, &p, 0, 10).unwrap_err();
-    assert!(err.message().contains("parallel worker cannot fetch toast value"), "{}", err.message());
+    assert!(
+        err.message()
+            .contains("parallel worker cannot fetch toast value"),
+        "{}",
+        err.message()
+    );
 }
 
 #[test]
@@ -1121,10 +1223,15 @@ fn worker_fetch_walks_a_two_level_index_with_postings_and_a_missing_chunk() {
     let ctx = MemoryContext::new("t");
     let mcx = ctx.mcx();
     let rel = fixture_rel(mcx, MAIN_REL);
-    let vals: Vec<Vec<u8>> = (0..3u64).map(|i| prng_bytes_seeded(5000 + 700 * i as usize, 77 + i)).collect();
+    let vals: Vec<Vec<u8>> = (0..3u64)
+        .map(|i| prng_bytes_seeded(5000 + 700 * i as usize, 77 + i))
+        .collect();
     let ptrs: Vec<Vec<u8>> = vals.iter().map(|v| external(mcx, &rel, v)).collect();
     let entries = toast_heap_entries(mcx);
-    let ids: Vec<Oid> = ptrs.iter().map(|p| toastdesc::VarattExternal::from_image(p).unwrap().va_valueid).collect();
+    let ids: Vec<Oid> = ptrs
+        .iter()
+        .map(|p| toastdesc::VarattExternal::from_image(p).unwrap().va_valueid)
+        .collect();
     // leaf 2 (block 2): the first value; leaf 3 (block 3, rightmost): the other two, the second value's chunk 0
     // as a posting tuple with a dangling TID first; the root (block 1) splits at (ids[1], 1), chunk_seq truncated off
     let mut leaf2 = new_btpage(BTP_LEAF, 0);
@@ -1135,7 +1242,10 @@ fn worker_fetch_walks_a_two_level_index_with_postings_and_a_missing_chunk() {
         if *v == ids[0] {
             bt_add_raw(&mut leaf2, &leaf_item(*tid, *v, *s));
         } else if *v == ids[1] && *s == 0 {
-            bt_add_raw(&mut leaf3, &posting_item(&[ItemPointerData::new(0, 200), *tid], *v, *s));
+            bt_add_raw(
+                &mut leaf3,
+                &posting_item(&[ItemPointerData::new(0, 200), *tid], *v, *s),
+            );
         } else {
             bt_add_raw(&mut leaf3, &leaf_item(*tid, *v, *s));
         }
@@ -1151,8 +1261,14 @@ fn worker_fetch_walks_a_two_level_index_with_postings_and_a_missing_chunk() {
         assert_eq!(&detoast::detoast_attr(mcx, p).unwrap()[VARHDRSZ..], &v[..]);
     }
     // a slice inside one chunk (two scan keys) and across two (three)
-    assert_eq!(&detoast::detoast_attr_slice(mcx, &ptrs[2], 2100, 50).unwrap()[VARHDRSZ..], &vals[2][2100..2150]);
-    assert_eq!(&detoast::detoast_attr_slice(mcx, &ptrs[1], 1900, 300).unwrap()[VARHDRSZ..], &vals[1][1900..2200]);
+    assert_eq!(
+        &detoast::detoast_attr_slice(mcx, &ptrs[2], 2100, 50).unwrap()[VARHDRSZ..],
+        &vals[2][2100..2150]
+    );
+    assert_eq!(
+        &detoast::detoast_attr_slice(mcx, &ptrs[1], 1900, 300).unwrap()[VARHDRSZ..],
+        &vals[1][1900..2200]
+    );
     assert_eq!(pins_held(), pins0);
     drop(_e);
 
@@ -1164,13 +1280,25 @@ fn worker_fetch_walks_a_two_level_index_with_postings_and_a_missing_chunk() {
         }
     }
     install_index(vec![bt_meta(), leaf]);
-    let want = detoast::detoast_attr(mcx, &ptrs[2]).unwrap_err().message().to_string();
+    let want = detoast::detoast_attr(mcx, &ptrs[2])
+        .unwrap_err()
+        .message()
+        .to_string();
     let pins0 = pins_held(); // the catalog road's failed scan leaves its pins to the resource owner
     let _e = crate::worker::enter(published_map());
-    let got = detoast::detoast_attr(mcx, &ptrs[2]).unwrap_err().message().to_string();
-    assert!(want.starts_with("unexpected chunk number 2 (expected 1)"), "{want}");
+    let got = detoast::detoast_attr(mcx, &ptrs[2])
+        .unwrap_err()
+        .message()
+        .to_string();
+    assert!(
+        want.starts_with("unexpected chunk number 2 (expected 1)"),
+        "{want}"
+    );
     // the same text up to the relation's name (the worker names it as published)
-    assert_eq!(got.rsplit_once(" in ").unwrap().0, want.rsplit_once(" in ").unwrap().0);
+    assert_eq!(
+        got.rsplit_once(" in ").unwrap().0,
+        want.rsplit_once(" in ").unwrap().0
+    );
     assert!(got.ends_with(" in pg_toast_19999"), "{got}");
     assert_eq!(pins_held(), pins0);
 }
@@ -1186,7 +1314,9 @@ fn worker_fetch_reads_the_toast_heap_when_a_reindex_dropped_the_index() {
     let ctx = MemoryContext::new("t");
     let mcx = ctx.mcx();
     let rel = fixture_rel(mcx, MAIN_REL);
-    let vals: Vec<Vec<u8>> = (0..3u64).map(|i| prng_bytes_seeded(5000 + 900 * i as usize, 31 + i)).collect();
+    let vals: Vec<Vec<u8>> = (0..3u64)
+        .map(|i| prng_bytes_seeded(5000 + 900 * i as usize, 31 + i))
+        .collect();
     let ptrs: Vec<Vec<u8>> = vals.iter().map(|v| external(mcx, &rel, v)).collect();
     install_index(Vec::new());
 
@@ -1195,7 +1325,10 @@ fn worker_fetch_reads_the_toast_heap_when_a_reindex_dropped_the_index() {
     for (p, v) in ptrs.iter().zip(&vals) {
         assert_eq!(&detoast::detoast_attr(mcx, p).unwrap()[VARHDRSZ..], &v[..]);
     }
-    assert_eq!(&detoast::detoast_attr_slice(mcx, &ptrs[2], 1900, 300).unwrap()[VARHDRSZ..], &vals[2][1900..2200]);
+    assert_eq!(
+        &detoast::detoast_attr_slice(mcx, &ptrs[2], 1900, 300).unwrap()[VARHDRSZ..],
+        &vals[2][1900..2200]
+    );
     assert_eq!(pins_held(), pins0, "every raw pin released");
 }
 

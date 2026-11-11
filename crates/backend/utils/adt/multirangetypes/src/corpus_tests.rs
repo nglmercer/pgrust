@@ -55,6 +55,7 @@ const TYPES: &[T] = &[
     T { oid: NUMMULTI, name: "nummultirange", typlen: -1, typbyval: false, typalign: b'i', typstorage: b'x', typtype: b'm', io: [4231, 4232, 4233, 4234] },
 ];
 
+#[allow(dead_code)]
 fn typ(oid: Oid) -> &'static T {
     TYPES.iter().find(|t| t.oid == oid).unwrap()
 }

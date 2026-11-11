@@ -13,14 +13,14 @@ mod pool;
 use ::mcx::Mcx;
 use ::types_core::{BlockNumber, ForkNumber, OffsetNumber, BLCKSZ};
 use ::types_error::PgResult;
+use ::types_nbtree::dedup::BTDedupState;
 use ::types_nbtree::{
     BTMaxItemSize, BTPageOpaqueData, BTP_LEAF, BTP_ROOT, BTREE_DEFAULT_FILLFACTOR,
     BTREE_NONLEAF_FILLFACTOR, P_FIRSTKEY, P_HIKEY,
 };
 use ::types_rel::Relation;
 use ::types_storage::bufpage::{ItemIdData, PageMut, SizeOfPageHeaderData};
-use ::types_nbtree::dedup::BTDedupState;
-use ::types_tuple::itemptr::{ItemPointerData, InvalidOffsetNumber};
+use ::types_tuple::itemptr::{InvalidOffsetNumber, ItemPointerData};
 use backend_progress::pgstat_progress_update_param;
 use backend_progress::progress::{
     PROGRESS_CREATEIDX_SUBPHASE, PROGRESS_CREATEIDX_TUPLES_DONE, PROGRESS_CREATEIDX_TUPLES_TOTAL,
@@ -29,8 +29,8 @@ use backend_progress::progress::{
 use bulkwrite::{BulkWriteBuffer, BulkWriteState};
 use execindexing::IndexInfo;
 use nbtree::itup::{
-    self, index_tuple_size, maxalign, set_t_info, set_t_tid, ITup, ItupBuf,
-    INDEX_SIZE_MASK, INDEX_TUPLE_HEADER_SIZE,
+    self, index_tuple_size, maxalign, set_t_info, set_t_tid, ITup, ItupBuf, INDEX_SIZE_MASK,
+    INDEX_TUPLE_HEADER_SIZE,
 };
 use nbtree::{BtScanInsert, OrderProcFrame};
 
@@ -82,7 +82,10 @@ pub fn btbuild<'mcx>(
     }
 
     // _bt_spools_heapscan: nbtsort.c:385-388.
-    pgstat_progress_update_param(PROGRESS_CREATEIDX_SUBPHASE, PROGRESS_BTREE_PHASE_INDEXBUILD_TABLESCAN);
+    pgstat_progress_update_param(
+        PROGRESS_CREATEIDX_SUBPHASE,
+        PROGRESS_BTREE_PHASE_INDEXBUILD_TABLESCAN,
+    );
 
     let btleader = if indexInfo.ii_ParallelWorkers > 0 && !pool::pool_build_enabled() {
         parallel::bt_begin_parallel(
@@ -96,14 +99,17 @@ pub fn btbuild<'mcx>(
     } else {
         None
     };
-    let coordinate = |sharedsort: &std::sync::Arc<tuplesort::Sharedsort>, l: &parallel::BTLeader| {
+    let coordinate = |sharedsort: &std::sync::Arc<tuplesort::Sharedsort>,
+                      l: &parallel::BTLeader| {
         tuplesort::SortCoordinate {
             is_worker: false,
             n_participants: l.nparticipanttuplesorts,
             sharedsort: std::sync::Arc::clone(sharedsort),
         }
     };
-    let coordinate1 = btleader.as_ref().map(|l| coordinate(&l.btshared.sharedsort, l));
+    let coordinate1 = btleader
+        .as_ref()
+        .map(|l| coordinate(&l.btshared.sharedsort, l));
 
     // The leader's sort gets the same maintenance_work_mem as a serial sort;
     // by the time it merges, the workers have released theirs.
@@ -121,7 +127,13 @@ pub fn btbuild<'mcx>(
     // only work_mem.
     let mut spool2 = if indexInfo.ii_Unique {
         let coordinate2 = btleader.as_ref().map(|l| {
-            coordinate(l.btshared.sharedsort2.as_ref().expect("unique build has spool2 state"), l)
+            coordinate(
+                l.btshared
+                    .sharedsort2
+                    .as_ref()
+                    .expect("unique build has spool2 state"),
+                l,
+            )
         });
         Some(tuplesort::Tuplesort::begin_index_btree_coordinated(
             heap,
@@ -161,7 +173,11 @@ pub fn btbuild<'mcx>(
                 sortstate.put_index_tuple_image(image)?;
             } else {
                 havedead = true;
-                spool2.as_mut().expect("spool2").put_index_tuple_image(image)?;
+                #[allow(clippy::unnecessary_unwrap)]
+                spool2
+                    .as_mut()
+                    .expect("spool2")
+                    .put_index_tuple_image(image)?;
             }
             indtuples += 1.0;
             Ok(())
@@ -187,7 +203,11 @@ pub fn btbuild<'mcx>(
                     sortstate.putindextuplevalues(*tid, values, isnull)?;
                 } else {
                     havedead = true;
-                    spool2.as_mut().expect("spool2").putindextuplevalues(*tid, values, isnull)?;
+                    #[allow(clippy::unnecessary_unwrap)]
+                    spool2
+                        .as_mut()
+                        .expect("spool2")
+                        .putindextuplevalues(*tid, values, isnull)?;
                 }
                 indtuples += 1.0;
                 Ok(())
@@ -197,7 +217,11 @@ pub fn btbuild<'mcx>(
 
     // nbtsort.c:488-499.
     backend_progress::pgstat_progress_update_multi_param(
-        &[PROGRESS_CREATEIDX_TUPLES_TOTAL, PROGRESS_SCAN_BLOCKS_TOTAL, PROGRESS_SCAN_BLOCKS_DONE],
+        &[
+            PROGRESS_CREATEIDX_TUPLES_TOTAL,
+            PROGRESS_SCAN_BLOCKS_TOTAL,
+            PROGRESS_SCAN_BLOCKS_DONE,
+        ],
         &[indtuples as i64, 0, 0],
     );
 
@@ -210,7 +234,10 @@ pub fn btbuild<'mcx>(
         parallel::bt_end_parallel(l)?;
     }
 
-    Ok(IndexBuildResult { heap_tuples: reltuples, index_tuples: indtuples })
+    Ok(IndexBuildResult {
+        heap_tuples: reltuples,
+        index_tuples: indtuples,
+    })
 }
 
 /// btbuildempty (nbtree.c): unlogged indexes' INIT_FORKNUM metapage.
@@ -234,10 +261,16 @@ fn leafbuild<'mcx>(
     mut spool2: Option<tuplesort::Tuplesort>,
     is_unique: bool,
 ) -> PgResult<()> {
-    pgstat_progress_update_param(PROGRESS_CREATEIDX_SUBPHASE, PROGRESS_BTREE_PHASE_PERFORMSORT_1);
+    pgstat_progress_update_param(
+        PROGRESS_CREATEIDX_SUBPHASE,
+        PROGRESS_BTREE_PHASE_PERFORMSORT_1,
+    );
     sortstate.performsort()?;
     if let Some(s2) = spool2.as_mut() {
-        pgstat_progress_update_param(PROGRESS_CREATEIDX_SUBPHASE, PROGRESS_BTREE_PHASE_PERFORMSORT_2);
+        pgstat_progress_update_param(
+            PROGRESS_CREATEIDX_SUBPHASE,
+            PROGRESS_BTREE_PHASE_PERFORMSORT_2,
+        );
         s2.performsort()?;
     }
 
@@ -253,8 +286,7 @@ fn leafbuild<'mcx>(
         pages_alloced: BTREE_METAPAGE + 1,
     };
 
-    let deduplicate =
-        wstate.inskey.allequalimage && !is_unique && bt_get_deduplicate_items(index);
+    let deduplicate = wstate.inskey.allequalimage && !is_unique && bt_get_deduplicate_items(index);
 
     pgstat_progress_update_param(PROGRESS_CREATEIDX_SUBPHASE, PROGRESS_BTREE_PHASE_LEAF_LOAD);
     let mut tuples_done: i64 = 0;
@@ -373,7 +405,15 @@ fn pagestate<'mcx>(wstate: &mut BTWriteState<'_, '_>, level: u32) -> BTPageState
     } else {
         bt_get_target_page_free_space(wstate.index)
     };
-    BTPageState { buf, blkno, lowkey: None, lastoff: P_HIKEY, lastextra: 0, level, full }
+    BTPageState {
+        buf,
+        blkno,
+        lowkey: None,
+        lastoff: P_HIKEY,
+        lastextra: 0,
+        level,
+        full,
+    }
 }
 
 // BTGetDeduplicateItems
@@ -552,7 +592,10 @@ unsafe fn buildadd<'mcx>(
         }
 
         // Link the old page into its parent via its low key.
-        let mut lowkey = levels[level_idx].lowkey.take().expect("low key for finished page");
+        let mut lowkey = levels[level_idx]
+            .lowkey
+            .take()
+            .expect("low key for finished page");
         itup::bt_tuple_set_downlink(lowkey.as_mut_ptr(), obuf_blkno);
         buildadd(mcx, wstate, levels, level_idx + 1, lowkey.as_ptr(), 0)?;
         drop(lowkey);
@@ -600,7 +643,13 @@ unsafe fn buildadd<'mcx>(
     let new_off = state.lastoff + 1;
     let level = state.level;
     let mut page = page_mut_of(&mut state.buf);
-    sortaddtup(&mut page, itupsz, itup, new_off, level > 0 && new_off == P_FIRSTKEY)?;
+    sortaddtup(
+        &mut page,
+        itupsz,
+        itup,
+        new_off,
+        level > 0 && new_off == P_FIRSTKEY,
+    )?;
     state.lastoff = new_off;
     Ok(())
 }
@@ -631,7 +680,10 @@ fn uppershutdown<'mcx>(
             rootblkno = blkno;
             rootlevel = state.level;
         } else {
-            let mut lowkey = levels[i].lowkey.take().expect("low key for last page on level");
+            let mut lowkey = levels[i]
+                .lowkey
+                .take()
+                .expect("low key for last page on level");
             // SAFETY: lowkey is a live owned tuple image.
             unsafe {
                 itup::bt_tuple_set_downlink(lowkey.as_mut_ptr(), blkno);
@@ -658,7 +710,11 @@ fn uppershutdown<'mcx>(
 
 fn page_mut_of(buf: &mut BulkWriteBuffer) -> PageMut<'_> {
     // SAFETY: exclusively owned, aligned build page.
-    unsafe { PageMut::from_raw(core::ptr::NonNull::new_unchecked(buf.page_mut().as_mut_ptr())) }
+    unsafe {
+        PageMut::from_raw(core::ptr::NonNull::new_unchecked(
+            buf.page_mut().as_mut_ptr(),
+        ))
+    }
 }
 
 fn read_opaque(page: &PageMut<'_>) -> BTPageOpaqueData {

@@ -34,7 +34,6 @@ const TOP_CHUNKS: usize = 256;
 
 const GATE_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
 
-
 pub struct BlockMarks {
     words_per_chunk: usize,
     /// Each non-null entry is the first word of a leaked `Box<[AtomicU64]>` of
@@ -54,7 +53,9 @@ impl BlockMarks {
         assert!(words > 0);
         BlockMarks {
             words_per_chunk: words,
-            chunks: (0..TOP_CHUNKS).map(|_| AtomicPtr::new(std::ptr::null_mut())).collect(),
+            chunks: (0..TOP_CHUNKS)
+                .map(|_| AtomicPtr::new(std::ptr::null_mut()))
+                .collect(),
             seq: AtomicU64::new(0),
             armed_to: AtomicU32::new(0),
             poisoned: AtomicBool::new(false),
@@ -85,15 +86,19 @@ impl BlockMarks {
         let slot = self.chunks.get(c)?;
         let mut p = slot.load(SeqCst);
         if p.is_null() {
-            let fresh: Box<[AtomicU64]> =
-                (0..self.words_per_chunk).map(|_| AtomicU64::new(0)).collect();
+            let fresh: Box<[AtomicU64]> = (0..self.words_per_chunk)
+                .map(|_| AtomicU64::new(0))
+                .collect();
             let fresh = Box::into_raw(fresh) as *mut AtomicU64;
             match slot.compare_exchange(std::ptr::null_mut(), fresh, SeqCst, SeqCst) {
                 Ok(_) => p = fresh,
                 Err(won) => {
                     // SAFETY: `fresh` was never published.
                     drop(unsafe {
-                        Box::from_raw(std::ptr::slice_from_raw_parts_mut(fresh, self.words_per_chunk))
+                        Box::from_raw(std::ptr::slice_from_raw_parts_mut(
+                            fresh,
+                            self.words_per_chunk,
+                        ))
                     });
                     p = won;
                 }
@@ -140,7 +145,11 @@ impl BlockMarks {
         while b < to {
             let (_, _, bit) = self.split(b);
             let in_word = (64 - b % 64).min(to - b);
-            let mask = if in_word == 64 { !0u64 } else { ((1u64 << in_word) - 1) << (b % 64) };
+            let mask = if in_word == 64 {
+                !0u64
+            } else {
+                ((1u64 << in_word) - 1) << (b % 64)
+            };
             debug_assert_eq!(mask & bit, bit);
             match self.word_mut(b) {
                 Some(w) => {
@@ -182,7 +191,10 @@ impl BlockMarks {
         let mut b = 0u32;
         while b < upto {
             let (c, _, _) = self.split(b);
-            let p = self.chunks.get(c).map_or(std::ptr::null_mut(), |s| s.load(SeqCst));
+            let p = self
+                .chunks
+                .get(c)
+                .map_or(std::ptr::null_mut(), |s| s.load(SeqCst));
             let chunk_end = (c as u64 + 1) * bits as u64;
             let end = (chunk_end.min(upto as u64)) as u32;
             if p.is_null() {
@@ -244,7 +256,6 @@ impl Drop for BlockMarks {
     }
 }
 
-
 struct GateCell {
     owner: pgsync::thread::ThreadId,
     done: Mutex<bool>,
@@ -292,7 +303,11 @@ const CACHE_ENTS: usize = 16;
 
 impl WriterCache {
     pub const fn new() -> WriterCache {
-        WriterCache { epoch: u64::MAX, empty: false, ents: Vec::new() }
+        WriterCache {
+            epoch: u64::MAX,
+            empty: false,
+            ents: Vec::new(),
+        }
     }
 }
 
@@ -405,7 +420,11 @@ impl Registry {
                 None => {
                     g.insert(
                         key,
-                        Arc::new(GateCell { owner: me, done: Mutex::new(false), cv: Condvar::new() }),
+                        Arc::new(GateCell {
+                            owner: me,
+                            done: Mutex::new(false),
+                            cv: Condvar::new(),
+                        }),
                     );
                     return GateOutcome::Owner(GateGuard { reg: self, key });
                 }
@@ -436,7 +455,6 @@ impl Default for Registry {
         Registry::new()
     }
 }
-
 
 pgsync::process_global! {
     static REGISTRY: Registry = Registry {

@@ -1,4 +1,3 @@
-
 use mcx::Mcx;
 use types_core::Oid;
 use types_error::PgResult;
@@ -9,7 +8,13 @@ use types_portal::ParamListHandle;
 use crate::relnode::{build_simple_rel, relids_empty, relids_singleton, setup_simple_rel_arrays};
 use crate::run::PlannerRun;
 
-pub fn scan_restriction_rows<'mcx>(mcx: Mcx<'mcx>, relid: Oid, varno: u32, quals: &[Node<'mcx>], bound_params: ParamListHandle) -> PgResult<Option<f64>> {
+pub fn scan_restriction_rows<'mcx>(
+    mcx: Mcx<'mcx>,
+    relid: Oid,
+    varno: u32,
+    quals: &[Node<'mcx>],
+    bound_params: ParamListHandle,
+) -> PgResult<Option<f64>> {
     if varno == 0 || relid == 0 {
         return Ok(None);
     }
@@ -48,9 +53,26 @@ pub fn scan_restriction_rows<'mcx>(mcx: Mcx<'mcx>, relid: Oid, varno: u32, quals
     let mut rinfos = mcx::PgVec::new_in(mcx);
     for &q in quals {
         let q = clauses::estimate_expression_value_with_params(mcx, q, bound_params)?;
-        let r = crate::initsplan::make_restrictinfo(&mut run, q, true, false, false, false, 0, relids_singleton(mcx, varno), relids_empty(), relids_empty())?;
+        let r = crate::initsplan::make_restrictinfo(
+            &mut run,
+            q,
+            true,
+            false,
+            false,
+            false,
+            0,
+            relids_singleton(mcx, varno),
+            relids_empty(),
+            relids_empty(),
+        )?;
         rinfos.push(r);
     }
-    let selec = crate::clausesel::clauselist_selectivity(&mut run, &rinfos, 0, types_pathnodes::JOIN_INNER, None)?;
+    let selec = crate::clausesel::clauselist_selectivity(
+        &mut run,
+        &rinfos,
+        0,
+        types_pathnodes::JOIN_INNER,
+        None,
+    )?;
     Ok(Some(crate::costsize::clamp_row_est(tuples * selec)))
 }

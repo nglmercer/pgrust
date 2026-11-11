@@ -89,7 +89,7 @@ pub(crate) fn lower<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row:
     }
     let out = RowVals { row: Row { cells }, vals, cols, carry: row.carry.copy_in(env.mcx), next: row.next, at: row.at };
     env.memo.clear();
-    let inner = core::mem::replace(&mut env.inner, Some(map));
+    let inner = env.inner.replace(map);
     let c = next(b, env, &out);
     env.inner = inner;
     env.memo.clear();

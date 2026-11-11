@@ -465,6 +465,7 @@ pub fn wide_divrem(m: &mut [u64; 4], d: u64) -> u64 {
 /// V4R-38: magnitude `m` × `k` + `add` in place; false when it passes 256 bits.
 pub fn wide_mul_add(m: &mut [u64; 4], k: u64, add: u64) -> bool {
     let mut carry = add as u128;
+    #[allow(clippy::needless_range_loop)]
     for i in 0..4 {
         let v = m[i] as u128 * k as u128 + carry;
         (m[i], carry) = (v as u64, v >> 64);

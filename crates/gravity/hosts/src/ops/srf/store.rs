@@ -129,7 +129,7 @@ impl ScanStore {
         let reader = match &mut self.reader {
             Some(r) if (r.max, r.natts) == (max, natts) => r,
             Some(_) => return Err(bug("gravity: a store reader changed its window's shape")),
-            None if max == 0 || max % 64 != 0 => return Err(bug("gravity: a store window of rows not a multiple of 64")),
+            None if max == 0 || !max.is_multiple_of(64) => return Err(bug("gravity: a store window of rows not a multiple of 64")),
             None => {
                 let region = Box::new(MemoryContext::new_bump("gravity srf store batch")); // alloc: Exec
                 self.reader.insert(Reader { max, natts, window: vec![0u64; win_bytes(natts as usize, max as usize).div_ceil(8)], region }) // alloc: Exec

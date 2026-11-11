@@ -3,9 +3,7 @@
 //! ginscan.c / ginget.c / ginlogic.c). Loud, never silent: VACUUM entry
 //! points, partial match, parallel build, multicolumn indexes,
 //! non-default reloptions.
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(clippy::too_many_arguments)]
+#![allow(clippy::too_many_arguments, non_snake_case, non_upper_case_globals)]
 
 pub(crate) mod btree;
 pub(crate) mod bulk;
@@ -17,8 +15,8 @@ pub(crate) mod insert;
 pub(crate) mod logic;
 pub mod opclass; // visibility widened (was pub(crate)) for proofs/jsonb-gin
 pub mod postinglist;
-mod secdef;
 pub(crate) mod scan;
+mod secdef;
 pub(crate) mod util;
 pub(crate) mod vacuum;
 pub(crate) mod wal;
@@ -32,8 +30,8 @@ use ::types_storage::bufpage::{PageMut, PageRef};
 pub use fast::ginInsertCleanup;
 pub use get::gingetbitmap;
 pub use insert::{ginEntryInsert, gininsert};
-pub use scan::{ginbeginscan, ginendscan, ginrescan};
 pub use opclass::gincost_extract_query;
+pub use scan::{ginbeginscan, ginendscan, ginrescan};
 pub use util::{ginGetStats, ginUpdateStats};
 
 pub(crate) const RM_GIN: u8 = ::types_core::primitive::RmgrIds::RM_GIN_ID as u8;
@@ -46,7 +44,7 @@ pub(crate) const GIN_EXCLUSIVE: i32 = bm::BUFFER_LOCK_EXCLUSIVE;
 pub mod build {
     pub use crate::bulk::BuildAccumulator;
     pub use crate::util::{
-        gin_build_init_pages, ginExtractEntries, ginUpdateStats, initGinState, GinInitBuffer,
+        ginExtractEntries, ginUpdateStats, gin_build_init_pages, initGinState, GinInitBuffer,
         GinInitMetabuffer, GinNewBuffer,
     };
     pub use crate::{check_for_interrupts, relation_needs_wal};
@@ -115,8 +113,7 @@ pub fn relation_needs_wal(rel: &Relation<'_>) -> bool {
     rel.is_permanent()
         && (transam_xlog_seams::xlog_standby_info_active::call()
             || (rel.rd_createSubid.get() == ::types_core::InvalidSubTransactionId
-                && rel.rd_firstRelfilelocatorSubid.get()
-                    == ::types_core::InvalidSubTransactionId))
+                && rel.rd_firstRelfilelocatorSubid.get() == ::types_core::InvalidSubTransactionId))
 }
 
 /// # Safety
@@ -140,7 +137,13 @@ const OPAQUE_OFF: usize = BLCKSZ - SIZEOF_OPAQUE;
 pub fn opaque_of(bytes: &[u8]) -> GinPageOpaqueData {
     debug_assert!(bytes.len() == BLCKSZ);
     // SAFETY: in-bounds 4-aligned special area of a BLCKSZ page image.
-    unsafe { bytes.as_ptr().add(OPAQUE_OFF).cast::<GinPageOpaqueData>().read() }
+    unsafe {
+        bytes
+            .as_ptr()
+            .add(OPAQUE_OFF)
+            .cast::<GinPageOpaqueData>()
+            .read()
+    }
 }
 
 #[inline]
@@ -160,7 +163,12 @@ pub(crate) fn write_opaque_to(bytes: &mut [u8], opaque: &GinPageOpaqueData) {
 pub(crate) fn page_opaque(page: &PageRef<'_>) -> GinPageOpaqueData {
     debug_assert!(page.pd_special() as usize == OPAQUE_OFF);
     // SAFETY: in-bounds 4-aligned special area of a gin page.
-    unsafe { page.as_ptr().add(OPAQUE_OFF).cast::<GinPageOpaqueData>().read() }
+    unsafe {
+        page.as_ptr()
+            .add(OPAQUE_OFF)
+            .cast::<GinPageOpaqueData>()
+            .read()
+    }
 }
 
 #[inline]
@@ -231,7 +239,13 @@ pub(crate) const META_OFF: usize = SizeOfPageHeaderData;
 pub(crate) fn meta_of(bytes: &[u8]) -> GinMetaPageData {
     // SAFETY: metapage contents at MAXALIGN(SizeOfPageHeaderData) == 24,
     // 8-aligned within the BLCKSZ image.
-    unsafe { bytes.as_ptr().add(META_OFF).cast::<GinMetaPageData>().read_unaligned() }
+    unsafe {
+        bytes
+            .as_ptr()
+            .add(META_OFF)
+            .cast::<GinMetaPageData>()
+            .read_unaligned()
+    }
 }
 
 #[inline]
@@ -256,7 +270,8 @@ pub(crate) fn vec_append<'mcx, T: Copy>(
     if n == 0 {
         return Ok(());
     }
-    v.try_reserve(n).map_err(|_| oom(std::mem::size_of_val(src)))?;
+    v.try_reserve(n)
+        .map_err(|_| oom(std::mem::size_of_val(src)))?;
     let old = v.len();
     // SAFETY: capacity reserved; src/dst disjoint; set_len covers n items.
     unsafe {
@@ -287,12 +302,12 @@ pub fn init_seams() {
 }
 
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
-mod scanver_tests;
+mod rem_b006_tests;
 #[cfg(test)]
 mod rem_b084_tests;
 #[cfg(test)]
-mod rem_b006_tests;
+mod scanver_tests;
+#[cfg(test)]
+mod tests;
 #[cfg(test)]
 mod w2_043_tests;

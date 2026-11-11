@@ -5,6 +5,7 @@
 #[path = "compiler_fixture/cases.rs"]
 mod cases;
 mod compiler_fixture;
+#[rustfmt::skip]
 #[path = "../../test-support/oracle.rs"]
 mod oracle;
 

@@ -93,15 +93,15 @@ pub(crate) mod batch;
 pub mod bloom;
 pub mod builder;
 pub mod census;
-pub mod key;
+pub mod fold;
 pub mod kept;
+pub mod key;
 pub mod lower;
 pub mod ndv;
 pub mod pcache;
 pub mod profile;
 pub mod psma;
 pub mod sketch;
-pub mod fold;
 pub mod verdict;
 
 #[cfg(test)]

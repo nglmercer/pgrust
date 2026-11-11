@@ -20,6 +20,7 @@ use gravity_ir::builder::{FunctionBuilder, ProgramBuilder};
 use gravity_ir::{Block, ConvOp, IntBinOp, Type, Value};
 use gravity_lower::Place;
 use gravity_program::{ExprLife, ExprOut, LaneId as SiteLane, OutCol, Pipeline, SiteDesc, SiteKind};
+#[allow(unused_imports)]
 use types_nodes::Node;
 use mcx::{GrowIn, PgBox, PgVec};
 
@@ -31,6 +32,7 @@ use crate::frame::frame::{SourceMaker, Win};
 use crate::frame::px::Px;
 use crate::frame::row::{Carry, RowVals};
 use crate::frame::site::{Reader, CTID_AT};
+#[allow(unused_imports)]
 use crate::graph::Gx;
 use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::lifetime::bound::{self, BoundAt, Feed};

@@ -10,6 +10,7 @@ use core::sync::atomic::Ordering;
 use gravity_abi::breaker::{KeyKind, RecordLayout, SlotKind, T1, t1_default_bytes};
 use gravity_abi::hash::KeyHash;
 use gravity_driver::mem::spill::{SpillTable, HANDED, HAND_DISK, HAND_MEMORY};
+#[allow(unused_imports)]
 use gravity_driver::{RunReader, SpillFile};
 
 const PBITS: u8 = 4;

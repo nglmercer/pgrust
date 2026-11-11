@@ -5,7 +5,6 @@
 /// PostgreSQL's block size, the unit of `seq_page_cost`.
 pub const BLCKSZ: f64 = 8192.0;
 
-
 /// Codec kinds, the values of `types_pathnodes::PGRC_CODEC_*`.
 pub const CODEC_UNKNOWN: u8 = 0;
 pub const CODEC_WORD: u8 = 1;
@@ -21,9 +20,14 @@ pub use pgrc_zonequal::ZoneOp;
 /// bloom probe, once per dictionary code, or per row.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum QualKind {
-    Zone { op: ZoneOp, key: i64 },
+    Zone {
+        op: ZoneOp,
+        key: i64,
+    },
     /// An `=` the column's blooms answer, built with `k` hash functions ([`bloom_k`]).
-    Bloom { k: u32 },
+    Bloom {
+        k: u32,
+    },
     Dict,
     Row,
 }
@@ -133,12 +137,18 @@ impl<'a> ZoneSummary<'a> {
             ZoneOp::Ge => (n - self.maxs(key, false), n - self.mins(key, false)),
             ZoneOp::Eq => {
                 let s = self.mins(key, true) - self.maxs(key, false);
-                let whole = self.keys.binary_search(&key).map_or(0.0, |i| f64::from(self.eq_whole[i]));
+                let whole = self
+                    .keys
+                    .binary_search(&key)
+                    .map_or(0.0, |i| f64::from(self.eq_whole[i]));
                 (s, whole)
             }
         };
         let survived = survived.clamp(0.0, n);
-        CensusEst { survived, mixed: (survived - whole.clamp(0.0, survived)).max(0.0) }
+        CensusEst {
+            survived,
+            mixed: (survived - whole.clamp(0.0, survived)).max(0.0),
+        }
     }
 }
 
@@ -233,7 +243,11 @@ pub fn bloom_fraction(granules: u64, tuples: f64, selectivity: f64, k: u32) -> f
     let sel = selectivity.clamp(0.0, 1.0);
     let matching = sel * tuples;
     let holds = 1.0 - (matching * (1.0 - 1.0 / g).ln()).exp();
-    let distinct = if sel > 0.0 { (tuples / g).min(1.0 / sel) } else { tuples / g };
+    let distinct = if sel > 0.0 {
+        (tuples / g).min(1.0 / sel)
+    } else {
+        tuples / g
+    };
     (holds + (1.0 - holds) * bloom_false_positive(distinct, k)).clamp(0.0, 1.0)
 }
 
@@ -249,7 +263,12 @@ pub fn scan_cost(s: &Scan<'_>, k: &Knobs) -> ScanCost {
     let g = s.granules.max(1) as f64;
     let rows_per_granule = s.tuples / g;
     let zones = |attno: i16| s.zones.iter().find(|(a, _)| *a == attno).map(|(_, z)| *z);
-    let ncodes = |attno: i16| s.lanes.iter().find(|l| l.attno == attno).map_or(0, |l| l.ncodes);
+    let ncodes = |attno: i16| {
+        s.lanes
+            .iter()
+            .find(|l| l.attno == attno)
+            .map_or(0, |l| l.ncodes)
+    };
 
     // Survival fraction and, per qual, its own fraction and mixed share.
     let mut fraction = 1.0f64;
@@ -259,7 +278,10 @@ pub fn scan_cost(s: &Scan<'_>, k: &Knobs) -> ScanCost {
             QualKind::Zone { op, key } => match zones(q.attno) {
                 Some(z) if z.granules > 0 => {
                     let c = z.census(op, key);
-                    (c.survived / z.granules as f64, c.mixed / c.survived.max(1.0))
+                    (
+                        c.survived / z.granules as f64,
+                        c.mixed / c.survived.max(1.0),
+                    )
                 }
                 _ => (1.0, 1.0),
             },
@@ -274,7 +296,11 @@ pub fn scan_cost(s: &Scan<'_>, k: &Knobs) -> ScanCost {
     let rows_out = s.rows.min(rows_scanned).max(0.0);
 
     let op = k.cpu_operator_cost;
-    let mut out = ScanCost { granules_survived, rows_scanned, ..ScanCost::default() };
+    let mut out = ScanCost {
+        granules_survived,
+        rows_scanned,
+        ..ScanCost::default()
+    };
     out.run += k.granule * op * granules_survived;
 
     // Quals in order: each sees the previous one's survivors within the
@@ -289,7 +315,11 @@ pub fn scan_cost(s: &Scan<'_>, k: &Knobs) -> ScanCost {
             QualKind::Bloom { .. } | QualKind::Row => rows,
         };
         // A dictionary qual's per-code charge is not per row: no fraction.
-        let charge = if q.kind == QualKind::Dict { q.per_tuple } else { q.per_tuple * k.qual_fraction };
+        let charge = if q.kind == QualKind::Dict {
+            q.per_tuple
+        } else {
+            q.per_tuple * k.qual_fraction
+        };
         out.run += charge * evals;
         for &a in &q.lanes {
             if decoded.contains(&a) {
@@ -297,7 +327,11 @@ pub fn scan_cost(s: &Scan<'_>, k: &Knobs) -> ScanCost {
             }
             if let Some(l) = s.lanes.iter().find(|l| l.attno == a) {
                 let (unit, word) = decode_unit(l.codec, k);
-                let n = if matches!(q.kind, QualKind::Zone { .. }) { rows * mixed } else { rows };
+                let n = if matches!(q.kind, QualKind::Zone { .. }) {
+                    rows * mixed
+                } else {
+                    rows
+                };
                 out.run += unit * op * n;
                 if word {
                     out.word_rows += n;
@@ -307,7 +341,11 @@ pub fn scan_cost(s: &Scan<'_>, k: &Knobs) -> ScanCost {
                 decoded.push(a);
             }
         }
-        let conditional = if own < 1.0 { (q.selectivity / own).min(1.0) } else { q.selectivity };
+        let conditional = if own < 1.0 {
+            (q.selectivity / own).min(1.0)
+        } else {
+            q.selectivity
+        };
         rows *= conditional.clamp(0.0, 1.0);
     }
 

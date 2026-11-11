@@ -4,6 +4,7 @@
 // the executor.
 #![allow(non_snake_case)]
 
+use clauses::NodeWalker;
 use mcx::PgVec;
 use types_core::{InvalidOid, Oid};
 use types_error::PgResult;
@@ -12,11 +13,10 @@ use types_nodes::list::{IntList, NodeList, OidList};
 use types_nodes::primnodes::{BoolExprType, BoolTestType, NullTestType, ParamKind};
 use types_nodes::{Node, NodeTag};
 use types_pathnodes::RelId;
-use clauses::NodeWalker;
 
 use partprune::{
     BTEqualStrategyNumber, BTGreaterEqualStrategyNumber, BTGreaterStrategyNumber,
-    BTLessStrategyNumber, BTLessEqualStrategyNumber, BTMaxStrategyNumber, HTEqualStrategyNumber,
+    BTLessEqualStrategyNumber, BTLessStrategyNumber, BTMaxStrategyNumber, HTEqualStrategyNumber,
     HTMaxStrategyNumber, InvalidStrategy, PruneStepResult, PARTITION_MAX_KEYS,
 };
 
@@ -98,7 +98,10 @@ pub(crate) fn gen_partprune_steps<'mcx>(
     let mcx = run.mcx;
     let (strategy, partnatts, has_default) = {
         let r = run.root.rel(rel);
-        let ps = r.part_scheme.as_ref().expect("partitioned rel has a part_scheme");
+        let ps = r
+            .part_scheme
+            .as_ref()
+            .expect("partitioned rel has a part_scheme");
         (
             ps.strategy as u8,
             ps.partnatts as usize,
@@ -207,14 +210,8 @@ fn get_matching_partitions_planner<'mcx>(
         match step.node_tag() {
             NodeTag::T_PartitionPruneStepOp => {
                 let op = step.as_partition_prune_step_op().unwrap();
-                let res = perform_pruning_base_step_planner(
-                    mcx,
-                    boundinfo,
-                    strategy,
-                    partnatts,
-                    ps,
-                    op,
-                )?;
+                let res =
+                    perform_pruning_base_step_planner(mcx, boundinfo, strategy, partnatts, ps, op)?;
                 results[op.step_id as usize] = Some(res);
             }
             NodeTag::T_PartitionPruneStepCombine => {
@@ -232,7 +229,9 @@ fn get_matching_partitions_planner<'mcx>(
             other => panic!("invalid pruning step type: {other:?}"),
         }
     }
-    let final_result = results[num_steps - 1].as_ref().expect("final step evaluated");
+    let final_result = results[num_steps - 1]
+        .as_ref()
+        .expect("final step evaluated");
     partprune::matching_bounds_to_partitions(mcx, &**boundinfo, final_result, strategy)
 }
 
@@ -248,7 +247,8 @@ fn perform_pruning_base_step_planner<'mcx>(
 ) -> PgResult<PruneStepResult<'mcx>> {
     debug_assert_eq!(opstep.exprs.len(), opstep.cmpfns.len());
     let mut values = [datum::Datum::null(); PARTITION_MAX_KEYS];
-    let mut supfuncs: Vec<types_fmgr::FmgrInfo> = ::mcx::std_vec_with_capacity("optimizer", partnatts as usize)?;
+    let mut supfuncs: Vec<types_fmgr::FmgrInfo> =
+        ::mcx::std_vec_with_capacity("optimizer", partnatts as usize)?;
     let mut nvalues = 0i32;
     let mut it = opstep.exprs.iter().zip(opstep.cmpfns.iter());
     for keyno in 0..partnatts {
@@ -326,6 +326,7 @@ fn perform_pruning_base_step_planner<'mcx>(
                 || {
                     let mut row_hash = 0u64;
                     let mut vi = 0usize;
+                    #[allow(clippy::needless_range_loop)]
                     for keyno in 0..partnatts as usize {
                         if opstep.nullkeys.is_member(keyno as i32) {
                             continue;
@@ -365,8 +366,13 @@ fn perform_pruning_base_step_planner<'mcx>(
                 nvalues,
                 &opstep.nullkeys,
                 &mut |j: i32, bound: datum::Datum| {
-                    sup_call(&mut sf[j as usize], ps.partcollation[j as usize], bound, values[j as usize])
-                        .as_i32()
+                    sup_call(
+                        &mut sf[j as usize],
+                        ps.partcollation[j as usize],
+                        bound,
+                        values[j as usize],
+                    )
+                    .as_i32()
                 },
             )
         }
@@ -386,7 +392,8 @@ fn strip_relabel(mut n: Node<'_>) -> Node<'_> {
 }
 
 fn const_is_false(n: Node<'_>) -> bool {
-    n.as_const().is_some_and(|c| c.constisnull || !c.constvalue.as_bool())
+    n.as_const()
+        .is_some_and(|c| c.constisnull || !c.constvalue.as_bool())
 }
 
 // gen_partprune_steps_internal (partprune.c).
@@ -475,6 +482,7 @@ fn gen_partprune_steps_internal<'mcx>(
             }
         }
 
+        #[allow(clippy::needless_range_loop)]
         for i in 0..ctx.partnatts {
             let partkey = ctx.partkeys[i];
             let mut clause_is_not_null = false;
@@ -607,7 +615,11 @@ fn gen_prune_step_op<'mcx>(
     let mut op = Node::build::<types_nodes::plannodes::PartitionPruneStepOp>(mcx)?;
     op.step_id = ctx.next_step_id;
     ctx.next_step_id += 1;
-    op.opstrategy = if op_is_ne { InvalidStrategy } else { opstrategy };
+    op.opstrategy = if op_is_ne {
+        InvalidStrategy
+    } else {
+        opstrategy
+    };
     debug_assert_eq!(exprs.len(), cmpfns.len());
     op.exprs = exprs;
     op.cmpfns = cmpfns;
@@ -648,6 +660,7 @@ fn gen_prune_steps_from_opexps<'mcx>(
     let mut hash_clauses: [Vec<PartClauseInfo<'mcx>>; HTMaxStrategyNumber + 1] =
         core::array::from_fn(|_| Vec::new());
 
+    #[allow(clippy::needless_range_loop)]
     'keys: for i in 0..ctx.partnatts {
         let clauselist = core::mem::take(&mut keyclauses[i]);
         let mut consider_next_key = true;
@@ -987,8 +1000,14 @@ fn match_clause_to_partition_key<'mcx>(
 
     let mut outconst: Option<Node<'mcx>> = None;
     let mut notclause = false;
-    let boolmatchstatus =
-        match_boolean_partition_clause(mcx, partopfamily, clause, partkey, &mut outconst, &mut notclause)?;
+    let boolmatchstatus = match_boolean_partition_clause(
+        mcx,
+        partopfamily,
+        clause,
+        partkey,
+        &mut outconst,
+        &mut notclause,
+    )?;
 
     match boolmatchstatus {
         PartClauseMatchStatus::MatchClause => {
@@ -996,8 +1015,7 @@ fn match_clause_to_partition_key<'mcx>(
                 let btest = clause
                     .as_boolean_test()
                     .expect("notclause only set for BooleanTests");
-                let mut new_booltest =
-                    Node::build::<types_nodes::primnodes::BooleanTest>(mcx)?;
+                let mut new_booltest = Node::build::<types_nodes::primnodes::BooleanTest>(mcx)?;
                 new_booltest.arg = btest.arg;
                 new_booltest.booltesttype = match btest.booltesttype {
                     BoolTestType::IS_NOT_TRUE => BoolTestType::IS_FALSE,
@@ -1268,8 +1286,14 @@ fn match_clause_to_partition_key<'mcx>(
             };
             let elemtype = arrayfuncs::arr_elemtype(img);
             let (elmlen, elmbyval, elmalign) = lsyscache::get_typlenbyvalalign(elemtype)?;
-            let (elem_values, elem_nulls) =
-                arrayfuncs::deconstruct_array(mcx, img, elmlen as i32, elmbyval, elmalign as u8, true)?;
+            let (elem_values, elem_nulls) = arrayfuncs::deconstruct_array(
+                mcx,
+                img,
+                elmlen as i32,
+                elmbyval,
+                elmalign as u8,
+                true,
+            )?;
             for (i, &v) in elem_values.iter().enumerate() {
                 if elem_nulls[i] {
                     if saop.useOr {
@@ -1300,7 +1324,8 @@ fn match_clause_to_partition_key<'mcx>(
             return Ok(PartClauseMatchStatus::Unsupported);
         }
 
-        let mut elem_clauses: Vec<Node<'mcx>> = ::mcx::std_vec_with_capacity("optimizer", elem_exprs.len())?;
+        let mut elem_clauses: Vec<Node<'mcx>> =
+            ::mcx::std_vec_with_capacity("optimizer", elem_exprs.len())?;
         for elem in elem_exprs {
             let mut op = Node::build::<types_nodes::primnodes::OpExpr>(mcx)?;
             op.opno = saop_op;
@@ -1340,7 +1365,10 @@ fn match_clause_to_partition_key<'mcx>(
 
     if let Some(nulltest) = clause.as_null_test() {
         // upstream 8e8b2bef780e (18.4): Strip PlaceHolderVars from partition pruning operands
-        let arg = strip_relabel(vars::strip_noop_phvs(mcx, nulltest.arg.expect("NullTest.arg"))?);
+        let arg = strip_relabel(vars::strip_noop_phvs(
+            mcx,
+            nulltest.arg.expect("NullTest.arg"),
+        )?);
         if !types_nodes::equal::equal(arg, partkey) {
             return Ok(PartClauseMatchStatus::NoMatch);
         }
@@ -1369,7 +1397,10 @@ fn match_boolean_partition_clause<'mcx>(
 
     if let Some(btest) = clause.as_boolean_test() {
         // upstream 8e8b2bef780e (18.4): Strip PlaceHolderVars from partition pruning operands
-        let leftop = strip_relabel(vars::strip_noop_phvs(mcx, btest.arg.expect("BooleanTest.arg"))?);
+        let leftop = strip_relabel(vars::strip_noop_phvs(
+            mcx,
+            btest.arg.expect("BooleanTest.arg"),
+        )?);
         if types_nodes::equal::equal(leftop, partkey) {
             return Ok(match btest.booltesttype {
                 BoolTestType::IS_NOT_TRUE | BoolTestType::IS_TRUE => {
@@ -1392,7 +1423,11 @@ fn match_boolean_partition_clause<'mcx>(
     }
 
     let is_not_clause = clauses::is_notclause(clause);
-    let leftop = if is_not_clause { clause.as_bool_expr().unwrap().args.nth(0) } else { clause };
+    let leftop = if is_not_clause {
+        clause.as_bool_expr().unwrap().args.nth(0)
+    } else {
+        clause
+    };
     // upstream 8e8b2bef780e (18.4): Strip PlaceHolderVars from partition pruning operands
     let leftop = strip_relabel(vars::strip_noop_phvs(mcx, leftop)?);
 
@@ -1450,9 +1485,14 @@ fn get_partkey_exec_paramids<'mcx>(
     mcx: mcx::Mcx<'mcx>,
     steps: &NodeList<'mcx>,
 ) -> PgResult<Bitmapset<'mcx>> {
-    let mut w = ExecParamIdsWalker { mcx, ids: Bitmapset::empty() };
+    let mut w = ExecParamIdsWalker {
+        mcx,
+        ids: Bitmapset::empty(),
+    };
     for step in steps.iter() {
-        let Some(op) = step.as_partition_prune_step_op() else { continue };
+        let Some(op) = step.as_partition_prune_step_op() else {
+            continue;
+        };
         for expr in op.exprs.iter() {
             if expr.node_tag() != NodeTag::T_Const {
                 let _ = w.visit(expr)?;
@@ -1549,7 +1589,8 @@ pub(crate) fn make_partition_pruneinfo<'mcx>(
         pruneinfo.other_subplans = other;
     }
 
-    run.pending_part_prune_infos.lappend(mcx, pruneinfo.seal())?;
+    run.pending_part_prune_infos
+        .lappend(mcx, pruneinfo.seal())?;
     Ok(run.pending_part_prune_infos.len() as i32 - 1)
 }
 
@@ -1607,8 +1648,7 @@ fn make_partitionedrel_pruneinfo<'mcx>(
                 &run.root.rel(parentrel).relids,
                 &run.root.rel(subpart).relids,
             ) {
-                let relids =
-                    crate::relnode::relids_copy(mcx, &run.root.rel(subpart).relids);
+                let relids = crate::relnode::relids_copy(mcx, &run.root.rel(subpart).relids);
                 let appinfos = crate::inherit::find_appinfos_by_relids(run, &relids)?;
                 let mut translated = ::mcx::std_vec_with_capacity("optimizer", prunequal_tr.len())?;
                 for q in prunequal_tr {
@@ -1624,6 +1664,7 @@ fn make_partitionedrel_pruneinfo<'mcx>(
             // down to subpart along the parent chain.
             let mut chain: Vec<RelId> = Vec::new();
             let mut cur = subpart;
+            #[allow(clippy::unnecessary_unwrap)]
             while cur != targetpart.unwrap() {
                 chain.push(cur);
                 cur = run.root.rel(cur).parent.expect("child rel has a parent");

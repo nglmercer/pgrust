@@ -597,6 +597,7 @@ mod global {
         Some(idx)
     }
 
+    #[allow(dead_code)]
     fn allocate_slot() -> usize {
         try_allocate_slot().expect("waiter slot slab exhausted")
     }

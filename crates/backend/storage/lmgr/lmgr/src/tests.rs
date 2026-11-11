@@ -421,7 +421,7 @@ fn xact_lock_table_wait_decorates_log_reports_raised_while_waiting() {
     LOG_ON_ACQUIRE.set(false);
     elog::set_emit_log_hook(prev);
     let after = WAIT_LOGS.lock().unwrap();
-    let last = after.iter().filter(|r| r.0 == me).next_back().unwrap();
+    let last = after.iter().rfind(|r| r.0 == me).unwrap();
     assert_eq!(last.1.context, None);
 }
 
@@ -615,7 +615,9 @@ fn relation_init_lock_info_matches_c() {
 }
 
 #[test]
+#[allow(clippy::assertions_on_constants, unused_attributes)]
 fn lockmode_bounds_for_relation_open_assert() {
+    #[allow(clippy::assertions_on_constants)]
     assert!(AccessShareLock >= types_rel::NoLock && AccessShareLock <= MaxLockMode);
 }
 

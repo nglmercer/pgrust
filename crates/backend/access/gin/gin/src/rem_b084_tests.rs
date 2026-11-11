@@ -23,8 +23,8 @@ use ::types_core::{
 use ::types_error::{PgError, PgResult, DEBUG1};
 use ::types_nbtree::IndexBulkDeleteResult;
 use ::types_rel::{
-    FormData_pg_class, FormData_pg_index, LockInfoData, LockRelId, Relation, RelationData, LOCKMODE,
-    RELKIND_INDEX, REPLICA_IDENTITY_DEFAULT,
+    FormData_pg_class, FormData_pg_index, LockInfoData, LockRelId, Relation, RelationData,
+    LOCKMODE, RELKIND_INDEX, REPLICA_IDENTITY_DEFAULT,
 };
 use ::types_tuple::itemptr::{InvalidOffsetNumber, ItemPointerData};
 use ::types_tuple::tupdesc::CompactAttribute;
@@ -34,10 +34,10 @@ use crate::btree::{ginFinishOldSplitAt, Frame, GinStack};
 use crate::datapage::{gin_data_page_add_posting_item, DataBtree};
 use crate::tests::fake_bufmgr;
 use crate::util::{
-    gin_build_init_pages, gin_init_metapage_bytes, gin_init_page_bytes, ginUpdateStats,
+    ginUpdateStats, gin_build_init_pages, gin_init_metapage_bytes, gin_init_page_bytes,
 };
 use crate::vacuum::{
-    ginbulkdelete_restore_page, ginDeletePage, ginvacuumcleanup, GinVacDelete, GinVacuumState,
+    ginDeletePage, ginbulkdelete_restore_page, ginvacuumcleanup, GinVacDelete, GinVacuumState,
 };
 use crate::write_opaque_to;
 
@@ -157,12 +157,23 @@ pub(crate) fn install() {
 
 fn this_thread_wal() -> Vec<(u8, u32)> {
     let me = std::thread::current().id();
-    WAL.lock().unwrap().iter().filter(|r| r.0 == me).map(|r| (r.1, r.2)).collect()
+    WAL.lock()
+        .unwrap()
+        .iter()
+        .filter(|r| r.0 == me)
+        .map(|r| (r.1, r.2))
+        .collect()
 }
 
 fn this_thread_dirty() -> Vec<(Buffer, u32)> {
     let me = std::thread::current().id();
-    DIRTY.lock().unwrap().iter().filter(|r| r.0 == me).map(|r| (r.1, r.2)).collect()
+    DIRTY
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|r| r.0 == me)
+        .map(|r| (r.1, r.2))
+        .collect()
 }
 
 fn clear_recorders() {
@@ -276,7 +287,10 @@ fn index_rel(mcx: Mcx<'_>) -> Relation<'_> {
         rd_firstRelfilelocatorSubid: Cell::new(0),
         rd_droppedSubid: Cell::new(0),
         rd_lockInfo: LockInfoData {
-            lockRelId: LockRelId { relId: 6084, dbId: 5 },
+            lockRelId: LockRelId {
+                relId: 6084,
+                dbId: 5,
+            },
         },
         rd_rel: FormData_pg_class {
             relname,
@@ -392,10 +406,17 @@ fn update_stats_wal_record_is_inside_critical_section() {
     ginUpdateStats(&rel, &stats, false).unwrap();
 
     let wal = this_thread_wal();
-    assert_eq!(wal.iter().map(|r| r.0).collect::<Vec<_>>(), vec![XLOG_GIN_UPDATE_META_PAGE]);
+    assert_eq!(
+        wal.iter().map(|r| r.0).collect::<Vec<_>>(),
+        vec![XLOG_GIN_UPDATE_META_PAGE]
+    );
     assert_all_inside_crit_section("XLogInsert", &wal);
     assert_all_inside_crit_section("MarkBufferDirty", &this_thread_dirty());
-    assert_eq!(init_small::globals::CritSectionCount(), 0, "critical section left open");
+    assert_eq!(
+        init_small::globals::CritSectionCount(),
+        0,
+        "critical section left open"
+    );
     assert_eq!(fake_bufmgr::pins(), 0, "pins leaked");
 }
 
@@ -417,7 +438,10 @@ fn delete_page_wal_record_is_inside_critical_section() {
     fake_bufmgr::set_pages(vec![
         leak(metapage()),
         leak(gin_page(GIN_DATA | GIN_LEAF | GIN_COMPRESSED, 2)),
-        leak(gin_page(GIN_DATA | GIN_LEAF | GIN_COMPRESSED, InvalidBlockNumber)),
+        leak(gin_page(
+            GIN_DATA | GIN_LEAF | GIN_COMPRESSED,
+            InvalidBlockNumber,
+        )),
         leak(parent),
     ]);
     clear_recorders();
@@ -436,12 +460,23 @@ fn delete_page_wal_record_is_inside_critical_section() {
     ginDeletePage(&mut gvs, 2, 1, 3, 1).unwrap();
 
     let wal = this_thread_wal();
-    assert_eq!(wal.iter().map(|r| r.0).collect::<Vec<_>>(), vec![XLOG_GIN_DELETE_PAGE]);
+    assert_eq!(
+        wal.iter().map(|r| r.0).collect::<Vec<_>>(),
+        vec![XLOG_GIN_DELETE_PAGE]
+    );
     assert_all_inside_crit_section("XLogInsert", &wal);
     let dirty = this_thread_dirty();
-    assert_eq!(dirty.len(), 3, "parent, left and deleted page are dirtied: {dirty:?}");
+    assert_eq!(
+        dirty.len(),
+        3,
+        "parent, left and deleted page are dirtied: {dirty:?}"
+    );
     assert_all_inside_crit_section("MarkBufferDirty", &dirty);
-    assert_eq!(init_small::globals::CritSectionCount(), 0, "critical section left open");
+    assert_eq!(
+        init_small::globals::CritSectionCount(),
+        0,
+        "critical section left open"
+    );
     assert_eq!(
         opaque_flags(page_bytes_of(2)),
         GIN_DATA | GIN_LEAF | GIN_COMPRESSED | GIN_DELETED,
@@ -456,7 +491,10 @@ fn delete_page_wal_record_is_inside_critical_section() {
 #[test]
 fn bulkdelete_restore_page_wal_record_is_inside_critical_section() {
     install();
-    fake_bufmgr::set_pages(vec![leak(metapage()), leak(gin_page(GIN_LEAF, InvalidBlockNumber))]);
+    fake_bufmgr::set_pages(vec![
+        leak(metapage()),
+        leak(gin_page(GIN_LEAF, InvalidBlockNumber)),
+    ]);
     clear_recorders();
 
     let ctx = MemoryContext::new("b084");
@@ -467,11 +505,22 @@ fn bulkdelete_restore_page_wal_record_is_inside_critical_section() {
     ginbulkdelete_restore_page(&rel, buffer, &tmp).unwrap();
 
     let wal = this_thread_wal();
-    assert_eq!(wal.iter().map(|r| r.0).collect::<Vec<_>>(), vec![XLOG_GIN_VACUUM_PAGE]);
+    assert_eq!(
+        wal.iter().map(|r| r.0).collect::<Vec<_>>(),
+        vec![XLOG_GIN_VACUUM_PAGE]
+    );
     assert_all_inside_crit_section("XLogInsert", &wal);
     assert_all_inside_crit_section("MarkBufferDirty", &this_thread_dirty());
-    assert_eq!(init_small::globals::CritSectionCount(), 0, "critical section left open");
-    assert_eq!(fake_bufmgr::pins(), 0, "the restore step releases its buffer");
+    assert_eq!(
+        init_small::globals::CritSectionCount(),
+        0,
+        "critical section left open"
+    );
+    assert_eq!(
+        fake_bufmgr::pins(),
+        0,
+        "the restore step releases its buffer"
+    );
 }
 
 // gininsert.c:643-652: ginbuild initializes and dirties the metapage and the
@@ -490,9 +539,16 @@ fn build_init_pages_dirties_inside_critical_section() {
     gin_build_init_pages(meta, root).unwrap();
 
     let dirty = this_thread_dirty();
-    assert_eq!(dirty.iter().map(|r| r.0).collect::<Vec<_>>(), vec![meta, root]);
+    assert_eq!(
+        dirty.iter().map(|r| r.0).collect::<Vec<_>>(),
+        vec![meta, root]
+    );
     assert_all_inside_crit_section("MarkBufferDirty", &dirty);
-    assert_eq!(init_small::globals::CritSectionCount(), 0, "critical section left open");
+    assert_eq!(
+        init_small::globals::CritSectionCount(),
+        0,
+        "critical section left open"
+    );
     assert_eq!(opaque_flags(page_bytes_of(0)), GIN_META);
     assert_eq!(opaque_flags(page_bytes_of(1)), GIN_LEAF);
     assert_eq!(fake_bufmgr::pins(), 0, "both buffers released");
@@ -533,7 +589,10 @@ fn vacuumcleanup_analyze_only_returns_caller_stats() {
     );
     miscinit::SetMyBackendType(before);
 
-    assert!(none.unwrap().is_none(), "NULL stats in -> NULL stats out (C returns `stats`)");
+    assert!(
+        none.unwrap().is_none(),
+        "NULL stats in -> NULL stats out (C returns `stats`)"
+    );
     assert_eq!(some.unwrap().map(|s| s.num_pages), Some(9));
     assert_eq!(fake_bufmgr::pins(), 0, "pins leaked");
 }
@@ -554,7 +613,10 @@ fn finish_old_split_logs_debug1() {
     install();
     fake_bufmgr::set_pages(vec![
         leak(metapage()),
-        leak(gin_page(GIN_DATA | GIN_LEAF | GIN_COMPRESSED, InvalidBlockNumber)),
+        leak(gin_page(
+            GIN_DATA | GIN_LEAF | GIN_COMPRESSED,
+            InvalidBlockNumber,
+        )),
     ]);
     clear_recorders();
 
@@ -594,7 +656,10 @@ fn finish_old_split_logs_debug1() {
         .collect();
     assert_eq!(
         logged,
-        vec![(DEBUG1.0, "finishing incomplete split of block 1 in gin index \"b084_gin\"".to_string())]
+        vec![(
+            DEBUG1.0,
+            "finishing incomplete split of block 1 in gin index \"b084_gin\"".to_string()
+        )]
     );
     assert_eq!(fake_bufmgr::pins(), 0, "pins leaked");
 }

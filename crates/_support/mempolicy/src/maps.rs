@@ -37,7 +37,15 @@ fn set(p: *mut u8, len: usize, what: &'static core::ffi::CStr) {
     const PR_SET_VMA_ANON_NAME: c_ulong = 0;
     // SAFETY: prctl only reads the NUL-terminated name (the kernel copies it) and the range's address and length; a range
     // that is not wholly anonymous mappings is refused, nothing is changed then.
-    let _ = unsafe { prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, p as c_ulong, len as c_ulong, what.as_ptr() as c_ulong) };
+    let _ = unsafe {
+        prctl(
+            PR_SET_VMA,
+            PR_SET_VMA_ANON_NAME,
+            p as c_ulong,
+            len as c_ulong,
+            what.as_ptr() as c_ulong,
+        )
+    };
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -50,7 +58,11 @@ mod tests {
     #[test]
     fn region_names_follow_the_ledger_kinds() {
         for k in Kind::ALL {
-            let want = if k == Kind::Region { "pgrust:region".to_owned() } else { format!("pgrust:region:{}", k.name()) }; // alloc: Cold
+            let want = if k == Kind::Region {
+                "pgrust:region".to_owned()
+            } else {
+                format!("pgrust:region:{}", k.name())
+            }; // alloc: Cold
             assert_eq!(super::region(k).to_str(), Ok(want.as_str()));
         }
     }
@@ -60,7 +72,14 @@ mod tests {
     #[test]
     fn a_named_mapping_shows_its_name() {
         extern "C" {
-            fn mmap(addr: *mut core::ffi::c_void, len: usize, prot: i32, flags: i32, fd: i32, off: i64) -> *mut core::ffi::c_void;
+            fn mmap(
+                addr: *mut core::ffi::c_void,
+                len: usize,
+                prot: i32,
+                flags: i32,
+                fd: i32,
+                off: i64,
+            ) -> *mut core::ffi::c_void;
             fn munmap(addr: *mut core::ffi::c_void, len: usize) -> i32;
         }
         let len = 1 << 20;
@@ -70,8 +89,16 @@ mod tests {
         super::set(p, len, c"pgrust:test");
         let maps = std::fs::read_to_string("/proc/self/maps").unwrap_or_default();
         let at = format!("{:x}-", p as usize); // alloc: Cold
-        let line = maps.lines().find(|l| l.starts_with(&at)).unwrap_or_default();
-        let config = std::fs::read_to_string(format!("/boot/config-{}", std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap_or_default().trim())); // alloc: Cold
+        let line = maps
+            .lines()
+            .find(|l| l.starts_with(&at))
+            .unwrap_or_default();
+        let config = std::fs::read_to_string(format!(
+            "/boot/config-{}",
+            std::fs::read_to_string("/proc/sys/kernel/osrelease")
+                .unwrap_or_default()
+                .trim()
+        )); // alloc: Cold
         if config.is_ok_and(|c| c.contains("CONFIG_ANON_VMA_NAME=y")) {
             assert!(line.contains("[anon:pgrust:test]"), "{line}");
         }

@@ -4,15 +4,16 @@ use crate::central::{self, Batch, Key};
 use crate::reserve::{zones, GRAIN_SHIFT};
 use crate::stats;
 use crate::superpage::{self, State, SUPER};
-use crate::{state, Class, Hint, Tag};
 use crate::sync::{AtomicU64, AtomicU8, Ordering::*};
+use crate::{state, Class, Hint, Tag};
 
 pub(crate) const RUN: usize = 64 << 10;
 /// Four per doubling (mimalloc's bins). With `PGRUST_POOL_FINE_CLASSES` off only the even ones are taken: two per
 /// doubling, 1 KiB / 1.5 KiB / 2 KiB / 3 KiB .., the sizes as before.
 pub(crate) const BUCKETS: [u32; 29] = [
-    1024, 1280, 1536, 1792, 2048, 2560, 3072, 3584, 4096, 5120, 6144, 7168, 8192, 10240, 12288, 14336, 16384, 20480, 24576,
-    28672, 32768, 40960, 49152, 57344, 65536, 81920, 98304, 114688, 131072,
+    1024, 1280, 1536, 1792, 2048, 2560, 3072, 3584, 4096, 5120, 6144, 7168, 8192, 10240, 12288,
+    14336, 16384, 20480, 24576, 28672, 32768, 40960, 49152, 57344, 65536, 81920, 98304, 114688,
+    131072,
 ];
 pub(crate) const NB: usize = BUCKETS.len();
 /// The 64 KiB bucket (the small tier's runs).
@@ -29,7 +30,11 @@ static FINE_SWITCH: AtomicU8 = AtomicU8::new(0);
 pub(crate) fn fine_on() -> bool {
     match FINE_SWITCH.load(Relaxed) {
         0 => {
-            let v = if crate::os::env_is_one(c"PGRUST_POOL_FINE_CLASSES") { 2 } else { 1 };
+            let v = if crate::os::env_is_one(c"PGRUST_POOL_FINE_CLASSES") {
+                2
+            } else {
+                1
+            };
             FINE_SWITCH.store(v, Relaxed);
             v == 2
         }
@@ -47,6 +52,7 @@ const GRAIN: usize = 1 << GRAIN_SHIFT;
 
 /// Whether bucket `b` is taken with the switch as it is.
 #[inline]
+#[allow(dead_code)]
 pub(crate) fn selectable(b: u8) -> bool {
     (b.is_multiple_of(2) || fine_on()) && natural_align(b) >= GRAIN
 }
@@ -134,7 +140,11 @@ fn w_back(w: u64) -> u32 {
 }
 #[inline]
 fn word(kind: u64, bucket: u8, runs: u32, class: Class, tag: Tag, used: u32) -> u64 {
-    kind | (bucket as u64) << 3 | (runs as u64 & 63) << 8 | (class as u64) << 14 | (tag.0 as u64) << 17 | (used as u64) << 32
+    kind | (bucket as u64) << 3
+        | (runs as u64 & 63) << 8
+        | (class as u64) << 14
+        | (tag.0 as u64) << 17
+        | (used as u64) << 32
 }
 
 #[inline]
@@ -230,7 +240,12 @@ pub fn run_of(p: *const u8) -> Option<RunInfo> {
     let i = lookup(p)?;
     if matches!(i.kind, Kind::Blocks { .. } | Kind::Run { .. }) && crate::api::dead_at(p as usize) {
         let a = p as usize & !(RUN - 1);
-        return Some(RunInfo { kind: Kind::Dead, base: a, bytes: RUN, ..i });
+        return Some(RunInfo {
+            kind: Kind::Dead,
+            base: a,
+            bytes: RUN,
+            ..i
+        });
     }
     Some(i)
 }
@@ -264,7 +279,15 @@ pub(crate) fn lookup(p: *const u8) -> Option<RunInfo> {
             });
         }
         State::Partial | State::Full => {}
-        _ => return Some(RunInfo { kind: Kind::Free, base: superpage::addr_of(i), bytes: SUPER, class: m.class(), tag: Tag::OTHER }),
+        _ => {
+            return Some(RunInfo {
+                kind: Kind::Free,
+                base: superpage::addr_of(i),
+                bytes: SUPER,
+                class: m.class(),
+                tag: Tag::OTHER,
+            })
+        }
     }
     let (h, w) = head(run_index(a));
     let rb = run_addr(h);
@@ -272,10 +295,32 @@ pub(crate) fn lookup(p: *const u8) -> Option<RunInfo> {
     Some(match kind(w) {
         KIND_BLOCKS => {
             let s = bucket_bytes(w_bucket(w));
-            RunInfo { kind: Kind::Blocks { bucket: w_bucket(w) }, base: rb + (a - rb) / s * s, bytes: s, class, tag: Tag(tag_slot(a).load(Relaxed)) }
+            RunInfo {
+                kind: Kind::Blocks {
+                    bucket: w_bucket(w),
+                },
+                base: rb + (a - rb) / s * s,
+                bytes: s,
+                class,
+                tag: Tag(tag_slot(a).load(Relaxed)),
+            }
         }
-        KIND_RUN => RunInfo { kind: Kind::Run { runs: w_runs(w) as u8 }, base: rb, bytes: w_runs(w) as usize * RUN, class, tag },
-        _ => RunInfo { kind: Kind::Free, base: run_addr(run_index(a)), bytes: RUN, class, tag },
+        KIND_RUN => RunInfo {
+            kind: Kind::Run {
+                runs: w_runs(w) as u8,
+            },
+            base: rb,
+            bytes: w_runs(w) as usize * RUN,
+            class,
+            tag,
+        },
+        _ => RunInfo {
+            kind: Kind::Free,
+            base: run_addr(run_index(a)),
+            bytes: RUN,
+            class,
+            tag,
+        },
     })
 }
 
@@ -296,7 +341,9 @@ pub(crate) fn sweep_kind(r: usize) -> (bool, Tag) {
 fn mark(addr: usize, k: u32, head_word: u64) {
     let r = run_index(addr);
     for j in 1..k as usize {
-        rmeta(r + j).word.store(KIND_TAIL | (j as u64) << 48, Relaxed);
+        rmeta(r + j)
+            .word
+            .store(KIND_TAIL | (j as u64) << 48, Relaxed);
     }
     rmeta(r).aux.store(0, Relaxed);
     rmeta(r).word.store(head_word, Release);
@@ -338,7 +385,8 @@ pub(crate) fn set_run_tag(addr: usize, tag: Tag) {
     let m = rmeta(r);
     let w = m.word.load(Relaxed);
     if w_tag(w) != tag {
-        m.word.store((w & !(0xff << 17)) | (tag.0 as u64) << 17, Release);
+        m.word
+            .store((w & !(0xff << 17)) | (tag.0 as u64) << 17, Release);
     }
 }
 
@@ -373,7 +421,11 @@ pub(crate) fn carve(bucket: u8, hint: Hint) -> Option<Batch> {
     let (addr, zero) = state::take_runs_locked(&g, k, carve_align(bucket), hint.zero)?;
     let s = bucket_bytes(bucket);
     let n = blocks_per(bucket);
-    mark(addr, k, word(KIND_BLOCKS, bucket, k, hint.class, hint.tag, n));
+    mark(
+        addr,
+        k,
+        word(KIND_BLOCKS, bucket, k, hint.class, hint.tag, n),
+    );
     stats::WASTE.fetch_add((k as usize * RUN - n as usize * s) as isize, Relaxed);
     drop(g);
     Some(central::chain(addr, s, n, zero))
@@ -395,14 +447,22 @@ fn unpark_locked(key: Key) -> Option<Batch> {
         let off1 = (aux & 0xffff) as usize;
         let n = ((aux >> 16) & 0xffff) as u32;
         m.aux.store(0, Relaxed);
-        m.word.store((w & !LISTED & !(0xffff << 32)) | ((w_used(w) + n) as u64) << 32, Release);
+        m.word.store(
+            (w & !LISTED & !(0xffff << 32)) | ((w_used(w) + n) as u64) << 32,
+            Release,
+        );
         if n == 0 || off1 == 0 {
             continue;
         }
         let s = bucket_bytes(w_bucket(w));
         stats::STRANDED.fetch_sub((n as usize * s) as isize, Relaxed);
         let head = run_addr(r) + ((off1 - 1) << GRAIN_SHIFT);
-        return Some(Batch { head: central::idx_of(head), n, bytes: s as u32, zero: false });
+        return Some(Batch {
+            head: central::idx_of(head),
+            n,
+            bytes: s as u32,
+            zero: false,
+        });
     }
 }
 
@@ -420,7 +480,11 @@ pub(crate) fn home(key: Key, head: u32, n: u32) {
         let aux = m.aux.load(Relaxed);
         let off1 = (aux & 0xffff) as u32;
         let cnt = ((aux >> 16) & 0xffff) as u32;
-        let prev = if off1 == 0 { central::NONE } else { central::idx_of(run_addr(r) + ((off1 as usize - 1) << GRAIN_SHIFT)) };
+        let prev = if off1 == 0 {
+            central::NONE
+        } else {
+            central::idx_of(run_addr(r) + ((off1 as usize - 1) << GRAIN_SHIFT))
+        };
         central::set_link_next(p, prev);
         let my_off1 = (((p - run_addr(r)) >> GRAIN_SHIFT) + 1) as u64;
         let used = w_used(w) - 1;
@@ -478,7 +542,9 @@ pub(crate) fn sweep(key: Key) -> usize {
                 None => list.store(next, Relaxed),
                 Some(p) => {
                     let pa = rmeta(p).aux.load(Relaxed);
-                    rmeta(p).aux.store((pa & 0xffff_ffff) | (next as u64) << 32, Relaxed);
+                    rmeta(p)
+                        .aux
+                        .store((pa & 0xffff_ffff) | (next as u64) << 32, Relaxed);
                 }
             }
             free_blocks_run_locked(&g, r, w & !LISTED, ((aux >> 16) & 0xffff) as u32);
@@ -500,7 +566,11 @@ mod tests {
         for b in 0..NB as u8 {
             let k = carve_runs(b) as usize;
             let span = k * RUN;
-            assert!(span % bucket_bytes(b) <= span / 16, "bucket {}", bucket_bytes(b));
+            assert!(
+                span % bucket_bytes(b) <= span / 16,
+                "bucket {}",
+                bucket_bytes(b)
+            );
             assert!(k as u32 <= LIST_RUNS);
         }
     }
@@ -538,13 +608,29 @@ mod tests {
         for b in 0..NB as u8 {
             assert!(blocks_per(b) >= 1 && blocks_per(b) <= 64);
         }
-        assert_eq!(BUCKETS.iter().step_by(2).copied().collect::<Vec<_>>(), [1024, 1536, 2048, 3072, 4096, 6144, 8192, 12288, 16384, 24576, 32768, 49152, 65536, 98304, 131072]);
+        assert_eq!(
+            BUCKETS.iter().step_by(2).copied().collect::<Vec<_>>(),
+            [
+                1024, 1536, 2048, 3072, 4096, 6144, 8192, 12288, 16384, 24576, 32768, 49152, 65536,
+                98304, 131072
+            ]
+        );
     }
 
     #[test]
     fn words_round_trip() {
         let w = word(KIND_BLOCKS, 14, 3, Class::Frame, Tag(255), 0xffff) | LISTED;
-        assert_eq!((kind(w), w_bucket(w), w_runs(w), w_class(w), w_tag(w), w_used(w)), (KIND_BLOCKS, 14, 3, Class::Frame, Tag(255), 0xffff));
+        assert_eq!(
+            (
+                kind(w),
+                w_bucket(w),
+                w_runs(w),
+                w_class(w),
+                w_tag(w),
+                w_used(w)
+            ),
+            (KIND_BLOCKS, 14, 3, Class::Frame, Tag(255), 0xffff)
+        );
         assert_eq!(w_back(KIND_TAIL | 31 << 48), 31);
     }
 }

@@ -19,7 +19,6 @@ use pgrc_read::PartRegistry;
 use pgrc_write::writer::PartCutPolicy;
 
 #[path = "common/granule_fixtures.rs"]
-#[allow(dead_code)]
 mod granule_fixtures;
 use granule_fixtures::*;
 

@@ -13,7 +13,24 @@ fn fine_classes() {
     setup();
     assert!(fine_classes_on());
     let h = Hint::new(Class::Session, Tag::MCX);
-    let cases = [(1025, 1536), (1280, 1536), (1537, 2048), (2049, 2560), (2561, 3072), (3073, 3584), (5000, 5120), (9000, 10240), (13000, 14336), (20000, 20480), (30000, 32768), (33000, 40960), (50000, 57344), (65537, 81920), (100000, 114688), (131072, 131072)];
+    let cases = [
+        (1025, 1536),
+        (1280, 1536),
+        (1537, 2048),
+        (2049, 2560),
+        (2561, 3072),
+        (3073, 3584),
+        (5000, 5120),
+        (9000, 10240),
+        (13000, 14336),
+        (20000, 20480),
+        (30000, 32768),
+        (33000, 40960),
+        (50000, 57344),
+        (65537, 81920),
+        (100000, 114688),
+        (131072, 131072),
+    ];
     let mut all = Vec::new();
     for &(ask, want) in &cases {
         assert_eq!(usable(ask, 16), want, "usable({ask})");
@@ -22,8 +39,15 @@ fn fine_classes() {
             assert_eq!(p.len(), want, "take({ask})");
             let a = p.cast::<u8>().as_ptr() as usize;
             let info = run_of(a as *const u8).unwrap();
-            assert!(matches!(info.kind, Kind::Blocks { .. }) && info.base == a && info.bytes == want, "{info:?}");
-            assert_eq!(a % (1 << want.trailing_zeros()).min(64 << 10), 0, "aligned to its size's power of two");
+            assert!(
+                matches!(info.kind, Kind::Blocks { .. }) && info.base == a && info.bytes == want,
+                "{info:?}"
+            );
+            assert_eq!(
+                a % (1 << want.trailing_zeros()).min(64 << 10),
+                0,
+                "aligned to its size's power of two"
+            );
             touch(a, want);
             all.push((a, want));
         }

@@ -5,16 +5,15 @@
 
 #![allow(clippy::missing_panics_doc)]
 
+use crate::cleanup::{cleanup_dir, CleanupReport};
 use crate::elect::ReferenceCandidates;
 use crate::ingest::{NoExternalDetoast, RawDatum};
 use crate::publish::{TxnProbe, TxnVerdict};
 use crate::seal::ReferenceResolver;
 use crate::shred::NoShred;
-use crate::cleanup::{cleanup_dir, CleanupReport};
 use crate::walmodel::{RecordingSink, WalLog};
 use crate::writer::{PartCutPolicy, SealEnv, SubxactEvidence, TableWriter, TxnStamp};
 use crate::wvfs::{MemVfs, WriteVfs};
-use pgsync::{lock, Mutex};
 use pgrc_format::class::{ColSchema, CollationClass, StorageClass, TypeSemantics};
 use pgrc_format::manifest::Manifest;
 use pgrc_format::part::{
@@ -22,6 +21,7 @@ use pgrc_format::part::{
 };
 use pgrc_format::relopt::ShredOptions;
 use pgrc_format::wire::Cur;
+use pgsync::{lock, Mutex};
 use std::collections::BTreeMap;
 
 pub const DIR: &str = "/tbl/pgrc_777";
@@ -51,7 +51,11 @@ pub fn mem_with_spool() -> MemVfs {
 /// with a WAL consumer at `slot`.
 pub fn spool_log(ref_min: u64, slot: Option<usize>) -> Arc<Mutex<WalLog>> {
     let log = WalLog::shared();
-    lock(&log).spool = Some(crate::walmodel::SpoolModel { dir: SPOOL.to_string(), ref_min, slot });
+    lock(&log).spool = Some(crate::walmodel::SpoolModel {
+        dir: SPOOL.to_string(),
+        ref_min,
+        slot,
+    });
     log
 }
 
@@ -101,7 +105,11 @@ pub fn text_col(attno: u32) -> ColSchema {
 pub struct UnshreddedDocs;
 
 impl crate::shred::ShredLaneSource for UnshreddedDocs {
-    fn shred(&mut self, _parent: &crate::ingest::ColBuffer, _opts: &ShredOptions) -> crate::WriteResult<Vec<crate::shred::ShredLane>> {
+    fn shred(
+        &mut self,
+        _parent: &crate::ingest::ColBuffer,
+        _opts: &ShredOptions,
+    ) -> crate::WriteResult<Vec<crate::shred::ShredLane>> {
         Ok(Vec::new())
     }
 
@@ -194,14 +202,22 @@ pub fn open_writer_policy(
 }
 
 /// A writer that logs into `log` (the in-memory WAL).
-pub fn logged_writer(schema: Vec<ColSchema>, st: TxnStamp, log: &Arc<Mutex<WalLog>>) -> TableWriter {
+pub fn logged_writer(
+    schema: Vec<ColSchema>,
+    st: TxnStamp,
+    log: &Arc<Mutex<WalLog>>,
+) -> TableWriter {
     open_writer(schema, st).with_sink(Box::new(RecordingSink::new(DIR, log.clone())))
 }
 
 /// The clog after a crash: the fxids with a durable commit record committed, everything else aborted.
 pub fn committed_probe(log: &Arc<Mutex<WalLog>>) -> Probe {
     let g = lock(log);
-    g.committed(g.records.len()).into_iter().fold(Probe::new(TxnVerdict::Aborted), |p, f| p.set(f, TxnVerdict::Committed))
+    g.committed(g.records.len())
+        .into_iter()
+        .fold(Probe::new(TxnVerdict::Aborted), |p, f| {
+            p.set(f, TxnVerdict::Committed)
+        })
 }
 
 pub fn log_commit(log: &Arc<Mutex<WalLog>>, fxid: u64) {
@@ -253,8 +269,11 @@ pub fn crash_and_recover(vfs: &mut MemVfs, log: &Arc<Mutex<WalLog>>, upto: usize
         g.remove_spool_debris(vfs, upto).expect("spool debris");
     }
     let probe = committed_probe(log);
-    let rep = cleanup_dir(vfs, &mut RecordingSink::new(DIR, log.clone()), DIR, &probe).expect("cleanup");
-    lock(log).checkpoint(vfs).expect("end-of-recovery checkpoint");
+    let rep =
+        cleanup_dir(vfs, &mut RecordingSink::new(DIR, log.clone()), DIR, &probe).expect("cleanup");
+    lock(log)
+        .checkpoint(vfs)
+        .expect("end-of-recovery checkpoint");
     rep
 }
 
@@ -376,7 +395,8 @@ pub fn img_short(payload: &[u8]) -> Vec<u8> {
 
 /// 4B compressed (pglz) varlena image.
 pub fn img_pglz(payload: &[u8]) -> Vec<u8> {
-    let mut dest = vec![std::mem::MaybeUninit::<u8>::uninit(); pglz::pglz_max_output(payload.len())];
+    let mut dest =
+        vec![std::mem::MaybeUninit::<u8>::uninit(); pglz::pglz_max_output(payload.len())];
     let clen = pglz::pglz_compress_into(payload, &mut dest, &pglz::PGLZ_STRATEGY_ALWAYS)
         .expect("compressible test payload");
     let total = 8 + clen;
@@ -385,9 +405,7 @@ pub fn img_pglz(payload: &[u8]) -> Vec<u8> {
     let tcinfo = payload.len() as u32; // method 0 = pglz in the top 2 bits
     v.extend_from_slice(&tcinfo.to_le_bytes());
     // SAFETY: pglz_compress_into initialized dest[..clen].
-    v.extend_from_slice(unsafe {
-        std::slice::from_raw_parts(dest.as_ptr() as *const u8, clen)
-    });
+    v.extend_from_slice(unsafe { std::slice::from_raw_parts(dest.as_ptr() as *const u8, clen) });
     v
 }
 
@@ -464,7 +482,12 @@ impl PartView {
             .collect()
     }
 
-    pub fn stream(&self, attno: u32, path_ord: u32, role: StreamRole) -> Option<(StreamEntry, Vec<ExtentRecord>)> {
+    pub fn stream(
+        &self,
+        attno: u32,
+        path_ord: u32,
+        role: StreamRole,
+    ) -> Option<(StreamEntry, Vec<ExtentRecord>)> {
         self.streams()
             .into_iter()
             .find(|(e, _)| e.attno == attno && e.path_ord == path_ord && e.role == role.as_u8())
@@ -477,8 +500,8 @@ impl PartView {
 
 use crate::elect::ReferenceCandidates as RefCands2;
 use crate::par::{
-    NoDetoastProvider, NoShredProvider, ParProviders, RowChunk, SharedMemVfs,
-    SharedMemVfsProvider, WalProvider,
+    NoDetoastProvider, NoShredProvider, ParProviders, RowChunk, SharedMemVfs, SharedMemVfsProvider,
+    WalProvider,
 };
 use crate::walsink::WalSink;
 use std::sync::Arc;
@@ -512,13 +535,20 @@ impl WalProvider for LogProvider {
 }
 
 pub fn logged_par_providers(shared: &SharedMemVfs, log: &Arc<Mutex<WalLog>>) -> ParProviders {
-    ParProviders { wal: Arc::new(LogProvider(log.clone())), ..par_providers(shared) }
+    ParProviders {
+        wal: Arc::new(LogProvider(log.clone())),
+        ..par_providers(shared)
+    }
 }
 
 /// The standing mixed two-column corpus row (int8 with a null stripe + text
 /// with varied lengths — the determinism.rs shape).
 pub fn mixed_row(i: u64) -> (Option<i64>, Option<String>) {
-    let d1 = if i.is_multiple_of(13) { None } else { Some(i as i64 - 5000) };
+    let d1 = if i.is_multiple_of(13) {
+        None
+    } else {
+        Some(i as i64 - 5000)
+    };
     let d2 = if i.is_multiple_of(17) {
         None
     } else {
@@ -595,9 +625,16 @@ pub fn capture_mixed_col_chunks(n: u64, chunk_rows: u32) -> Vec<crate::par::ColC
         let (mut lo, mut step) = (0usize, 1usize);
         while lo < rows {
             let hi = (lo + step).min(rows);
-            c1.append_word_lane(&words[lo..hi], &wnull[lo..hi]).expect("word lane");
-            c2.append_image_lane(&arena, &spans[lo..hi], &tnull[lo..hi], &mut ext, &mut scratch)
-                .expect("image lane");
+            c1.append_word_lane(&words[lo..hi], &wnull[lo..hi])
+                .expect("word lane");
+            c2.append_image_lane(
+                &arena,
+                &spans[lo..hi],
+                &tnull[lo..hi],
+                &mut ext,
+                &mut scratch,
+            )
+            .expect("image lane");
             lo = hi;
             step = step % 29 + 7;
         }
@@ -623,7 +660,9 @@ pub fn serial_mixed_tmp_bytes(n: u64, fxid: u64, policy: PartCutPolicy) -> Vec<V
             shred: &mut kit.shred,
             shred_opts: &kit.opts,
         };
-        with_mixed_row(i, |row| w.append_row(row, &mut kit.ext, &mut env).expect("append"));
+        with_mixed_row(i, |row| {
+            w.append_row(row, &mut kit.ext, &mut env).expect("append")
+        });
     }
     {
         let sources: [&dyn crate::elect::CandidateSource; 1] = [&kit.cands];
@@ -671,5 +710,7 @@ pub fn read_manifest(vfs: &mut MemVfs, gen: u64) -> Manifest {
             pgrc_format::dirlayout::manifest_file_name(gen)
         ))
         .expect("manifest bytes");
-    pgrc_format::sections::decode_front(&bytes).expect("manifest decode").0
+    pgrc_format::sections::decode_front(&bytes)
+        .expect("manifest decode")
+        .0
 }

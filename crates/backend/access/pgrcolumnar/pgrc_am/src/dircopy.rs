@@ -15,16 +15,26 @@ const CHUNK: usize = 1 << 20;
 pub fn table_dirs(db_path: &str) -> PgResult<Vec<(u32, String)>> {
     let names = match RealVfs.list_dir(db_path) {
         Ok(n) => n,
-        Err(WriteError::Io { errno: libc::ENOENT, .. }) => return Ok(Vec::new()),
+        Err(WriteError::Io {
+            errno: libc::ENOENT,
+            ..
+        }) => return Ok(Vec::new()),
         Err(e) => return Err(crate::write_error(e)),
     };
-    Ok(names.into_iter().filter_map(|n| Some((n.strip_prefix("pgrc_")?.parse().ok()?, n))).collect())
+    Ok(names
+        .into_iter()
+        .filter_map(|n| Some((n.strip_prefix("pgrc_")?.parse().ok()?, n)))
+        .collect())
 }
 
 /// The files a copy carries: not `tmp-*` debris, not Fp128 sidecars (a cache, rebuilt on use). Manifests follow every
 /// other file, oldest first, and `CURRENT` comes last: end-of-recovery cleanup takes a committed manifest as complete.
 pub fn carried_files(vfs: &mut dyn WriteVfs, dir: &str) -> WriteResult<Vec<String>> {
-    let mut v: Vec<String> = vfs.list_dir(dir)?.into_iter().filter(|n| !is_temp_file_name(n) && !n.contains("-fp128-") && n != CURRENT_FILE_NAME).collect();
+    let mut v: Vec<String> = vfs
+        .list_dir(dir)?
+        .into_iter()
+        .filter(|n| !is_temp_file_name(n) && !n.contains("-fp128-") && n != CURRENT_FILE_NAME)
+        .collect();
     v.sort_by_key(|n| parse_manifest_file_name(n).map_or((0, 0), |g| (1, g)));
     if vfs.exists_path(&format!("{dir}/{CURRENT_FILE_NAME}"))? {
         v.push(CURRENT_FILE_NAME.to_string());
@@ -33,7 +43,13 @@ pub fn carried_files(vfs: &mut dyn WriteVfs, dir: &str) -> WriteResult<Vec<Strin
 }
 
 /// `src/name` to `dst/to` through `vfs` in chunks; `vfs` makes it durable at close (an fsync, or its WAL).
-pub fn copy_file(vfs: &mut dyn WriteVfs, src: &str, name: &str, dst: &str, to: &str) -> WriteResult<()> {
+pub fn copy_file(
+    vfs: &mut dyn WriteVfs,
+    src: &str,
+    name: &str,
+    dst: &str,
+    to: &str,
+) -> WriteResult<()> {
     let from = format!("{src}/{name}");
     let fd = vfs.create_rw(&format!("{dst}/{to}"))?;
     let mut off = 0u64;
@@ -81,8 +97,19 @@ pub fn load_copy(slot: RelSlot, dir: &str) {
     if !crate::catalog::is_live() {
         return;
     }
-    if let Err(e) = crate::catalog::load_dir(slot, dir, &crate::footer::fold_generation, &crate::footer::serve_generation_without_catalog) {
-        crate::catalog::log(true, format!("pgrcolumnar: copied {dir} left out of the catalog: {}", e.message()));
+    if let Err(e) = crate::catalog::load_dir(
+        slot,
+        dir,
+        &crate::footer::fold_generation,
+        &crate::footer::serve_generation_without_catalog,
+    ) {
+        crate::catalog::log(
+            true,
+            format!(
+                "pgrcolumnar: copied {dir} left out of the catalog: {}",
+                e.message()
+            ),
+        );
         crate::catalog::remove_dir(dir);
     }
 }

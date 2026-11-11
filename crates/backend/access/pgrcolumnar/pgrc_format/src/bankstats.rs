@@ -56,9 +56,9 @@
 
 use crate::part::SectionBuf;
 use crate::wire::{crc32c, put_u32, put_u64, Cur};
+use crate::{FormatError, FormatResult};
 use memledger::charge::Owner;
 use memledger::{ChargedVec, Kind};
-use crate::{FormatError, FormatResult};
 
 /// File magic: ASCII "PRCB".
 pub const BANKSTATS_MAGIC: u32 = u32::from_le_bytes(*b"PRCB");
@@ -125,9 +125,17 @@ impl PartIdent {
         let granule_count = c.u32(at)?;
         let band_count = c.u32(at)?;
         if c.u32(at)? != 0 {
-            return Err(FormatError::Corrupt { at: "PartIdent pad" });
+            return Err(FormatError::Corrupt {
+                at: "PartIdent pad",
+            });
         }
-        Ok(PartIdent { part_no, granule_count, band_count, rows: c.u64(at)?, footer_off: c.u64(at)? })
+        Ok(PartIdent {
+            part_no,
+            granule_count,
+            band_count,
+            rows: c.u64(at)?,
+            footer_off: c.u64(at)?,
+        })
     }
 }
 
@@ -167,7 +175,13 @@ pub fn build_image(
     cols: &[ColInput<'_>],
 ) -> FormatResult<Vec<u8>> {
     let mut out = Vec::new(); // alloc: Node charged caller (build_image_for charges it)
-    build_image_in(gen, schema_fingerprint, parts, cols, &mut SectionBuf::Plain(&mut out))?;
+    build_image_in(
+        gen,
+        schema_fingerprint,
+        parts,
+        cols,
+        &mut SectionBuf::Plain(&mut out),
+    )?;
     Ok(out)
 }
 
@@ -260,9 +274,7 @@ fn build_image_in(
     let mut off = (meta_len as u64 + 7) & !7;
     for (i, c) in cols.iter().enumerate() {
         let pl = &payloads[i];
-        let stats_len = pl.len() as u64
-            - 8 * (pc as u64 + 1)
-            - (pc * BANKSTATS_DIGEST_LEN) as u64;
+        let stats_len = pl.len() as u64 - 8 * (pc as u64 + 1) - (pc * BANKSTATS_DIGEST_LEN) as u64;
         put_u32(out, c.attno); // alloc: Node charged buf.owner()
         put_u32(out, 0); // alloc: Node charged buf.owner()
         put_u64(out, off); // alloc: Node charged buf.owner()
@@ -321,10 +333,8 @@ pub fn decode_meta(
     let _pad = c.u32("bankstats header")?;
     let pc = h.part_count as usize;
     let nc = h.ncols as usize;
-    let meta_len = BANKSTATS_HEADER_LEN
-        + pc * BANKSTATS_PARTIDENT_LEN
-        + nc * BANKSTATS_COLDIR_LEN
-        + 4;
+    let meta_len =
+        BANKSTATS_HEADER_LEN + pc * BANKSTATS_PARTIDENT_LEN + nc * BANKSTATS_COLDIR_LEN + 4;
     if h.meta_len as usize != meta_len || bytes.len() < meta_len {
         return Err(FormatError::Corrupt {
             at: "bankstats meta_len",
@@ -367,13 +377,11 @@ pub fn decode_meta(
             crc,
         });
     }
-    let stored = u32::from_le_bytes(
-        bytes[meta_len - 4..meta_len]
-            .try_into()
-            .expect("len 4"),
-    );
+    let stored = u32::from_le_bytes(bytes[meta_len - 4..meta_len].try_into().expect("len 4"));
     if stored != crc32c(&bytes[..meta_len - 4]) {
-        return Err(FormatError::CrcMismatch { at: "bankstats meta" });
+        return Err(FormatError::CrcMismatch {
+            at: "bankstats meta",
+        });
     }
     Ok((h, parts, cols))
 }
@@ -439,18 +447,19 @@ impl<'a> ColPayloadRef<'a> {
         }
         // `want == entry.len == payload.len()` here, but split with the
         // checked forms so a bad offset is a catchable refusal, never a panic.
-        let (offtab, rest) = payload.split_at_checked(ot_len).ok_or(FormatError::Corrupt {
-            at: "bankstats col payload shape",
-        })?;
+        let (offtab, rest) = payload
+            .split_at_checked(ot_len)
+            .ok_or(FormatError::Corrupt {
+                at: "bankstats col payload shape",
+            })?;
         let (stats, digests) =
             rest.split_at_checked(entry.stats_len as usize)
                 .ok_or(FormatError::Corrupt {
                     at: "bankstats col payload shape",
                 })?;
         // offtab sanity: monotone, ends at stats_len.
-        let rel = |i: usize| {
-            u64::from_le_bytes(offtab[i * 8..i * 8 + 8].try_into().expect("len 8"))
-        };
+        let rel =
+            |i: usize| u64::from_le_bytes(offtab[i * 8..i * 8 + 8].try_into().expect("len 8"));
         let mut prev = 0u64;
         for i in 0..=pc {
             let v = rel(i);
@@ -498,8 +507,7 @@ impl<'a> ColPayloadRef<'a> {
         if part_ix >= self.part_count {
             return None;
         }
-        let d = &self.digests
-            [part_ix * BANKSTATS_DIGEST_LEN..(part_ix + 1) * BANKSTATS_DIGEST_LEN];
+        let d = &self.digests[part_ix * BANKSTATS_DIGEST_LEN..(part_ix + 1) * BANKSTATS_DIGEST_LEN];
         if d.iter().all(|&b| b == 0) {
             None
         } else {

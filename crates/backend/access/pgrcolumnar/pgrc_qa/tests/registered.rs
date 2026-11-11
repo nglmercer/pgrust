@@ -3,20 +3,20 @@
 //! - a module of the one test binary pgrc_qa_suite (its root tests/pgrc_qa_suite.rs says `#[path = "<file>"]`,
 //!   then `mod t_<stem>;`);
 //! - a [[test]] entry of this package's Cargo.toml, named <stem>, with `path = "tests/<file>"`.
-//! Every listed file exists. The package has autotests = false, so an unlisted file would never compile or run. ct keys a
-//! module's tests as the former target <stem>, so the module name must be t_<stem>.
-//! A plain `cargo test -p pgrc_qa` runs every module of the suite in ONE process, so a file is a module only if its tests
-//! can share that process with every other module's. It must be standalone, and only such a file may be (or a [[test]]
-//! with `required-features`, built only with its feature), if it is named like a binary of ct's serial tail (SERIAL: it
-//! runs alone, its bounds are wall-clock time), if it has a #[global_allocator] or re-runs its own binary
-//! (current_exe), if its text names state as process-wide or process-global, if it uses a `pub static` that holds state
-//! (STATIC_SRCS, outside a thread_local! block, not a table of plain data or a unit struct's value), or if a code line
-//! sets or reads process-wide state through a call (PROCESS_STATE, the package's RIG_STATE, or a
-//! `<crate>_seams::<seam>::set(`). A module that never makes such a call may rely on the process's state being as its
-//! own binary left it (a seam not installed, a GUC store not built), so one that does goes apart even when the call is
-//! guarded to run once.
-//! The suite's root and this file (its module t_registered) are not test files of the rule. The same guard, with its
-//! package's SUITE, STATIC_SRCS and RIG_STATE, checks every package built this way.
+//!   Every listed file exists. The package has autotests = false, so an unlisted file would never compile or run. ct keys a
+//!   module's tests as the former target <stem>, so the module name must be t_<stem>.
+//!   A plain `cargo test -p pgrc_qa` runs every module of the suite in ONE process, so a file is a module only if its tests
+//!   can share that process with every other module's. It must be standalone, and only such a file may be (or a [[test]]
+//!   with `required-features`, built only with its feature), if it is named like a binary of ct's serial tail (SERIAL: it
+//!   runs alone, its bounds are wall-clock time), if it has a #[global_allocator] or re-runs its own binary
+//!   (current_exe), if its text names state as process-wide or process-global, if it uses a `pub static` that holds state
+//!   (STATIC_SRCS, outside a thread_local! block, not a table of plain data or a unit struct's value), or if a code line
+//!   sets or reads process-wide state through a call (PROCESS_STATE, the package's RIG_STATE, or a
+//!   `<crate>_seams::<seam>::set(`). A module that never makes such a call may rely on the process's state being as its
+//!   own binary left it (a seam not installed, a GUC store not built), so one that does goes apart even when the call is
+//!   guarded to run once.
+//!   The suite's root and this file (its module t_registered) are not test files of the rule. The same guard, with its
+//!   package's SUITE, STATIC_SRCS and RIG_STATE, checks every package built this way.
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
@@ -102,14 +102,27 @@ fn pub_statics(src: &str, out: &mut BTreeSet<String>) {
             depth += l.matches('{').count() as i64 - l.matches('}').count() as i64;
             continue;
         }
-        let Some(rest) = l.trim_start().strip_prefix("pub static ") else { continue };
-        let name: String = rest.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
-        let caps = name.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
-        let ty = rest[name.len()..].trim_start().trim_start_matches(':').trim_start();
+        let Some(rest) = l.trim_start().strip_prefix("pub static ") else {
+            continue;
+        };
+        let name: String = rest
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect();
+        let caps = name
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
+        let ty = rest[name.len()..]
+            .trim_start()
+            .trim_start_matches(':')
+            .trim_start();
         let ty = ty.split('=').next().unwrap_or("");
-        let table = (ty.starts_with('&') || ty.starts_with('[')) && !MUTABLE.iter().any(|m| ty.contains(m));
+        let table =
+            (ty.starts_with('&') || ty.starts_with('[')) && !MUTABLE.iter().any(|m| ty.contains(m));
         // a unit struct's one value (`pub static X: T = T;`) holds nothing either
-        let init = rest.split_once('=').map_or("", |(_, i)| i.trim().trim_end_matches(';').trim());
+        let init = rest
+            .split_once('=')
+            .map_or("", |(_, i)| i.trim().trim_end_matches(';').trim());
         let table = table || (!init.is_empty() && init == ty.trim());
         if caps && !table && name.starts_with(|c: char| c.is_ascii_uppercase()) {
             out.insert(name);
@@ -139,7 +152,9 @@ fn standalone_reason(file: &str, src: &str, statics: &BTreeSet<String>) -> Optio
     let serial = SERIAL.iter().copied().find(|p| name.contains(*p));
     let serial = serial.or(name.starts_with("runtime-").then_some("runtime-"));
     if let Some(p) = serial {
-        return Some(format!("is named like ct's serial tail (`{p}`: it runs alone, its bounds are wall-clock time)"));
+        return Some(format!(
+            "is named like ct's serial tail (`{p}`: it runs alone, its bounds are wall-clock time)"
+        ));
     }
     if let Some(p) = ROOT_ONLY.iter().find(|p| src.contains(**p)) {
         return Some(format!("has `{p}`"));
@@ -157,7 +172,10 @@ fn standalone_reason(file: &str, src: &str, statics: &BTreeSet<String>) -> Optio
         if let Some(p) = RIG_STATE.iter().find(|p| l.contains(**p)) {
             return Some(format!("calls `{p}` (process-wide state)"));
         }
-        if let Some(w) = l.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).find(|w| statics.contains(*w)) {
+        if let Some(w) = l
+            .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .find(|w| statics.contains(*w))
+        {
             return Some(format!("uses the process-wide static `{w}`"));
         }
     }
@@ -165,13 +183,16 @@ fn standalone_reason(file: &str, src: &str, statics: &BTreeSet<String>) -> Optio
 }
 
 fn stem(file: &str) -> &str {
-    file.strip_suffix("/main.rs").or_else(|| file.strip_suffix(".rs")).unwrap_or(file)
+    file.strip_suffix("/main.rs")
+        .or_else(|| file.strip_suffix(".rs"))
+        .unwrap_or(file)
 }
 
 #[test]
 fn every_test_file_is_registered() {
     // D793-b: the checkout under test, read at run time
-    let me = std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)");
+    let me = std::env::var_os("CARGO_MANIFEST_DIR")
+        .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)");
     let me = Path::new(&me);
     let dir = me.join("tests");
     let root_file = format!("{SUITE}.rs");
@@ -198,9 +219,15 @@ fn every_test_file_is_registered() {
                 entries.push((String::new(), None, false));
             }
         } else if let Some(e) = entries.last_mut().filter(|_| section == "[[test]]") {
-            if let Some(n) = l.strip_prefix("name = \"").and_then(|r| r.strip_suffix('"')) {
+            if let Some(n) = l
+                .strip_prefix("name = \"")
+                .and_then(|r| r.strip_suffix('"'))
+            {
                 e.0 = n.to_string();
-            } else if let Some(f) = l.strip_prefix("path = \"tests/").and_then(|r| r.strip_suffix('"')) {
+            } else if let Some(f) = l
+                .strip_prefix("path = \"tests/")
+                .and_then(|r| r.strip_suffix('"'))
+            {
                 e.1 = Some(f.to_string());
             } else if l.starts_with("required-features") {
                 e.2 = true;
@@ -210,7 +237,9 @@ fn every_test_file_is_registered() {
     let (mut targets, mut gated) = (BTreeMap::new(), BTreeSet::new());
     for (n, f, g) in entries {
         let Some(f) = f else {
-            bad.push(format!("Cargo.toml: the [[test]] {n:?} has no `path = \"tests/<file>\"` line"));
+            bad.push(format!(
+                "Cargo.toml: the [[test]] {n:?} has no `path = \"tests/<file>\"` line"
+            ));
             continue;
         };
         if g {
@@ -219,7 +248,9 @@ fn every_test_file_is_registered() {
         targets.insert(f, n);
     }
     if targets.remove(&root_file).as_deref() != Some(SUITE) {
-        bad.push(format!("Cargo.toml: no [[test]] name = \"{SUITE}\" with path = \"tests/{root_file}\""));
+        bad.push(format!(
+            "Cargo.toml: no [[test]] name = \"{SUITE}\" with path = \"tests/{root_file}\""
+        ));
     }
     for (f, n) in &targets {
         if n != stem(f) {
@@ -233,17 +264,31 @@ fn every_test_file_is_registered() {
     let mut suite = BTreeMap::new();
     let mut lines = text.lines().map(str::trim).filter(|l| !l.is_empty());
     while let Some(l) = lines.next() {
-        let Some(f) = l.strip_prefix("#[path = \"").and_then(|r| r.strip_suffix("\"]")) else { continue };
-        let m = lines.next().and_then(|m| m.strip_prefix("mod ")).and_then(|m| m.strip_suffix(';')).unwrap_or("");
+        let Some(f) = l
+            .strip_prefix("#[path = \"")
+            .and_then(|r| r.strip_suffix("\"]"))
+        else {
+            continue;
+        };
+        let m = lines
+            .next()
+            .and_then(|m| m.strip_prefix("mod "))
+            .and_then(|m| m.strip_suffix(';'))
+            .unwrap_or("");
         if m != format!("t_{}", stem(f)) {
-            bad.push(format!("{root_file}: {f} is `mod {m}`; write `mod t_{};` right after its #[path] line", stem(f)));
+            bad.push(format!(
+                "{root_file}: {f} is `mod {m}`; write `mod t_{};` right after its #[path] line",
+                stem(f)
+            ));
         }
         if suite.insert(f.to_string(), m.to_string()).is_some() {
             bad.push(format!("{root_file}: {f} is listed twice"));
         }
     }
     if !suite.contains_key(GUARD) {
-        bad.push(format!("{root_file}: this guard ({GUARD}) is not its module t_registered"));
+        bad.push(format!(
+            "{root_file}: this guard ({GUARD}) is not its module t_registered"
+        ));
     }
 
     let listed: BTreeSet<String> = suite.keys().chain(targets.keys()).cloned().collect();
@@ -258,18 +303,28 @@ fn every_test_file_is_registered() {
         ));
     }
     if !gone.is_empty() {
-        bad.push(format!("registered but missing under {}: {gone:?}", dir.display()));
+        bad.push(format!(
+            "registered but missing under {}: {gone:?}",
+            dir.display()
+        ));
     }
     for f in suite.keys().filter(|f| targets.contains_key(*f)) {
-        bad.push(format!("{f} is both a module of {SUITE} and its own [[test]]: keep one"));
+        bad.push(format!(
+            "{f} is both a module of {SUITE} and its own [[test]]: keep one"
+        ));
     }
 
     // the process-wide statics
     let mut srcs = Vec::new();
-    STATIC_SRCS.iter().for_each(|s| rs_files(&me.join(s), &mut srcs));
+    STATIC_SRCS
+        .iter()
+        .for_each(|s| rs_files(&me.join(s), &mut srcs));
     let mut statics = BTreeSet::new();
     for p in &srcs {
-        pub_statics(&std::fs::read_to_string(p).unwrap_or_else(|e| panic!("{}: {e}", p.display())), &mut statics);
+        pub_statics(
+            &std::fs::read_to_string(p).unwrap_or_else(|e| panic!("{}: {e}", p.display())),
+            &mut statics,
+        );
     }
     for f in files.iter().filter(|f| *f != GUARD && listed.contains(*f)) {
         let src = std::fs::read_to_string(dir.join(f)).unwrap_or_else(|e| panic!("{f}: {e}"));
@@ -282,9 +337,31 @@ fn every_test_file_is_registered() {
             _ => {}
         }
     }
-    assert!(bad.is_empty(), "{}: tests/ and its test targets disagree:\n  {}", me.display(), bad.join("\n  "));
-    assert!(files.len() > 5, "only {} test files under {}: wrong directory?", files.len(), dir.display());
-    assert!(suite.len() > 2, "only {} modules in {}: wrong file?", suite.len(), root.display());
-    let gone_src: Vec<_> = STATIC_SRCS.iter().filter(|s| !me.join(s).exists()).collect();
-    assert!(gone_src.is_empty(), "STATIC_SRCS not found under {}: {gone_src:?}", me.display());
+    assert!(
+        bad.is_empty(),
+        "{}: tests/ and its test targets disagree:\n  {}",
+        me.display(),
+        bad.join("\n  ")
+    );
+    assert!(
+        files.len() > 5,
+        "only {} test files under {}: wrong directory?",
+        files.len(),
+        dir.display()
+    );
+    assert!(
+        suite.len() > 2,
+        "only {} modules in {}: wrong file?",
+        suite.len(),
+        root.display()
+    );
+    let gone_src: Vec<_> = STATIC_SRCS
+        .iter()
+        .filter(|s| !me.join(s).exists())
+        .collect();
+    assert!(
+        gone_src.is_empty(),
+        "STATIC_SRCS not found under {}: {gone_src:?}",
+        me.display()
+    );
 }

@@ -43,7 +43,7 @@ pub fn header(b: &mut FunctionBuilder<'_>, ctx: Value, l_cancel: Block, params: 
     let body = b.create_block(params);
     let cur = b.current();
     b.switch_to(h);
-    let p = mcx::to_vec_in(&b.block_params(h)[..], mcx);
+    let p = mcx::to_vec_in(b.block_params(h), mcx);
     check(b, ctx, l_cancel);
     b.br(body, &p[..]);
     b.switch_to(cur);

@@ -51,11 +51,17 @@ unsafe fn take(bytes: usize, align: usize, life: Lifetime, _zeroed: bool) -> *mu
 /// A give that names a class names its take's.
 unsafe fn give(p: *mut u8, bytes: usize, _align: usize, life: Option<Lifetime>) {
     let mut taken = TAKEN.lock().unwrap();
-    let i = taken.iter().position(|&(a, _)| a == p as usize).expect("a give of a block the stand-in served");
+    let i = taken
+        .iter()
+        .position(|&(a, _)| a == p as usize)
+        .expect("a give of a block the stand-in served");
     let (_, took) = taken.swap_remove(i);
     drop(taken);
     if let Some(l) = life {
-        assert_eq!(l, took, "a hinted give names the class its block was taken in");
+        assert_eq!(
+            l, took,
+            "a hinted give names the class its block was taken in"
+        );
         HINTED.fetch_add(1, Relaxed);
     }
     LIVE.fetch_sub(bytes as i64, Relaxed);
@@ -70,7 +76,12 @@ fn usable(bytes: usize, _: usize) -> usize {
     bytes
 }
 
-static SOURCE: BlockSource = BlockSource { take, give, resize, usable };
+static SOURCE: BlockSource = BlockSource {
+    take,
+    give,
+    resize,
+    usable,
+};
 
 /// The source installed once, and this test alone on it (the stand-in's counters are process-wide).
 fn serial() -> MutexGuard<'static, ()> {
@@ -118,7 +129,10 @@ fn fill(ctx: &MemoryContext, out: &mut Vec<(NonNull<u8>, Layout)>) {
     for _ in 0..40 {
         out.push((ctx.mcx().allocate(chunk(KIB)).unwrap().cast(), chunk(KIB)));
     }
-    out.push((ctx.mcx().allocate(chunk(64 * KIB)).unwrap().cast(), chunk(64 * KIB)));
+    out.push((
+        ctx.mcx().allocate(chunk(64 * KIB)).unwrap().cast(),
+        chunk(64 * KIB),
+    ));
 }
 
 fn free(ctx: &MemoryContext, out: &mut Vec<(NonNull<u8>, Layout)>) {
@@ -143,7 +157,10 @@ fn create_reset_delete_cycles_give_every_block_back() {
             free(&ctx, &mut held);
             drop(ctx);
         }
-        assert!(TAKES.load(Relaxed) >= takes0 + 200_000 * 3, "the non-keeper blocks came from the source");
+        assert!(
+            TAKES.load(Relaxed) >= takes0 + 200_000 * 3,
+            "the non-keeper blocks came from the source"
+        );
         assert_eq!(LIVE.load(Relaxed), live0, "every block went back");
     });
 }
@@ -160,10 +177,25 @@ fn the_owners_bytes_are_the_footprint_and_a_pooled_span_is_no_mapping() {
         fill(&ctx, &mut held);
         let big = chunk(64 * MIB);
         let p = ctx.mcx().allocate(big).unwrap().cast::<u8>();
-        assert!(pooled(p), "a block past the map threshold is the source's too");
-        assert_eq!(owner_ctx(s).0 - n0, ctx.mem_allocated() as i64, "the owner holds the footprint");
-        assert_eq!(owner_row(s).committed, c0, "no door-2 mapping for a source's block");
-        assert_eq!(LIVE.load(Relaxed) - live0, (ctx.mem_allocated() - 8 * KIB) as i64, "all but the keeper");
+        assert!(
+            pooled(p),
+            "a block past the map threshold is the source's too"
+        );
+        assert_eq!(
+            owner_ctx(s).0 - n0,
+            ctx.mem_allocated() as i64,
+            "the owner holds the footprint"
+        );
+        assert_eq!(
+            owner_row(s).committed,
+            c0,
+            "no door-2 mapping for a source's block"
+        );
+        assert_eq!(
+            LIVE.load(Relaxed) - live0,
+            (ctx.mem_allocated() - 8 * KIB) as i64,
+            "all but the keeper"
+        );
         // SAFETY: `p` is this context's chunk for `big`
         unsafe { ctx.mcx().deallocate(p, big) };
         free(&ctx, &mut held);
@@ -182,7 +214,10 @@ fn a_keeper_parks_off_the_source_and_an_unserved_block_takes_todays_road() {
         let wide = Layout::from_size_align(64 * KIB, 8192).unwrap();
         let live0 = LIVE.load(Relaxed);
         let w = ctx.mcx().allocate(wide).unwrap().cast::<u8>();
-        assert!(!pooled(w) && LIVE.load(Relaxed) == live0, "not served: today's road");
+        assert!(
+            !pooled(w) && LIVE.load(Relaxed) == live0,
+            "not served: today's road"
+        );
         // SAFETY: each is this context's chunk for its layout
         unsafe {
             ctx.mcx().deallocate(w, wide);
@@ -207,14 +242,21 @@ fn a_64_mib_block_grows_and_shrinks_through_the_source_with_its_bytes() {
             p.as_ptr().add(64 * MIB - 1).write(9);
         }
         // SAFETY: `p` is this context's block for `l64`; l128 is larger
-        let q = unsafe { ctx.mcx().grow(p, l64, l128) }.unwrap().cast::<u8>();
+        let q = unsafe { ctx.mcx().grow(p, l64, l128) }
+            .unwrap()
+            .cast::<u8>();
         assert!(pooled(q));
         // SAFETY: the grown block holds the old bytes
-        assert_eq!(unsafe { (q.as_ptr().read(), q.as_ptr().add(64 * MIB - 1).read()) }, (7, 9));
+        assert_eq!(
+            unsafe { (q.as_ptr().read(), q.as_ptr().add(64 * MIB - 1).read()) },
+            (7, 9)
+        );
         assert_eq!(owner_ctx(s).0 - n0, ctx.mem_allocated() as i64);
         assert_eq!(LIVE.load(Relaxed) - live0, 128 * MIB as i64);
         // SAFETY: `q` is this context's block for `l128`; l32 is smaller
-        let r = unsafe { ctx.mcx().shrink(q, l128, l32) }.unwrap().cast::<u8>();
+        let r = unsafe { ctx.mcx().shrink(q, l128, l32) }
+            .unwrap()
+            .cast::<u8>();
         assert_eq!(unsafe { r.as_ptr().read() }, 7);
         assert_eq!(LIVE.load(Relaxed) - live0, 32 * MIB as i64);
         // SAFETY: `r` is this context's block for `l32`
@@ -232,12 +274,20 @@ fn a_contexts_lifetime_is_its_owners() {
         let task0 = LIVES[Lifetime::Task as usize].load(Relaxed);
         let ctx = MemoryContext::new("pool-life");
         let p = ctx.mcx().allocate(chunk(64 * KIB)).unwrap();
-        assert_eq!(LIVES[Lifetime::Task as usize].load(Relaxed), task0 + 1, "an unnamed root in a statement: a task's");
+        assert_eq!(
+            LIVES[Lifetime::Task as usize].load(Relaxed),
+            task0 + 1,
+            "an unnamed root in a statement: a task's"
+        );
         ctx.set_owner_session();
         let sess0 = LIVES[Lifetime::Session as usize].load(Relaxed);
         let child = ctx.new_child("pool-life-child");
         let q = child.mcx().allocate(chunk(64 * KIB)).unwrap();
-        assert_eq!(LIVES[Lifetime::Session as usize].load(Relaxed), sess0 + 1, "re-owned to its session, and its child");
+        assert_eq!(
+            LIVES[Lifetime::Session as usize].load(Relaxed),
+            sess0 + 1,
+            "re-owned to its session, and its child"
+        );
         // SAFETY: each is its context's chunk for its layout
         unsafe {
             child.mcx().deallocate(q.cast(), chunk(64 * KIB));
@@ -256,7 +306,11 @@ fn a_give_names_the_class_while_one_class_holds_the_contexts_blocks() {
     let _turn = serial();
     on(4045, |_| {
         memledger::statement_begin();
-        let (live0, takes0, hinted0) = (LIVE.load(Relaxed), TAKES.load(Relaxed), HINTED.load(Relaxed));
+        let (live0, takes0, hinted0) = (
+            LIVE.load(Relaxed),
+            TAKES.load(Relaxed),
+            HINTED.load(Relaxed),
+        );
         let mut ctx = MemoryContext::new("pool-hint");
         let mut held = Vec::with_capacity(64);
         fill(&ctx, &mut held);
@@ -266,8 +320,15 @@ fn a_give_names_the_class_while_one_class_holds_the_contexts_blocks() {
         held.clear();
         drop(ctx);
         let takes = TAKES.load(Relaxed) - takes0;
-        assert!(takes >= 6, "blocks and dedicated chunks from the source: {takes}");
-        assert_eq!(HINTED.load(Relaxed) - hinted0, takes, "one class (a task's): every give named it");
+        assert!(
+            takes >= 6,
+            "blocks and dedicated chunks from the source: {takes}"
+        );
+        assert_eq!(
+            HINTED.load(Relaxed) - hinted0,
+            takes,
+            "one class (a task's): every give named it"
+        );
         assert_eq!(LIVE.load(Relaxed), live0);
 
         let (takes0, hinted0) = (TAKES.load(Relaxed), HINTED.load(Relaxed));
@@ -280,7 +341,11 @@ fn a_give_names_the_class_while_one_class_holds_the_contexts_blocks() {
         unsafe { ctx.mcx().deallocate(p.cast(), chunk(64 * KIB)) };
         let _ = q;
         drop(ctx);
-        assert_eq!(HINTED.load(Relaxed), hinted0, "a task's block and a session's: no give names a class");
+        assert_eq!(
+            HINTED.load(Relaxed),
+            hinted0,
+            "a task's block and a session's: no give names a class"
+        );
         assert_eq!(LIVE.load(Relaxed), live0);
         let _ = memledger::statement_end();
     });

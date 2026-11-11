@@ -3,6 +3,7 @@ use super::polled::{sort_by, Poll, Stopped, SORT_RUN};
 
 pub use super::raw::rowsort::{cmp_rows, sort_adopt, sort_begin, sort_begin_at, sort_held_end, sort_full, sort_full_var, sort_image, sort_image_raw, sort_last, sort_last_var, sort_next, sort_next_at, sort_open, sort_open_put, sort_open_var, sort_open_var_put, sort_stop, sort_stop_at, sort_total, sort_total_at, spool_begin, spool_full, spool_last, spool_open, spool_view, spool_view_slice, var_shape, RowCmp};
 pub use super::raw::rowsort::{begin_slices, next_slices, slices_area_bytes};
+#[allow(unused_imports)]
 pub(crate) use super::raw::rowsort::{big_put, full_var_by, hosted_procs, last, last_big, next_in, open_big, permute_rows, permute_small, point_images, put, reader_of, relaid, sort_rows_by, spool_pointed, stash_of, stash_row, tbl_shape, VarPrep, VarPut, Head};
 
 // ---- the full sort's entries (rowsort.rs h_rowsort_open / full / last, begin / next / stop) ----

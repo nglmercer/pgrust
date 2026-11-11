@@ -603,6 +603,7 @@ fn shims_match_the_fmgr_wrapper() {
 const NONDETERMINISTIC: &[&str] = &["timeofday", "clock_timestamp", "drandom", "drandom_normal", "int4random", "int8random", "numeric_random", "gen_random_uuid", "uuidv7", "uuidv7_interval"];
 
 fn same_shape(x: &Outcome, y: &Outcome) -> bool {
+    #[allow(clippy::match_like_matches_macro)]
     match (x, y) {
         (Outcome::Value(_), Outcome::Value(_)) | (Outcome::Error(..), Outcome::Error(..)) | (Outcome::Null, Outcome::Null) => true,
         _ => false,

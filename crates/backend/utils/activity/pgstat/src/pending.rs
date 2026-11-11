@@ -185,6 +185,7 @@ pub(crate) fn with_state<R>(f: impl FnOnce(&mut PgStatState) -> R) -> R {
             // session builds a new one.
             // The pgstat shutdown hook flushed the pending entries first (the exit-callback drain precedes the teardown).
             ::mcx::register_session_cleanup(Box::new(|| {
+                #[allow(clippy::drop_non_drop)]
                 let _ = STATE.try_with(|c| drop(c.borrow_mut().take()));
             }));
             let m = ctx.mcx();

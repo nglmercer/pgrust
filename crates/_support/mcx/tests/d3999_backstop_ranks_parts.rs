@@ -13,7 +13,13 @@ const MIB: usize = 1 << 20;
 /// them back.
 fn mapped(n: usize) -> memledger::Charge {
     let (owner, release) = memledger::charge::context();
-    memledger::Charge::open(owner, release, memledger::Kind::Mapped, memledger::charge::Door::Mapped, n as u64)
+    memledger::Charge::open(
+        owner,
+        release,
+        memledger::Kind::Mapped,
+        memledger::charge::Door::Mapped,
+        n as u64,
+    )
 }
 
 /// The hosts' probe over a cache where backends 41 and 42 share a 900 MiB part and 43 pins a 300 MiB one alone.
@@ -21,7 +27,12 @@ fn alone(f: &mut dyn FnMut(u32, u64)) {
     f(memledger::Acct::backend(43).0, 300 * MIB as u64);
 }
 
-fn statement(procno: u32, resident: usize, ready: mpsc::Sender<()>, done: Arc<Barrier>) -> std::thread::JoinHandle<bool> {
+fn statement(
+    procno: u32,
+    resident: usize,
+    ready: mpsc::Sender<()>,
+    done: Arc<Barrier>,
+) -> std::thread::JoinHandle<bool> {
     std::thread::spawn(move || {
         let pid = 7000 + procno as i32;
         governor::register(procno as i32, pid);
@@ -49,14 +60,24 @@ fn the_backstop_counts_the_parts_a_statement_pins_alone() {
     let (tx, ready) = mpsc::channel();
     let done = Arc::new(Barrier::new(4));
     // by the split the sharers rank 200 + 450 MiB each; what a cancel frees: 200, 200, and 100 + 300 MiB
-    let sharers = [statement(41, 200 * MIB, tx.clone(), done.clone()), statement(42, 200 * MIB, tx.clone(), done.clone())];
+    let sharers = [
+        statement(41, 200 * MIB, tx.clone(), done.clone()),
+        statement(42, 200 * MIB, tx.clone(), done.clone()),
+    ];
     let lone = statement(43, 100 * MIB, tx, done.clone());
     for _ in 0..3 {
         ready.recv().unwrap();
     }
     let v = governor::cancel_largest_victim(90, 32 * MIB).expect("a victim");
-    assert_eq!((v.backend, v.bytes), (Some((43, 7043)), 400 * MIB), "100 MiB resident + the 300 MiB part it alone pins: {v:?}");
+    assert_eq!(
+        (v.backend, v.bytes),
+        (Some((43, 7043)), 400 * MIB),
+        "100 MiB resident + the 300 MiB part it alone pins: {v:?}"
+    );
     done.wait();
     assert!(lone.join().unwrap());
-    assert!(sharers.into_iter().all(|s| !s.join().unwrap()), "the sharers run on");
+    assert!(
+        sharers.into_iter().all(|s| !s.join().unwrap()),
+        "the sharers run on"
+    );
 }

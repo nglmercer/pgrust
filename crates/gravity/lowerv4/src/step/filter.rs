@@ -318,7 +318,7 @@ impl StepMech for Filter {
                 Some(a) => b.int_bin(IntBinOp::And, a, p),
                 None => p,
             });
-            if !b.const_of(e).is_some_and(|(_, c)| c == 0) {
+            if b.const_of(e).is_none_or(|(_, c)| c != 0) {
                 err = Some(match err {
                     Some(a) => b.int_bin(IntBinOp::Or, a, e),
                     None => e,

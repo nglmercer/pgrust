@@ -107,7 +107,9 @@ fn collections(seed: u64) {
     for i in 0..20_000u64 {
         let k = rng(&mut x) % 5000;
         m.insert(k, format!("value {i} {k}"));
-        b.entry(k % 977).or_default().extend_from_slice(&i.to_le_bytes());
+        b.entry(k % 977)
+            .or_default()
+            .extend_from_slice(&i.to_le_bytes());
         if i % 7 == 0 {
             m.remove(&(rng(&mut x) % 5000));
         }
@@ -127,7 +129,9 @@ fn std_under_the_pool() {
 
 fn std_under() {
     collections(1);
-    let hs: Vec<_> = (0..16).map(|t| std::thread::spawn(move || collections(t as u64 + 2))).collect();
+    let hs: Vec<_> = (0..16)
+        .map(|t| std::thread::spawn(move || collections(t as u64 + 2)))
+        .collect();
     for h in hs {
         h.join().unwrap();
     }
@@ -144,7 +148,9 @@ fn threads_exit_holding_blocks_and_others_free_them() {
         let tx = tx.clone();
         std::thread::spawn(move || {
             let mut x = round as u64 + 11;
-            let v: Vec<Box<[u8]>> = (0..2000).map(|_| vec![round as u8; 1 + (rng(&mut x) % 1024) as usize].into_boxed_slice()).collect();
+            let v: Vec<Box<[u8]>> = (0..2000)
+                .map(|_| vec![round as u8; 1 + (rng(&mut x) % 1024) as usize].into_boxed_slice())
+                .collect();
             tx.send(v).unwrap();
         })
         .join()
@@ -153,7 +159,10 @@ fn threads_exit_holding_blocks_and_others_free_them() {
     drop(tx);
     for (round, v) in rx.into_iter().enumerate() {
         for b in &v {
-            assert!(b.iter().all(|&c| c == round as u8), "a block was reused while live");
+            assert!(
+                b.iter().all(|&c| c == round as u8),
+                "a block was reused while live"
+            );
         }
     }
     pagepool::release_heap();
@@ -185,22 +194,63 @@ fn cross_thread_storm() {
 #[test]
 fn alignments_sizes_and_usable() {
     let _one = one();
-    for align in [1usize, 2, 4, 8, 16, 32, 64, 128, 256, 4096, 1 << 16, 1 << 21] {
-        for size in [1usize, 7, 8, 9, 24, 100, 1000, 1024, 1025, 3000, 70_000, 200_000, 3 << 20] {
+    for align in [
+        1usize,
+        2,
+        4,
+        8,
+        16,
+        32,
+        64,
+        128,
+        256,
+        4096,
+        1 << 16,
+        1 << 21,
+    ] {
+        for size in [
+            1usize,
+            7,
+            8,
+            9,
+            24,
+            100,
+            1000,
+            1024,
+            1025,
+            3000,
+            70_000,
+            200_000,
+            3 << 20,
+        ] {
             let l = Layout::from_size_align(size, align).unwrap();
             // SAFETY: a non-zero layout, freed with the same.
             unsafe {
                 let p = A.alloc(l);
-                assert!(!p.is_null() && (p as usize).is_multiple_of(align), "{size} @ {align}");
-                assert!(pagepool::usable_size(p) >= size, "{size} @ {align}: usable {}", pagepool::usable_size(p));
+                assert!(
+                    !p.is_null() && (p as usize).is_multiple_of(align),
+                    "{size} @ {align}"
+                );
+                assert!(
+                    pagepool::usable_size(p) >= size,
+                    "{size} @ {align}: usable {}",
+                    pagepool::usable_size(p)
+                );
                 assert!(pagepool::good_size(size, align) >= size);
                 if pagepool::owns(p) {
-                    assert_eq!(pagepool::usable_size(p), pagepool::good_size(size, align), "door 1's size is the block's: {size} @ {align}");
+                    assert_eq!(
+                        pagepool::usable_size(p),
+                        pagepool::good_size(size, align),
+                        "door 1's size is the block's: {size} @ {align}"
+                    );
                 }
                 core::ptr::write_bytes(p, 0xa5, size);
                 A.dealloc(p, l);
                 let z = A.alloc_zeroed(l);
-                assert!(core::slice::from_raw_parts(z, size).iter().all(|&b| b == 0), "zeroed {size} @ {align}");
+                assert!(
+                    core::slice::from_raw_parts(z, size).iter().all(|&b| b == 0),
+                    "zeroed {size} @ {align}"
+                );
                 A.dealloc(z, l);
             }
         }
@@ -219,17 +269,41 @@ fn realloc_across_roads_keeps_bytes() {
             for i in 0..size {
                 *p.add(i) = i as u8;
             }
-            for new in [5usize, 17, 600, 1000, 1024, 1500, 9000, 140_000, 900_000, 5 << 20, 700_000, 2000, 900, 40, 1] {
+            for new in [
+                5usize,
+                17,
+                600,
+                1000,
+                1024,
+                1500,
+                9000,
+                140_000,
+                900_000,
+                5 << 20,
+                700_000,
+                2000,
+                900,
+                40,
+                1,
+            ] {
                 p = A.realloc(p, Layout::from_size_align(size, align).unwrap(), new);
                 assert!(!p.is_null() && (p as usize).is_multiple_of(align));
                 for i in 0..size.min(new) {
-                    assert_eq!(*p.add(i), i as u8, "byte {i} after {size} -> {new} @ {align}");
+                    assert_eq!(
+                        *p.add(i),
+                        i as u8,
+                        "byte {i} after {size} -> {new} @ {align}"
+                    );
                 }
                 for i in size.min(new)..new {
                     *p.add(i) = i as u8;
                 }
                 if pagepool::owns(p) && new < 2 << 20 {
-                    assert_eq!(pagepool::usable_size(p), pagepool::good_size(new, align), "after {size} -> {new} @ {align}");
+                    assert_eq!(
+                        pagepool::usable_size(p),
+                        pagepool::good_size(new, align),
+                        "after {size} -> {new} @ {align}"
+                    );
                 }
                 size = new;
             }
@@ -250,7 +324,10 @@ fn thread_retained_reads_the_heap() {
             *b = None;
         }
         let half = pagepool::thread_retained();
-        assert!((2000 * 64 - (64 << 10)..=2000 * 64).contains(&(half - held)), "held {held} half {half}");
+        assert!(
+            (2000 * 64 - (64 << 10)..=2000 * 64).contains(&(half - held)),
+            "held {held} half {half}"
+        );
         drop(v);
         let all = pagepool::thread_retained();
         pagepool::release_heap();
@@ -262,14 +339,20 @@ fn thread_retained_reads_the_heap() {
     .unwrap();
 }
 
-const CACHE_SIZES: [usize; 10] = [24, 64, 200, 512, 1000, 3000, 60_000, 65_536, 70_000, 300_000];
+const CACHE_SIZES: [usize; 10] = [
+    24, 64, 200, 512, 1000, 3000, 60_000, 65_536, 70_000, 300_000,
+];
 
 /// One session's cache images: `n` blocks over CACHE_SIZES, each written whole.
 fn cache_blocks(seed: u64, n: usize) -> Vec<(usize, Layout)> {
     let mut x = seed | 1;
     (0..n)
         .map(|i| {
-            let l = Layout::from_size_align(CACHE_SIZES[(rng(&mut x) as usize + i) % CACHE_SIZES.len()], 8).unwrap();
+            let l = Layout::from_size_align(
+                CACHE_SIZES[(rng(&mut x) as usize + i) % CACHE_SIZES.len()],
+                8,
+            )
+            .unwrap();
             let p = pagepool::cache_alloc(l.size(), l.align(), i % 5 == 0);
             assert!(!p.is_null());
             // SAFETY: a fresh block of `l.size()` bytes.
@@ -286,15 +369,28 @@ fn cache_in_use() -> usize {
 #[test]
 fn cache_class_keeps_its_own_runs() {
     let _one = one();
-    let general: Vec<Box<[u8]>> = (0..2000).map(|i| vec![1u8; 1 + i % 1024].into_boxed_slice()).collect();
+    let general: Vec<Box<[u8]>> = (0..2000)
+        .map(|i| vec![1u8; 1 + i % 1024].into_boxed_slice())
+        .collect();
     let cache = cache_blocks(3, 2000);
     let run = |p: usize| p & !((64 << 10) - 1);
-    let general_runs: std::collections::HashSet<usize> = general.iter().map(|b| run(b.as_ptr() as usize)).collect();
+    let general_runs: std::collections::HashSet<usize> =
+        general.iter().map(|b| run(b.as_ptr() as usize)).collect();
     for &(p, l) in &cache {
-        assert!(pagepool::is_cache(p as *const u8, l.size(), l.align()), "{} B", l.size());
-        assert_eq!(pagepool::usable_size(p as *const u8), pagepool::good_size(l.size(), l.align()));
+        assert!(
+            pagepool::is_cache(p as *const u8, l.size(), l.align()),
+            "{} B",
+            l.size()
+        );
+        assert_eq!(
+            pagepool::usable_size(p as *const u8),
+            pagepool::good_size(l.size(), l.align())
+        );
         if l.size() <= 1024 {
-            assert!(!general_runs.contains(&run(p)), "a cache block in a general run");
+            assert!(
+                !general_runs.contains(&run(p)),
+                "a cache block in a general run"
+            );
         }
     }
     for b in &general {
@@ -306,21 +402,44 @@ fn cache_class_keeps_its_own_runs() {
     assert!(!q.is_null() && pagepool::is_cache(q, 5000, l.align()));
     // SAFETY: the realloc's block of 5000 bytes, the old block's bytes copied.
     unsafe {
-        assert!(core::slice::from_raw_parts(q, l.size().min(5000)).iter().all(|&b| b == 3));
+        assert!(core::slice::from_raw_parts(q, l.size().min(5000))
+            .iter()
+            .all(|&b| b == 3));
         A.dealloc(q, Layout::from_size_align(5000, l.align()).unwrap());
     }
     // grown the way a Vec grows (a 64 KiB block of the run bucket is a big block, not a run of the tier)
     let mut q = pagepool::cache_alloc(1, 1, true);
     let mut size = 1;
-    for new in [700, 4096, 30_000, 60_000, 65_536, 131_072, 1 << 20, 3 << 20, 65_536, 1000] {
+    for new in [
+        700,
+        4096,
+        30_000,
+        60_000,
+        65_536,
+        131_072,
+        1 << 20,
+        3 << 20,
+        65_536,
+        1000,
+    ] {
         q = pagepool::cache_realloc(q, 1, new);
-        assert!(!q.is_null() && pagepool::is_cache(q, new, 1), "{size} -> {new}");
+        assert!(
+            !q.is_null() && pagepool::is_cache(q, new, 1),
+            "{size} -> {new}"
+        );
         if new < 2 << 20 {
-            assert_eq!(pagepool::usable_size(q), pagepool::good_size(new, 1), "{size} -> {new}");
+            assert_eq!(
+                pagepool::usable_size(q),
+                pagepool::good_size(new, 1),
+                "{size} -> {new}"
+            );
         }
         // SAFETY: a live block of `new` bytes, its first `size.min(new)` copied.
         unsafe {
-            assert!((0..size.min(new)).all(|i| *q.add(i) == i as u8), "{size} -> {new}");
+            assert!(
+                (0..size.min(new)).all(|i| *q.add(i) == i as u8),
+                "{size} -> {new}"
+            );
             (0..new).for_each(|i| *q.add(i) = i as u8);
         }
         size = new;
@@ -363,17 +482,32 @@ fn parked_builders_cache_runs_come_home_without_them() {
     assert_eq!(all.len(), 200 * 24);
     assert!(cache_in_use() > base);
     let free = |s: pagepool::Stats| (s.central + s.shelved + s.stranded + s.warm_free()) as isize;
-    let (runs, before, free0) = (pagepool::small_counts(), pagepool::stats().in_use, free(pagepool::stats()));
+    let (runs, before, free0) = (
+        pagepool::small_counts(),
+        pagepool::stats().in_use,
+        free(pagepool::stats()),
+    );
     for &(p, l) in &all {
         // SAFETY: the builders' blocks, handed over, freed once.
         unsafe { A.dealloc(p as *mut u8, l) };
     }
     pagepool::flush_remote();
     pagepool::flush_shelf();
-    assert_eq!(cache_in_use(), base, "a parked builder still holds cache bytes (in use before the cut {:?})", before);
-    assert!(pagepool::small_counts().retired > runs.retired, "the swept runs went back to the pool");
+    assert_eq!(
+        cache_in_use(),
+        base,
+        "a parked builder still holds cache bytes (in use before the cut {:?})",
+        before
+    );
+    assert!(
+        pagepool::small_counts().retired > runs.retired,
+        "the swept runs went back to the pool"
+    );
     let cut = (before[pagepool::Tag::CACHE.0 as usize] - base) as isize;
-    assert!(free(pagepool::stats()) - free0 >= cut, "the cut's {cut} bytes are the pool's free bytes now");
+    assert!(
+        free(pagepool::stats()) - free0 >= cut,
+        "the cut's {cut} bytes are the pool's free bytes now"
+    );
     let runs_now = || {
         let o = pagepool::occupancy();
         let (f, g): (usize, usize) = (o.free_run_bytes.iter().sum(), o.gone_run_bytes.iter().sum());
@@ -409,7 +543,10 @@ fn allocation_after_the_exit_destructor() {
         let warm = vec![1u8; 100];
         let mut key: libc::pthread_key_t = 0;
         // SAFETY: a valid out pointer; the destructor lives for the process.
-        assert_eq!(unsafe { libc::pthread_key_create(&mut key, Some(late_destructor)) }, 0);
+        assert_eq!(
+            unsafe { libc::pthread_key_create(&mut key, Some(late_destructor)) },
+            0
+        );
         // SAFETY: a live key; a non-null value arms its destructor.
         unsafe { libc::pthread_setspecific(key, std::ptr::dangling::<libc::c_void>()) };
         drop(warm);
@@ -422,7 +559,10 @@ fn allocation_after_the_exit_destructor() {
     let b = unsafe { Box::from_raw(p) };
     assert_eq!(*b, [7, 7, 7]);
     drop(b);
-    assert!(pagepool::small_counts().abandoned > before.abandoned, "the dead heap kept no run (its take's run went to the abandoned list)");
+    assert!(
+        pagepool::small_counts().abandoned > before.abandoned,
+        "the dead heap kept no run (its take's run went to the abandoned list)"
+    );
     pagepool::release_heap();
 }
 
@@ -432,7 +572,15 @@ fn zz_nothing_recursed_or_went_to_the_system() {
     // runs last by name (the default test order is alphabetical within the binary when threads finish; the counters
     // are process-wide, so a re-entry anywhere above shows here)
     std_under();
-    assert_eq!(NESTED.load(Relaxed), 0, "the allocator allocated inside itself");
-    assert_eq!(FOREIGN.load(Relaxed), 0, "blocks from the system after the pool was on");
+    assert_eq!(
+        NESTED.load(Relaxed),
+        0,
+        "the allocator allocated inside itself"
+    );
+    assert_eq!(
+        FOREIGN.load(Relaxed),
+        0,
+        "blocks from the system after the pool was on"
+    );
     assert!(CALLS.load(Relaxed) > 100_000);
 }

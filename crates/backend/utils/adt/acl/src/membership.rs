@@ -402,6 +402,7 @@ mod bloom_cutover_tests {
             assert_eq!(list.len(), n, "pass {pass}");
         }
         assert!(seen.is_some());
+        #[allow(clippy::needless_range_loop)]
         for i in 0..n {
             assert_eq!(list[i], Oid::from((i + 1) as u32));
         }

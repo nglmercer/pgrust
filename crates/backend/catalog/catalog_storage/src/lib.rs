@@ -13,9 +13,7 @@ use types_core::{
 use types_error::PgResult;
 use types_storage::{RelFileLocator, RelFileLocatorBackend};
 
-pub use storage_xlog::{
-    smgr_redo, SMGR_TRUNCATE_ALL, XLOG_SMGR_CREATE, XLOG_SMGR_TRUNCATE,
-};
+pub use storage_xlog::{smgr_redo, SMGR_TRUNCATE_ALL, XLOG_SMGR_CREATE, XLOG_SMGR_TRUNCATE};
 const RM_SMGR_ID: u8 = 2;
 const XLR_SPECIAL_REL_UPDATE: u8 = 0x01;
 
@@ -47,7 +45,10 @@ thread_local! {
 pub fn AddPendingSync(rlocator: RelFileLocator) {
     PENDING_SYNCS.with_borrow_mut(|p| {
         debug_assert!(!p.iter().any(|s| s.rlocator == rlocator));
-        p.push(PendingRelSync { rlocator, is_truncated: false });
+        p.push(PendingRelSync {
+            rlocator,
+            is_truncated: false,
+        });
     });
 }
 
@@ -74,7 +75,11 @@ pub fn SerializePendingSyncs() -> Vec<(RelFileLocator, bool)> {
     PENDING.with_borrow(|deletes| {
         PENDING_SYNCS.with_borrow(|p| {
             p.iter()
-                .filter(|s| !deletes.iter().any(|d| d.at_commit && d.rlocator == s.rlocator))
+                .filter(|s| {
+                    !deletes
+                        .iter()
+                        .any(|d| d.at_commit && d.rlocator == s.rlocator)
+                })
                 .map(|s| (s.rlocator, s.is_truncated))
                 .collect()
         })
@@ -87,7 +92,10 @@ pub fn RestorePendingSyncs(syncs: &[(RelFileLocator, bool)]) {
         p.extend(
             syncs
                 .iter()
-                .map(|&(rlocator, is_truncated)| PendingRelSync { rlocator, is_truncated }),
+                .map(|&(rlocator, is_truncated)| PendingRelSync {
+                    rlocator,
+                    is_truncated,
+                }),
         );
     });
 }
@@ -116,7 +124,10 @@ pub fn RelationCreateStorage(
     debug_assert!(!xact::IsInParallelMode());
     let (proc_number, needs_wal) = storage_proc_number(relpersistence)?;
 
-    let key = RelFileLocatorBackend { locator: rlocator, backend: proc_number };
+    let key = RelFileLocatorBackend {
+        locator: rlocator,
+        backend: proc_number,
+    };
     smgr::smgropen(rlocator, proc_number)?;
     smgr::smgrcreate(key, ForkNumber::MAIN_FORKNUM, false)?;
 
@@ -149,7 +160,10 @@ pub fn RelationTruncate(rel: &types_rel::RelationData<'_>, nblocks: BlockNumber)
     use std::sync::atomic::Ordering::Relaxed;
     use types_storage::{DELAY_CHKPT_COMPLETE, DELAY_CHKPT_START};
 
-    let key = RelFileLocatorBackend { locator: rel.rd_locator.get(), backend: rel.rd_backend };
+    let key = RelFileLocatorBackend {
+        locator: rel.rd_locator.get(),
+        backend: rel.rd_backend,
+    };
     smgr::smgropen(key.locator, key.backend)?;
     smgr::smgrsettargblock(key, InvalidBlockNumber);
     for fork_i in 0..=MAX_FORKNUM as i32 {
@@ -196,7 +210,8 @@ pub fn RelationTruncate(rel: &types_rel::RelationData<'_>, nblocks: BlockNumber)
         proc.delayChkptFlags.load(Relaxed) & (DELAY_CHKPT_START | DELAY_CHKPT_COMPLETE),
         0
     );
-    proc.delayChkptFlags.fetch_or(DELAY_CHKPT_START | DELAY_CHKPT_COMPLETE, Relaxed);
+    proc.delayChkptFlags
+        .fetch_or(DELAY_CHKPT_START | DELAY_CHKPT_COMPLETE, Relaxed);
 
     init_small::globals::StartCriticalSection();
     let critical = (|| -> PgResult<()> {
@@ -204,7 +219,12 @@ pub fn RelationTruncate(rel: &types_rel::RelationData<'_>, nblocks: BlockNumber)
             let lsn = log_smgrtruncate(&key.locator, nblocks)?;
             transam_xlog::XLogFlush(lsn)?;
         }
-        smgr::smgrtruncate(key, &forks[..nforks], &old_blocks[..nforks], &blocks[..nforks])
+        smgr::smgrtruncate(
+            key,
+            &forks[..nforks],
+            &old_blocks[..nforks],
+            &blocks[..nforks],
+        )
     })();
     // An Err inside the critical section is C's PANIC (elog.c errstart's
     // ERROR->PANIC promotion between START_CRIT_SECTION/END_CRIT_SECTION),
@@ -220,7 +240,8 @@ pub fn RelationTruncate(rel: &types_rel::RelationData<'_>, nblocks: BlockNumber)
     init_small::globals::EndCriticalSection();
     critical?;
 
-    proc.delayChkptFlags.fetch_and(!(DELAY_CHKPT_START | DELAY_CHKPT_COMPLETE), Relaxed);
+    proc.delayChkptFlags
+        .fetch_and(!(DELAY_CHKPT_START | DELAY_CHKPT_COMPLETE), Relaxed);
 
     // Truncated-away pages were likely all-free and preferentially chosen:
     // rebuild the upper FSM levels now (FSM is un-WAL-logged, so no
@@ -397,7 +418,10 @@ pub fn smgrDoPendingDeletes(is_commit: bool) -> PgResult<()> {
 fn drop_columnar_dirs(rels: &[RelFileLocatorBackend]) {
     for r in rels {
         if let Err(e) = pgrc_am::dirpath::remove_dir_by_locator(r.locator, r.backend) {
-            let _ = elog::elog(types_error::WARNING, format!("could not remove table directory: {}", e.message()));
+            let _ = elog::elog(
+                types_error::WARNING,
+                format!("could not remove table directory: {}", e.message()),
+            );
         }
     }
 }
@@ -446,8 +470,14 @@ pub fn smgrDoPendingSyncs(is_commit: bool, is_parallel_worker: bool) -> PgResult
 
     let mut srels: Vec<RelFileLocatorBackend> = Vec::new();
     for sync in &syncs {
-        let key = RelFileLocatorBackend { locator: sync.rlocator, backend: INVALID_PROC_NUMBER };
-        pgrc_am::dirpath::sync_table_dir(&pgrc_am::dirpath::table_dir_path(sync.rlocator, INVALID_PROC_NUMBER))?;
+        let key = RelFileLocatorBackend {
+            locator: sync.rlocator,
+            backend: INVALID_PROC_NUMBER,
+        };
+        pgrc_am::dirpath::sync_table_dir(&pgrc_am::dirpath::table_dir_path(
+            sync.rlocator,
+            INVALID_PROC_NUMBER,
+        ))?;
         smgr::smgropen(sync.rlocator, INVALID_PROC_NUMBER)?;
 
         let mut nblocks = [InvalidBlockNumber; MAX_FORKNUM as usize + 1];
@@ -464,8 +494,7 @@ pub fn smgrDoPendingSyncs(is_commit: bool, is_parallel_worker: bool) -> PgResult
             }
         }
 
-        let threshold =
-            WAL_SKIP_THRESHOLD.with(|c| c.get()) as u64 * 1024 / BLCKSZ as u64;
+        let threshold = WAL_SKIP_THRESHOLD.with(|c| c.get()) as u64 * 1024 / BLCKSZ as u64;
         if sync.is_truncated || total_blocks >= threshold {
             srels.push(key);
         } else {
@@ -523,7 +552,10 @@ pub fn RelationPreserveStorage(rlocator: RelFileLocator, at_commit: bool) {
 pub fn DropRelationFiles(delrels: &[RelFileLocator], is_redo: bool) -> PgResult<()> {
     let mut srels = ::mcx::std_vec_with_capacity("catalog_storage", delrels.len())?;
     for locator in delrels {
-        let key = RelFileLocatorBackend { locator: *locator, backend: INVALID_PROC_NUMBER };
+        let key = RelFileLocatorBackend {
+            locator: *locator,
+            backend: INVALID_PROC_NUMBER,
+        };
         smgr::smgropen(key.locator, key.backend)?;
         // During redo, forget any invalid-page table entries recorded earlier
         // in replay for every fork of this relation. Matches C DropRelationFiles

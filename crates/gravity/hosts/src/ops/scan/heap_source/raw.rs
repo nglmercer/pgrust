@@ -95,7 +95,8 @@ pub(super) fn collect_visible(buf: Buffer, blk: BlockNumber, heap: Oid, want: us
     };
     let direct = all_visible && ssi.is_none();
     // V4R-371: the offsets ascend without repeats, so as many as there are line pointers are exactly 1..=lines
-    Ok((nvis, flags | (direct as u16) * PAGE_ALL_VISIBLE | (nvis == lines as usize) as u16 * PAGE_IOTA, direct))
+    #[allow(clippy::precedence)]
+    Ok((nvis, flags | (direct as u16) * PAGE_ALL_VISIBLE | ((nvis == lines as usize) as u16 * PAGE_IOTA), direct))
 }
 
 /// # Safety — `lines <= MaxHeapTuplesPerPage` on a pinned, share-locked page.
@@ -130,6 +131,6 @@ unsafe fn walk<const ALL_VISIBLE: bool>(page: &PageRef<'_>, lines: u16, buf: Buf
         off += 1;
     }
     count_hinted(hinted_n);
-    Ok((nvis, (nonulls as u16) * PAGE_NONULLS | (full as u16) * PAGE_FULL))
+    Ok((nvis, ((nonulls as u16) * PAGE_NONULLS) | ((full as u16) * PAGE_FULL)))
 }
 

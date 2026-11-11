@@ -17,10 +17,16 @@ use crate::{FormatError, FormatResult};
 
 pub const DIGEST_LEN: usize = 24;
 
-pub fn encode_column(bodies: &[&[u8]], digests: &[Option<[u8; DIGEST_LEN]>]) -> FormatResult<Vec<u8>> {
+pub fn encode_column(
+    bodies: &[&[u8]],
+    digests: &[Option<[u8; DIGEST_LEN]>],
+) -> FormatResult<Vec<u8>> {
     debug_assert_eq!(bodies.len(), digests.len());
     let blob: usize = bodies.iter().map(|b| b.len()).sum();
-    let mut out = crate::try_vec(8 * (bodies.len() + 1) + blob + DIGEST_LEN * bodies.len(), "answers")?;
+    let mut out = crate::try_vec(
+        8 * (bodies.len() + 1) + blob + DIGEST_LEN * bodies.len(),
+        "answers",
+    )?;
     let mut rel = 0u64;
     for b in bodies {
         put_u64(&mut out, rel);
@@ -67,7 +73,12 @@ impl<'a> ColumnAnswers<'a> {
         if prev != stats_len as u64 {
             return Err(FormatError::Corrupt { at });
         }
-        Ok(ColumnAnswers { offtab, stats, digests, parts })
+        Ok(ColumnAnswers {
+            offtab,
+            stats,
+            digests,
+            parts,
+        })
     }
 
     /// The view over a payload `parse` already accepted for `parts` (the offset walk skipped: the
@@ -76,7 +87,12 @@ impl<'a> ColumnAnswers<'a> {
         let ot = 8 * (parts + 1);
         let (offtab, rest) = payload.split_at(ot);
         let (stats, digests) = rest.split_at(rest.len() - DIGEST_LEN * parts);
-        ColumnAnswers { offtab, stats, digests, parts }
+        ColumnAnswers {
+            offtab,
+            stats,
+            digests,
+            parts,
+        }
     }
 
     fn rel(&self, i: usize) -> usize {

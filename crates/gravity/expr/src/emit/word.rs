@@ -186,6 +186,7 @@ pub(super) fn fits(b: &mut FunctionBuilder<'_>, v: Value, null: Value, width: u8
     b.int_bin(gravity_ir::IntBinOp::And, s, nn)
 }
 
+#[allow(private_interfaces)]
 pub fn ok(p: &Program<'_>, root: NodeId, b: &mut FunctionBuilder<'_>, w: &WordRefs<'_>, plan: &Plan, pc: Codes<'_>) -> Result<Value, EmitError> {
     let s = shape(p, plan, w, root, pc)?;
     let mut acc = b.iconst(Type::I64, 1);
@@ -400,12 +401,14 @@ impl Word<'_, '_, '_> {
     }
 }
 
+#[allow(private_interfaces)]
 pub fn emit(p: &Program<'_>, root: NodeId, b: &mut FunctionBuilder<'_>, w: &WordRefs<'_>, plan: &Plan, base: Value, pc: Codes<'_>) -> Result<Value, EmitError> {
     emit_within(p, root, b, w, plan, base, pc, None)
 }
 
 /// `emit` with `within`: the rows the caller's earlier words keep — a `Bits` leaf gathers only those
 /// when at most `SPARSE_MAX` are set. The result is exact over every row (the caller ANDs it in).
+#[allow(private_interfaces)]
 pub fn emit_within(p: &Program<'_>, root: NodeId, b: &mut FunctionBuilder<'_>, w: &WordRefs<'_>, plan: &Plan, base: Value, pc: Codes<'_>, within: Option<Value>) -> Result<Value, EmitError> {
     let s = shape(p, plan, w, root, pc)?;
     let mut wd = Word { b, w, base, loads: PgVec::new_in(w.scratch), splats: PgVec::new_in(w.scratch), within };
@@ -413,6 +416,7 @@ pub fn emit_within(p: &Program<'_>, root: NodeId, b: &mut FunctionBuilder<'_>, w
 }
 
 /// Whether the word is one `Bits` leaf (a per-row table gather): the driver orders it after the compares.
+#[allow(private_interfaces)]
 pub fn is_bits_root(p: &Program<'_>, root: NodeId, w: &WordRefs<'_>, plan: &Plan, pc: Codes<'_>) -> bool {
     shape(p, plan, w, root, pc).map(|s| is_bits(&s)).unwrap_or(false)
 }

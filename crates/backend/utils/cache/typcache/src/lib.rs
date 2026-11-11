@@ -618,6 +618,7 @@ fn lookup_type_cache_slow(type_id: Oid, mut flags: i32) -> PgResult<Rc<TypeCache
     Ok(entry)
 }
 
+#[allow(clippy::if_same_then_else)]
 fn fill_entry(e: &TypeCacheEntry, flags: &mut i32) -> PgResult<()> {
     let type_id = e.type_id;
 
@@ -697,6 +698,7 @@ fn fill_entry(e: &TypeCacheEntry, flags: &mut i32) -> PgResult<()> {
                 HTEqualStrategyNumber,
             )?;
         }
+        #[allow(clippy::if_same_then_else)]
         if eq_opr == ARRAY_EQ_OP && !array_element_has(e, TCFLAGS_HAVE_ELEM_EQUALITY)? {
             eq_opr = InvalidOid;
         } else if eq_opr == RECORD_EQ_OP
@@ -722,6 +724,7 @@ fn fill_entry(e: &TypeCacheEntry, flags: &mut i32) -> PgResult<()> {
                 BTLessStrategyNumber,
             )?;
         }
+        #[allow(clippy::if_same_then_else)]
         if lt_opr == ARRAY_LT_OP && !array_element_has(e, TCFLAGS_HAVE_ELEM_COMPARE)? {
             lt_opr = InvalidOid;
         } else if lt_opr == RECORD_LT_OP
@@ -743,6 +746,7 @@ fn fill_entry(e: &TypeCacheEntry, flags: &mut i32) -> PgResult<()> {
                 BTGreaterStrategyNumber,
             )?;
         }
+        #[allow(clippy::if_same_then_else)]
         if gt_opr == ARRAY_GT_OP && !array_element_has(e, TCFLAGS_HAVE_ELEM_COMPARE)? {
             gt_opr = InvalidOid;
         } else if gt_opr == RECORD_GT_OP
@@ -766,6 +770,7 @@ fn fill_entry(e: &TypeCacheEntry, flags: &mut i32) -> PgResult<()> {
                 BTORDER_PROC,
             )?;
         }
+        #[allow(clippy::if_same_then_else)]
         if cmp_proc == F_BTARRAYCMP && !array_element_has(e, TCFLAGS_HAVE_ELEM_COMPARE)? {
             cmp_proc = InvalidOid;
         } else if cmp_proc == F_BTRECORDCMP
@@ -784,6 +789,7 @@ fn fill_entry(e: &TypeCacheEntry, flags: &mut i32) -> PgResult<()> {
         && e.flags.get() & TCFLAGS_CHECKED_HASH_PROC == 0
     {
         let mut hash_proc = resolve_hash_proc(e, HASHSTANDARD_PROC)?;
+        #[allow(clippy::if_same_then_else)]
         if hash_proc == F_HASH_ARRAY && !array_element_has(e, TCFLAGS_HAVE_ELEM_HASHING)? {
             hash_proc = InvalidOid;
         } else if hash_proc == F_HASH_RECORD
@@ -1275,6 +1281,7 @@ fn row_types_equal(a: &types_tuple::TupleDescData<'_>, b: &[types_tuple::FormDat
     if a.natts as usize != b.len() {
         return false;
     }
+    #[allow(clippy::needless_range_loop)]
     for i in 0..a.natts as usize {
         let (x, y) = (a.attr(i), &b[i]);
         if x.attname.name_str() != y.attname.name_str()

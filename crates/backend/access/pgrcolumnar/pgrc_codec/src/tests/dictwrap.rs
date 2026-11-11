@@ -6,7 +6,8 @@
 //! index-needing arm typed.
 
 use crate::wrapper::{
-    unwrap_block_into, unwrap_dict_payload_block, unwrap_dict_payload_fc_section, unwrap_dict_payload_fc_section_until, unwrap_dict_payload_section,
+    unwrap_block_into, unwrap_dict_payload_block, unwrap_dict_payload_fc_section,
+    unwrap_dict_payload_fc_section_until, unwrap_dict_payload_section,
     unwrap_dict_payload_section_until, unwrap_section, unwrap_section_until,
     wrap_dict_index_section, wrap_dict_payload_section, wrap_section, FILL_PIECE,
 };
@@ -43,8 +44,12 @@ pub(super) fn dict_sections(entries: &[Vec<u8>]) -> (Vec<u8>, Vec<u8>) {
     {
         let mut w = StreamSectionWriter::begin(&mut index, enc, 0, Wrapper::None).expect("begin");
         for (code, e) in entries.iter().enumerate() {
-            DictIndexEntry { payload_off: offs[code], byte_len: e.len() as u32, char_field: utf8_char_count(e) }
-                .encode_into(w.payload());
+            DictIndexEntry {
+                payload_off: offs[code],
+                byte_len: e.len() as u32,
+                char_field: utf8_char_count(e),
+            }
+            .encode_into(w.payload());
         }
         w.end_granule(entries.len() as u32);
         w.finish(false).expect("finish");
@@ -54,7 +59,13 @@ pub(super) fn dict_sections(entries: &[Vec<u8>]) -> (Vec<u8>, Vec<u8>) {
 
 fn corpus(n: usize) -> Vec<Vec<u8>> {
     let mut v: Vec<Vec<u8>> = (0..n)
-        .map(|i| format!("https://example.org/catalog/section-{:03}/item-{i:07}?ref=Москва", i % 7).into_bytes())
+        .map(|i| {
+            format!(
+                "https://example.org/catalog/section-{:03}/item-{i:07}?ref=Москва",
+                i % 7
+            )
+            .into_bytes()
+        })
         .collect();
     v.push(Vec::new());
     v.sort();
@@ -74,15 +85,23 @@ fn dict_wrappers_round_trip_whole_and_block_grain() {
         let mut w_index = Vec::new();
         wrap_dict_index_section(&index, &mut w_index).expect("wrap index");
         let mut w_payload = Vec::new();
-        wrap_dict_payload_section(&payload, index_payload(&index), &mut w_payload).expect("wrap payload");
-        assert_eq!(StreamSectionHdr::decode(&w_index).expect("hdr").wrapper, Wrapper::PackedZstd.as_u8());
-        assert_eq!(StreamSectionHdr::decode(&w_payload).expect("hdr").wrapper, Wrapper::FrontZstd.as_u8());
+        wrap_dict_payload_section(&payload, index_payload(&index), &mut w_payload)
+            .expect("wrap payload");
+        assert_eq!(
+            StreamSectionHdr::decode(&w_index).expect("hdr").wrapper,
+            Wrapper::PackedZstd.as_u8()
+        );
+        assert_eq!(
+            StreamSectionHdr::decode(&w_payload).expect("hdr").wrapper,
+            Wrapper::FrontZstd.as_u8()
+        );
 
         // Whole-section unwraps rebuild the writer's images exactly.
         let mut scratch = Vec::new();
         unwrap_section(&w_index, &mut scratch).expect("unwrap index");
         assert!(scratch == index, "index image ({n} entries)");
-        unwrap_dict_payload_section(&w_payload, index_payload(&index), &mut scratch).expect("unwrap payload");
+        unwrap_dict_payload_section(&w_payload, index_payload(&index), &mut scratch)
+            .expect("unwrap payload");
         assert!(scratch == payload, "payload image ({n} entries)");
 
         // Block grain: every frame block expands into its raw span.
@@ -91,19 +110,39 @@ fn dict_wrappers_round_trip_whole_and_block_grain() {
         let wrapped = &w_payload[STREAM_SECTION_HDR_LEN..hdr.frame_table_off as usize];
         let nb = ft.len();
         let btab: Vec<usize> = (0..=nb)
-            .map(|i| u32::from_le_bytes(wrapped[i * 4..i * 4 + 4].try_into().expect("len 4")) as usize)
+            .map(|i| {
+                u32::from_le_bytes(wrapped[i * 4..i * 4 + 4].try_into().expect("len 4")) as usize
+            })
             .collect();
         let raw_payload = &payload[STREAM_SECTION_HDR_LEN..];
         let img_len = hdr.uncompressed_len as usize;
-        assert_eq!(img_len, raw_payload.len() - (payload.len() - STREAM_SECTION_HDR_LEN - img_len));
+        assert_eq!(
+            img_len,
+            raw_payload.len() - (payload.len() - STREAM_SECTION_HDR_LEN - img_len)
+        );
         let mut img = vec![0u8; img_len];
         for b in 0..nb {
-            let (f0, f1) = (ft[b] as usize, if b + 1 < nb { ft[b + 1] as usize } else { img_len });
+            let (f0, f1) = (
+                ft[b] as usize,
+                if b + 1 < nb {
+                    ft[b + 1] as usize
+                } else {
+                    img_len
+                },
+            );
             let recs = dict_frame_records(index_payload(&index), b as u32).expect("records");
-            unwrap_dict_payload_block(Wrapper::FrontZstd, &wrapped[btab[b]..btab[b + 1]], &mut img[f0..f1], recs)
-                .expect("block");
+            unwrap_dict_payload_block(
+                Wrapper::FrontZstd,
+                &wrapped[btab[b]..btab[b + 1]],
+                &mut img[f0..f1],
+                recs,
+            )
+            .expect("block");
         }
-        assert!(img[..] == raw_payload[..img_len], "block-grain image ({n} entries)");
+        assert!(
+            img[..] == raw_payload[..img_len],
+            "block-grain image ({n} entries)"
+        );
         // The one-block index also serves through the block face.
         let ihdr = StreamSectionHdr::decode(&w_index).expect("hdr");
         let iw = &w_index[STREAM_SECTION_HDR_LEN..];
@@ -121,25 +160,43 @@ fn dict_payload_unwrap_stops_between_blocks_when_asked() {
     let entries = corpus(2500);
     let (index, payload) = dict_sections(&entries);
     let mut w_payload = Vec::new();
-    wrap_dict_payload_section(&payload, index_payload(&index), &mut w_payload).expect("wrap payload");
+    wrap_dict_payload_section(&payload, index_payload(&index), &mut w_payload)
+        .expect("wrap payload");
     let hdr = StreamSectionHdr::decode(&w_payload).expect("hdr");
-    let nblocks = hdr.frame_table(&w_payload).expect("ft").expect("framed").len();
+    let nblocks = hdr
+        .frame_table(&w_payload)
+        .expect("ft")
+        .expect("framed")
+        .len();
     assert!(nblocks >= 3, "{nblocks} blocks");
     let (mut scratch, mut asked) = (Vec::new(), 0usize);
-    let done = unwrap_dict_payload_section_until(&w_payload, index_payload(&index), &mut scratch, &mut || {
-        asked += 1;
-        false
-    })
+    let done = unwrap_dict_payload_section_until(
+        &w_payload,
+        index_payload(&index),
+        &mut scratch,
+        &mut || {
+            asked += 1;
+            false
+        },
+    )
     .expect("unwrap");
     assert!(done && scratch == payload, "the full image");
     assert_eq!(asked, nblocks, "asked once per block");
     asked = 0;
-    let done = unwrap_dict_payload_section_until(&w_payload, index_payload(&index), &mut scratch, &mut || {
-        asked += 1;
-        asked == 2
-    })
+    let done = unwrap_dict_payload_section_until(
+        &w_payload,
+        index_payload(&index),
+        &mut scratch,
+        &mut || {
+            asked += 1;
+            asked == 2
+        },
+    )
     .expect("unwrap");
-    assert!(!done && scratch.is_empty(), "stopped before the second block, nothing kept");
+    assert!(
+        !done && scratch.is_empty(),
+        "stopped before the second block, nothing kept"
+    );
 }
 
 /// D3973: the resident front-coded form asks its stop before every block, as the expanded one does (D3887).
@@ -148,26 +205,46 @@ fn dict_payload_fc_unwrap_stops_between_blocks_when_asked() {
     let entries = corpus(2500);
     let (index, payload) = dict_sections(&entries);
     let mut w_payload = Vec::new();
-    wrap_dict_payload_section(&payload, index_payload(&index), &mut w_payload).expect("wrap payload");
-    let nblocks = StreamSectionHdr::decode(&w_payload).expect("hdr").frame_table(&w_payload).expect("ft").expect("framed").len();
+    wrap_dict_payload_section(&payload, index_payload(&index), &mut w_payload)
+        .expect("wrap payload");
+    let nblocks = StreamSectionHdr::decode(&w_payload)
+        .expect("hdr")
+        .frame_table(&w_payload)
+        .expect("ft")
+        .expect("framed")
+        .len();
     assert!(nblocks >= 3, "{nblocks} blocks");
     let mut whole = Vec::new();
-    unwrap_dict_payload_fc_section(&w_payload, index_payload(&index), &mut whole).expect("fc unwrap");
+    unwrap_dict_payload_fc_section(&w_payload, index_payload(&index), &mut whole)
+        .expect("fc unwrap");
     let (mut scratch, mut asked) = (Vec::new(), 0usize);
-    let done = unwrap_dict_payload_fc_section_until(&w_payload, index_payload(&index), &mut scratch, &mut || {
-        asked += 1;
-        false
-    })
+    let done = unwrap_dict_payload_fc_section_until(
+        &w_payload,
+        index_payload(&index),
+        &mut scratch,
+        &mut || {
+            asked += 1;
+            false
+        },
+    )
     .expect("fc unwrap");
     assert!(done && scratch == whole, "the full resident form");
     assert_eq!(asked, nblocks, "asked once per block");
     asked = 0;
-    let done = unwrap_dict_payload_fc_section_until(&w_payload, index_payload(&index), &mut scratch, &mut || {
-        asked += 1;
-        asked == 2
-    })
+    let done = unwrap_dict_payload_fc_section_until(
+        &w_payload,
+        index_payload(&index),
+        &mut scratch,
+        &mut || {
+            asked += 1;
+            asked == 2
+        },
+    )
     .expect("fc unwrap");
-    assert!(!done && scratch.is_empty(), "stopped before the second block, nothing kept");
+    assert!(
+        !done && scratch.is_empty(),
+        "stopped before the second block, nothing kept"
+    );
 }
 
 /// D4228: a large block's image is zero-filled and faulted in a FILL_PIECE at a time, the stop asked between pieces: one
@@ -176,8 +253,15 @@ fn dict_payload_fc_unwrap_stops_between_blocks_when_asked() {
 fn a_one_block_image_asks_its_stop_between_fill_pieces() {
     let mut section = Vec::new();
     {
-        let mut w = StreamSectionWriter::begin(&mut section, EncodingId::DictCodes.as_u16(), 0, Wrapper::None).expect("begin");
-        w.payload().extend((0..4 * FILL_PIECE).map(|i| (i % 251) as u8));
+        let mut w = StreamSectionWriter::begin(
+            &mut section,
+            EncodingId::DictCodes.as_u16(),
+            0,
+            Wrapper::None,
+        )
+        .expect("begin");
+        w.payload()
+            .extend((0..4 * FILL_PIECE).map(|i| (i % 251) as u8));
         w.end_granule(1);
         w.finish(false).expect("finish");
     }
@@ -190,14 +274,20 @@ fn a_one_block_image_asks_its_stop_between_fill_pieces() {
     })
     .expect("unwrap");
     assert!(done && scratch == section, "the full image");
-    assert!(asked > 4, "asked {asked} times for one 4 MiB block: once per fill piece and once for the block");
+    assert!(
+        asked > 4,
+        "asked {asked} times for one 4 MiB block: once per fill piece and once for the block"
+    );
     asked = 0;
     let done = unwrap_section_until(&z, &mut scratch, &mut || {
         asked += 1;
         asked == 2
     })
     .expect("unwrap");
-    assert!(!done && scratch.is_empty(), "stopped mid-fill, nothing kept");
+    assert!(
+        !done && scratch.is_empty(),
+        "stopped mid-fill, nothing kept"
+    );
 }
 
 #[test]
@@ -207,12 +297,23 @@ fn front_coded_payload_refuses_the_role_agnostic_faces_typed() {
     let mut w_payload = Vec::new();
     wrap_dict_payload_section(&payload, index_payload(&index), &mut w_payload).expect("wrap");
     let mut scratch = Vec::new();
-    assert!(matches!(unwrap_section(&w_payload, &mut scratch), Err(FormatError::Corrupt { .. })));
+    assert!(matches!(
+        unwrap_section(&w_payload, &mut scratch),
+        Err(FormatError::Corrupt { .. })
+    ));
     let mut dst = vec![0u8; 64];
-    assert!(matches!(unwrap_block_into(Wrapper::FrontZstd, &[0u8; 4], &mut dst), Err(FormatError::Corrupt { .. })));
+    assert!(matches!(
+        unwrap_block_into(Wrapper::FrontZstd, &[0u8; 4], &mut dst),
+        Err(FormatError::Corrupt { .. })
+    ));
     // The dict arms are not `wrap_section` arms (role-bound by design).
     assert!(matches!(
-        wrap_section(&payload, &[payload.len() as u32 - STREAM_SECTION_HDR_LEN as u32], Wrapper::FrontZstd, &mut Vec::new()),
+        wrap_section(
+            &payload,
+            &[payload.len() as u32 - STREAM_SECTION_HDR_LEN as u32],
+            Wrapper::FrontZstd,
+            &mut Vec::new()
+        ),
         Err(FormatError::EncodeContract { .. })
     ));
 }
@@ -224,16 +325,38 @@ fn dict_wrappers_beat_plain_zstd_on_prefix_heavy_entries() {
     let hdr = StreamSectionHdr::decode(&payload).expect("hdr");
     let ends: Vec<u32> = {
         let ft = hdr.frame_table(&payload).expect("ft").expect("framed");
-        ft.iter().skip(1).copied().chain(core::iter::once(hdr.frame_table_off - STREAM_SECTION_HDR_LEN as u32)).collect()
+        ft.iter()
+            .skip(1)
+            .copied()
+            .chain(core::iter::once(
+                hdr.frame_table_off - STREAM_SECTION_HDR_LEN as u32,
+            ))
+            .collect()
     };
     let mut z = Vec::new();
     wrap_section(&payload, &ends, Wrapper::Zstd, &mut z).expect("zstd");
     let mut fz = Vec::new();
     wrap_dict_payload_section(&payload, index_payload(&index), &mut fz).expect("front zstd");
-    assert!(fz.len() < z.len(), "front-coded beneath zstd {} vs zstd {}", fz.len(), z.len());
+    assert!(
+        fz.len() < z.len(),
+        "front-coded beneath zstd {} vs zstd {}",
+        fz.len(),
+        z.len()
+    );
     let mut zi = Vec::new();
-    wrap_section(&index, &[index.len() as u32 - STREAM_SECTION_HDR_LEN as u32], Wrapper::Zstd, &mut zi).expect("zstd");
+    wrap_section(
+        &index,
+        &[index.len() as u32 - STREAM_SECTION_HDR_LEN as u32],
+        Wrapper::Zstd,
+        &mut zi,
+    )
+    .expect("zstd");
     let mut pi = Vec::new();
     wrap_dict_index_section(&index, &mut pi).expect("packed");
-    assert!(pi.len() < zi.len(), "packed index beneath zstd {} vs zstd {}", pi.len(), zi.len());
+    assert!(
+        pi.len() < zi.len(),
+        "packed index beneath zstd {} vs zstd {}",
+        pi.len(),
+        zi.len()
+    );
 }

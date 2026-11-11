@@ -234,8 +234,16 @@ impl PrunePlane {
         if let Some(m) = self.late_meta.lock().unwrap().get(&key) {
             return Ok(m.clone());
         }
-        let loaded = Arc::new(ColumnMeta::load(&self.parts[pidx], pred.profile, pred.attno)?);
-        self.late_meta.lock().unwrap().entry(key).or_insert_with(|| loaded.clone());
+        let loaded = Arc::new(ColumnMeta::load(
+            &self.parts[pidx],
+            pred.profile,
+            pred.attno,
+        )?);
+        self.late_meta
+            .lock()
+            .unwrap()
+            .entry(key)
+            .or_insert_with(|| loaded.clone());
         Ok(loaded)
     }
 }
@@ -300,7 +308,9 @@ fn consult_pred(
     });
     let v = evaluate_censused(
         &pred.profile,
-        GrainFacts { rows: rows_g as u64 },
+        GrainFacts {
+            rows: rows_g as u64,
+        },
         &rec,
         &probe,
         bloom_ev,
@@ -318,7 +328,9 @@ fn consult_pred(
             TypedKeys::Exact { min, max } => (min.raw(), max.raw()),
             _ => return None,
         };
-        let block = psma::psma_block_for(body, granule_count, g).ok().flatten()?;
+        let block = psma::psma_block_for(body, granule_count, g)
+            .ok()
+            .flatten()?;
         let exact = |lc: &LoweredConst<'_>| match lc.key {
             Some(TypedKey::Exact(k)) => Some(k.raw()),
             _ => None,

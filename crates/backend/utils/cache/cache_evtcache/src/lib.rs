@@ -1,5 +1,4 @@
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use core::cell::{Cell, RefCell};
 
@@ -121,6 +120,7 @@ fn BuildEventTriggerCache(mcx: Mcx<'_>) -> PgResult<()> {
     let rel = table::table_open(smcx, EVENT_TRIGGER_RELATION_ID, AccessShareLock)?;
     let irel = indexam::index_open(smcx, EVENT_TRIGGER_NAME_INDEX_ID, AccessShareLock)?;
     let mut scan = genam::systable_beginscan_ordered(smcx, &rel, &irel, None, &[])?;
+    #[allow(clippy::while_let_loop)]
     loop {
         let Some(tup) = genam::systable_getnext_ordered(
             smcx,

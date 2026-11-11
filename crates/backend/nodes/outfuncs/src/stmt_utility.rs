@@ -1,7 +1,7 @@
 //! outfuncs.funcs.c writers for utility statements, DDL, and raw parse nodes.
 
-use super::*;
 use super::stmt_plan::{out_func_call, out_variable_set_stmt};
+use super::*;
 use types_nodes::parsenodes::*;
 use types_nodes::rawnodes::*;
 
@@ -13,152 +13,192 @@ pub(super) fn try_out_node(out: &mut PgString<'_>, node: Node<'_>) -> Option<PgR
     }
     let mut handled = true;
     let r = match node.node_tag() {
-            NodeTag::T_IntoClause => arm!(IntoClause, out_into_clause),
-            NodeTag::T_RoleSpec => arm!(RoleSpec, out_role_spec),
-            NodeTag::T_RangeTableFunc => arm!(RangeTableFunc, out_range_table_func),
-            NodeTag::T_RangeTableFuncCol => arm!(RangeTableFuncCol, out_range_table_func_col),
-            NodeTag::T_RangeTableSample => arm!(RangeTableSample, out_range_table_sample),
-            NodeTag::T_TableLikeClause => arm!(TableLikeClause, out_table_like_clause),
-            NodeTag::T_IndexElem => arm!(IndexElem, out_index_elem),
-            NodeTag::T_DefElem => arm!(DefElem, out_def_elem),
-            NodeTag::T_XmlSerialize => arm!(XmlSerialize, out_xml_serialize),
-            NodeTag::T_PartitionElem => arm!(PartitionElem, out_partition_elem),
-            NodeTag::T_PartitionSpec => arm!(PartitionSpec, out_partition_spec),
-            NodeTag::T_PartitionCmd => arm!(PartitionCmd, out_partition_cmd),
-            NodeTag::T_MergeWhenClause => arm!(MergeWhenClause, out_merge_when_clause),
-            NodeTag::T_TriggerTransition => arm!(TriggerTransition, out_trigger_transition),
-            NodeTag::T_JsonOutput => arm!(JsonOutput, out_json_output),
-            NodeTag::T_JsonArgument => arm!(JsonArgument, out_json_argument),
-            NodeTag::T_JsonFuncExpr => arm!(JsonFuncExpr, out_json_func_expr),
-            NodeTag::T_JsonTablePathSpec => arm!(JsonTablePathSpec, out_json_table_path_spec),
-            NodeTag::T_JsonTable => arm!(JsonTable, out_json_table),
-            NodeTag::T_JsonTableColumn => arm!(JsonTableColumn, out_json_table_column),
-            NodeTag::T_JsonKeyValue => arm!(JsonKeyValue, out_json_key_value),
-            NodeTag::T_JsonParseExpr => arm!(JsonParseExpr, out_json_parse_expr),
-            NodeTag::T_JsonScalarExpr => arm!(JsonScalarExpr, out_json_scalar_expr),
-            NodeTag::T_JsonSerializeExpr => arm!(JsonSerializeExpr, out_json_serialize_expr),
-            NodeTag::T_JsonObjectConstructor => arm!(JsonObjectConstructor, out_json_object_constructor),
-            NodeTag::T_JsonArrayConstructor => arm!(JsonArrayConstructor, out_json_array_constructor),
-            NodeTag::T_JsonArrayQueryConstructor => arm!(JsonArrayQueryConstructor, out_json_array_query_constructor),
-            NodeTag::T_JsonAggConstructor => arm!(JsonAggConstructor, out_json_agg_constructor),
-            NodeTag::T_JsonObjectAgg => arm!(JsonObjectAgg, out_json_object_agg),
-            NodeTag::T_JsonArrayAgg => arm!(JsonArrayAgg, out_json_array_agg),
-            NodeTag::T_MergeStmt => arm!(MergeStmt, out_merge_stmt),
-            NodeTag::T_ReturnStmt => arm!(ReturnStmt, out_return_stmt),
-            NodeTag::T_PLAssignStmt => arm!(PLAssignStmt, out_pl_assign_stmt),
-            NodeTag::T_CreateSchemaStmt => arm!(CreateSchemaStmt, out_create_schema_stmt),
-            NodeTag::T_AlterTableStmt => arm!(AlterTableStmt, out_alter_table_stmt),
-            NodeTag::T_AlterTableCmd => arm!(AlterTableCmd, out_alter_table_cmd),
-            NodeTag::T_ATAlterConstraint => arm!(ATAlterConstraint, out_at_alter_constraint),
-            NodeTag::T_ReplicaIdentityStmt => arm!(ReplicaIdentityStmt, out_replica_identity_stmt),
-            NodeTag::T_AlterCollationStmt => arm!(AlterCollationStmt, out_alter_collation_stmt),
-            NodeTag::T_AlterDomainStmt => arm!(AlterDomainStmt, out_alter_domain_stmt),
-            NodeTag::T_GrantStmt => arm!(GrantStmt, out_grant_stmt),
-            NodeTag::T_AccessPriv => arm!(AccessPriv, out_access_priv),
-            NodeTag::T_GrantRoleStmt => arm!(GrantRoleStmt, out_grant_role_stmt),
-            NodeTag::T_AlterDefaultPrivilegesStmt => arm!(AlterDefaultPrivilegesStmt, out_alter_default_privileges_stmt),
-            NodeTag::T_CopyStmt => arm!(CopyStmt, out_copy_stmt),
-            NodeTag::T_Constraint => arm!(Constraint, out_constraint),
-            NodeTag::T_CreateTableSpaceStmt => arm!(CreateTableSpaceStmt, out_create_table_space_stmt),
-            NodeTag::T_DropTableSpaceStmt => arm!(DropTableSpaceStmt, out_drop_table_space_stmt),
-            NodeTag::T_AlterTableSpaceOptionsStmt => arm!(AlterTableSpaceOptionsStmt, out_alter_table_space_options_stmt),
-            NodeTag::T_AlterTableMoveAllStmt => arm!(AlterTableMoveAllStmt, out_alter_table_move_all_stmt),
-            NodeTag::T_CreateExtensionStmt => arm!(CreateExtensionStmt, out_create_extension_stmt),
-            NodeTag::T_AlterExtensionStmt => arm!(AlterExtensionStmt, out_alter_extension_stmt),
-            NodeTag::T_AlterExtensionContentsStmt => arm!(AlterExtensionContentsStmt, out_alter_extension_contents_stmt),
-            NodeTag::T_CreateFdwStmt => arm!(CreateFdwStmt, out_create_fdw_stmt),
-            NodeTag::T_AlterFdwStmt => arm!(AlterFdwStmt, out_alter_fdw_stmt),
-            NodeTag::T_CreateForeignServerStmt => arm!(CreateForeignServerStmt, out_create_foreign_server_stmt),
-            NodeTag::T_AlterForeignServerStmt => arm!(AlterForeignServerStmt, out_alter_foreign_server_stmt),
-            NodeTag::T_CreateForeignTableStmt => arm!(CreateForeignTableStmt, out_create_foreign_table_stmt),
-            NodeTag::T_CreateUserMappingStmt => arm!(CreateUserMappingStmt, out_create_user_mapping_stmt),
-            NodeTag::T_AlterUserMappingStmt => arm!(AlterUserMappingStmt, out_alter_user_mapping_stmt),
-            NodeTag::T_DropUserMappingStmt => arm!(DropUserMappingStmt, out_drop_user_mapping_stmt),
-            NodeTag::T_ImportForeignSchemaStmt => arm!(ImportForeignSchemaStmt, out_import_foreign_schema_stmt),
-            NodeTag::T_CreatePolicyStmt => arm!(CreatePolicyStmt, out_create_policy_stmt),
-            NodeTag::T_AlterPolicyStmt => arm!(AlterPolicyStmt, out_alter_policy_stmt),
-            NodeTag::T_CreateAmStmt => arm!(CreateAmStmt, out_create_am_stmt),
-            NodeTag::T_CreateTrigStmt => arm!(CreateTrigStmt, out_create_trig_stmt),
-            NodeTag::T_CreateEventTrigStmt => arm!(CreateEventTrigStmt, out_create_event_trig_stmt),
-            NodeTag::T_AlterEventTrigStmt => arm!(AlterEventTrigStmt, out_alter_event_trig_stmt),
-            NodeTag::T_CreatePLangStmt => arm!(CreatePLangStmt, out_create_p_lang_stmt),
-            NodeTag::T_CreateRoleStmt => arm!(CreateRoleStmt, out_create_role_stmt),
-            NodeTag::T_AlterRoleStmt => arm!(AlterRoleStmt, out_alter_role_stmt),
-            NodeTag::T_AlterRoleSetStmt => arm!(AlterRoleSetStmt, out_alter_role_set_stmt),
-            NodeTag::T_DropRoleStmt => arm!(DropRoleStmt, out_drop_role_stmt),
-            NodeTag::T_CreateSeqStmt => arm!(CreateSeqStmt, out_create_seq_stmt),
-            NodeTag::T_AlterSeqStmt => arm!(AlterSeqStmt, out_alter_seq_stmt),
-            NodeTag::T_DefineStmt => arm!(DefineStmt, out_define_stmt),
-            NodeTag::T_CreateDomainStmt => arm!(CreateDomainStmt, out_create_domain_stmt),
-            NodeTag::T_CreateOpClassStmt => arm!(CreateOpClassStmt, out_create_op_class_stmt),
-            NodeTag::T_CreateOpClassItem => arm!(CreateOpClassItem, out_create_op_class_item),
-            NodeTag::T_CreateOpFamilyStmt => arm!(CreateOpFamilyStmt, out_create_op_family_stmt),
-            NodeTag::T_AlterOpFamilyStmt => arm!(AlterOpFamilyStmt, out_alter_op_family_stmt),
-            NodeTag::T_DropStmt => arm!(DropStmt, out_drop_stmt),
-            NodeTag::T_TruncateStmt => arm!(TruncateStmt, out_truncate_stmt),
-            NodeTag::T_CommentStmt => arm!(CommentStmt, out_comment_stmt),
-            NodeTag::T_SecLabelStmt => arm!(SecLabelStmt, out_sec_label_stmt),
-            NodeTag::T_DeclareCursorStmt => arm!(DeclareCursorStmt, out_declare_cursor_stmt),
-            NodeTag::T_ClosePortalStmt => arm!(ClosePortalStmt, out_close_portal_stmt),
-            NodeTag::T_FetchStmt => arm!(FetchStmt, out_fetch_stmt),
-            NodeTag::T_IndexStmt => arm!(IndexStmt, out_index_stmt),
-            NodeTag::T_CreateStatsStmt => arm!(CreateStatsStmt, out_create_stats_stmt),
-            NodeTag::T_StatsElem => arm!(StatsElem, out_stats_elem),
-            NodeTag::T_AlterStatsStmt => arm!(AlterStatsStmt, out_alter_stats_stmt),
-            NodeTag::T_CreateFunctionStmt => arm!(CreateFunctionStmt, out_create_function_stmt),
-            NodeTag::T_AlterFunctionStmt => arm!(AlterFunctionStmt, out_alter_function_stmt),
-            NodeTag::T_DoStmt => arm!(DoStmt, out_do_stmt),
-            NodeTag::T_CallStmt => arm!(CallStmt, out_call_stmt),
-            NodeTag::T_RenameStmt => arm!(RenameStmt, out_rename_stmt),
-            NodeTag::T_AlterObjectSchemaStmt => arm!(AlterObjectSchemaStmt, out_alter_object_schema_stmt),
-            NodeTag::T_AlterOwnerStmt => arm!(AlterOwnerStmt, out_alter_owner_stmt),
-            NodeTag::T_AlterOperatorStmt => arm!(AlterOperatorStmt, out_alter_operator_stmt),
-            NodeTag::T_AlterTypeStmt => arm!(AlterTypeStmt, out_alter_type_stmt),
-            NodeTag::T_RuleStmt => arm!(RuleStmt, out_rule_stmt),
-            NodeTag::T_ListenStmt => arm!(ListenStmt, out_listen_stmt),
-            NodeTag::T_UnlistenStmt => arm!(UnlistenStmt, out_unlisten_stmt),
-            NodeTag::T_CompositeTypeStmt => arm!(CompositeTypeStmt, out_composite_type_stmt),
-            NodeTag::T_CreateEnumStmt => arm!(CreateEnumStmt, out_create_enum_stmt),
-            NodeTag::T_CreateRangeStmt => arm!(CreateRangeStmt, out_create_range_stmt),
-            NodeTag::T_AlterEnumStmt => arm!(AlterEnumStmt, out_alter_enum_stmt),
-            NodeTag::T_ViewStmt => arm!(ViewStmt, out_view_stmt),
-            NodeTag::T_LoadStmt => arm!(LoadStmt, out_load_stmt),
-            NodeTag::T_CreatedbStmt => arm!(CreatedbStmt, out_createdb_stmt),
-            NodeTag::T_AlterDatabaseStmt => arm!(AlterDatabaseStmt, out_alter_database_stmt),
-            NodeTag::T_AlterDatabaseRefreshCollStmt => arm!(AlterDatabaseRefreshCollStmt, out_alter_database_refresh_coll_stmt),
-            NodeTag::T_AlterDatabaseSetStmt => arm!(AlterDatabaseSetStmt, out_alter_database_set_stmt),
-            NodeTag::T_DropdbStmt => arm!(DropdbStmt, out_dropdb_stmt),
-            NodeTag::T_AlterSystemStmt => arm!(AlterSystemStmt, out_alter_system_stmt),
-            NodeTag::T_ClusterStmt => arm!(ClusterStmt, out_cluster_stmt),
-            NodeTag::T_VacuumStmt => arm!(VacuumStmt, out_vacuum_stmt),
-            NodeTag::T_VacuumRelation => arm!(VacuumRelation, out_vacuum_relation),
-            NodeTag::T_ExplainStmt => arm!(ExplainStmt, out_explain_stmt),
-            NodeTag::T_CreateTableAsStmt => arm!(CreateTableAsStmt, out_create_table_as_stmt),
-            NodeTag::T_RefreshMatViewStmt => arm!(RefreshMatViewStmt, out_refresh_mat_view_stmt),
-            NodeTag::T_CheckPointStmt => arm!(CheckPointStmt, out_check_point_stmt),
-            NodeTag::T_DiscardStmt => arm!(DiscardStmt, out_discard_stmt),
-            NodeTag::T_LockStmt => arm!(LockStmt, out_lock_stmt),
-            NodeTag::T_ConstraintsSetStmt => arm!(ConstraintsSetStmt, out_constraints_set_stmt),
-            NodeTag::T_ReindexStmt => arm!(ReindexStmt, out_reindex_stmt),
-            NodeTag::T_CreateConversionStmt => arm!(CreateConversionStmt, out_create_conversion_stmt),
-            NodeTag::T_CreateCastStmt => arm!(CreateCastStmt, out_create_cast_stmt),
-            NodeTag::T_CreateTransformStmt => arm!(CreateTransformStmt, out_create_transform_stmt),
-            NodeTag::T_DropOwnedStmt => arm!(DropOwnedStmt, out_drop_owned_stmt),
-            NodeTag::T_ReassignOwnedStmt => arm!(ReassignOwnedStmt, out_reassign_owned_stmt),
-            NodeTag::T_AlterTSDictionaryStmt => arm!(AlterTSDictionaryStmt, out_alter_ts_dictionary_stmt),
-            NodeTag::T_AlterTSConfigurationStmt => arm!(AlterTSConfigurationStmt, out_alter_ts_configuration_stmt),
-            NodeTag::T_PublicationTable => arm!(PublicationTable, out_publication_table),
-            NodeTag::T_PublicationObjSpec => arm!(PublicationObjSpec, out_publication_obj_spec),
-            NodeTag::T_CreatePublicationStmt => arm!(CreatePublicationStmt, out_create_publication_stmt),
-            NodeTag::T_AlterPublicationStmt => arm!(AlterPublicationStmt, out_alter_publication_stmt),
-            NodeTag::T_CreateSubscriptionStmt => arm!(CreateSubscriptionStmt, out_create_subscription_stmt),
-            NodeTag::T_AlterSubscriptionStmt => arm!(AlterSubscriptionStmt, out_alter_subscription_stmt),
-            NodeTag::T_DropSubscriptionStmt => arm!(DropSubscriptionStmt, out_drop_subscription_stmt),
-            _ => {
-                handled = false;
-                Ok(())
-            }
-        };
+        NodeTag::T_IntoClause => arm!(IntoClause, out_into_clause),
+        NodeTag::T_RoleSpec => arm!(RoleSpec, out_role_spec),
+        NodeTag::T_RangeTableFunc => arm!(RangeTableFunc, out_range_table_func),
+        NodeTag::T_RangeTableFuncCol => arm!(RangeTableFuncCol, out_range_table_func_col),
+        NodeTag::T_RangeTableSample => arm!(RangeTableSample, out_range_table_sample),
+        NodeTag::T_TableLikeClause => arm!(TableLikeClause, out_table_like_clause),
+        NodeTag::T_IndexElem => arm!(IndexElem, out_index_elem),
+        NodeTag::T_DefElem => arm!(DefElem, out_def_elem),
+        NodeTag::T_XmlSerialize => arm!(XmlSerialize, out_xml_serialize),
+        NodeTag::T_PartitionElem => arm!(PartitionElem, out_partition_elem),
+        NodeTag::T_PartitionSpec => arm!(PartitionSpec, out_partition_spec),
+        NodeTag::T_PartitionCmd => arm!(PartitionCmd, out_partition_cmd),
+        NodeTag::T_MergeWhenClause => arm!(MergeWhenClause, out_merge_when_clause),
+        NodeTag::T_TriggerTransition => arm!(TriggerTransition, out_trigger_transition),
+        NodeTag::T_JsonOutput => arm!(JsonOutput, out_json_output),
+        NodeTag::T_JsonArgument => arm!(JsonArgument, out_json_argument),
+        NodeTag::T_JsonFuncExpr => arm!(JsonFuncExpr, out_json_func_expr),
+        NodeTag::T_JsonTablePathSpec => arm!(JsonTablePathSpec, out_json_table_path_spec),
+        NodeTag::T_JsonTable => arm!(JsonTable, out_json_table),
+        NodeTag::T_JsonTableColumn => arm!(JsonTableColumn, out_json_table_column),
+        NodeTag::T_JsonKeyValue => arm!(JsonKeyValue, out_json_key_value),
+        NodeTag::T_JsonParseExpr => arm!(JsonParseExpr, out_json_parse_expr),
+        NodeTag::T_JsonScalarExpr => arm!(JsonScalarExpr, out_json_scalar_expr),
+        NodeTag::T_JsonSerializeExpr => arm!(JsonSerializeExpr, out_json_serialize_expr),
+        NodeTag::T_JsonObjectConstructor => {
+            arm!(JsonObjectConstructor, out_json_object_constructor)
+        }
+        NodeTag::T_JsonArrayConstructor => arm!(JsonArrayConstructor, out_json_array_constructor),
+        NodeTag::T_JsonArrayQueryConstructor => {
+            arm!(JsonArrayQueryConstructor, out_json_array_query_constructor)
+        }
+        NodeTag::T_JsonAggConstructor => arm!(JsonAggConstructor, out_json_agg_constructor),
+        NodeTag::T_JsonObjectAgg => arm!(JsonObjectAgg, out_json_object_agg),
+        NodeTag::T_JsonArrayAgg => arm!(JsonArrayAgg, out_json_array_agg),
+        NodeTag::T_MergeStmt => arm!(MergeStmt, out_merge_stmt),
+        NodeTag::T_ReturnStmt => arm!(ReturnStmt, out_return_stmt),
+        NodeTag::T_PLAssignStmt => arm!(PLAssignStmt, out_pl_assign_stmt),
+        NodeTag::T_CreateSchemaStmt => arm!(CreateSchemaStmt, out_create_schema_stmt),
+        NodeTag::T_AlterTableStmt => arm!(AlterTableStmt, out_alter_table_stmt),
+        NodeTag::T_AlterTableCmd => arm!(AlterTableCmd, out_alter_table_cmd),
+        NodeTag::T_ATAlterConstraint => arm!(ATAlterConstraint, out_at_alter_constraint),
+        NodeTag::T_ReplicaIdentityStmt => arm!(ReplicaIdentityStmt, out_replica_identity_stmt),
+        NodeTag::T_AlterCollationStmt => arm!(AlterCollationStmt, out_alter_collation_stmt),
+        NodeTag::T_AlterDomainStmt => arm!(AlterDomainStmt, out_alter_domain_stmt),
+        NodeTag::T_GrantStmt => arm!(GrantStmt, out_grant_stmt),
+        NodeTag::T_AccessPriv => arm!(AccessPriv, out_access_priv),
+        NodeTag::T_GrantRoleStmt => arm!(GrantRoleStmt, out_grant_role_stmt),
+        NodeTag::T_AlterDefaultPrivilegesStmt => arm!(
+            AlterDefaultPrivilegesStmt,
+            out_alter_default_privileges_stmt
+        ),
+        NodeTag::T_CopyStmt => arm!(CopyStmt, out_copy_stmt),
+        NodeTag::T_Constraint => arm!(Constraint, out_constraint),
+        NodeTag::T_CreateTableSpaceStmt => arm!(CreateTableSpaceStmt, out_create_table_space_stmt),
+        NodeTag::T_DropTableSpaceStmt => arm!(DropTableSpaceStmt, out_drop_table_space_stmt),
+        NodeTag::T_AlterTableSpaceOptionsStmt => arm!(
+            AlterTableSpaceOptionsStmt,
+            out_alter_table_space_options_stmt
+        ),
+        NodeTag::T_AlterTableMoveAllStmt => {
+            arm!(AlterTableMoveAllStmt, out_alter_table_move_all_stmt)
+        }
+        NodeTag::T_CreateExtensionStmt => arm!(CreateExtensionStmt, out_create_extension_stmt),
+        NodeTag::T_AlterExtensionStmt => arm!(AlterExtensionStmt, out_alter_extension_stmt),
+        NodeTag::T_AlterExtensionContentsStmt => arm!(
+            AlterExtensionContentsStmt,
+            out_alter_extension_contents_stmt
+        ),
+        NodeTag::T_CreateFdwStmt => arm!(CreateFdwStmt, out_create_fdw_stmt),
+        NodeTag::T_AlterFdwStmt => arm!(AlterFdwStmt, out_alter_fdw_stmt),
+        NodeTag::T_CreateForeignServerStmt => {
+            arm!(CreateForeignServerStmt, out_create_foreign_server_stmt)
+        }
+        NodeTag::T_AlterForeignServerStmt => {
+            arm!(AlterForeignServerStmt, out_alter_foreign_server_stmt)
+        }
+        NodeTag::T_CreateForeignTableStmt => {
+            arm!(CreateForeignTableStmt, out_create_foreign_table_stmt)
+        }
+        NodeTag::T_CreateUserMappingStmt => {
+            arm!(CreateUserMappingStmt, out_create_user_mapping_stmt)
+        }
+        NodeTag::T_AlterUserMappingStmt => arm!(AlterUserMappingStmt, out_alter_user_mapping_stmt),
+        NodeTag::T_DropUserMappingStmt => arm!(DropUserMappingStmt, out_drop_user_mapping_stmt),
+        NodeTag::T_ImportForeignSchemaStmt => {
+            arm!(ImportForeignSchemaStmt, out_import_foreign_schema_stmt)
+        }
+        NodeTag::T_CreatePolicyStmt => arm!(CreatePolicyStmt, out_create_policy_stmt),
+        NodeTag::T_AlterPolicyStmt => arm!(AlterPolicyStmt, out_alter_policy_stmt),
+        NodeTag::T_CreateAmStmt => arm!(CreateAmStmt, out_create_am_stmt),
+        NodeTag::T_CreateTrigStmt => arm!(CreateTrigStmt, out_create_trig_stmt),
+        NodeTag::T_CreateEventTrigStmt => arm!(CreateEventTrigStmt, out_create_event_trig_stmt),
+        NodeTag::T_AlterEventTrigStmt => arm!(AlterEventTrigStmt, out_alter_event_trig_stmt),
+        NodeTag::T_CreatePLangStmt => arm!(CreatePLangStmt, out_create_p_lang_stmt),
+        NodeTag::T_CreateRoleStmt => arm!(CreateRoleStmt, out_create_role_stmt),
+        NodeTag::T_AlterRoleStmt => arm!(AlterRoleStmt, out_alter_role_stmt),
+        NodeTag::T_AlterRoleSetStmt => arm!(AlterRoleSetStmt, out_alter_role_set_stmt),
+        NodeTag::T_DropRoleStmt => arm!(DropRoleStmt, out_drop_role_stmt),
+        NodeTag::T_CreateSeqStmt => arm!(CreateSeqStmt, out_create_seq_stmt),
+        NodeTag::T_AlterSeqStmt => arm!(AlterSeqStmt, out_alter_seq_stmt),
+        NodeTag::T_DefineStmt => arm!(DefineStmt, out_define_stmt),
+        NodeTag::T_CreateDomainStmt => arm!(CreateDomainStmt, out_create_domain_stmt),
+        NodeTag::T_CreateOpClassStmt => arm!(CreateOpClassStmt, out_create_op_class_stmt),
+        NodeTag::T_CreateOpClassItem => arm!(CreateOpClassItem, out_create_op_class_item),
+        NodeTag::T_CreateOpFamilyStmt => arm!(CreateOpFamilyStmt, out_create_op_family_stmt),
+        NodeTag::T_AlterOpFamilyStmt => arm!(AlterOpFamilyStmt, out_alter_op_family_stmt),
+        NodeTag::T_DropStmt => arm!(DropStmt, out_drop_stmt),
+        NodeTag::T_TruncateStmt => arm!(TruncateStmt, out_truncate_stmt),
+        NodeTag::T_CommentStmt => arm!(CommentStmt, out_comment_stmt),
+        NodeTag::T_SecLabelStmt => arm!(SecLabelStmt, out_sec_label_stmt),
+        NodeTag::T_DeclareCursorStmt => arm!(DeclareCursorStmt, out_declare_cursor_stmt),
+        NodeTag::T_ClosePortalStmt => arm!(ClosePortalStmt, out_close_portal_stmt),
+        NodeTag::T_FetchStmt => arm!(FetchStmt, out_fetch_stmt),
+        NodeTag::T_IndexStmt => arm!(IndexStmt, out_index_stmt),
+        NodeTag::T_CreateStatsStmt => arm!(CreateStatsStmt, out_create_stats_stmt),
+        NodeTag::T_StatsElem => arm!(StatsElem, out_stats_elem),
+        NodeTag::T_AlterStatsStmt => arm!(AlterStatsStmt, out_alter_stats_stmt),
+        NodeTag::T_CreateFunctionStmt => arm!(CreateFunctionStmt, out_create_function_stmt),
+        NodeTag::T_AlterFunctionStmt => arm!(AlterFunctionStmt, out_alter_function_stmt),
+        NodeTag::T_DoStmt => arm!(DoStmt, out_do_stmt),
+        NodeTag::T_CallStmt => arm!(CallStmt, out_call_stmt),
+        NodeTag::T_RenameStmt => arm!(RenameStmt, out_rename_stmt),
+        NodeTag::T_AlterObjectSchemaStmt => {
+            arm!(AlterObjectSchemaStmt, out_alter_object_schema_stmt)
+        }
+        NodeTag::T_AlterOwnerStmt => arm!(AlterOwnerStmt, out_alter_owner_stmt),
+        NodeTag::T_AlterOperatorStmt => arm!(AlterOperatorStmt, out_alter_operator_stmt),
+        NodeTag::T_AlterTypeStmt => arm!(AlterTypeStmt, out_alter_type_stmt),
+        NodeTag::T_RuleStmt => arm!(RuleStmt, out_rule_stmt),
+        NodeTag::T_ListenStmt => arm!(ListenStmt, out_listen_stmt),
+        NodeTag::T_UnlistenStmt => arm!(UnlistenStmt, out_unlisten_stmt),
+        NodeTag::T_CompositeTypeStmt => arm!(CompositeTypeStmt, out_composite_type_stmt),
+        NodeTag::T_CreateEnumStmt => arm!(CreateEnumStmt, out_create_enum_stmt),
+        NodeTag::T_CreateRangeStmt => arm!(CreateRangeStmt, out_create_range_stmt),
+        NodeTag::T_AlterEnumStmt => arm!(AlterEnumStmt, out_alter_enum_stmt),
+        NodeTag::T_ViewStmt => arm!(ViewStmt, out_view_stmt),
+        NodeTag::T_LoadStmt => arm!(LoadStmt, out_load_stmt),
+        NodeTag::T_CreatedbStmt => arm!(CreatedbStmt, out_createdb_stmt),
+        NodeTag::T_AlterDatabaseStmt => arm!(AlterDatabaseStmt, out_alter_database_stmt),
+        NodeTag::T_AlterDatabaseRefreshCollStmt => arm!(
+            AlterDatabaseRefreshCollStmt,
+            out_alter_database_refresh_coll_stmt
+        ),
+        NodeTag::T_AlterDatabaseSetStmt => arm!(AlterDatabaseSetStmt, out_alter_database_set_stmt),
+        NodeTag::T_DropdbStmt => arm!(DropdbStmt, out_dropdb_stmt),
+        NodeTag::T_AlterSystemStmt => arm!(AlterSystemStmt, out_alter_system_stmt),
+        NodeTag::T_ClusterStmt => arm!(ClusterStmt, out_cluster_stmt),
+        NodeTag::T_VacuumStmt => arm!(VacuumStmt, out_vacuum_stmt),
+        NodeTag::T_VacuumRelation => arm!(VacuumRelation, out_vacuum_relation),
+        NodeTag::T_ExplainStmt => arm!(ExplainStmt, out_explain_stmt),
+        NodeTag::T_CreateTableAsStmt => arm!(CreateTableAsStmt, out_create_table_as_stmt),
+        NodeTag::T_RefreshMatViewStmt => arm!(RefreshMatViewStmt, out_refresh_mat_view_stmt),
+        NodeTag::T_CheckPointStmt => arm!(CheckPointStmt, out_check_point_stmt),
+        NodeTag::T_DiscardStmt => arm!(DiscardStmt, out_discard_stmt),
+        NodeTag::T_LockStmt => arm!(LockStmt, out_lock_stmt),
+        NodeTag::T_ConstraintsSetStmt => arm!(ConstraintsSetStmt, out_constraints_set_stmt),
+        NodeTag::T_ReindexStmt => arm!(ReindexStmt, out_reindex_stmt),
+        NodeTag::T_CreateConversionStmt => arm!(CreateConversionStmt, out_create_conversion_stmt),
+        NodeTag::T_CreateCastStmt => arm!(CreateCastStmt, out_create_cast_stmt),
+        NodeTag::T_CreateTransformStmt => arm!(CreateTransformStmt, out_create_transform_stmt),
+        NodeTag::T_DropOwnedStmt => arm!(DropOwnedStmt, out_drop_owned_stmt),
+        NodeTag::T_ReassignOwnedStmt => arm!(ReassignOwnedStmt, out_reassign_owned_stmt),
+        NodeTag::T_AlterTSDictionaryStmt => {
+            arm!(AlterTSDictionaryStmt, out_alter_ts_dictionary_stmt)
+        }
+        NodeTag::T_AlterTSConfigurationStmt => {
+            arm!(AlterTSConfigurationStmt, out_alter_ts_configuration_stmt)
+        }
+        NodeTag::T_PublicationTable => arm!(PublicationTable, out_publication_table),
+        NodeTag::T_PublicationObjSpec => arm!(PublicationObjSpec, out_publication_obj_spec),
+        NodeTag::T_CreatePublicationStmt => {
+            arm!(CreatePublicationStmt, out_create_publication_stmt)
+        }
+        NodeTag::T_AlterPublicationStmt => arm!(AlterPublicationStmt, out_alter_publication_stmt),
+        NodeTag::T_CreateSubscriptionStmt => {
+            arm!(CreateSubscriptionStmt, out_create_subscription_stmt)
+        }
+        NodeTag::T_AlterSubscriptionStmt => {
+            arm!(AlterSubscriptionStmt, out_alter_subscription_stmt)
+        }
+        NodeTag::T_DropSubscriptionStmt => arm!(DropSubscriptionStmt, out_drop_subscription_stmt),
+        _ => {
+            handled = false;
+            Ok(())
+        }
+    };
     if handled {
         Some(r)
     } else {
@@ -197,7 +237,10 @@ pub(super) fn out_role_spec(out: &mut PgString<'_>, node: &RoleSpec<'_>) -> PgRe
     Ok(())
 }
 
-pub(super) fn out_range_table_func(out: &mut PgString<'_>, node: &RangeTableFunc<'_>) -> PgResult<()> {
+pub(super) fn out_range_table_func(
+    out: &mut PgString<'_>,
+    node: &RangeTableFunc<'_>,
+) -> PgResult<()> {
     w!(out, "{{RANGETABLEFUNC");
     w!(out, " :lateral ");
     out_bool(out, node.lateral);
@@ -216,7 +259,10 @@ pub(super) fn out_range_table_func(out: &mut PgString<'_>, node: &RangeTableFunc
     Ok(())
 }
 
-pub(super) fn out_range_table_func_col(out: &mut PgString<'_>, node: &RangeTableFuncCol<'_>) -> PgResult<()> {
+pub(super) fn out_range_table_func_col(
+    out: &mut PgString<'_>,
+    node: &RangeTableFuncCol<'_>,
+) -> PgResult<()> {
     w!(out, "{{RANGETABLEFUNCCOL");
     w!(out, " :colname ");
     out_str(out, node.colname);
@@ -235,7 +281,10 @@ pub(super) fn out_range_table_func_col(out: &mut PgString<'_>, node: &RangeTable
     Ok(())
 }
 
-pub(super) fn out_range_table_sample(out: &mut PgString<'_>, node: &RangeTableSample<'_>) -> PgResult<()> {
+pub(super) fn out_range_table_sample(
+    out: &mut PgString<'_>,
+    node: &RangeTableSample<'_>,
+) -> PgResult<()> {
     w!(out, "{{RANGETABLESAMPLE");
     w!(out, " :relation ");
     out_opt_node(out, node.relation)?;
@@ -250,7 +299,10 @@ pub(super) fn out_range_table_sample(out: &mut PgString<'_>, node: &RangeTableSa
     Ok(())
 }
 
-pub(super) fn out_table_like_clause(out: &mut PgString<'_>, node: &TableLikeClause<'_>) -> PgResult<()> {
+pub(super) fn out_table_like_clause(
+    out: &mut PgString<'_>,
+    node: &TableLikeClause<'_>,
+) -> PgResult<()> {
     w!(out, "{{TABLELIKECLAUSE");
     w!(out, " :relation ");
     out_opt_range_var(out, node.relation)?;
@@ -345,7 +397,10 @@ pub(super) fn out_partition_cmd(out: &mut PgString<'_>, node: &PartitionCmd<'_>)
     Ok(())
 }
 
-pub(super) fn out_merge_when_clause(out: &mut PgString<'_>, node: &MergeWhenClause<'_>) -> PgResult<()> {
+pub(super) fn out_merge_when_clause(
+    out: &mut PgString<'_>,
+    node: &MergeWhenClause<'_>,
+) -> PgResult<()> {
     w!(out, "{{MERGEWHENCLAUSE");
     w!(out, " :matchKind {}", node.matchKind as i32);
     w!(out, " :commandType {}", node.commandType as i32);
@@ -360,7 +415,10 @@ pub(super) fn out_merge_when_clause(out: &mut PgString<'_>, node: &MergeWhenClau
     Ok(())
 }
 
-pub(super) fn out_trigger_transition(out: &mut PgString<'_>, node: &TriggerTransition<'_>) -> PgResult<()> {
+pub(super) fn out_trigger_transition(
+    out: &mut PgString<'_>,
+    node: &TriggerTransition<'_>,
+) -> PgResult<()> {
     w!(out, "{{TRIGGERTRANSITION");
     w!(out, " :name ");
     out_str(out, node.name);
@@ -416,7 +474,10 @@ pub(super) fn out_json_func_expr(out: &mut PgString<'_>, node: &JsonFuncExpr<'_>
     Ok(())
 }
 
-pub(super) fn out_json_table_path_spec(out: &mut PgString<'_>, node: &JsonTablePathSpec<'_>) -> PgResult<()> {
+pub(super) fn out_json_table_path_spec(
+    out: &mut PgString<'_>,
+    node: &JsonTablePathSpec<'_>,
+) -> PgResult<()> {
     w!(out, "{{JSONTABLEPATHSPEC");
     w!(out, " :string ");
     out_opt_node(out, node.string)?;
@@ -449,7 +510,10 @@ pub(super) fn out_json_table(out: &mut PgString<'_>, node: &JsonTable<'_>) -> Pg
     Ok(())
 }
 
-pub(super) fn out_json_table_column(out: &mut PgString<'_>, node: &JsonTableColumn<'_>) -> PgResult<()> {
+pub(super) fn out_json_table_column(
+    out: &mut PgString<'_>,
+    node: &JsonTableColumn<'_>,
+) -> PgResult<()> {
     w!(out, "{{JSONTABLECOLUMN");
     w!(out, " :coltype {}", node.coltype as i32);
     w!(out, " :name ");
@@ -483,7 +547,10 @@ pub(super) fn out_json_key_value(out: &mut PgString<'_>, node: &JsonKeyValue<'_>
     Ok(())
 }
 
-pub(super) fn out_json_parse_expr(out: &mut PgString<'_>, node: &JsonParseExpr<'_>) -> PgResult<()> {
+pub(super) fn out_json_parse_expr(
+    out: &mut PgString<'_>,
+    node: &JsonParseExpr<'_>,
+) -> PgResult<()> {
     w!(out, "{{JSONPARSEEXPR");
     w!(out, " :expr ");
     out_opt_node(out, node.expr)?;
@@ -496,7 +563,10 @@ pub(super) fn out_json_parse_expr(out: &mut PgString<'_>, node: &JsonParseExpr<'
     Ok(())
 }
 
-pub(super) fn out_json_scalar_expr(out: &mut PgString<'_>, node: &JsonScalarExpr<'_>) -> PgResult<()> {
+pub(super) fn out_json_scalar_expr(
+    out: &mut PgString<'_>,
+    node: &JsonScalarExpr<'_>,
+) -> PgResult<()> {
     w!(out, "{{JSONSCALAREXPR");
     w!(out, " :expr ");
     out_opt_node(out, node.expr)?;
@@ -507,7 +577,10 @@ pub(super) fn out_json_scalar_expr(out: &mut PgString<'_>, node: &JsonScalarExpr
     Ok(())
 }
 
-pub(super) fn out_json_serialize_expr(out: &mut PgString<'_>, node: &JsonSerializeExpr<'_>) -> PgResult<()> {
+pub(super) fn out_json_serialize_expr(
+    out: &mut PgString<'_>,
+    node: &JsonSerializeExpr<'_>,
+) -> PgResult<()> {
     w!(out, "{{JSONSERIALIZEEXPR");
     w!(out, " :expr ");
     out_opt_node(out, node.expr)?;
@@ -518,7 +591,10 @@ pub(super) fn out_json_serialize_expr(out: &mut PgString<'_>, node: &JsonSeriali
     Ok(())
 }
 
-pub(super) fn out_json_object_constructor(out: &mut PgString<'_>, node: &JsonObjectConstructor<'_>) -> PgResult<()> {
+pub(super) fn out_json_object_constructor(
+    out: &mut PgString<'_>,
+    node: &JsonObjectConstructor<'_>,
+) -> PgResult<()> {
     w!(out, "{{JSONOBJECTCONSTRUCTOR");
     w!(out, " :exprs ");
     out_list(out, &node.exprs)?;
@@ -533,7 +609,10 @@ pub(super) fn out_json_object_constructor(out: &mut PgString<'_>, node: &JsonObj
     Ok(())
 }
 
-pub(super) fn out_json_array_constructor(out: &mut PgString<'_>, node: &JsonArrayConstructor<'_>) -> PgResult<()> {
+pub(super) fn out_json_array_constructor(
+    out: &mut PgString<'_>,
+    node: &JsonArrayConstructor<'_>,
+) -> PgResult<()> {
     w!(out, "{{JSONARRAYCONSTRUCTOR");
     w!(out, " :exprs ");
     out_list(out, &node.exprs)?;
@@ -546,7 +625,10 @@ pub(super) fn out_json_array_constructor(out: &mut PgString<'_>, node: &JsonArra
     Ok(())
 }
 
-pub(super) fn out_json_array_query_constructor(out: &mut PgString<'_>, node: &JsonArrayQueryConstructor<'_>) -> PgResult<()> {
+pub(super) fn out_json_array_query_constructor(
+    out: &mut PgString<'_>,
+    node: &JsonArrayQueryConstructor<'_>,
+) -> PgResult<()> {
     w!(out, "{{JSONARRAYQUERYCONSTRUCTOR");
     w!(out, " :query ");
     out_opt_node(out, node.query)?;
@@ -561,7 +643,10 @@ pub(super) fn out_json_array_query_constructor(out: &mut PgString<'_>, node: &Js
     Ok(())
 }
 
-pub(super) fn out_json_agg_constructor(out: &mut PgString<'_>, node: &JsonAggConstructor<'_>) -> PgResult<()> {
+pub(super) fn out_json_agg_constructor(
+    out: &mut PgString<'_>,
+    node: &JsonAggConstructor<'_>,
+) -> PgResult<()> {
     w!(out, "{{JSONAGGCONSTRUCTOR");
     w!(out, " :output ");
     out_opt_node(out, node.output)?;
@@ -576,7 +661,10 @@ pub(super) fn out_json_agg_constructor(out: &mut PgString<'_>, node: &JsonAggCon
     Ok(())
 }
 
-pub(super) fn out_json_object_agg(out: &mut PgString<'_>, node: &JsonObjectAgg<'_>) -> PgResult<()> {
+pub(super) fn out_json_object_agg(
+    out: &mut PgString<'_>,
+    node: &JsonObjectAgg<'_>,
+) -> PgResult<()> {
     w!(out, "{{JSONOBJECTAGG");
     w!(out, " :constructor ");
     out_opt_node(out, node.constructor)?;
@@ -642,7 +730,10 @@ pub(super) fn out_pl_assign_stmt(out: &mut PgString<'_>, node: &PLAssignStmt<'_>
     Ok(())
 }
 
-pub(super) fn out_create_schema_stmt(out: &mut PgString<'_>, node: &CreateSchemaStmt<'_>) -> PgResult<()> {
+pub(super) fn out_create_schema_stmt(
+    out: &mut PgString<'_>,
+    node: &CreateSchemaStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{CREATESCHEMASTMT");
     w!(out, " :schemaname ");
     out_str(out, node.schemaname);
@@ -656,7 +747,10 @@ pub(super) fn out_create_schema_stmt(out: &mut PgString<'_>, node: &CreateSchema
     Ok(())
 }
 
-pub(super) fn out_alter_table_stmt(out: &mut PgString<'_>, node: &AlterTableStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_table_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterTableStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTERTABLESTMT");
     w!(out, " :relation ");
     out_opt_range_var(out, node.relation)?;
@@ -669,7 +763,10 @@ pub(super) fn out_alter_table_stmt(out: &mut PgString<'_>, node: &AlterTableStmt
     Ok(())
 }
 
-pub(super) fn out_alter_table_cmd(out: &mut PgString<'_>, node: &AlterTableCmd<'_>) -> PgResult<()> {
+pub(super) fn out_alter_table_cmd(
+    out: &mut PgString<'_>,
+    node: &AlterTableCmd<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTERTABLECMD");
     w!(out, " :subtype {}", node.subtype as i32);
     w!(out, " :name ");
@@ -688,7 +785,10 @@ pub(super) fn out_alter_table_cmd(out: &mut PgString<'_>, node: &AlterTableCmd<'
     Ok(())
 }
 
-pub(super) fn out_at_alter_constraint(out: &mut PgString<'_>, node: &ATAlterConstraint<'_>) -> PgResult<()> {
+pub(super) fn out_at_alter_constraint(
+    out: &mut PgString<'_>,
+    node: &ATAlterConstraint<'_>,
+) -> PgResult<()> {
     w!(out, "{{ATALTERCONSTRAINT");
     w!(out, " :conname ");
     out_str(out, node.conname);
@@ -710,7 +810,10 @@ pub(super) fn out_at_alter_constraint(out: &mut PgString<'_>, node: &ATAlterCons
     Ok(())
 }
 
-pub(super) fn out_replica_identity_stmt(out: &mut PgString<'_>, node: &ReplicaIdentityStmt<'_>) -> PgResult<()> {
+pub(super) fn out_replica_identity_stmt(
+    out: &mut PgString<'_>,
+    node: &ReplicaIdentityStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{REPLICAIDENTITYSTMT");
     w!(out, " :identity_type ");
     out_char(out, node.identity_type)?;
@@ -720,7 +823,10 @@ pub(super) fn out_replica_identity_stmt(out: &mut PgString<'_>, node: &ReplicaId
     Ok(())
 }
 
-pub(super) fn out_alter_collation_stmt(out: &mut PgString<'_>, node: &AlterCollationStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_collation_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterCollationStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTERCOLLATIONSTMT");
     w!(out, " :collname ");
     out_list(out, &node.collname)?;
@@ -728,7 +834,10 @@ pub(super) fn out_alter_collation_stmt(out: &mut PgString<'_>, node: &AlterColla
     Ok(())
 }
 
-pub(super) fn out_alter_domain_stmt(out: &mut PgString<'_>, node: &AlterDomainStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_domain_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterDomainStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTERDOMAINSTMT");
     w!(out, " :subtype ");
     out_char(out, node.subtype)?;
@@ -760,7 +869,10 @@ pub(super) fn out_grant_stmt(out: &mut PgString<'_>, node: &GrantStmt<'_>) -> Pg
     w!(out, " :grant_option ");
     out_bool(out, node.grant_option);
     w!(out, " :grantor ");
-    match node.grantor { Some(r) => out_role_spec(out, r)?, None => w!(out, "<>") };
+    match node.grantor {
+        Some(r) => out_role_spec(out, r)?,
+        None => w!(out, "<>"),
+    };
     w!(out, " :behavior {}", node.behavior as i32);
     w!(out, "}}");
     Ok(())
@@ -776,7 +888,10 @@ pub(super) fn out_access_priv(out: &mut PgString<'_>, node: &AccessPriv<'_>) -> 
     Ok(())
 }
 
-pub(super) fn out_grant_role_stmt(out: &mut PgString<'_>, node: &GrantRoleStmt<'_>) -> PgResult<()> {
+pub(super) fn out_grant_role_stmt(
+    out: &mut PgString<'_>,
+    node: &GrantRoleStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{GRANTROLESTMT");
     w!(out, " :granted_roles ");
     out_list(out, &node.granted_roles)?;
@@ -787,18 +902,27 @@ pub(super) fn out_grant_role_stmt(out: &mut PgString<'_>, node: &GrantRoleStmt<'
     w!(out, " :opt ");
     out_list(out, &node.opt)?;
     w!(out, " :grantor ");
-    match node.grantor { Some(r) => out_role_spec(out, r)?, None => w!(out, "<>") };
+    match node.grantor {
+        Some(r) => out_role_spec(out, r)?,
+        None => w!(out, "<>"),
+    };
     w!(out, " :behavior {}", node.behavior as i32);
     w!(out, "}}");
     Ok(())
 }
 
-pub(super) fn out_alter_default_privileges_stmt(out: &mut PgString<'_>, node: &AlterDefaultPrivilegesStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_default_privileges_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterDefaultPrivilegesStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTERDEFAULTPRIVILEGESSTMT");
     w!(out, " :options ");
     out_list(out, &node.options)?;
     w!(out, " :action ");
-    match node.action { Some(g) => out_grant_stmt(out, g)?, None => w!(out, "<>") };
+    match node.action {
+        Some(g) => out_grant_stmt(out, g)?,
+        None => w!(out, "<>"),
+    };
     w!(out, "}}");
     Ok(())
 }
@@ -898,12 +1022,18 @@ pub(super) fn out_constraint(out: &mut PgString<'_>, node: &Constraint<'_>) -> P
     Ok(())
 }
 
-pub(super) fn out_create_table_space_stmt(out: &mut PgString<'_>, node: &CreateTableSpaceStmt<'_>) -> PgResult<()> {
+pub(super) fn out_create_table_space_stmt(
+    out: &mut PgString<'_>,
+    node: &CreateTableSpaceStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{CREATETABLESPACESTMT");
     w!(out, " :tablespacename ");
     out_str(out, node.tablespacename);
     w!(out, " :owner ");
-    match node.owner { Some(r) => out_role_spec(out, r)?, None => w!(out, "<>") };
+    match node.owner {
+        Some(r) => out_role_spec(out, r)?,
+        None => w!(out, "<>"),
+    };
     w!(out, " :location ");
     out_str(out, node.location);
     w!(out, " :options ");
@@ -912,7 +1042,10 @@ pub(super) fn out_create_table_space_stmt(out: &mut PgString<'_>, node: &CreateT
     Ok(())
 }
 
-pub(super) fn out_drop_table_space_stmt(out: &mut PgString<'_>, node: &DropTableSpaceStmt<'_>) -> PgResult<()> {
+pub(super) fn out_drop_table_space_stmt(
+    out: &mut PgString<'_>,
+    node: &DropTableSpaceStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{DROPTABLESPACESTMT");
     w!(out, " :tablespacename ");
     out_str(out, node.tablespacename);
@@ -922,7 +1055,10 @@ pub(super) fn out_drop_table_space_stmt(out: &mut PgString<'_>, node: &DropTable
     Ok(())
 }
 
-pub(super) fn out_alter_table_space_options_stmt(out: &mut PgString<'_>, node: &AlterTableSpaceOptionsStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_table_space_options_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterTableSpaceOptionsStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTERTABLESPACEOPTIONSSTMT");
     w!(out, " :tablespacename ");
     out_str(out, node.tablespacename);
@@ -934,7 +1070,10 @@ pub(super) fn out_alter_table_space_options_stmt(out: &mut PgString<'_>, node: &
     Ok(())
 }
 
-pub(super) fn out_alter_table_move_all_stmt(out: &mut PgString<'_>, node: &AlterTableMoveAllStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_table_move_all_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterTableMoveAllStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTERTABLEMOVEALLSTMT");
     w!(out, " :orig_tablespacename ");
     out_str(out, node.orig_tablespacename);
@@ -949,7 +1088,10 @@ pub(super) fn out_alter_table_move_all_stmt(out: &mut PgString<'_>, node: &Alter
     Ok(())
 }
 
-pub(super) fn out_create_extension_stmt(out: &mut PgString<'_>, node: &CreateExtensionStmt<'_>) -> PgResult<()> {
+pub(super) fn out_create_extension_stmt(
+    out: &mut PgString<'_>,
+    node: &CreateExtensionStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{CREATEEXTENSIONSTMT");
     w!(out, " :extname ");
     out_str(out, node.extname);
@@ -961,7 +1103,10 @@ pub(super) fn out_create_extension_stmt(out: &mut PgString<'_>, node: &CreateExt
     Ok(())
 }
 
-pub(super) fn out_alter_extension_stmt(out: &mut PgString<'_>, node: &AlterExtensionStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_extension_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterExtensionStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTEREXTENSIONSTMT");
     w!(out, " :extname ");
     out_str(out, node.extname);
@@ -971,7 +1116,10 @@ pub(super) fn out_alter_extension_stmt(out: &mut PgString<'_>, node: &AlterExten
     Ok(())
 }
 
-pub(super) fn out_alter_extension_contents_stmt(out: &mut PgString<'_>, node: &AlterExtensionContentsStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_extension_contents_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterExtensionContentsStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTEREXTENSIONCONTENTSSTMT");
     w!(out, " :extname ");
     out_str(out, node.extname);
@@ -983,7 +1131,10 @@ pub(super) fn out_alter_extension_contents_stmt(out: &mut PgString<'_>, node: &A
     Ok(())
 }
 
-pub(super) fn out_create_fdw_stmt(out: &mut PgString<'_>, node: &CreateFdwStmt<'_>) -> PgResult<()> {
+pub(super) fn out_create_fdw_stmt(
+    out: &mut PgString<'_>,
+    node: &CreateFdwStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{CREATEFDWSTMT");
     w!(out, " :fdwname ");
     out_str(out, node.fdwname);
@@ -1007,7 +1158,10 @@ pub(super) fn out_alter_fdw_stmt(out: &mut PgString<'_>, node: &AlterFdwStmt<'_>
     Ok(())
 }
 
-pub(super) fn out_create_foreign_server_stmt(out: &mut PgString<'_>, node: &CreateForeignServerStmt<'_>) -> PgResult<()> {
+pub(super) fn out_create_foreign_server_stmt(
+    out: &mut PgString<'_>,
+    node: &CreateForeignServerStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{CREATEFOREIGNSERVERSTMT");
     w!(out, " :servername ");
     out_str(out, node.servername);
@@ -1025,7 +1179,10 @@ pub(super) fn out_create_foreign_server_stmt(out: &mut PgString<'_>, node: &Crea
     Ok(())
 }
 
-pub(super) fn out_alter_foreign_server_stmt(out: &mut PgString<'_>, node: &AlterForeignServerStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_foreign_server_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterForeignServerStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTERFOREIGNSERVERSTMT");
     w!(out, " :servername ");
     out_str(out, node.servername);
@@ -1039,7 +1196,10 @@ pub(super) fn out_alter_foreign_server_stmt(out: &mut PgString<'_>, node: &Alter
     Ok(())
 }
 
-pub(super) fn out_create_foreign_table_stmt(out: &mut PgString<'_>, node: &CreateForeignTableStmt<'_>) -> PgResult<()> {
+pub(super) fn out_create_foreign_table_stmt(
+    out: &mut PgString<'_>,
+    node: &CreateForeignTableStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{CREATEFOREIGNTABLESTMT");
     w!(out, " :base.relation ");
     out_opt_range_var(out, node.base.relation)?;
@@ -1074,10 +1234,16 @@ pub(super) fn out_create_foreign_table_stmt(out: &mut PgString<'_>, node: &Creat
     Ok(())
 }
 
-pub(super) fn out_create_user_mapping_stmt(out: &mut PgString<'_>, node: &CreateUserMappingStmt<'_>) -> PgResult<()> {
+pub(super) fn out_create_user_mapping_stmt(
+    out: &mut PgString<'_>,
+    node: &CreateUserMappingStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{CREATEUSERMAPPINGSTMT");
     w!(out, " :user ");
-    match node.user { Some(r) => out_role_spec(out, r)?, None => w!(out, "<>") };
+    match node.user {
+        Some(r) => out_role_spec(out, r)?,
+        None => w!(out, "<>"),
+    };
     w!(out, " :servername ");
     out_str(out, node.servername);
     w!(out, " :if_not_exists ");
@@ -1088,10 +1254,16 @@ pub(super) fn out_create_user_mapping_stmt(out: &mut PgString<'_>, node: &Create
     Ok(())
 }
 
-pub(super) fn out_alter_user_mapping_stmt(out: &mut PgString<'_>, node: &AlterUserMappingStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_user_mapping_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterUserMappingStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTERUSERMAPPINGSTMT");
     w!(out, " :user ");
-    match node.user { Some(r) => out_role_spec(out, r)?, None => w!(out, "<>") };
+    match node.user {
+        Some(r) => out_role_spec(out, r)?,
+        None => w!(out, "<>"),
+    };
     w!(out, " :servername ");
     out_str(out, node.servername);
     w!(out, " :options ");
@@ -1100,10 +1272,16 @@ pub(super) fn out_alter_user_mapping_stmt(out: &mut PgString<'_>, node: &AlterUs
     Ok(())
 }
 
-pub(super) fn out_drop_user_mapping_stmt(out: &mut PgString<'_>, node: &DropUserMappingStmt<'_>) -> PgResult<()> {
+pub(super) fn out_drop_user_mapping_stmt(
+    out: &mut PgString<'_>,
+    node: &DropUserMappingStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{DROPUSERMAPPINGSTMT");
     w!(out, " :user ");
-    match node.user { Some(r) => out_role_spec(out, r)?, None => w!(out, "<>") };
+    match node.user {
+        Some(r) => out_role_spec(out, r)?,
+        None => w!(out, "<>"),
+    };
     w!(out, " :servername ");
     out_str(out, node.servername);
     w!(out, " :missing_ok ");
@@ -1112,7 +1290,10 @@ pub(super) fn out_drop_user_mapping_stmt(out: &mut PgString<'_>, node: &DropUser
     Ok(())
 }
 
-pub(super) fn out_import_foreign_schema_stmt(out: &mut PgString<'_>, node: &ImportForeignSchemaStmt<'_>) -> PgResult<()> {
+pub(super) fn out_import_foreign_schema_stmt(
+    out: &mut PgString<'_>,
+    node: &ImportForeignSchemaStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{IMPORTFOREIGNSCHEMASTMT");
     w!(out, " :server_name ");
     out_str(out, node.server_name);
@@ -1129,7 +1310,10 @@ pub(super) fn out_import_foreign_schema_stmt(out: &mut PgString<'_>, node: &Impo
     Ok(())
 }
 
-pub(super) fn out_create_policy_stmt(out: &mut PgString<'_>, node: &CreatePolicyStmt<'_>) -> PgResult<()> {
+pub(super) fn out_create_policy_stmt(
+    out: &mut PgString<'_>,
+    node: &CreatePolicyStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{CREATEPOLICYSTMT");
     w!(out, " :policy_name ");
     out_str(out, node.policy_name);
@@ -1149,7 +1333,10 @@ pub(super) fn out_create_policy_stmt(out: &mut PgString<'_>, node: &CreatePolicy
     Ok(())
 }
 
-pub(super) fn out_alter_policy_stmt(out: &mut PgString<'_>, node: &AlterPolicyStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_policy_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterPolicyStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTERPOLICYSTMT");
     w!(out, " :policy_name ");
     out_str(out, node.policy_name);
@@ -1177,7 +1364,10 @@ pub(super) fn out_create_am_stmt(out: &mut PgString<'_>, node: &CreateAmStmt<'_>
     Ok(())
 }
 
-pub(super) fn out_create_trig_stmt(out: &mut PgString<'_>, node: &CreateTrigStmt<'_>) -> PgResult<()> {
+pub(super) fn out_create_trig_stmt(
+    out: &mut PgString<'_>,
+    node: &CreateTrigStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{CREATETRIGSTMT");
     w!(out, " :replace ");
     out_bool(out, node.replace);
@@ -1211,7 +1401,10 @@ pub(super) fn out_create_trig_stmt(out: &mut PgString<'_>, node: &CreateTrigStmt
     Ok(())
 }
 
-pub(super) fn out_create_event_trig_stmt(out: &mut PgString<'_>, node: &CreateEventTrigStmt<'_>) -> PgResult<()> {
+pub(super) fn out_create_event_trig_stmt(
+    out: &mut PgString<'_>,
+    node: &CreateEventTrigStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{CREATEEVENTTRIGSTMT");
     w!(out, " :trigname ");
     out_str(out, node.trigname);
@@ -1225,7 +1418,10 @@ pub(super) fn out_create_event_trig_stmt(out: &mut PgString<'_>, node: &CreateEv
     Ok(())
 }
 
-pub(super) fn out_alter_event_trig_stmt(out: &mut PgString<'_>, node: &AlterEventTrigStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_event_trig_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterEventTrigStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTEREVENTTRIGSTMT");
     w!(out, " :trigname ");
     out_str(out, node.trigname);
@@ -1235,7 +1431,10 @@ pub(super) fn out_alter_event_trig_stmt(out: &mut PgString<'_>, node: &AlterEven
     Ok(())
 }
 
-pub(super) fn out_create_p_lang_stmt(out: &mut PgString<'_>, node: &CreatePLangStmt<'_>) -> PgResult<()> {
+pub(super) fn out_create_p_lang_stmt(
+    out: &mut PgString<'_>,
+    node: &CreatePLangStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{CREATEPLANGSTMT");
     w!(out, " :replace ");
     out_bool(out, node.replace);
@@ -1253,7 +1452,10 @@ pub(super) fn out_create_p_lang_stmt(out: &mut PgString<'_>, node: &CreatePLangS
     Ok(())
 }
 
-pub(super) fn out_create_role_stmt(out: &mut PgString<'_>, node: &CreateRoleStmt<'_>) -> PgResult<()> {
+pub(super) fn out_create_role_stmt(
+    out: &mut PgString<'_>,
+    node: &CreateRoleStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{CREATEROLESTMT");
     w!(out, " :stmt_type {}", node.stmt_type as i32);
     w!(out, " :role ");
@@ -1264,7 +1466,10 @@ pub(super) fn out_create_role_stmt(out: &mut PgString<'_>, node: &CreateRoleStmt
     Ok(())
 }
 
-pub(super) fn out_alter_role_stmt(out: &mut PgString<'_>, node: &AlterRoleStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_role_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterRoleStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTERROLESTMT");
     w!(out, " :role ");
     out_role_spec(out, node.role)?;
@@ -1275,10 +1480,16 @@ pub(super) fn out_alter_role_stmt(out: &mut PgString<'_>, node: &AlterRoleStmt<'
     Ok(())
 }
 
-pub(super) fn out_alter_role_set_stmt(out: &mut PgString<'_>, node: &AlterRoleSetStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_role_set_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterRoleSetStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTERROLESETSTMT");
     w!(out, " :role ");
-    match node.role { Some(r) => out_role_spec(out, r)?, None => w!(out, "<>") };
+    match node.role {
+        Some(r) => out_role_spec(out, r)?,
+        None => w!(out, "<>"),
+    };
     w!(out, " :database ");
     out_str(out, node.database);
     w!(out, " :setstmt ");
@@ -1297,7 +1508,10 @@ pub(super) fn out_drop_role_stmt(out: &mut PgString<'_>, node: &DropRoleStmt<'_>
     Ok(())
 }
 
-pub(super) fn out_create_seq_stmt(out: &mut PgString<'_>, node: &CreateSeqStmt<'_>) -> PgResult<()> {
+pub(super) fn out_create_seq_stmt(
+    out: &mut PgString<'_>,
+    node: &CreateSeqStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{CREATESEQSTMT");
     w!(out, " :sequence ");
     out_opt_range_var(out, node.sequence)?;
@@ -1345,7 +1559,10 @@ pub(super) fn out_define_stmt(out: &mut PgString<'_>, node: &DefineStmt<'_>) -> 
     Ok(())
 }
 
-pub(super) fn out_create_domain_stmt(out: &mut PgString<'_>, node: &CreateDomainStmt<'_>) -> PgResult<()> {
+pub(super) fn out_create_domain_stmt(
+    out: &mut PgString<'_>,
+    node: &CreateDomainStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{CREATEDOMAINSTMT");
     w!(out, " :domainname ");
     out_list(out, &node.domainname)?;
@@ -1359,7 +1576,10 @@ pub(super) fn out_create_domain_stmt(out: &mut PgString<'_>, node: &CreateDomain
     Ok(())
 }
 
-pub(super) fn out_create_op_class_stmt(out: &mut PgString<'_>, node: &CreateOpClassStmt<'_>) -> PgResult<()> {
+pub(super) fn out_create_op_class_stmt(
+    out: &mut PgString<'_>,
+    node: &CreateOpClassStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{CREATEOPCLASSSTMT");
     w!(out, " :opclassname ");
     out_list(out, &node.opclassname)?;
@@ -1377,7 +1597,10 @@ pub(super) fn out_create_op_class_stmt(out: &mut PgString<'_>, node: &CreateOpCl
     Ok(())
 }
 
-pub(super) fn out_create_op_class_item(out: &mut PgString<'_>, node: &CreateOpClassItem<'_>) -> PgResult<()> {
+pub(super) fn out_create_op_class_item(
+    out: &mut PgString<'_>,
+    node: &CreateOpClassItem<'_>,
+) -> PgResult<()> {
     w!(out, "{{CREATEOPCLASSITEM");
     w!(out, " :itemtype {}", node.itemtype);
     w!(out, " :name ");
@@ -1393,7 +1616,10 @@ pub(super) fn out_create_op_class_item(out: &mut PgString<'_>, node: &CreateOpCl
     Ok(())
 }
 
-pub(super) fn out_create_op_family_stmt(out: &mut PgString<'_>, node: &CreateOpFamilyStmt<'_>) -> PgResult<()> {
+pub(super) fn out_create_op_family_stmt(
+    out: &mut PgString<'_>,
+    node: &CreateOpFamilyStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{CREATEOPFAMILYSTMT");
     w!(out, " :opfamilyname ");
     out_list(out, &node.opfamilyname)?;
@@ -1403,7 +1629,10 @@ pub(super) fn out_create_op_family_stmt(out: &mut PgString<'_>, node: &CreateOpF
     Ok(())
 }
 
-pub(super) fn out_alter_op_family_stmt(out: &mut PgString<'_>, node: &AlterOpFamilyStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_op_family_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterOpFamilyStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTEROPFAMILYSTMT");
     w!(out, " :opfamilyname ");
     out_list(out, &node.opfamilyname)?;
@@ -1466,7 +1695,10 @@ pub(super) fn out_sec_label_stmt(out: &mut PgString<'_>, node: &SecLabelStmt<'_>
     Ok(())
 }
 
-pub(super) fn out_declare_cursor_stmt(out: &mut PgString<'_>, node: &DeclareCursorStmt<'_>) -> PgResult<()> {
+pub(super) fn out_declare_cursor_stmt(
+    out: &mut PgString<'_>,
+    node: &DeclareCursorStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{DECLARECURSORSTMT");
     w!(out, " :portalname ");
     out_str(out, node.portalname);
@@ -1477,7 +1709,10 @@ pub(super) fn out_declare_cursor_stmt(out: &mut PgString<'_>, node: &DeclareCurs
     Ok(())
 }
 
-pub(super) fn out_close_portal_stmt(out: &mut PgString<'_>, node: &ClosePortalStmt<'_>) -> PgResult<()> {
+pub(super) fn out_close_portal_stmt(
+    out: &mut PgString<'_>,
+    node: &ClosePortalStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{CLOSEPORTALSTMT");
     w!(out, " :portalname ");
     out_str(out, node.portalname);
@@ -1522,7 +1757,11 @@ pub(super) fn out_index_stmt(out: &mut PgString<'_>, node: &IndexStmt<'_>) -> Pg
     w!(out, " :indexOid {}", node.indexOid);
     w!(out, " :oldNumber {}", node.oldNumber);
     w!(out, " :oldCreateSubid {}", node.oldCreateSubid);
-    w!(out, " :oldFirstRelfilelocatorSubid {}", node.oldFirstRelfilelocatorSubid);
+    w!(
+        out,
+        " :oldFirstRelfilelocatorSubid {}",
+        node.oldFirstRelfilelocatorSubid
+    );
     w!(out, " :unique ");
     out_bool(out, node.unique);
     w!(out, " :nulls_not_distinct ");
@@ -1549,7 +1788,10 @@ pub(super) fn out_index_stmt(out: &mut PgString<'_>, node: &IndexStmt<'_>) -> Pg
     Ok(())
 }
 
-pub(super) fn out_create_stats_stmt(out: &mut PgString<'_>, node: &CreateStatsStmt<'_>) -> PgResult<()> {
+pub(super) fn out_create_stats_stmt(
+    out: &mut PgString<'_>,
+    node: &CreateStatsStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{CREATESTATSSTMT");
     w!(out, " :defnames ");
     out_list(out, &node.defnames)?;
@@ -1580,7 +1822,10 @@ pub(super) fn out_stats_elem(out: &mut PgString<'_>, node: &StatsElem<'_>) -> Pg
     Ok(())
 }
 
-pub(super) fn out_alter_stats_stmt(out: &mut PgString<'_>, node: &AlterStatsStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_stats_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterStatsStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTERSTATSSTMT");
     w!(out, " :defnames ");
     out_list(out, &node.defnames)?;
@@ -1592,7 +1837,10 @@ pub(super) fn out_alter_stats_stmt(out: &mut PgString<'_>, node: &AlterStatsStmt
     Ok(())
 }
 
-pub(super) fn out_create_function_stmt(out: &mut PgString<'_>, node: &CreateFunctionStmt<'_>) -> PgResult<()> {
+pub(super) fn out_create_function_stmt(
+    out: &mut PgString<'_>,
+    node: &CreateFunctionStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{CREATEFUNCTIONSTMT");
     w!(out, " :is_procedure ");
     out_bool(out, node.is_procedure);
@@ -1612,11 +1860,17 @@ pub(super) fn out_create_function_stmt(out: &mut PgString<'_>, node: &CreateFunc
     Ok(())
 }
 
-pub(super) fn out_alter_function_stmt(out: &mut PgString<'_>, node: &AlterFunctionStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_function_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterFunctionStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTERFUNCTIONSTMT");
     w!(out, " :objtype {}", node.objtype as i32);
     w!(out, " :func ");
-    match node.func { Some(o) => out_object_with_args(out, o)?, None => w!(out, "<>") };
+    match node.func {
+        Some(o) => out_object_with_args(out, o)?,
+        None => w!(out, "<>"),
+    };
     w!(out, " :actions ");
     out_list(out, &node.actions)?;
     w!(out, "}}");
@@ -1634,9 +1888,15 @@ pub(super) fn out_do_stmt(out: &mut PgString<'_>, node: &DoStmt<'_>) -> PgResult
 pub(super) fn out_call_stmt(out: &mut PgString<'_>, node: &CallStmt<'_>) -> PgResult<()> {
     w!(out, "{{CALLSTMT");
     w!(out, " :funccall ");
-    match node.funccall { Some(f) => out_func_call(out, f)?, None => w!(out, "<>") };
+    match node.funccall {
+        Some(f) => out_func_call(out, f)?,
+        None => w!(out, "<>"),
+    };
     w!(out, " :funcexpr ");
-    match node.funcexpr { Some(f) => out_func_expr(out, f)?, None => w!(out, "<>") };
+    match node.funcexpr {
+        Some(f) => out_func_expr(out, f)?,
+        None => w!(out, "<>"),
+    };
     w!(out, " :outargs ");
     out_list(out, &node.outargs)?;
     w!(out, "}}");
@@ -1662,7 +1922,10 @@ pub(super) fn out_rename_stmt(out: &mut PgString<'_>, node: &RenameStmt<'_>) -> 
     Ok(())
 }
 
-pub(super) fn out_alter_object_schema_stmt(out: &mut PgString<'_>, node: &AlterObjectSchemaStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_object_schema_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterObjectSchemaStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTEROBJECTSCHEMASTMT");
     w!(out, " :objectType {}", node.objectType as i32);
     w!(out, " :relation ");
@@ -1677,7 +1940,10 @@ pub(super) fn out_alter_object_schema_stmt(out: &mut PgString<'_>, node: &AlterO
     Ok(())
 }
 
-pub(super) fn out_alter_owner_stmt(out: &mut PgString<'_>, node: &AlterOwnerStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_owner_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterOwnerStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTEROWNERSTMT");
     w!(out, " :objectType {}", node.objectType as i32);
     w!(out, " :relation ");
@@ -1685,12 +1951,18 @@ pub(super) fn out_alter_owner_stmt(out: &mut PgString<'_>, node: &AlterOwnerStmt
     w!(out, " :object ");
     out_opt_node(out, node.object)?;
     w!(out, " :newowner ");
-    match node.newowner { Some(r) => out_role_spec(out, r)?, None => w!(out, "<>") };
+    match node.newowner {
+        Some(r) => out_role_spec(out, r)?,
+        None => w!(out, "<>"),
+    };
     w!(out, "}}");
     Ok(())
 }
 
-pub(super) fn out_alter_operator_stmt(out: &mut PgString<'_>, node: &AlterOperatorStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_operator_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterOperatorStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTEROPERATORSTMT");
     w!(out, " :opername ");
     out_opt_node(out, node.opername)?;
@@ -1700,7 +1972,10 @@ pub(super) fn out_alter_operator_stmt(out: &mut PgString<'_>, node: &AlterOperat
     Ok(())
 }
 
-pub(super) fn out_alter_type_stmt(out: &mut PgString<'_>, node: &AlterTypeStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_type_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterTypeStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTERTYPESTMT");
     w!(out, " :typeName ");
     out_list(out, &node.typeName)?;
@@ -1745,7 +2020,10 @@ pub(super) fn out_unlisten_stmt(out: &mut PgString<'_>, node: &UnlistenStmt<'_>)
     Ok(())
 }
 
-pub(super) fn out_composite_type_stmt(out: &mut PgString<'_>, node: &CompositeTypeStmt<'_>) -> PgResult<()> {
+pub(super) fn out_composite_type_stmt(
+    out: &mut PgString<'_>,
+    node: &CompositeTypeStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{COMPOSITETYPESTMT");
     w!(out, " :typevar ");
     out_opt_range_var(out, node.typevar)?;
@@ -1755,7 +2033,10 @@ pub(super) fn out_composite_type_stmt(out: &mut PgString<'_>, node: &CompositeTy
     Ok(())
 }
 
-pub(super) fn out_create_enum_stmt(out: &mut PgString<'_>, node: &CreateEnumStmt<'_>) -> PgResult<()> {
+pub(super) fn out_create_enum_stmt(
+    out: &mut PgString<'_>,
+    node: &CreateEnumStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{CREATEENUMSTMT");
     w!(out, " :typeName ");
     out_list(out, &node.typeName)?;
@@ -1765,7 +2046,10 @@ pub(super) fn out_create_enum_stmt(out: &mut PgString<'_>, node: &CreateEnumStmt
     Ok(())
 }
 
-pub(super) fn out_create_range_stmt(out: &mut PgString<'_>, node: &CreateRangeStmt<'_>) -> PgResult<()> {
+pub(super) fn out_create_range_stmt(
+    out: &mut PgString<'_>,
+    node: &CreateRangeStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{CREATERANGESTMT");
     w!(out, " :typeName ");
     out_list(out, &node.typeName)?;
@@ -1775,7 +2059,10 @@ pub(super) fn out_create_range_stmt(out: &mut PgString<'_>, node: &CreateRangeSt
     Ok(())
 }
 
-pub(super) fn out_alter_enum_stmt(out: &mut PgString<'_>, node: &AlterEnumStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_enum_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterEnumStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTERENUMSTMT");
     w!(out, " :typeName ");
     out_list(out, &node.typeName)?;
@@ -1828,7 +2115,10 @@ pub(super) fn out_createdb_stmt(out: &mut PgString<'_>, node: &CreatedbStmt<'_>)
     Ok(())
 }
 
-pub(super) fn out_alter_database_stmt(out: &mut PgString<'_>, node: &AlterDatabaseStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_database_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterDatabaseStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTERDATABASESTMT");
     w!(out, " :dbname ");
     out_str(out, node.dbname);
@@ -1838,7 +2128,10 @@ pub(super) fn out_alter_database_stmt(out: &mut PgString<'_>, node: &AlterDataba
     Ok(())
 }
 
-pub(super) fn out_alter_database_refresh_coll_stmt(out: &mut PgString<'_>, node: &AlterDatabaseRefreshCollStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_database_refresh_coll_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterDatabaseRefreshCollStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTERDATABASEREFRESHCOLLSTMT");
     w!(out, " :dbname ");
     out_str(out, node.dbname);
@@ -1846,7 +2139,10 @@ pub(super) fn out_alter_database_refresh_coll_stmt(out: &mut PgString<'_>, node:
     Ok(())
 }
 
-pub(super) fn out_alter_database_set_stmt(out: &mut PgString<'_>, node: &AlterDatabaseSetStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_database_set_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterDatabaseSetStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTERDATABASESETSTMT");
     w!(out, " :dbname ");
     out_str(out, node.dbname);
@@ -1868,7 +2164,10 @@ pub(super) fn out_dropdb_stmt(out: &mut PgString<'_>, node: &DropdbStmt<'_>) -> 
     Ok(())
 }
 
-pub(super) fn out_alter_system_stmt(out: &mut PgString<'_>, node: &AlterSystemStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_system_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterSystemStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTERSYSTEMSTMT");
     w!(out, " :setstmt ");
     out_variable_set_stmt(out, node.setstmt)?;
@@ -1900,7 +2199,10 @@ pub(super) fn out_vacuum_stmt(out: &mut PgString<'_>, node: &VacuumStmt<'_>) -> 
     Ok(())
 }
 
-pub(super) fn out_vacuum_relation(out: &mut PgString<'_>, node: &VacuumRelation<'_>) -> PgResult<()> {
+pub(super) fn out_vacuum_relation(
+    out: &mut PgString<'_>,
+    node: &VacuumRelation<'_>,
+) -> PgResult<()> {
     w!(out, "{{VACUUMRELATION");
     w!(out, " :relation ");
     out_opt_node(out, node.relation)?;
@@ -1921,7 +2223,10 @@ pub(super) fn out_explain_stmt(out: &mut PgString<'_>, node: &ExplainStmt<'_>) -
     Ok(())
 }
 
-pub(super) fn out_create_table_as_stmt(out: &mut PgString<'_>, node: &CreateTableAsStmt<'_>) -> PgResult<()> {
+pub(super) fn out_create_table_as_stmt(
+    out: &mut PgString<'_>,
+    node: &CreateTableAsStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{CREATETABLEASSTMT");
     w!(out, " :query ");
     out_opt_node(out, node.query)?;
@@ -1936,7 +2241,10 @@ pub(super) fn out_create_table_as_stmt(out: &mut PgString<'_>, node: &CreateTabl
     Ok(())
 }
 
-pub(super) fn out_refresh_mat_view_stmt(out: &mut PgString<'_>, node: &RefreshMatViewStmt<'_>) -> PgResult<()> {
+pub(super) fn out_refresh_mat_view_stmt(
+    out: &mut PgString<'_>,
+    node: &RefreshMatViewStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{REFRESHMATVIEWSTMT");
     w!(out, " :concurrent ");
     out_bool(out, node.concurrent);
@@ -1972,7 +2280,10 @@ pub(super) fn out_lock_stmt(out: &mut PgString<'_>, node: &LockStmt<'_>) -> PgRe
     Ok(())
 }
 
-pub(super) fn out_constraints_set_stmt(out: &mut PgString<'_>, node: &ConstraintsSetStmt<'_>) -> PgResult<()> {
+pub(super) fn out_constraints_set_stmt(
+    out: &mut PgString<'_>,
+    node: &ConstraintsSetStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{CONSTRAINTSSETSTMT");
     w!(out, " :constraints ");
     out_list(out, &node.constraints)?;
@@ -1995,7 +2306,10 @@ pub(super) fn out_reindex_stmt(out: &mut PgString<'_>, node: &ReindexStmt<'_>) -
     Ok(())
 }
 
-pub(super) fn out_create_conversion_stmt(out: &mut PgString<'_>, node: &CreateConversionStmt<'_>) -> PgResult<()> {
+pub(super) fn out_create_conversion_stmt(
+    out: &mut PgString<'_>,
+    node: &CreateConversionStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{CREATECONVERSIONSTMT");
     w!(out, " :conversion_name ");
     out_list(out, &node.conversion_name)?;
@@ -2011,7 +2325,10 @@ pub(super) fn out_create_conversion_stmt(out: &mut PgString<'_>, node: &CreateCo
     Ok(())
 }
 
-pub(super) fn out_create_cast_stmt(out: &mut PgString<'_>, node: &CreateCastStmt<'_>) -> PgResult<()> {
+pub(super) fn out_create_cast_stmt(
+    out: &mut PgString<'_>,
+    node: &CreateCastStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{CREATECASTSTMT");
     w!(out, " :sourcetype ");
     out_opt_node(out, node.sourcetype)?;
@@ -2026,7 +2343,10 @@ pub(super) fn out_create_cast_stmt(out: &mut PgString<'_>, node: &CreateCastStmt
     Ok(())
 }
 
-pub(super) fn out_create_transform_stmt(out: &mut PgString<'_>, node: &CreateTransformStmt<'_>) -> PgResult<()> {
+pub(super) fn out_create_transform_stmt(
+    out: &mut PgString<'_>,
+    node: &CreateTransformStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{CREATETRANSFORMSTMT");
     w!(out, " :replace ");
     out_bool(out, node.replace);
@@ -2042,7 +2362,10 @@ pub(super) fn out_create_transform_stmt(out: &mut PgString<'_>, node: &CreateTra
     Ok(())
 }
 
-pub(super) fn out_drop_owned_stmt(out: &mut PgString<'_>, node: &DropOwnedStmt<'_>) -> PgResult<()> {
+pub(super) fn out_drop_owned_stmt(
+    out: &mut PgString<'_>,
+    node: &DropOwnedStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{DROPOWNEDSTMT");
     w!(out, " :roles ");
     out_list(out, &node.roles)?;
@@ -2051,7 +2374,10 @@ pub(super) fn out_drop_owned_stmt(out: &mut PgString<'_>, node: &DropOwnedStmt<'
     Ok(())
 }
 
-pub(super) fn out_reassign_owned_stmt(out: &mut PgString<'_>, node: &ReassignOwnedStmt<'_>) -> PgResult<()> {
+pub(super) fn out_reassign_owned_stmt(
+    out: &mut PgString<'_>,
+    node: &ReassignOwnedStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{REASSIGNOWNEDSTMT");
     w!(out, " :roles ");
     out_list(out, &node.roles)?;
@@ -2061,7 +2387,10 @@ pub(super) fn out_reassign_owned_stmt(out: &mut PgString<'_>, node: &ReassignOwn
     Ok(())
 }
 
-pub(super) fn out_alter_ts_dictionary_stmt(out: &mut PgString<'_>, node: &AlterTSDictionaryStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_ts_dictionary_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterTSDictionaryStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTERTSDICTIONARYSTMT");
     w!(out, " :dictname ");
     out_list(out, &node.dictname)?;
@@ -2071,7 +2400,10 @@ pub(super) fn out_alter_ts_dictionary_stmt(out: &mut PgString<'_>, node: &AlterT
     Ok(())
 }
 
-pub(super) fn out_alter_ts_configuration_stmt(out: &mut PgString<'_>, node: &AlterTSConfigurationStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_ts_configuration_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterTSConfigurationStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTERTSCONFIGURATIONSTMT");
     w!(out, " :kind {}", node.kind as i32);
     w!(out, " :cfgname ");
@@ -2090,7 +2422,10 @@ pub(super) fn out_alter_ts_configuration_stmt(out: &mut PgString<'_>, node: &Alt
     Ok(())
 }
 
-pub(super) fn out_publication_table(out: &mut PgString<'_>, node: &PublicationTable<'_>) -> PgResult<()> {
+pub(super) fn out_publication_table(
+    out: &mut PgString<'_>,
+    node: &PublicationTable<'_>,
+) -> PgResult<()> {
     w!(out, "{{PUBLICATIONTABLE");
     w!(out, " :relation ");
     out_opt_range_var(out, node.relation)?;
@@ -2102,19 +2437,28 @@ pub(super) fn out_publication_table(out: &mut PgString<'_>, node: &PublicationTa
     Ok(())
 }
 
-pub(super) fn out_publication_obj_spec(out: &mut PgString<'_>, node: &PublicationObjSpec<'_>) -> PgResult<()> {
+pub(super) fn out_publication_obj_spec(
+    out: &mut PgString<'_>,
+    node: &PublicationObjSpec<'_>,
+) -> PgResult<()> {
     w!(out, "{{PUBLICATIONOBJSPEC");
     w!(out, " :pubobjtype {}", node.pubobjtype as i32);
     w!(out, " :name ");
     out_str(out, node.name);
     w!(out, " :pubtable ");
-    match node.pubtable { Some(p) => out_publication_table(out, p)?, None => w!(out, "<>") };
+    match node.pubtable {
+        Some(p) => out_publication_table(out, p)?,
+        None => w!(out, "<>"),
+    };
     w!(out, " :location {}", loc(node.location));
     w!(out, "}}");
     Ok(())
 }
 
-pub(super) fn out_create_publication_stmt(out: &mut PgString<'_>, node: &CreatePublicationStmt<'_>) -> PgResult<()> {
+pub(super) fn out_create_publication_stmt(
+    out: &mut PgString<'_>,
+    node: &CreatePublicationStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{CREATEPUBLICATIONSTMT");
     w!(out, " :pubname ");
     out_str(out, node.pubname);
@@ -2128,7 +2472,10 @@ pub(super) fn out_create_publication_stmt(out: &mut PgString<'_>, node: &CreateP
     Ok(())
 }
 
-pub(super) fn out_alter_publication_stmt(out: &mut PgString<'_>, node: &AlterPublicationStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_publication_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterPublicationStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTERPUBLICATIONSTMT");
     w!(out, " :pubname ");
     out_str(out, node.pubname);
@@ -2143,7 +2490,10 @@ pub(super) fn out_alter_publication_stmt(out: &mut PgString<'_>, node: &AlterPub
     Ok(())
 }
 
-pub(super) fn out_create_subscription_stmt(out: &mut PgString<'_>, node: &CreateSubscriptionStmt<'_>) -> PgResult<()> {
+pub(super) fn out_create_subscription_stmt(
+    out: &mut PgString<'_>,
+    node: &CreateSubscriptionStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{CREATESUBSCRIPTIONSTMT");
     w!(out, " :subname ");
     out_str(out, node.subname);
@@ -2157,7 +2507,10 @@ pub(super) fn out_create_subscription_stmt(out: &mut PgString<'_>, node: &Create
     Ok(())
 }
 
-pub(super) fn out_alter_subscription_stmt(out: &mut PgString<'_>, node: &AlterSubscriptionStmt<'_>) -> PgResult<()> {
+pub(super) fn out_alter_subscription_stmt(
+    out: &mut PgString<'_>,
+    node: &AlterSubscriptionStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{ALTERSUBSCRIPTIONSTMT");
     w!(out, " :kind {}", node.kind as i32);
     w!(out, " :subname ");
@@ -2172,7 +2525,10 @@ pub(super) fn out_alter_subscription_stmt(out: &mut PgString<'_>, node: &AlterSu
     Ok(())
 }
 
-pub(super) fn out_drop_subscription_stmt(out: &mut PgString<'_>, node: &DropSubscriptionStmt<'_>) -> PgResult<()> {
+pub(super) fn out_drop_subscription_stmt(
+    out: &mut PgString<'_>,
+    node: &DropSubscriptionStmt<'_>,
+) -> PgResult<()> {
     w!(out, "{{DROPSUBSCRIPTIONSTMT");
     w!(out, " :subname ");
     out_str(out, node.subname);

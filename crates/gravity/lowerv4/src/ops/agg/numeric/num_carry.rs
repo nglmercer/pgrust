@@ -7,6 +7,7 @@ use gravity_abi::breaker::SlotKind;
 use gravity_decompose::ops::shared::agg::{AggDecl, Register, NONE};
 use gravity_decompose::ops::shared::agg_class::Trans;
 use gravity_fn::agg_final::SENT_HI;
+#[allow(unused_imports)]
 use gravity_expr::emit::CellValid;
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{Block, ConvOp, IntBinOp, IntCond, Type, Value};
@@ -17,6 +18,7 @@ use crate::frame::env::Env;
 use crate::admit::refusal::Site;
 use crate::rep::CellRef;
 
+#[allow(unused_imports)]
 use crate::ops::agg::numeric::num_word::{add_sum, kept};
 pub(crate) use crate::ops::agg::numeric::raw::carry::num_carry_final;
 

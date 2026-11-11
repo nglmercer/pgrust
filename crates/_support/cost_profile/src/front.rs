@@ -16,9 +16,19 @@ const MACHINE: &str = "box 10: c8g, Graviton 4 (Neoverse V2), 16 vCPU";
 const CORPUS: &str = "light front walk sweep (kernels front_light.rs fit, dev seed)";
 
 /// A code's step of the walk in code order: a sequential read of the counts (the read anchor).
-pub const LIGHT_WALK: Fitted = Fitted { ns: 1.50, machine: MACHINE, corpus: CORPUS, anchor: Anchor::Read };
+pub const LIGHT_WALK: Fitted = Fitted {
+    ns: 1.50,
+    machine: MACHINE,
+    corpus: CORPUS,
+    anchor: Anchor::Read,
+};
 /// A touched code's step of the list: the count at a random position (the gather anchor).
-pub const LIGHT_LIST: Fitted = Fitted { ns: 3.46, machine: MACHINE, corpus: CORPUS, anchor: Anchor::Gather };
+pub const LIGHT_LIST: Fitted = Fitted {
+    ns: 3.46,
+    machine: MACHINE,
+    corpus: CORPUS,
+    anchor: Anchor::Gather,
+};
 /// The convert walks a part's counts in code order when the part touched at least one code in this many, else its
 /// list: `break_even_div` of the two walks' unit costs on a host of ratios `r` (a gather over a read: 3 on the reference
 /// fit).
@@ -38,9 +48,19 @@ pub const LIGHT_TOUCHED_TENTHS: u64 = 24;
 
 pub const LIGHT_WAYS: u64 = 4;
 /// A row's count into its way (the update anchor: a counted slot a row).
-pub const LIGHT_WAY_ROW: Fitted = Fitted { ns: 1.165, machine: WAYS_MACHINE, corpus: WAYS_CORPUS, anchor: Anchor::Update };
+pub const LIGHT_WAY_ROW: Fitted = Fitted {
+    ns: 1.165,
+    machine: WAYS_MACHINE,
+    corpus: WAYS_CORPUS,
+    anchor: Anchor::Update,
+};
 /// A code's step of the ways' walk in code order (the read anchor).
-pub const LIGHT_WAY_WALK: Fitted = Fitted { ns: 3.60, machine: WAYS_MACHINE, corpus: WAYS_CORPUS, anchor: Anchor::Read };
+pub const LIGHT_WAY_WALK: Fitted = Fitted {
+    ns: 3.60,
+    machine: WAYS_MACHINE,
+    corpus: WAYS_CORPUS,
+    anchor: Anchor::Read,
+};
 const WAYS_MACHINE: &str = "box 88: c8g.4xlarge, Graviton 4 (Neoverse V2), 16 vCPU";
 const WAYS_CORPUS: &str = "dev table lw (32 parts x 196,608 rows, 16 to 65,536 codes a part, uniform / runs / skewed; tm.sh 3 \
                            takes x 5 runs, ways never vs always) + kernels front_light.rs fit (one core, 3 runs)";
@@ -63,7 +83,8 @@ pub fn light_ways_max_codes() -> u64 {
 }
 
 pub const fn light_ways_on(r: &Ratios, m: &Machine, ncodes: u64, rows: u64) -> bool {
-    ncodes <= light_ways_max_codes_on(m) && ncodes.saturating_mul(light_way_rows_a_code_on(r)) <= rows
+    ncodes <= light_ways_max_codes_on(m)
+        && ncodes.saturating_mul(light_way_rows_a_code_on(r)) <= rows
 }
 
 /// `light_ways_on` on this host (the installed profile and `machine::host`): the kernel's bind reads it.
@@ -111,7 +132,8 @@ pub const fn light_keeps(touched: u64, rows: u64) -> bool {
     touched.saturating_mul(LIGHT_TOUCHED_TENTHS) <= rows.saturating_mul(10)
 }
 
-const PERCODE_MACHINE: &str = "box gentopn: c8g.4xlarge, Graviton 4 (Neoverse V2), 16 vCPU, held whole";
+const PERCODE_MACHINE: &str =
+    "box gentopn: c8g.4xlarge, Graviton 4 (Neoverse V2), 16 vCPU, held whole";
 /// The dev data (never a benchmark's tables or statements, the census or a bar cell): pgrcolumnar tables of two 1M-row
 /// parts, a text column `k<key>/<leaf>` grouped by a key derived from it (regexp_replace) with a count(*) FILTER (LIKE)
 /// beside it (the per-code front's window fold), runs of r = 1 .. 64 rows a key (a fold opens one map record in r rows)
@@ -129,11 +151,26 @@ const PERCODE_CORPUS: &str = "D-04 per-code front sweep (2 x 1M-row parts, deriv
 /// weights hold on every host.
 ///
 /// The per-row path's cost a row that the per-code front's fold spares.
-pub const PERCODE_ROW: Fitted = Fitted { ns: 47.80, machine: PERCODE_MACHINE, corpus: PERCODE_CORPUS, anchor: Anchor::Update };
+pub const PERCODE_ROW: Fitted = Fitted {
+    ns: 47.80,
+    machine: PERCODE_MACHINE,
+    corpus: PERCODE_CORPUS,
+    anchor: Anchor::Update,
+};
 /// The front's cost a code its window lists: the count, the list entry and the code's fold into the part's map.
-pub const PERCODE_CODE: Fitted = Fitted { ns: 37.69, machine: PERCODE_MACHINE, corpus: PERCODE_CORPUS, anchor: Anchor::Update };
+pub const PERCODE_CODE: Fitted = Fitted {
+    ns: 37.69,
+    machine: PERCODE_MACHINE,
+    corpus: PERCODE_CORPUS,
+    anchor: Anchor::Update,
+};
 /// The front's cost a map record its folds open: the record and its relay into the claim's table.
-pub const PERCODE_OPENED: Fitted = Fitted { ns: 64.88, machine: PERCODE_MACHINE, corpus: PERCODE_CORPUS, anchor: Anchor::Update };
+pub const PERCODE_OPENED: Fitted = Fitted {
+    ns: 64.88,
+    machine: PERCODE_MACHINE,
+    corpus: PERCODE_CORPUS,
+    anchor: Anchor::Update,
+};
 
 /// `cost` in 256ths of `row`, rounded: a weight the decline's integer test reads.
 pub const fn per_256(cost: f64, row: f64) -> u64 {
@@ -151,8 +188,16 @@ pub const PERCODE_OPENED_W: u64 = per_256(PERCODE_OPENED.ns, PERCODE_ROW.ns);
 /// Whether a fold of `codes` listed codes over `rows` rows that opened `opened` map records costs the front at least what
 /// the per-row path pays for those rows, under weights `code_w` / `opened_w` (256ths of a row's): the front declines. An
 /// empty fold never does.
-pub const fn percode_declines(codes: u64, rows: u64, opened: u64, code_w: u64, opened_w: u64) -> bool {
-    rows != 0 && (code_w as u128 * codes as u128 + opened_w as u128 * opened as u128) >= 256 * rows as u128
+pub const fn percode_declines(
+    codes: u64,
+    rows: u64,
+    opened: u64,
+    code_w: u64,
+    opened_w: u64,
+) -> bool {
+    rows != 0
+        && (code_w as u128 * codes as u128 + opened_w as u128 * opened as u128)
+            >= 256 * rows as u128
 }
 
 #[cfg(test)]
@@ -161,35 +206,82 @@ mod tests {
 
     #[test]
     fn the_per_code_front_declines_where_its_codes_and_records_outweigh_the_rows() {
-        assert_eq!((PERCODE_CODE_W, PERCODE_OPENED_W), (202, 347), "37.69 and 64.88 ns over 47.80 ns, in 256ths");
-        let d = |codes, rows, opened| percode_declines(codes, rows, opened, PERCODE_CODE_W, PERCODE_OPENED_W);
-        assert!(d(4096, 4096, 4096), "every row a fresh code and a fresh record");
-        assert!(d(2048, 4096, 2048), "two rows a code and a record: the sweep's tie (1.02x)");
-        assert!(!d(1024, 4096, 1024), "four rows a code and a record: the front 0.75x");
-        assert!(d(4096, 4096, 1024), "fresh codes, a record in four rows: the front 1.10x");
-        assert!(!d(4096, 4096, 300), "fresh codes whose records repeat (one key over many codes)");
+        assert_eq!(
+            (PERCODE_CODE_W, PERCODE_OPENED_W),
+            (202, 347),
+            "37.69 and 64.88 ns over 47.80 ns, in 256ths"
+        );
+        let d = |codes, rows, opened| {
+            percode_declines(codes, rows, opened, PERCODE_CODE_W, PERCODE_OPENED_W)
+        };
+        assert!(
+            d(4096, 4096, 4096),
+            "every row a fresh code and a fresh record"
+        );
+        assert!(
+            d(2048, 4096, 2048),
+            "two rows a code and a record: the sweep's tie (1.02x)"
+        );
+        assert!(
+            !d(1024, 4096, 1024),
+            "four rows a code and a record: the front 0.75x"
+        );
+        assert!(
+            d(4096, 4096, 1024),
+            "fresh codes, a record in four rows: the front 1.10x"
+        );
+        assert!(
+            !d(4096, 4096, 300),
+            "fresh codes whose records repeat (one key over many codes)"
+        );
         assert!(!d(0, 0, 0), "an empty fold");
-        assert!(!percode_declines(4096, 4096, 4096, 0, 0), "no weights: never");
+        assert!(
+            !percode_declines(4096, 4096, 4096, 0, 0),
+            "no weights: never"
+        );
         assert_eq!(per_256(1.0, 0.0), 0);
     }
 
     #[test]
     fn the_light_front_derives_its_bounds() {
-        assert_eq!(LIGHT_MAX_CODES * LIGHT_CODE_BYTES, 8 << 20, "8 MiB of arrays a participant at most");
-        assert_eq!(LIGHT_DENSE, 3, "the fitted break-even: 3.46 / 1.50, rounded up");
+        assert_eq!(
+            LIGHT_MAX_CODES * LIGHT_CODE_BYTES,
+            8 << 20,
+            "8 MiB of arrays a participant at most"
+        );
+        assert_eq!(
+            LIGHT_DENSE, 3,
+            "the fitted break-even: 3.46 / 1.50, rounded up"
+        );
     }
 
     #[test]
+    #[allow(clippy::assertions_on_constants)]
     fn the_light_front_counts_every_part_a_default_cut_seals_where_its_claim_fills_the_arrays() {
-        assert!(LIGHT_MAX_CODES >= 1 << 20, "a part of 2^20 rows (the default cut) at one row a code");
-        assert!(LIGHT_MAX_CODES >= 600_000, "parts of 600 K codes: the front 0.69 .. 0.96x the hashed table at W0 on c8g");
+        assert!(
+            LIGHT_MAX_CODES >= 1 << 20,
+            "a part of 2^20 rows (the default cut) at one row a code"
+        );
+        assert!(
+            LIGHT_MAX_CODES >= 600_000,
+            "parts of 600 K codes: the front 0.69 .. 0.96x the hashed table at W0 on c8g"
+        );
         let (part, granule) = (1u64 << 20, 8192u64);
         for (r, dense) in [(Ratios::ONE, 3), (crate::census::C6A, 2)] {
             let takes = |codes, rows| light_claim_takes_on(&r, codes, rows);
-            assert!(takes(part, 128 * granule), "a claim of a whole part (W0's): its convert walks in code order");
-            assert!(!takes(part, 4 * granule), "4 granules over 1 M codes (a W8 claim's cut, ~1 row a touched code)");
+            assert!(
+                takes(part, 128 * granule),
+                "a claim of a whole part (W0's): its convert walks in code order"
+            );
+            assert!(
+                !takes(part, 4 * granule),
+                "4 granules over 1 M codes (a W8 claim's cut, ~1 row a touched code)"
+            );
             assert!(takes(65536, 4 * granule), "4 granules over 64 K codes");
-            assert!(takes(dense * 1000, 1000) && !takes(dense * 1000 + 1, 1000), "one code in light_dense touched at best");
+            assert!(
+                takes(dense * 1000, 1000) && !takes(dense * 1000 + 1, 1000),
+                "one code in light_dense touched at best"
+            );
             assert!(takes(part, u64::MAX), "a claim of every granule");
         }
     }
@@ -197,18 +289,40 @@ mod tests {
     #[test]
     fn a_key_past_a_join_keeps_its_code_up_to_the_old_bound() {
         assert_eq!(CODE_KEY_MAX_ENTRIES, 1 << 18);
-        assert_eq!(LIGHT_KEYS_MAX_GROUPS, 1 << 18, "two or more keys: the planner's estimate gate stays the old bound");
-        assert!(code_key_pays(1 << 18, 1 << 19) && !code_key_pays((1 << 18) + 1, u64::MAX), "2^18 entries at 2 rows an entry");
-        assert!(!code_key_pays(250_000, 400_000), "a 250,000-entry key over 400,000 rows keeps the value");
+        assert_eq!(
+            LIGHT_KEYS_MAX_GROUPS,
+            1 << 18,
+            "two or more keys: the planner's estimate gate stays the old bound"
+        );
+        assert!(
+            code_key_pays(1 << 18, 1 << 19) && !code_key_pays((1 << 18) + 1, u64::MAX),
+            "2^18 entries at 2 rows an entry"
+        );
+        assert!(
+            !code_key_pays(250_000, 400_000),
+            "a 250,000-entry key over 400,000 rows keeps the value"
+        );
     }
 
     #[test]
     fn the_ways_take_a_part_of_few_codes_at_enough_rows_a_code() {
-        assert_eq!(LIGHT_WAY_ROWS_A_CODE, 4, "the measured 3.60 / 1.165, rounded up");
-        assert_eq!(LIGHT_WAYS_MAX_CODES, 4096, "64 KiB of four u32 counts a code: the reference L1d");
+        assert_eq!(
+            LIGHT_WAY_ROWS_A_CODE, 4,
+            "the measured 3.60 / 1.165, rounded up"
+        );
+        assert_eq!(
+            LIGHT_WAYS_MAX_CODES, 4096,
+            "64 KiB of four u32 counts a code: the reference L1d"
+        );
         let ways = |ncodes, rows| light_ways_on(&Ratios::ONE, &Machine::REFERENCE, ncodes, rows);
-        assert!(ways(2048, 8192) && !ways(2049, 8192), "4 rows a code of a granule's window");
-        assert!(ways(4096, 1 << 20) && !ways(4097, u64::MAX), "past the L1d at any rows");
+        assert!(
+            ways(2048, 8192) && !ways(2049, 8192),
+            "4 rows a code of a granule's window"
+        );
+        assert!(
+            ways(4096, 1 << 20) && !ways(4097, u64::MAX),
+            "past the L1d at any rows"
+        );
         assert!(ways(16, 64) && !ways(16, 63), "few codes, few rows");
         assert!(!ways(u64::MAX, u64::MAX), "a saturated count");
     }
@@ -222,14 +336,23 @@ mod tests {
         assert!(light_takes(1, 2), "one count of two rows");
         assert!(!light_takes(1, 1), "one count of one row");
         assert!(!light_takes(1, 0), "a window of no rows");
-        assert!(!light_takes(LIGHT_MAX_CODES + 1, u64::MAX), "past the largest array, at any rows");
+        assert!(
+            !light_takes(LIGHT_MAX_CODES + 1, u64::MAX),
+            "past the largest array, at any rows"
+        );
         assert!(!light_takes(u64::MAX, u64::MAX), "a saturated product");
     }
 
     #[test]
     fn a_counted_part_keeps_the_front_at_the_fits_break_even() {
-        assert_eq!(LIGHT_TOUCHED_TENTHS, 24, "the fitted 2.4 rows a touched count");
-        assert!(light_keeps(10, 24) && !light_keeps(10, 23), "2.4 rows a touched count");
+        assert_eq!(
+            LIGHT_TOUCHED_TENTHS, 24,
+            "the fitted 2.4 rows a touched count"
+        );
+        assert!(
+            light_keeps(10, 24) && !light_keeps(10, 23),
+            "2.4 rows a touched count"
+        );
         assert!(!light_keeps(3542, 8192), "the bind's edge declines");
         assert!(light_keeps(2048, 8192), "4 rows a touched count");
         assert!(light_keeps(0, 0), "a part that touched nothing");

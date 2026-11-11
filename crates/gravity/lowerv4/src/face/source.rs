@@ -10,6 +10,7 @@ use gravity_ir::builder::{FunctionBuilder, ProgramBuilder};
 use gravity_ir::{Block, Value};
 use gravity_program::{ArenaRef, Pipeline, SiteDesc};
 
+#[allow(unused_imports)]
 use crate::cell::LaneId;
 use crate::face::strategy;
 use crate::frame::env::Env;
@@ -407,7 +408,7 @@ pub trait SourceMech {
     /// The source's own position write-back when it has no site (a breaker's emit).
     fn write_back(&self, _b: &mut FunctionBuilder<'_>, _env: &mut Env, _cur: Value, _out: Value) {}
     /// D732-rest (V4R-290): a COPY-marked subquery's entry (`copy_row::wrap`): the frame's call is its stored row first.
-    fn copy_entry(&self) -> Option<&crate::rerun::epq::copy_row::CopyEntry> { None }
+    fn copy_entry(&self) -> Option<&crate::rerun::epq::copy_row::CopyEntry<'_>> { None }
 }
 
 #[cfg(test)]

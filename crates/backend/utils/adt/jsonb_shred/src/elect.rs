@@ -169,6 +169,7 @@ pub fn elect_manifest_auto(
         .collect();
     // Descending presence, canonical path order on ties (BTreeMap iteration
     // already yields canonical order; the sort is stable).
+    #[allow(clippy::unnecessary_sort_by)]
     candidates.sort_by(|a, b| b.1.presence.cmp(&a.1.presence));
     for (path, s) in candidates {
         if admitted.len() >= budgets.max_paths {

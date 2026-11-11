@@ -626,7 +626,7 @@ fn map_subplan<'p>(b: &mut Builder<'p, '_>, f: Found1<'p>, k: Kind, id: i32, ope
 
 /// `map_subplan` for a SubPlan its place evaluates ahead of PostgreSQL's demand under licence `ahead`, carried on each of
 /// its ops (`SubPlanDesc::ahead`).
-fn map_subplan_held<'p>(b: &mut Builder<'p, '_>, f: Found1<'p>, k: Kind, id: i32, mut open: Open<'p>, ahead: Option<crate::effects::Licence>) -> Result<Open<'p>, Refusal> {
+fn map_subplan_held<'p>(b: &mut Builder<'p, '_>, f: Found1<'p>, _k: Kind, id: i32, mut open: Open<'p>, ahead: Option<crate::effects::Licence>) -> Result<Open<'p>, Refusal> {
     let Found1 { s, alternative, site, conditional } = f;
     let s = if f.alternative { s } else { read_as(&open, s.plan_id).unwrap_or(s) };
     let link = link_of(s.subLinkType);
@@ -833,7 +833,7 @@ fn scan<'p>(n: Node<'p>, site: SubSite, cond: bool, window: bool, found: &mut Fo
             // the fill's (`attach_window_args`) or refuse by name
             match x.as_window_func() {
                 Some(w) if window => {
-                    for (a, c) in w.args.iter().enumerate().filter(|&(a, _)| crate::ops::window_step_arg(w, a)) {
+                    for (_a, c) in w.args.iter().enumerate().filter(|&(a, _)| crate::ops::window_step_arg(w, a)) {
                         scan(c, SubSite::AggArg, cond || w.aggfilter.is_some(), window, found, err, rows, k, id);
                     }
                 }

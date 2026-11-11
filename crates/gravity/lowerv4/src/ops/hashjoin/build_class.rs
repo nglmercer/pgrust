@@ -1,6 +1,7 @@
 //! The side classification of a join's build and outer side (D237, D276, D762, op 14, D824): what each pipeline's own ops
 //! and feeders may raise or call, whether a raising build's error is held for the probe's first row, and which outer
 //! producers the runner may skip after an empty build. Split from join/build.rs (D824). Owner M1-JOIN.
+#[allow(unused_imports)]
 use gravity_decompose::catalog::IndexAm;
 use gravity_decompose::graph::Source;
 use gravity_decompose::join::JoinDesc;
@@ -575,6 +576,7 @@ fn raise_only(gx: &Gx<'_, '_>, x: usize) -> Option<gravity_decompose::effects::L
     use gravity_decompose::effects::{licence_unchecked, Effects};
     use types_nodes::nodes_enums::CmdType;
     let select = gx.graph.stmt.is_some_and(|s| s.commandType == CmdType::CMD_SELECT && s.rowMarks.iter().next().is_none() && !s.hasModifyingCTE);
+    #[allow(clippy::nonminimal_bool)]
     if !(select && keyed_side(gx, x) == Side::Raises && !crate::effects::own_hides_user_code(gx, x) && !crate::effects::hashes_raising_key(gx, x)) {
         return None;
     }

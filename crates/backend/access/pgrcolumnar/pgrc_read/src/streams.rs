@@ -8,10 +8,10 @@
 //! never reconstructs a `StorageClass` from an entry; kernels own payload
 //! semantics and bounds-check regardless (spec §19.2).
 
+use pgrc_format::class::CLASS_VARLENA;
 use pgrc_format::part::{
     ExtentRecord, StreamEntry, StreamRole, EXTENT_RECORD_LEN, STREAM_ENTRY_LEN,
 };
-use pgrc_format::class::CLASS_VARLENA;
 use pgrc_format::wire::Cur;
 use pgrc_format::{FormatError, FormatResult};
 
@@ -79,8 +79,14 @@ impl StreamDirectory {
     /// D4552 (a): its heap bytes (its lists, each stream's extents, its `Arc` block): what its charge holds at least when
     /// the general road served the parse (`OpenPart::stream_directory`).
     pub(crate) fn heap_bytes(&self) -> u64 {
-        let extents: usize = self.streams.iter().map(|s| s.extents.capacity() * core::mem::size_of::<ExtentRecord>()).sum();
-        (self.streams.capacity() * core::mem::size_of::<ParsedStream>() + self.index.capacity() * core::mem::size_of::<((u32, u32, u8), u32)>() + extents) as u64
+        let extents: usize = self
+            .streams
+            .iter()
+            .map(|s| s.extents.capacity() * core::mem::size_of::<ExtentRecord>())
+            .sum();
+        (self.streams.capacity() * core::mem::size_of::<ParsedStream>()
+            + self.index.capacity() * core::mem::size_of::<((u32, u32, u8), u32)>()
+            + extents) as u64
             + memledger::arc_bytes::<StreamDirectory>()
     }
 
@@ -118,7 +124,11 @@ impl StreamDirectory {
                 });
             }
         }
-        Ok(StreamDirectory { held: pgsync::OnceLock::new(), streams, index })
+        Ok(StreamDirectory {
+            held: pgsync::OnceLock::new(),
+            streams,
+            index,
+        })
     }
 
     pub fn streams(&self) -> &[ParsedStream] {
@@ -154,13 +164,11 @@ fn parse_extents(
     }
     let off = entry.extent_table_off as usize;
     let need = entry.extent_count as usize * EXTENT_RECORD_LEN;
-    let end = off.checked_add(need).ok_or(FormatError::Bounds {
-        at: "extent table",
-    })?;
+    let end = off
+        .checked_add(need)
+        .ok_or(FormatError::Bounds { at: "extent table" })?;
     if end > section.len() {
-        return Err(FormatError::Bounds {
-            at: "extent table",
-        });
+        return Err(FormatError::Bounds { at: "extent table" });
     }
     let mut c = Cur::new(&section[off..end]);
     let mut extents = Vec::with_capacity(entry.extent_count as usize);
@@ -230,11 +238,10 @@ pub fn parse_path_table(section: &[u8]) -> FormatResult<Vec<String>> {
         if off + len > section.len() {
             return Err(FormatError::Truncated { at: "PathTable" });
         }
-        let s = core::str::from_utf8(&section[off..off + len]).map_err(|_| {
-            FormatError::Corrupt {
+        let s =
+            core::str::from_utf8(&section[off..off + len]).map_err(|_| FormatError::Corrupt {
                 at: "PathTable utf8",
-            }
-        })?;
+            })?;
         out.push(s.to_string());
         off += len;
     }
@@ -247,24 +254,63 @@ pub fn parse_path_table(section: &[u8]) -> FormatResult<Vec<String>> {
 /// the table and whether that position has a Validity stream), summed in no order, so a part that numbers its paths
 /// otherwise digests alike. 0: the part shredded nothing.
 pub(crate) fn shred_digest(paths: &[String], dir: &StreamDirectory) -> u64 {
-    let fnv = |h: u64, bytes: &[u8]| bytes.iter().fold(h, |h, &b| (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3));
+    let fnv = |h: u64, bytes: &[u8]| {
+        bytes.iter().fold(h, |h, &b| {
+            (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
+        })
+    };
     let word = |h: u64, s: Option<&ParsedStream>| match s {
-        Some(s) => [u64::from(s.entry.class), u64::from(s.entry.fixed_len), u64::from(s.entry.flags), u64::from(s.entry.aux32), u64::from(s.entry.encoding)].iter().fold(fnv(h, &[1]), |h, x| fnv(h, &x.to_le_bytes())),
+        Some(s) => [
+            u64::from(s.entry.class),
+            u64::from(s.entry.fixed_len),
+            u64::from(s.entry.flags),
+            u64::from(s.entry.aux32),
+            u64::from(s.entry.encoding),
+        ]
+        .iter()
+        .fold(fnv(h, &[1]), |h, x| fnv(h, &x.to_le_bytes())),
         None => fnv(h, &[0]),
     };
-    let path_of = |s: &ParsedStream| (s.entry.path_ord as usize).checked_sub(1).and_then(|i| paths.get(i));
-    let values = || dir.streams().iter().filter(|s| s.role == StreamRole::Values && s.entry.path_ord > 0);
+    let path_of = |s: &ParsedStream| {
+        (s.entry.path_ord as usize)
+            .checked_sub(1)
+            .and_then(|i| paths.get(i))
+    };
+    let values = || {
+        dir.streams()
+            .iter()
+            .filter(|s| s.role == StreamRole::Values && s.entry.path_ord > 0)
+    };
     let mut sum = 0u64;
     // bounded("catalog-sized: the part's stream directory, read and decoded at its open (its columns times their roles and shred paths)")
     for s in values() {
         let Some(path) = path_of(s) else { continue };
-        if values().any(|t| t.entry.attno == s.entry.attno && t.entry.path_ord < s.entry.path_ord && path_of(t) == Some(path)) {
+        if values().any(|t| {
+            t.entry.attno == s.entry.attno
+                && t.entry.path_ord < s.entry.path_ord
+                && path_of(t) == Some(path)
+        }) {
             continue;
         }
-        let first = paths.iter().position(|x| x == path).map_or(0, |i| i as u32 + 1);
-        let h = fnv(fnv(fnv(0xcbf2_9ce4_8422_2325, path.as_bytes()), &[0xff]), &s.entry.attno.to_le_bytes());
-        let h = word(word(h, Some(s)), dir.lookup(s.entry.attno, first, StreamRole::Values));
-        sum = sum.wrapping_add(fnv(h, &[u8::from(dir.lookup(s.entry.attno, first, StreamRole::Validity).is_some())]));
+        let first = paths
+            .iter()
+            .position(|x| x == path)
+            .map_or(0, |i| i as u32 + 1);
+        let h = fnv(
+            fnv(fnv(0xcbf2_9ce4_8422_2325, path.as_bytes()), &[0xff]),
+            &s.entry.attno.to_le_bytes(),
+        );
+        let h = word(
+            word(h, Some(s)),
+            dir.lookup(s.entry.attno, first, StreamRole::Values),
+        );
+        sum = sum.wrapping_add(fnv(
+            h,
+            &[u8::from(
+                dir.lookup(s.entry.attno, first, StreamRole::Validity)
+                    .is_some(),
+            )],
+        ));
     }
     sum
 }

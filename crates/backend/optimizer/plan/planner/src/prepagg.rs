@@ -82,18 +82,12 @@ pub fn preprocess_aggrefs<'mcx>(
 }
 
 /// The single-node entry (C passes the bare havingQual to the same walker).
-pub fn preprocess_aggrefs_node<'mcx>(
-    run: &mut PlannerRun<'mcx>,
-    node: Node<'mcx>,
-) -> PgResult<()> {
+pub fn preprocess_aggrefs_node<'mcx>(run: &mut PlannerRun<'mcx>, node: Node<'mcx>) -> PgResult<()> {
     preprocess_aggrefs_walker(run, node)
 }
 
 // C returns without descending into a matched Aggref (no same-level nesting).
-fn preprocess_aggrefs_walker<'mcx>(
-    run: &mut PlannerRun<'mcx>,
-    node: Node<'mcx>,
-) -> PgResult<()> {
+fn preprocess_aggrefs_walker<'mcx>(run: &mut PlannerRun<'mcx>, node: Node<'mcx>) -> PgResult<()> {
     match node.node_tag() {
         NodeTag::T_Aggref => preprocess_aggref(run, node),
         // C's default expression_tree_walker arm: descend into the args.
@@ -298,12 +292,10 @@ fn preprocess_aggrefs_walker<'mcx>(
             }
             Ok(())
         }
-        NodeTag::T_JsonIsPredicate => {
-            match node.as_json_is_predicate().unwrap().expr {
-                Some(e) => preprocess_aggrefs_walker(run, e),
-                None => Ok(()),
-            }
-        }
+        NodeTag::T_JsonIsPredicate => match node.as_json_is_predicate().unwrap().expr {
+            Some(e) => preprocess_aggrefs_walker(run, e),
+            None => Ok(()),
+        },
         NodeTag::T_JsonBehavior => match node.as_json_behavior().unwrap().expr {
             Some(e) => preprocess_aggrefs_walker(run, e),
             None => Ok(()),
@@ -331,9 +323,7 @@ fn preprocess_aggrefs_walker<'mcx>(
             }
             Ok(())
         }
-        other => panic!(
-            "preprocess_aggrefs_walker (prepagg.c): {other:?}; M3 expression lane"
-        ),
+        other => panic!("preprocess_aggrefs_walker (prepagg.c): {other:?}; M3 expression lane"),
     }
 }
 
@@ -362,7 +352,11 @@ fn preprocess_aggref<'mcx>(run: &mut PlannerRun<'mcx>, node: Node<'mcx>) -> PgRe
 
     let mut aggtranstypmod = -1;
     if !aggref.args.is_nil() {
-        let first = aggref.args.nth(0).as_target_entry().expect("agg arg is a TLE");
+        let first = aggref
+            .args
+            .nth(0)
+            .as_target_entry()
+            .expect("agg arg is a TLE");
         let (argtype, argtypmod) = expr_type_typmod(first.expr);
         if aggtranstype == argtype {
             aggtranstypmod = argtypmod;
@@ -383,8 +377,7 @@ fn preprocess_aggref<'mcx>(run: &mut PlannerRun<'mcx>, node: Node<'mcx>) -> PgRe
 
     let (aggno, transno);
     let mut same_input_transnos: mcx::PgVec<'_, i32> = mcx::PgVec::new_in(mcx);
-    if let Some(existing) =
-        find_compatible_agg(run, node, aggtranstype, &mut same_input_transnos)?
+    if let Some(existing) = find_compatible_agg(run, node, aggtranstype, &mut same_input_transnos)?
     {
         let aggref_id = run.root.alloc_expr_node(node);
         run.root.agg_info_mut(existing.1).aggrefs.push(aggref_id);
@@ -506,15 +499,10 @@ fn too_many_aggregate_arguments() -> Box<types_error::PgError> {
 // GetAggInitVal (prepagg.c): initval text through the transtype's typinput.
 // In-function by-ref results ride the resolved carrier's scratch (dead once
 // flinfo drops); C's palloc'd result is modeled by the datumCopy into mcx.
-fn get_agg_init_val(
-    mcx: mcx::Mcx<'_>,
-    text: &str,
-    transtype: u32,
-) -> PgResult<datum::Datum> {
+fn get_agg_init_val(mcx: mcx::Mcx<'_>, text: &str, transtype: u32) -> PgResult<datum::Datum> {
     let (typinput, typioparam) = lsyscache::getTypeInputInfo(transtype)?;
     let mut flinfo = fmgr_core::fmgr_info(typinput)?;
-    let cstr = std::ffi::CString::new(text)
-        .expect("agginitval text contains an interior NUL");
+    let cstr = std::ffi::CString::new(text).expect("agginitval text contains an interior NUL");
     let d = types_fmgr::input_function_call(&mut flinfo, Some(&cstr), typioparam, -1, mcx)?;
     let (typlen, typbyval) = lsyscache::get_typlenbyval(transtype)?;
     if typbyval {
@@ -608,7 +596,12 @@ fn find_compatible_trans(
         }
         if !init_value_is_null
             && !pertrans.initValueIsNull
-            && datum_is_equal(init_value, pertrans.initValue, transtype_byval, transtype_len)
+            && datum_is_equal(
+                init_value,
+                pertrans.initValue,
+                transtype_byval,
+                transtype_len,
+            )
         {
             return Some(transno);
         }
@@ -659,7 +652,12 @@ pub fn get_agg_clause_costs(
         let id = run.root.aggtransinfos[i];
         let (transfn_oid, combinefn_oid, serialfn_oid, deserialfn_oid) = {
             let ti = run.root.agg_trans_info(id);
-            (ti.transfn_oid, ti.combinefn_oid, ti.serialfn_oid, ti.deserialfn_oid)
+            (
+                ti.transfn_oid,
+                ti.combinefn_oid,
+                ti.serialfn_oid,
+                ti.deserialfn_oid,
+            )
         };
         let (byval, transtype, transtypmod, transspace, nargs) = {
             let ti = run.root.agg_trans_info(id);

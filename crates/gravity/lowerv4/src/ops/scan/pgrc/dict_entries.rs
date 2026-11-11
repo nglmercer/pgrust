@@ -177,6 +177,7 @@ fn every(px: &Px<'_, '_>, k: usize, site: &SiteDesc) -> bool {
     let mut counted = 0u64;
     for d in g.aggs.iter() {
         let distinct = matches!(d.class, Class::CountAny) && d.mods.distinct != 0 && d.mods.order == 0 && !d.mods.filter && d.filter.is_none();
+        #[allow(clippy::nonminimal_bool)]
         if !(distinct && d.final_ == FinalForm::Distinct && d.coll.bytes_eq) && !extreme(d) {
             return false;
         }

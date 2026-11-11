@@ -21,9 +21,9 @@
 //! - the planner's estimates are not hashed raw (D359: an MCV literal and each template's ANALYZE sample move them, the
 //!   graph does not): the key carries what decompose derives from them at the nodes that read them (a range source's
 //!   and a bitmap index's rows, a Hash's partition bits, a hash join's outer-first), and nothing for the rest.
-//! `tests/front_census.rs` perturbs every by-value Const of the decompose corpus against this rule, and every node's
-//! estimates against the last one; the shadow check
-//! (`pgrust.gravity_front_check`, on in every harness) decomposes again on a hit and raises on any difference.
+//!   `tests/front_census.rs` perturbs every by-value Const of the decompose corpus against this rule, and every node's
+//!   estimates against the last one; the shadow check
+//!   (`pgrust.gravity_front_check`, on in every harness) decomposes again on a hit and raises on any difference.
 
 use core::cell::{Cell, RefCell};
 use core::hash::{Hash, Hasher};
@@ -338,6 +338,7 @@ fn alias(arena: ArenaRef, nodes: &[Node<'_>], tables: &[(u32, u32)], h: &mut Lan
 /// The front walk's node positions by address, as `file` and `derived_at` look them up. D4449: a table where no
 /// address repeats (the one position the binary search found), else the sorted (address, position) list (D3615 (a)) and
 /// its binary search, so a node at two places resolves to the position it did before.
+#[allow(clippy::large_enum_variant)]
 enum Positions {
     Table(gravity_lower::inputs::key::PosTable),
     Sorted(ArenaVec<(usize, u32)>),

@@ -26,7 +26,9 @@ fn fill(p: usize, v: u8) {
 
 fn holds(p: usize, v: u8) -> bool {
     // SAFETY: as `fill`.
-    unsafe { core::slice::from_raw_parts(p as *const u8, SIZE) }.iter().all(|&b| b == v)
+    unsafe { core::slice::from_raw_parts(p as *const u8, SIZE) }
+        .iter()
+        .all(|&b| b == v)
 }
 
 #[test]
@@ -42,7 +44,11 @@ fn idle_tails() {
             fill(p, i as u8);
             runs.entry(p & !(RUN - 1)).or_default().push(p);
         }
-        assert!(runs.len() >= 3, "200 blocks of {SIZE} B span 3 runs: {}", runs.len());
+        assert!(
+            runs.len() >= 3,
+            "200 blocks of {SIZE} B span 3 runs: {}",
+            runs.len()
+        );
         let tag = |p: usize| blocks.iter().position(|&b| b == p).unwrap() as u8;
         // per run: its 3 lowest blocks kept, one other freed by another thread, the rest here
         let (mut kept, mut remote, mut local) = (Vec::new(), Vec::new(), Vec::new());
@@ -72,13 +78,19 @@ fn idle_tails() {
                 let e = hi.entry(p & !(RUN - 1)).or_default();
                 *e = (*e).max((p + SIZE).next_multiple_of(PAGE));
             }
-            hi.into_iter().map(|(run, keep)| (keep, run + RUN - keep)).collect()
+            hi.into_iter()
+                .map(|(run, keep)| (keep, run + RUN - keep))
+                .collect()
         };
         let cut = tails(&kept);
 
         pagepool::hooks::idle_tail_switch(false);
         assert_eq!(pagepool::idle_tails(false), (0, false), "off: nothing goes");
-        let mapped = |a: usize, n: usize| pagepool::residency_seam(a, n, false).map(|(r, z, _)| (r, z)).expect("a reading");
+        let mapped = |a: usize, n: usize| {
+            pagepool::residency_seam(a, n, false)
+                .map(|(r, z, _)| (r, z))
+                .expect("a reading")
+        };
         let before: usize = cut.iter().map(|&(a, n)| mapped(a, n).0).sum();
         assert!(before > 0, "the freed blocks' pages were resident");
 
@@ -100,26 +112,61 @@ fn idle_tails() {
         pagepool::hooks::idle_tail_budget(500_000);
         let (on, runs1, bytes1, ..) = pagepool::idle_tail_counts();
         let (calls1, ns, max_ns, stops1, hist) = pagepool::idle_tail_times();
-        assert!(calls1 == calls0 + n && max_ns > 0 && ns >= max_ns && hist.iter().sum::<u64>() == calls1, "timed: {calls1} {ns} {max_ns} {hist:?}");
-        assert!(n >= cut.len() as u64 && stops1 - stops0 == n - 1, "one run a call: {n} calls for {} runs with a tail", cut.len());
+        assert!(
+            calls1 == calls0 + n
+                && max_ns > 0
+                && ns >= max_ns
+                && hist.iter().sum::<u64>() == calls1,
+            "timed: {calls1} {ns} {max_ns} {hist:?}"
+        );
+        assert!(
+            n >= cut.len() as u64 && stops1 - stops0 == n - 1,
+            "one run a call: {n} calls for {} runs with a tail",
+            cut.len()
+        );
         // a page swapped out between the two reads is given back but not counted resident
-        assert!(on && (gone >= before || whole_but_swap(gone, before, sw)) && runs1 > runs0 && bytes1 - bytes0 == gone as u64, "gone {gone} before {before}");
+        assert!(
+            on && (gone >= before || whole_but_swap(gone, before, sw))
+                && runs1 > runs0
+                && bytes1 - bytes0 == gone as u64,
+            "gone {gone} before {before}"
+        );
         for &(a, n) in &cut {
-            assert_eq!(mapped(a, n), (0, 0), "the run past its last used block's page is given back: {a:#x}+{n}");
+            assert_eq!(
+                mapped(a, n),
+                (0, 0),
+                "the run past its last used block's page is given back: {a:#x}+{n}"
+            );
         }
-        assert!(kept.iter().all(|&p| holds(p, tag(p))), "kept blocks read as written");
-        assert_eq!(pagepool::idle_tails(false).0, 0, "a second cut finds nothing past the kept pages");
+        assert!(
+            kept.iter().all(|&p| holds(p, tag(p))),
+            "kept blocks read as written"
+        );
+        assert_eq!(
+            pagepool::idle_tails(false).0,
+            0,
+            "a second cut finds nothing past the kept pages"
+        );
 
         // SAFETY: a non-zero layout.
         let again: Vec<usize> = (0..300).map(|_| unsafe { A.alloc(l) } as usize).collect();
         let mut all: Vec<usize> = kept.iter().chain(again.iter()).copied().collect();
         all.sort();
-        assert!(all.windows(2).all(|w| w[0] + SIZE <= w[1]), "blocks are distinct");
+        assert!(
+            all.windows(2).all(|w| w[0] + SIZE <= w[1]),
+            "blocks are distinct"
+        );
         for (i, &p) in again.iter().enumerate() {
             fill(p, 0x80 | i as u8);
         }
-        assert!(kept.iter().all(|&p| holds(p, tag(p))), "kept blocks unchanged by the takes after the cut");
-        assert!(again.iter().enumerate().all(|(i, &p)| holds(p, 0x80 | i as u8)));
+        assert!(
+            kept.iter().all(|&p| holds(p, tag(p))),
+            "kept blocks unchanged by the takes after the cut"
+        );
+        assert!(again
+            .iter()
+            .enumerate()
+            .all(|(i, &p)| holds(p, 0x80 | i as u8)));
         for &p in kept.iter().chain(again.iter()) {
             // SAFETY: ours, freed once.
             unsafe { A.dealloc(p as *mut u8, l) };
@@ -162,8 +209,16 @@ fn idle_tails() {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         let (_, _, _, d1, s1) = pagepool::idle_tail_counts();
-        assert!(d1 == d0 || s1 > s0, "a tail left for the purger had its split made: deferred {} splits {}", d1 - d0, s1 - s0);
-        assert!(held.iter().all(|&(i, p)| holds(p, i as u8)), "kept blocks read as written across the deferred cut");
+        assert!(
+            d1 == d0 || s1 > s0,
+            "a tail left for the purger had its split made: deferred {} splits {}",
+            d1 - d0,
+            s1 - s0
+        );
+        assert!(
+            held.iter().all(|&(i, p)| holds(p, i as u8)),
+            "kept blocks read as written across the deferred cut"
+        );
         for &(_, p) in &held {
             // SAFETY: ours, freed once.
             unsafe { A.dealloc(p as *mut u8, l) };

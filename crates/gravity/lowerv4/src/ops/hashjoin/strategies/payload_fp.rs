@@ -17,7 +17,7 @@
 //!   rep.code.hash's does: the same words a code of those bytes keys by. It saves the group a SipHash a row, no render, so
 //!   it has its own cost rule (cost::payload_plain), and it is taken only where the statement images its text keys as
 //!   that Fp128 (`plain_image`).
-//! A column outside these gates (`cols`) keeps today's path:
+//!   A column outside these gates (`cols`) keeps today's path:
 //! - an `Fp128` key or DISTINCT argument of a hashed, DISTINCT, key-ordered hashed group or Unique the probe pipeline ends in,
 //!   under a collation whose equal values are equal bytes (D823), fed by the whole pipeline (no streamed group);
 //! - a bare column of the row, walked back to the probe (or drain) right before a projection, a payload column of `b`'s records,
@@ -28,11 +28,11 @@
 //! - the pair cannot swap (join.buildside: only an INNER pair ever swaps), and the cost rule on plan estimates (lower inputs/key.rs `decide`, a guard of
 //!   the program): the rows expected at the group times what a row there saves (a render and a SipHash against two loads)
 //!   are at least the build's rows times a row's store, both from the class table's measured rows (`pays`).
-//! The build keeps out a compact record, an Arms or foreign run and a hoisted column (build.rs `live`); at most `FP_COLS`
-//! columns per build, the sets in place (no heap: alloclint). Budget 360 lines. Owner joinfp.
-//! Roads (genreg P6: every default-ON decision has an off switch): `SET pgrust.gravity_road_off = 'join.payload_fp'` keeps
-//! the render on every build (no record carries the words); `'join.drain.fp'` keeps it on a build whose probe drains (a
-//! RIGHT / FULL / RIGHT SEMI / RIGHT ANTI join), so the probe's rows and the drained records reach the end in one cell form.
+//!   The build keeps out a compact record, an Arms or foreign run and a hoisted column (build.rs `live`); at most `FP_COLS`
+//!   columns per build, the sets in place (no heap: alloclint). Budget 360 lines. Owner joinfp.
+//!   Roads (genreg P6: every default-ON decision has an off switch): `SET pgrust.gravity_road_off = 'join.payload_fp'` keeps
+//!   the render on every build (no record carries the words); `'join.drain.fp'` keeps it on a build whose probe drains (a
+//!   RIGHT / FULL / RIGHT SEMI / RIGHT ANTI join), so the probe's rows and the drained records reach the end in one cell form.
 use gravity_abi::breaker::{BreakerKind, KeyKind};
 use gravity_decompose::graph::Source;
 use gravity_decompose::join::JoinDesc;

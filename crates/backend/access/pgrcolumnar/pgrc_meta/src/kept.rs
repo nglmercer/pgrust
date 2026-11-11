@@ -32,7 +32,10 @@ pub(crate) fn charged_vec<T>(on: On) -> ChargedVec<T> {
 /// set) sat on the thread's account, unattributed, until it ended. What the hint leaves out (a filter's) grows inside the
 /// fill and is fitted after it, as before; [`collect_on_n`] reserves a count the hint does not tell (a filter's, D4594).
 #[inline]
-pub(crate) fn collect_on<T>(on: On, it: impl IntoIterator<Item = T>) -> FormatResult<ChargedVec<T>> {
+pub(crate) fn collect_on<T>(
+    on: On,
+    it: impl IntoIterator<Item = T>,
+) -> FormatResult<ChargedVec<T>> {
     let it = it.into_iter();
     let n = it.size_hint().0;
     collect_on_n(on, n, it)
@@ -40,7 +43,11 @@ pub(crate) fn collect_on<T>(on: On, it: impl IntoIterator<Item = T>) -> FormatRe
 
 /// [`collect_on`] of an iterator that yields `n` items its size hint does not tell (a filter).
 #[inline]
-pub(crate) fn collect_on_n<T>(on: On, n: usize, it: impl IntoIterator<Item = T>) -> FormatResult<ChargedVec<T>> {
+pub(crate) fn collect_on_n<T>(
+    on: On,
+    n: usize,
+    it: impl IntoIterator<Item = T>,
+) -> FormatResult<ChargedVec<T>> {
     let mut v = charged_vec(on);
     v.try_reserve(n).map_err(|_| oom::<T>(n))?;
     v.with_vec(|w| w.extend(it)); // alloc: Exec charged on
@@ -48,7 +55,9 @@ pub(crate) fn collect_on_n<T>(on: On, n: usize, it: impl IntoIterator<Item = T>)
 }
 
 pub(crate) fn oom<T>(n: usize) -> FormatError {
-    FormatError::OutOfMemory { bytes: n.saturating_mul(core::mem::size_of::<T>()) }
+    FormatError::OutOfMemory {
+        bytes: n.saturating_mul(core::mem::size_of::<T>()),
+    }
 }
 
 /// A growable buffer's block bytes: its capacity, not its length. A macro over anything with `capacity()` that indexes
@@ -91,12 +100,20 @@ pub struct Kept {
 
 impl Kept {
     pub const fn none() -> Kept {
-        Kept { charge: Charge::NONE, on: false, charged: 0 }
+        Kept {
+            charge: Charge::NONE,
+            on: false,
+            charged: 0,
+        }
     }
 
     pub fn new(owner: Option<(Owner, Kind)>) -> Kept {
         match owner {
-            Some((o, k)) => Kept { charge: Charge::open(o, release_of(o), k, Door::Heap, 0), on: true, charged: 0 },
+            Some((o, k)) => Kept {
+                charge: Charge::open(o, release_of(o), k, Door::Heap, 0),
+                on: true,
+                charged: 0,
+            },
             None => Kept::none(),
         }
     }
@@ -122,6 +139,10 @@ impl Kept {
 
     /// The bytes the charge holds (0 uncharged).
     pub fn charged(&self) -> u64 {
-        if self.on { self.charged } else { 0 }
+        if self.on {
+            self.charged
+        } else {
+            0
+        }
     }
 }

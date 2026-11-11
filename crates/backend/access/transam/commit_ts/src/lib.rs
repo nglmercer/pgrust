@@ -1,5 +1,4 @@
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU16, AtomicU32};
@@ -7,7 +6,7 @@ use std::sync::OnceLock;
 
 use elog::ereport;
 use init_small::globals;
-use lwlock::{LWLockAcquire, LWLockRelease, LWLock, LW_EXCLUSIVE, LW_SHARED};
+use lwlock::{LWLock, LWLockAcquire, LWLockRelease, LW_EXCLUSIVE, LW_SHARED};
 use slru::{
     check_slru_buffers, LwGuard, SimpleLruAutotuneBuffers, SimpleLruDoesPhysicalPageExist,
     SimpleLruGetBankLock, SimpleLruInit, SimpleLruReadPage, SimpleLruReadPage_ReadOnly,
@@ -118,7 +117,11 @@ pub fn TransactionTreeSetCommitTsData(
     }
 
     let nsubxids = subxids.len();
-    let newestXact = if nsubxids > 0 { subxids[nsubxids - 1] } else { xid };
+    let newestXact = if nsubxids > 0 {
+        subxids[nsubxids - 1]
+    } else {
+        xid
+    };
 
     let mut headxid = xid;
     let mut i = 0usize;
@@ -184,7 +187,12 @@ fn TransactionIdSetCommitTs(
 ) {
     let entryno = TransactionIdToCTsEntry(xid);
     debug_assert!(TransactionIdIsNormal(xid));
-    write_entry(CommitTsCtl().page_buffer_mut(slotno, bank), entryno, ts, nodeid);
+    write_entry(
+        CommitTsCtl().page_buffer_mut(slotno, bank),
+        entryno,
+        ts,
+        nodeid,
+    );
 }
 
 pub fn TransactionIdGetCommitTsData(
@@ -280,6 +288,7 @@ fn CommitTsShmemBuffers() -> i32 {
     if globals::commit_timestamp_buffers() == 0 {
         return SimpleLruAutotuneBuffers(512, 1024);
     }
+    #[allow(clippy::manual_clamp)]
     globals::commit_timestamp_buffers()
         .max(16)
         .min(SLRU_MAX_ALLOWED_BUFFERS)
@@ -341,7 +350,10 @@ pub fn CommitTsShmemInit() -> PgResult<()> {
     const SIZEOF_COMMIT_TIMESTAMP_SHARED: usize = 32;
     const {
         assert!(core::mem::size_of::<CommitTsSharedData>() <= SIZEOF_COMMIT_TIMESTAMP_SHARED);
-        assert!(core::mem::align_of::<CommitTsSharedData>() <= 64, "PG_CACHE_LINE_SIZE alignment");
+        assert!(
+            core::mem::align_of::<CommitTsSharedData>() <= 64,
+            "PG_CACHE_LINE_SIZE alignment"
+        );
     }
     let (raw, found) =
         shmem_seams::shmem_init_struct::call("CommitTs shared", SIZEOF_COMMIT_TIMESTAMP_SHARED)?;
@@ -605,7 +617,11 @@ fn commit_ts_redo_pageno(data: &[u8], need: usize, op: &str) -> PgResult<i64> {
                 "{op} commit_ts record has {} bytes of main data, expected at least {need}",
                 data.len()
             ))
-            .finish(ErrorLocation::new(file!(), line!() as i32, "commit_ts_redo"))?;
+            .finish(ErrorLocation::new(
+                file!(),
+                line!() as i32,
+                "commit_ts_redo",
+            ))?;
         unreachable!("ERROR finish returned");
     }
 
@@ -613,8 +629,14 @@ fn commit_ts_redo_pageno(data: &[u8], need: usize, op: &str) -> PgResult<i64> {
     if pageno < 0 {
         ereport(ERROR)
             .errcode(ERRCODE_DATA_CORRUPTED)
-            .errmsg(format!("{op} commit_ts record has invalid page number {pageno}"))
-            .finish(ErrorLocation::new(file!(), line!() as i32, "commit_ts_redo"))?;
+            .errmsg(format!(
+                "{op} commit_ts record has invalid page number {pageno}"
+            ))
+            .finish(ErrorLocation::new(
+                file!(),
+                line!() as i32,
+                "commit_ts_redo",
+            ))?;
         unreachable!("ERROR finish returned");
     }
 

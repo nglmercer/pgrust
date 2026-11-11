@@ -82,7 +82,11 @@ pub fn hash_agg_set_limits(
 ) -> (usize, u64, usize) {
     let hash_mem_limit = get_hash_memory_limit();
     if input_groups * hashentrysize <= hash_mem_limit as f64 {
-        return (hash_mem_limit, (hash_mem_limit as f64 / hashentrysize) as u64, 0);
+        return (
+            hash_mem_limit,
+            (hash_mem_limit as f64 / hashentrysize) as u64,
+            0,
+        );
     }
     let (npartitions, _) = hash_choose_num_partitions(input_groups, hashentrysize, used_bits);
     let partition_mem =
@@ -92,8 +96,11 @@ pub fn hash_agg_set_limits(
     } else {
         (hash_mem_limit as f64 * 0.75) as usize
     };
-    let ngroups_limit =
-        if mem_limit as f64 > hashentrysize { (mem_limit as f64 / hashentrysize) as u64 } else { 1 };
+    let ngroups_limit = if mem_limit as f64 > hashentrysize {
+        (mem_limit as f64 / hashentrysize) as u64
+    } else {
+        1
+    };
     (mem_limit, ngroups_limit, npartitions)
 }
 
@@ -146,7 +153,8 @@ pub fn exec_choose_hash_table_size_full(
 ) -> (u32, i32, i32, usize) {
     let ntuples = if ntuples <= 0.0 { 1000.0 } else { ntuples };
 
-    let tupsize = HJTUPLE_OVERHEAD + maxalign(SizeofMinimalTupleHeader) + maxalign(tupwidth as usize);
+    let tupsize =
+        HJTUPLE_OVERHEAD + maxalign(SizeofMinimalTupleHeader) + maxalign(tupwidth as usize);
     let inner_rel_bytes = ntuples * tupsize as f64;
 
     let mut hash_table_bytes = get_hash_memory_limit();
@@ -160,8 +168,10 @@ pub fn exec_choose_hash_table_size_full(
 
     let mut num_skew_mcvs: i64 = 0;
     if useskew {
-        let bytes_per_mcv =
-            tupsize + (8 * core::mem::size_of::<usize>()) + core::mem::size_of::<i32>() + SKEW_BUCKET_OVERHEAD;
+        let bytes_per_mcv = tupsize
+            + (8 * core::mem::size_of::<usize>())
+            + core::mem::size_of::<i32>()
+            + SKEW_BUCKET_OVERHEAD;
         let mut skew_mcvs = hash_table_bytes / bytes_per_mcv;
         skew_mcvs = (skew_mcvs * SKEW_HASH_MEM_PERCENT) / 100;
         skew_mcvs = skew_mcvs.min(i32::MAX as usize);
@@ -187,7 +197,11 @@ pub fn exec_choose_hash_table_size_full(
     if inner_rel_bytes + bucket_bytes as f64 > hash_table_bytes as f64 {
         if try_combined_hash_mem {
             return exec_choose_hash_table_size_full(
-                ntuples, tupwidth, useskew, false, parallel_workers,
+                ntuples,
+                tupwidth,
+                useskew,
+                false,
+                parallel_workers,
             );
         }
         let bucket_size = tupsize * (NTUP_PER_BUCKET as usize) + SIZEOF_HASHJOINTUPLE;
@@ -222,7 +236,12 @@ pub fn exec_choose_hash_table_size_full(
         nbatch /= 2;
     }
 
-    (nbuckets as u32, nbatch as i32, num_skew_mcvs as i32, space_allowed)
+    (
+        nbuckets as u32,
+        nbatch as i32,
+        num_skew_mcvs as i32,
+        space_allowed,
+    )
 }
 
 #[inline]

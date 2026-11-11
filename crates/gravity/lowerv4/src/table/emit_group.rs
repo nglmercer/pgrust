@@ -20,12 +20,15 @@ use gravity_kernels::util::RESUME_OPEN;
 use gravity_decompose::ops::shared::agg::{GroupDecl, GroupForm, KeyDecl, NONE};
 use gravity_decompose::Op;
 use gravity_expr::emit::prim::datetime;
+#[allow(unused_imports)]
 use gravity_program::{DictRef, NumTypmod, NumForm, Pipeline, Rep};
 use mcx::{CollectIn, GrowIn, PgBox, PgVec};
+#[allow(unused_imports)]
 use types_core::catalog::{INT4OID, INT8OID, NUMERICOID, TIDOID};
 use types_nodes::primnodes::{Var, INNER_VAR, OUTER_VAR};
 use types_nodes::Node;
 
+#[allow(unused_imports)]
 use crate::cell::{Cell, LaneId, Nullable, Row};
 use crate::table::face::{DenseFront, KeyShape, TableDecl};
 use crate::table::keyimg::ImageWords;
@@ -942,7 +945,7 @@ impl<'g, 'p> Emit<'g, 'p> {
         if let (true, Some((w, f, _))) = (sorted_wide, sort.as_ref()) {
             // D3336 (A1a): its parts cut on a window's PARTITION BY when one reads its drain (face/partfill.rs)
             let kcut = crate::face::partfill::kcut(px, k, w.len());
-            crate::table::emit_runs::declare(px, k, g.producer.0 as u16, &rec.layout, w, *f, kcut);
+            crate::table::emit_runs::declare(px, k, g.producer.0, &rec.layout, w, *f, kcut);
         }
         // D3141 (a); D3266 (L1): under EXPLAIN ANALYZE too, the keep pass counting the groups it removes (`keep_having`)
         let (having, having_node) = if !drain && sort.is_some() && at.is_none() { having_first(px, k, node, g) } else { (PgVec::new_in(px.mcx()), node) };

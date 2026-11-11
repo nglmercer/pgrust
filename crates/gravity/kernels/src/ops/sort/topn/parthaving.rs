@@ -31,7 +31,6 @@ pub(super) const LAYOUT_WORDS: usize = size_of::<RecordLayout>() / 8;
 pub(super) const P_MINS_MORE: usize = P_LAYOUT + LAYOUT_WORDS;
 const _: () = assert!(P_MINS_MORE + REP_WORDS - 1 <= OWNER_PARAMS, "the spec fits the owner's words");
 /// The generic owner's runs form: the directory at `OWNERTOP_HDR` (`(off, m)` per run), the records from `OWNER_RUN_OFF`.
-
 /// The owner that collapses a group's part records to one in `reduce` (partmin's sort-and-sum over the folded
 /// partition; each declared minimum the byte minimum of the parts' rendered minima, kept as its coded word so
 /// `join_resolve` renders it once; the part word zeroed) and keeps every group at the floor in the runs form

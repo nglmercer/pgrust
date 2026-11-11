@@ -227,6 +227,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn stream_chunk_headers_are_read_lazily() {
         let data = [0xE1, b'a', b'b', 0xFF];
         let mut ctx = PgpContext::default();

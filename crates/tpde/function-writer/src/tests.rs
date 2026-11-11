@@ -579,6 +579,7 @@ fn zero_entry_jump_table_has_live_header_and_empty_tail() {
     assert_eq!(table.size(), 0);
     assert!(table.labels().is_empty());
     table.set_misc(7);
+    #[allow(clippy::drop_non_drop)]
     drop(table);
     assert!(module.jump_table_labels(0).unwrap().is_empty());
     assert_eq!(module.jump_table_header(0).unwrap().misc, 7);
@@ -615,6 +616,7 @@ fn jump_tables_survive_spills_shared_borrows_and_writer_moves() {
     assert_eq!(module.jump_table_labels(3).unwrap()[39], Label(777));
     module.flush().unwrap();
     module.end_module().unwrap();
+    #[allow(clippy::drop_non_drop)]
     drop(module);
     let mut moved = writer;
     let mut module = moved.begin_module(&mut assembler).unwrap();
@@ -687,6 +689,7 @@ fn assembler_and_writer_can_be_reused_across_empty_modules() {
         module.end_module().unwrap();
         assert_eq!(module.eh_data().unwrap().len(), 24);
         assert_eq!(word(module.eh_data().unwrap(), 0), 20);
+        #[allow(clippy::drop_non_drop)]
         drop(module);
         let object = assembler.build_object_file().unwrap();
         if let Some(ref bytes) = expected {

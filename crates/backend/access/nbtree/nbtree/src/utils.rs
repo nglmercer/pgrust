@@ -351,7 +351,8 @@ fn bt_array_step(
         } else {
             sksup.high_elem
         };
-        skey.sk_argument = skip_datum_copy(&mut array.skip_arg, elem, array.attbyval, array.attlen)?;
+        skey.sk_argument =
+            skip_datum_copy(&mut array.skip_arg, elem, array.attbyval, array.attlen)?;
         return Ok(true);
     }
 
@@ -619,7 +620,7 @@ pub(crate) fn bt_start_prim_scan(
 /// # Safety
 /// As [`bt_checkkeys`]; `pstate.finaltup` (when set) points into the same
 /// pinned+locked page.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::if_same_then_else, clippy::too_many_arguments)]
 unsafe fn bt_advance_array_keys<R: BtReadRel + ?Sized>(
     rel: &R,
     so: &mut BTScanOpaqueData<'_>,
@@ -810,13 +811,7 @@ unsafe fn bt_advance_array_keys<R: BtReadRel + ?Sized>(
             if let Some(ai) = array_i {
                 let array = &mut arrayKeys[ai];
                 if array.num_elems == -1 {
-                    bt_skiparray_set_element(
-                        &mut keyData[ikey],
-                        array,
-                        result,
-                        tupdatum,
-                        tupnull,
-                    )?;
+                    bt_skiparray_set_element(&mut keyData[ikey], array, result, tupdatum, tupnull)?;
                     skip_array_advanced = true;
                 } else if array.cur_elem != set_elem {
                     array.cur_elem = set_elem;
@@ -1083,7 +1078,7 @@ unsafe fn bt_oppodir_checkkeys<R: BtReadRel + ?Sized>(
 /// # Safety
 /// `header.sk_argument` is the live SK_ROW_END-terminated subkey array
 /// (scankey.rs contract); `tuple` as [`bt_checkkeys`].
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::if_same_then_else, clippy::too_many_arguments)]
 unsafe fn bt_check_rowcompare(
     header: &mut ScanKeyData,
     tuple: ITup,
@@ -1189,6 +1184,7 @@ unsafe fn bt_check_rowcompare(
 
     if !result && !forcenonrequired {
         // Requiredness is judged at the deciding column.
+        #[allow(clippy::if_same_then_else)]
         if (*subkey).sk_flags & SK_BT_REQFWD != 0 && ScanDirectionIsForward(dir) {
             *continuescan = false;
         } else if (*subkey).sk_flags & SK_BT_REQBKWD != 0 && ScanDirectionIsBackward(dir) {
@@ -1498,7 +1494,10 @@ fn varlena_image_eq(a: &[u8], b: &[u8]) -> bool {
     }
     let cx = ::mcx::MemoryContext::new("datum_image_eq");
     let mcx = cx.mcx();
-    let eq = match (::detoast::detoast_attr(mcx, a), ::detoast::detoast_attr(mcx, b)) {
+    let eq = match (
+        ::detoast::detoast_attr(mcx, a),
+        ::detoast::detoast_attr(mcx, b),
+    ) {
         (Ok(da), Ok(db)) => da[VARHDRSZ..] == db[VARHDRSZ..],
         _ => false,
     };
@@ -1847,7 +1846,10 @@ pub fn bt_kill_by_block(
     items: &[(OffsetNumber, ItemPointerData)],
     dead: &[ItemPointerData],
 ) -> PgResult<bool> {
-    let in_dead = |t: &ItemPointerData| dead.binary_search_by(|d| ItemPointerCompare(d, t).cmp(&0)).is_ok();
+    let in_dead = |t: &ItemPointerData| {
+        dead.binary_search_by(|d| ItemPointerCompare(d, t).cmp(&0))
+            .is_ok()
+    };
     bufmgr::lock_buffer::call(buf, BT_READ)?;
     if bufmgr::buffer_get_lsn_atomic::call(buf) != lsn {
         bufmgr::lock_buffer::call(buf, bufmgr::BUFFER_LOCK_UNLOCK)?;
@@ -2110,8 +2112,9 @@ struct BTVacInfo {
 // offsetof(BTVacInfo, vacuums) == 12 and sizeof(BTOneVacInfo) == 12 (LP64).
 const _: () = assert!(core::mem::size_of::<BTVacInfo>() == 12);
 const _: () = assert!(core::mem::size_of::<BTOneVacInfo>() == 12);
-const _: () =
-    assert!(core::mem::size_of::<BTVacInfo>().is_multiple_of(core::mem::align_of::<BTOneVacInfo>()));
+const _: () = assert!(
+    core::mem::size_of::<BTVacInfo>().is_multiple_of(core::mem::align_of::<BTOneVacInfo>())
+);
 
 // C: `static BTVacInfo *btvacinfo` — set once by BTreeShmemInit.
 static BTVACINFO: core::sync::atomic::AtomicPtr<BTVacInfo> =
@@ -2333,7 +2336,11 @@ pub fn bt_mkscankey(rel: &Relation<'_>, itup: Option<ITup>) -> PgResult<BtScanIn
 /// D4560: `bt_mkscankey` into the caller's fresh key (`BtScanInsert::new()`, nothing pushed). The key holds
 /// INDEX_MAX_KEYS entries (~2.3 KB) and has a Drop, so returning it by value copied it twice per index insertion (into
 /// the result, then out of it at the `?`); C pallocs it and passes the pointer.
-pub fn bt_mkscankey_into(rel: &Relation<'_>, itup: Option<ITup>, key: &mut BtScanInsert) -> PgResult<()> {
+pub fn bt_mkscankey_into(
+    rel: &Relation<'_>,
+    itup: Option<ITup>,
+    key: &mut BtScanInsert,
+) -> PgResult<()> {
     debug_assert!(key.keys_len() == 0);
     let tupdesc: &TupleDescData<'_> = &rel.rd_att;
     let indnkeyatts = rel.indnkeyatts();

@@ -8,18 +8,18 @@
 //!   max(DISTINCT int), `PairFold`): the hash aggregate's end keyed on the argument (keyed_hashagg; the NULL argument is a
 //!   record too, so the riders count its rows), and the emit walks every record, counting / folding each non-NULL key once
 //!   and merging the riders' slots into one accumulator.
-//! The emit is one row, as PG's plain aggregate: over an empty input a count is 0 and a fold NULL.
-//! DC-21's row count (`row`: count(DISTINCT ROW(k1, .., kn)), normalize's spelling of count(*) over a grouping by a
-//! nullable key or by several keys) is the count form over the row's fields as the keys, their flags words kept and no
-//! row skipped, with neither the derived code column nor the window host (each reads one key and skips its NULLs).
-//! The count form's window host (V4R-26 item 1, the window phase): over a scan column of a signed integer image with no
-//! op before the end, a window of the bypassed table is taken whole (`EndMech::whole`) by `agg_distinct_window` (host_abi
-//! v4 m1_keyed.rs): the adjacent duplicates dropped and each key's pair record appended to its partition in one host loop,
-//! where the rows would carry the run and append it in IR; a window the host declines walks its rows. It rides
-//! run.collapse (the collapse's window form): off with it. A covered window in table mode takes the host where the
-//! worker's last measured window of the end came in runs of equal keys (NEW-40: the runs word the host writes, re-measured
-//! one window in `RUNS_PROBE`). Budget 450 lines (files.tsv, +25 % gate). Owner M1-KEYED.
-//! Hosts: agg_distinct_window (host_abi v4 m1).
+//!   The emit is one row, as PG's plain aggregate: over an empty input a count is 0 and a fold NULL.
+//!   DC-21's row count (`row`: count(DISTINCT ROW(k1, .., kn)), normalize's spelling of count(*) over a grouping by a
+//!   nullable key or by several keys) is the count form over the row's fields as the keys, their flags words kept and no
+//!   row skipped, with neither the derived code column nor the window host (each reads one key and skips its NULLs).
+//!   The count form's window host (V4R-26 item 1, the window phase): over a scan column of a signed integer image with no
+//!   op before the end, a window of the bypassed table is taken whole (`EndMech::whole`) by `agg_distinct_window` (host_abi
+//!   v4 m1_keyed.rs): the adjacent duplicates dropped and each key's pair record appended to its partition in one host loop,
+//!   where the rows would carry the run and append it in IR; a window the host declines walks its rows. It rides
+//!   run.collapse (the collapse's window form): off with it. A covered window in table mode takes the host where the
+//!   worker's last measured window of the end came in runs of equal keys (NEW-40: the runs word the host writes, re-measured
+//!   one window in `RUNS_PROBE`). Budget 450 lines (files.tsv, +25 % gate). Owner M1-KEYED.
+//!   Hosts: agg_distinct_window (host_abi v4 m1).
 use gravity_abi::breaker::{RecordLayout, ACC_PAIRS};
 use gravity_abi::ctx::{hdr, RESUME_NONE};
 use gravity_abi::status::{unsupported, UNSUPPORTED_SCRATCH};
@@ -244,6 +244,7 @@ fn win_host(px: &mut Px<'_, '_>, k: usize, rec: &GroupRec<'_, '_>, t: &TableDecl
     let (key, tf) = (rec.g.keys.first()?, rec.tfs.first()?);
     let ops = p.ops.iter().all(|o| matches!(o, Op::Project(_)) || (block && matches!(o, Op::Filter(_))));
     // KEYED-24: either Raw image: a signed one sign-extends the lane's bytes, an unsigned one (oid) zero-extends them
+    #[allow(clippy::question_mark)]
     let Some(signed) = tf.image.int_signed() else { return None };
     if front || rec.pair_filter.is_some() || rec.g.keys.len() != 1 || key.words != 1 || !matches!(tf.typlen, 2 | 4 | 8) || !ops {
         return None;

@@ -139,7 +139,7 @@ pub(crate) fn fetch_narrow(px: &Px<'_, '_>, k: usize, site: SiteDesc) -> SiteDes
         return site;
     }
     let mut s = site.copy_in(px.arena);
-    (s.lanes.clear(), s.out_attnos.clear(), s.driving_lanes.clear(), s.filter_lanes.clear(), s.answer_lanes.clear());
+    s.lanes.clear(); s.out_attnos.clear(); s.driving_lanes.clear(); s.filter_lanes.clear(); s.answer_lanes.clear();
     s.clear_zone();
     for (to, &l) in kept.iter().enumerate() {
         let mut d = site.lanes()[l];

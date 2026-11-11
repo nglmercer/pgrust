@@ -106,6 +106,7 @@ impl<'mcx, F: ListFlavor> List<'mcx, F> {
     }
 
     #[inline]
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.length as usize
     }
@@ -144,6 +145,7 @@ impl<'mcx, F: ListFlavor> List<'mcx, F> {
 
     /// # Safety: `n < self.len()` (C list_nth checks only under Assert).
     #[inline]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn nth_unchecked(&self, n: usize) -> F::Cell<'mcx> {
         debug_assert!(n < self.len());
         unsafe { *self.elements.as_ptr().add(n) }
@@ -372,6 +374,7 @@ impl<'mcx, F: ListFlavor> List<'mcx, F> {
     /// # Safety: `(p, len)` must come from `into_raw_parts` of a live list
     /// whose buffer has not been reused since.
     #[inline]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn from_raw_parts(p: *mut F::Cell<'mcx>, len: u32) -> Self {
         match NonNull::new(p) {
             None => Self::nil(),

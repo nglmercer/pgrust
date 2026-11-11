@@ -84,8 +84,14 @@ pub fn untransform_options<'mcx>(
         // C (reloptions.c untransformRelOptions): text without '=' becomes a
         // DefElem with the whole string as name and a NULL value.
         match s.split_once('=') {
-            Some((name, value)) => result.push(OptionPair { name, value: Some(value) }),
-            None => result.push(OptionPair { name: s, value: None }),
+            Some((name, value)) => result.push(OptionPair {
+                name,
+                value: Some(value),
+            }),
+            None => result.push(OptionPair {
+                name: s,
+                value: None,
+            }),
         }
     }
     Ok(result)
@@ -294,7 +300,10 @@ pub fn postgresql_fdw_validator<'mcx>(
 ) -> PgResult<bool> {
     let options = untransform_options(mcx, Some(options_datum))?;
     for opt in options.iter() {
-        if LIBPQ_CONNINFO_OPTIONS.iter().any(|&(n, ctx)| ctx == catalog && n == opt.name) {
+        if LIBPQ_CONNINFO_OPTIONS
+            .iter()
+            .any(|&(n, ctx)| ctx == catalog && n == opt.name)
+        {
             continue;
         }
         // ClosestMatchState with max_d = 4 (varlena.c).
@@ -361,7 +370,10 @@ mod tests {
     fn untransform_options_detoasts_compressed_arrays() {
         let ctx = mcx::MemoryContext::new("foreigncmds-test");
         let mcx = ctx.mcx();
-        let elems = [text_datum(mcx, "host=localhost"), text_datum(mcx, "checked")];
+        let elems = [
+            text_datum(mcx, "host=localhost"),
+            text_datum(mcx, "checked"),
+        ];
         // text: elmlen -1, byval false, align 'i' (construct_array_builtin).
         let plain = arrayfuncs::construct_array(mcx, &elems, TEXTOID, -1, false, b'i').unwrap();
 

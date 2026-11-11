@@ -42,7 +42,7 @@
 //! - D2862 (b): a full sort's drain re-projects every group the top pipeline projected for its raise; a raising column
 //!   that is a word or a numeric is kept instead (`kept_cols`: topn lower.rs keeps it beside the record, in a side array
 //!   one entry per arrival, so the record and the group's memory are unchanged), read back by the drain.
-//! Budget 320 (files-override: the name order slot; #227's projections, the derived text key).
+//!   Budget 320 (files-override: the name order slot; #227's projections, the derived text key).
 use gravity_abi::breaker::{KeyKind, RecordLayout, SlotKind, LAYOUT_IMPLICIT_COUNT};
 use gravity_decompose::ops::shared::agg::fold_of;
 use gravity_decompose::ops::shared::agg::{FinalForm, GroupDecl, GroupForm, NONE};
@@ -324,6 +324,7 @@ fn never_null(gx: &Gx<'_, '_>, g: &GroupDecl<'_>, l: &RecordLayout, nullable: bo
 /// Bundle 15 B: whether group `g`'s record takes a validity word it would not have for its aggregates (decompose's `record`,
 /// its slots as `GroupRec::new` rekinds them): a top ordered by a NULL-able int / float8 expression over the groups, whose
 /// slot's NULL the order pass marks (`run`'s `put_valid`) and `agg_sort` reads (`sort_cell`: `Rec::valid`).
+#[allow(clippy::nonminimal_bool)]
 pub(crate) fn wants_validity(gx: &Gx<'_, '_>, g: &GroupDecl<'_>, record: &RecordLayout, nullable: bool) -> bool {
     !record.has_validity() && exprs(gx, g).iter().any(|x| !(text_payload(x.2) || copies(gx, x.2)) && !never_null(gx, g, record, nullable, x.1))
 }
@@ -478,6 +479,7 @@ pub(crate) fn pass<'g, 'p>(px: &mut Px<'g, 'p>, k: usize, rec: &GroupRec<'_, 'p>
     }).collect_in(gx.mcx);
     // D3080: an integer-text key the owner already orders (props `tie_key`'s int-text arm) is copied for the kept groups only
     let int_text = |e: Node<'_>| e.as_var().filter(|v| v.varno == OUTER_VAR).and_then(|v| rec.g.keys.iter().find(|kd| kd.resno == v.varattno)).is_some_and(|kd| kd.int_text());
+    #[allow(clippy::nonminimal_bool)]
     if crate::ops::sort::topn::lower::count_top(px, k).is_some() && xs.iter().any(|x| !text_payload(x.2) && !(x.2 == COPIED && int_text(x.1))) {
         shape(node, "a count-ordered owner top with an order expression (its groups are cut before the emit)");
     }

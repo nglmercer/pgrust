@@ -260,4 +260,3 @@ impl Drop for MinimalTuple<'_> {
         }
     }
 }
-

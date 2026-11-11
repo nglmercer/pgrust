@@ -30,16 +30,10 @@ impl GranuleSpans {
         let mut parts = Vec::with_capacity(granule_counts.len());
         let mut base = 0u64;
         for &gc in granule_counts {
-            parts.push(PartUnits {
-                base,
-                granules: gc,
-            });
+            parts.push(PartUnits { base, granules: gc });
             base += gc as u64;
         }
-        GranuleSpans {
-            parts,
-            total: base,
-        }
+        GranuleSpans { parts, total: base }
     }
 
     /// Locate a unit: (part index, granule ordinal within the part).
@@ -112,12 +106,18 @@ impl SurvivorSpans {
             while j < units.len() && dense.locate(units[j]).0 == pidx {
                 j += 1;
             }
+            #[allow(clippy::needless_range_loop)]
             for k in i..j {
                 part_end[k] = j as u64;
             }
             i = j;
         }
-        SurvivorSpans { units, part_end, ramp_seed: 4, coalesce_max: 4 }
+        SurvivorSpans {
+            units,
+            part_end,
+            ramp_seed: 4,
+            coalesce_max: 4,
+        }
     }
 
     /// The geometry face (M4-S6): claim ramp/coalesce as PLAN facts —
@@ -164,7 +164,9 @@ impl SpanClaimSource {
     /// Build from the dense space + the ascending winner-granule unit
     /// list (sorted, deduped — the caller's BTreeMap order).
     pub fn new(dense: &GranuleSpans, winner_units: Vec<u64>) -> SpanClaimSource {
-        SpanClaimSource { inner: SurvivorSpans::new(dense, winner_units) }
+        SpanClaimSource {
+            inner: SurvivorSpans::new(dense, winner_units),
+        }
     }
 
     /// The global unit at winner index `idx`.

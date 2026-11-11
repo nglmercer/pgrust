@@ -6,6 +6,7 @@ use gravity_driver::{BindingRef, Locker, Outcome, Result};
 use gravity_program::{LockKind, WaitPolicy, WritePlan};
 use tableam_vocab::{LockTupleMode, LockWaitPolicy, TM_FailureData, TM_Result, TUPLE_LOCK_FLAG_FIND_LAST_VERSION, TUPLE_LOCK_FLAG_LOCK_UPDATE_IN_PROGRESS};
 use types_core::{CommandId, Oid};
+#[allow(unused_imports)]
 use types_error::{PgError, PgResult, ERRCODE_TRIGGERED_DATA_CHANGE_VIOLATION};
 use types_rel::{Relation, RelationData};
 use types_slot::SlotData;

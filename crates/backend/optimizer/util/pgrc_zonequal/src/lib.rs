@@ -66,12 +66,20 @@ pub fn zone_op(opno: Oid, ty: Oid) -> PgResult<Option<ZoneOp>> {
         return Ok(Some(ZoneOp::Eq));
     }
     if let Some((_, _, cmp)) = lsyscache::get_ordering_op_properties(opno)? {
-        return Ok(Some(if cmp == lsyscache::COMPARE_LT { ZoneOp::Lt } else { ZoneOp::Gt }));
+        return Ok(Some(if cmp == lsyscache::COMPARE_LT {
+            ZoneOp::Lt
+        } else {
+            ZoneOp::Gt
+        }));
     }
     let neg = lsyscache::get_negator(opno)?;
     if neg != 0 {
         if let Some((_, _, cmp)) = lsyscache::get_ordering_op_properties(neg)? {
-            return Ok(Some(if cmp == lsyscache::COMPARE_LT { ZoneOp::Ge } else { ZoneOp::Le }));
+            return Ok(Some(if cmp == lsyscache::COMPARE_LT {
+                ZoneOp::Ge
+            } else {
+                ZoneOp::Le
+            }));
         }
     }
     Ok(None)
@@ -110,13 +118,24 @@ pub fn column_operands<'m>(clause: Node<'m>, varno: i32) -> Option<ColumnOperand
     if !matches!(other.node_tag(), NodeTag::T_Const | NodeTag::T_Param) {
         return None;
     }
-    Some(ColumnOperands { opno: o.opno, attno: var.varattno, vartype: var.vartype, other, commuted })
+    Some(ColumnOperands {
+        opno: o.opno,
+        attno: var.varattno,
+        vartype: var.vartype,
+        other,
+        commuted,
+    })
 }
 
 // (attno, the zone comparison, the constant's key); the key is None for a
 // Param or a constant of other units, the op None for a non-zone operator.
-pub fn column_op(clause: Node<'_>, varno: i32) -> PgResult<Option<(i16, Option<ZoneOp>, Option<i64>)>> {
-    let Some(c) = column_operands(clause, varno) else { return Ok(None) };
+pub fn column_op(
+    clause: Node<'_>,
+    varno: i32,
+) -> PgResult<Option<(i16, Option<ZoneOp>, Option<i64>)>> {
+    let Some(c) = column_operands(clause, varno) else {
+        return Ok(None);
+    };
     let key = c.other.as_const().and_then(|k| const_key(k, c.vartype));
     let op = zone_op(c.opno, c.vartype)?.map(|z| if c.commuted { z.commuted() } else { z });
     Ok(Some((c.attno, op, key)))

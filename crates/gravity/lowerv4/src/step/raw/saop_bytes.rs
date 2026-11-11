@@ -215,7 +215,7 @@ pub(crate) unsafe fn build_bytes(d: &Desc, a: u64) -> types_error::PgResult<grav
     let room = if tset { sec + IMG_HEAD + (n + cap) * 16 } else { at + img.len as usize };
     let mut buf = gravity_driver::in_list_set_region(room).map_err(|e| super::saop_set::region_err("the IN list's set", e))?;
     let base = buf.as_mut_ptr();
-    if base as usize % 8 != 0 {
+    if !(base as usize).is_multiple_of(8) {
         return Err(err("the IN list's set region is not 8-aligned"));
     }
     core::ptr::copy_nonoverlapping(img.ptr, base.add(at), img.len as usize);
@@ -554,7 +554,7 @@ mod tests {
     #[test]
     fn a_zero_hash_is_occupied() {
         assert_ne!(mix(&[0]) as u64 | OCC, 0);
-        assert_ne!(0u64 | OCC, 0);
+        assert_ne!(OCC, 0);
     }
 
     /// A 1-byte-header text datum of `b` (at most 126 bytes).
@@ -663,7 +663,7 @@ mod tests {
         use crate::rep::varlena::raw::text_set::text_set_view;
         use crate::rep::varlena::text_set::probe;
         let _pool = crate::step::raw::saop_set::POOL_ARM.lock().unwrap_or_else(|e| e.into_inner());
-        let img = array(&[Some(&b"856"[..]), Some(&"日本".as_bytes()[..]), Some(&b"bcd"[..]), Some(&b""[..]), None]);
+        let img = array(&[Some(&b"856"[..]), Some("日本".as_bytes()), Some(&b"bcd"[..]), Some(&b""[..]), None]);
         let set = unsafe { build_bytes(&byte_desc(), img.as_ptr() as u64) }.unwrap();
         let at = set.as_ptr() as u64;
         // PostgreSQL's text_substring over characters: from max(s, 1), to s + n (exclusive) when a count is given

@@ -50,6 +50,7 @@ impl SysCols {
         SysCols { on, header, ..SysCols::new(&WritePlan::SELECT) }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn header(&self) -> bool {
         self.header
     }
@@ -69,6 +70,7 @@ impl SysCols {
     }
 
     /// After heap_insert / heap_update: the tuple they stamped (its `t_self` the new version's position).
+    #[allow(clippy::wrong_self_convention)]
     pub(crate) fn from_tuple(&mut self, tup: &HeapTupleData<'_>, rel: Oid) {
         if !self.on {
             return;
@@ -84,6 +86,7 @@ impl SysCols {
 
     /// The row in `slot` (a DELETE's fetched version, an AM's inserted slot): `slot_getsysattr`, which raises for a
     /// slot without a tuple header as PostgreSQL's does.
+    #[allow(clippy::wrong_self_convention)]
     pub(crate) fn from_slot(&mut self, slot: &SlotData<'_>, rel: Oid) -> PgResult<()> {
         if !self.on {
             return Ok(());

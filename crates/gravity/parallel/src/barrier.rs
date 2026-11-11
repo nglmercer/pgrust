@@ -38,6 +38,7 @@ impl Barrier {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<usize> {
         assert!(self.in_flight.is_none(), "pipeline {} still in flight", self.in_flight.unwrap());
         if self.next >= self.n {

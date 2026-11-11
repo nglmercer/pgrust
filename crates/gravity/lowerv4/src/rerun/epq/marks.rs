@@ -143,6 +143,7 @@ pub fn sites_in<'g>(px: &mut Px<'g, '_>, k: usize, node: i32, marks: &[RowMark],
     // D2772 POST (modifytable, triggers#500): a write beside the data-modifying CTE nothing reads reads none of its
     // pipelines, which run after the statement's own (ops/modifytable/post.rs `reads_product`); D3379 LOCKPOST: a row lock too
     let reads = crate::ops::modifytable::post::reads_product(gx, k);
+    #[allow(clippy::nonminimal_bool)]
     if !reads && !nested && !own_ref && !(merge && others.iter().any(|m| m.mark == RowMarkType::ROW_MARK_COPY && own_copy(gx, k, m.rti)) || nest && !others.is_empty()) {
         return Marks::none(mcx);
     }
@@ -595,7 +596,7 @@ fn act_ctes<'g>(gx: &Gx<'g, '_>, k: usize, w: Option<&gravity_decompose::ops::sh
     };
     let read = |x: &gravity_decompose::PipelineNode<'_>, slot: u8| matches!(x.source, Source::Breaker { slot: s } if s == slot);
     let lent = |slot: u8| !read(&ps[k], slot) && inners.iter().enumerate().filter(|(_, x)| read(x.1, slot)).all(|(i, _)| top(i).is_some_and(|j| crate::ops::modifytable::merge::admit::action_sub(&ps[k].ops[j], w)));
-    let descs: PgVec<'_, gravity_program::Pipeline> = ps.iter().map(|p| p.desc.clone()).collect_in(gx.mcx);
+    let descs: PgVec<'_, gravity_program::Pipeline> = ps.iter().map(|p| p.desc).collect_in(gx.mcx);
     let d = &descs[..];
     let readers = |c: usize| (0..n).filter(|&q| q != c && gravity_program::lives::reads(d, q, gravity_program::LifeId(c as u16))).collect_in(gx.mcx);
     let ctes = gx.graph.init_plans.iter().filter(|i| matches!(i.link, gravity_decompose::ops::shared::subplan::SubLink::Cte)).map(|i| i.pipeline as usize);
@@ -809,7 +810,7 @@ fn sub_producer(gx: &Gx<'_, '_>, k: usize, q: usize, marks: &[RowMark], target: 
 /// runtime's closure), which the recheck never reruns (and the write road's admission, write_road.rs, never asks).
 pub(crate) fn init_members<'g>(px: &Px<'g, '_>) -> PgVec<'g, usize> {
     let gx = px.gx;
-    let descs: PgVec<'_, gravity_program::Pipeline> = gx.pipelines().iter().map(|p| p.desc.clone()).collect_in(gx.mcx);
+    let descs: PgVec<'_, gravity_program::Pipeline> = gx.pipelines().iter().map(|p| p.desc).collect_in(gx.mcx);
     let inits = gx.graph.init_plans.iter().filter(|i| !matches!(i.link, gravity_decompose::ops::shared::subplan::SubLink::Cte));
     let mut set: PgVec<'g, usize> = inits.flat_map(|i| gravity_program::protos::members_in(&descs[..], &px.protos, i.pipeline as usize).members).map(usize::from).collect_in(gx.mcx);
     // mergecmd landing 7: a pulled CTE (its readers pull it, so no Init's closure holds it: protos::producers_in) that
@@ -1487,7 +1488,7 @@ fn wco_sets<'g>(gx: &Gx<'g, '_>, k: usize) -> PgVec<'g, usize> {
     let mut out: PgVec<'_, usize> = (0..ps.len()).filter(|&q| q != k && ps[q].desc.produces().is_some_and(|s| slots.contains(&s))).collect_in(gx.mcx);
     // a product only those builds read (a join inside the set's subquery)
     let only = |out: &[usize], q: usize| ps[q].desc.produces().is_some_and(|s| {
-        let mut readers = (0..ps.len()).filter(|&r| ps[r].desc.consumes.iter().any(|&c| c == s)).peekable();
+        let mut readers = (0..ps.len()).filter(|&r| ps[r].desc.consumes.contains(&s)).peekable();
         readers.peek().is_some() && readers.all(|r| out.contains(&r))
     });
     while let Some(q) = (0..ps.len()).find(|&q| q != k && !out.contains(&q) && only(&out[..], q)) {

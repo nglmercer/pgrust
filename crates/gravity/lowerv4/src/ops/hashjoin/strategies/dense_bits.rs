@@ -131,7 +131,7 @@ pub(crate) fn first(b: &mut FunctionBuilder<'_>, env: &Env, hv: &Hv, k: Value, s
     let ([set, v, nul], slot) = (hit(b, env, hv, k, sh), b.declare_stack_slot(sh.rec.get(), 8));
     let (a, s32) = (b.stack_addr(slot), b.iconst(Type::I64, 32));
     let link = b.int_bin(IntBinOp::Shl, nul, s32);
-    (b.store(a, 0, k), b.store(a, sh.link_off(), link));
+    b.store(a, 0, k); b.store(a, sh.link_off(), link);
     if !sh.payload.is_empty() {
         b.store(a, sh.pay_off(0), v);
     }
@@ -151,9 +151,9 @@ mod tests {
         let d = v.as_mut_ptr() as *mut u8;
         // SAFETY: offsets inside `v`.
         unsafe {
-            (wr::<u64>(d, N, keys.len() as u64), wr::<i64>(d, LO, *keys.iter().min().unwrap()), wr::<i64>(d, HI, *keys.iter().max().unwrap()));
-            (wr::<u8>(d, FLAGS, F_RANGE | F_COMPACT), wr::<u8>(d, ALLOW, A_DENSE), crate::ops::hashjoin::layout::set_pay(d, 1), wr::<u8>(d, WORDS, 1), wr::<u8>(d, PHASE, 1));
-            (wr::<u32>(d, REC, 8), wr::<u32>(d, FULL, 24));
+            wr::<u64>(d, N, keys.len() as u64); wr::<i64>(d, LO, *keys.iter().min().unwrap()); wr::<i64>(d, HI, *keys.iter().max().unwrap());
+            wr::<u8>(d, FLAGS, F_RANGE | F_COMPACT); wr::<u8>(d, ALLOW, A_DENSE); crate::ops::hashjoin::layout::set_pay(d, 1); wr::<u8>(d, WORDS, 1); wr::<u8>(d, PHASE, 1);
+            wr::<u32>(d, REC, 8); wr::<u32>(d, FULL, 24);
             for (i, &k) in keys.iter().enumerate() {
                 wr::<u64>(d.add(HDR + 8 * i), 0, (k as u64 & u32::MAX as u64) | ((k & 1) as u64) << 32 | ((k % 5 == 0) as u64) << 33);
             }
@@ -177,7 +177,7 @@ mod tests {
                     let t = Rt::of(d, v.len() * 8);
                     assert!(super::need(d) > 0);
                     super::prepare(&t);
-                    (super::put(&t, &t, cut..ks.len()), super::put(&t, &t, 0..cut));
+                    super::put(&t, &t, cut..ks.len()); super::put(&t, &t, 0..cut);
                     assert_eq!(rd::<u8>(d, FLAGS) & F_DUP != 0, dup, "cut {cut}: the other job's key seen");
                     let (dir, stride) = (rd::<u64>(d, DIR) as usize, (rd::<u64>(d, SLOTS) - rd::<u64>(d, DIR)) as usize);
                     let bit = |j: usize, k: i64| rd::<u64>(d.add(dir + j * stride + 8 * (k as usize >> 6)), 0) >> (k & 63) & 1 == 1;

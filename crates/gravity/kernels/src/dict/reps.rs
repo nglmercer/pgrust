@@ -10,6 +10,7 @@ pub const REP_NONE: u8 = u8::MAX;
 pub type Reps = [(u8, u8); MAX_REPS];
 
 /// # Safety — `p` points at a varlena image (a 1-byte or 4-byte header).
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn varlena_bytes<'a>(p: *const u8) -> &'a [u8] {
     let b0 = *p;
     if b0 & 1 == 1 {
@@ -30,6 +31,7 @@ static EMPTY_VARLENA: Image = Image([4 << 2, 0, 0, 0]);
 /// Code word `word` of `lane` rendered through the site's dictionary: `Ok(None)` for `MINCODE_NONE` (no code, the SQL
 /// NULL); `Err(status)` when the dictionary read failed, its error stashed in the node for the caller to raise, never
 /// read as a NULL (D344). # Safety — `site` is a bound site of a source with dictionaries.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn render(site: *mut Site, lane: u8, word: u64) -> Result<Option<*const u8>, i64> {
     if word == MINCODE_NONE {
         return Ok(None);
@@ -50,7 +52,7 @@ pub unsafe fn render(site: *mut Site, lane: u8, word: u64) -> Result<Option<*con
 /// `int_text_less`); a text key with a representative by its rendered bytes, a NULL render last; one without by its
 /// fingerprint words).
 /// # Safety — `a`, `b` are live records of `layout`; `site` as `render`.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::missing_safety_doc, clippy::too_many_arguments)]
 pub unsafe fn count_better(layout: &RecordLayout, off_count: usize, reps: &Reps, flags: Option<usize>, text: u32, site: *mut Site, a: *const u8, b: *const u8) -> bool {
     let (ca, cb) = (*(a.add(off_count) as *const u64) & !MOVING, *(b.add(off_count) as *const u64) & !MOVING);
     if ca != cb {
@@ -92,6 +94,7 @@ fn int_text(v: i64, buf: &mut [u8; 20]) -> &[u8] {
 /// reads it at every count tie.
 /// # Safety — as `count_better`; `flags` names the flags words of `layout`'s records.
 #[inline(always)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn keys_better(layout: &RecordLayout, reps: &Reps, flags: Option<usize>, text: u32, site: *mut Site, a: *const u8, b: *const u8) -> bool {
     // the loop stops at the flags word, so the flags words must follow the image words directly and end the key words
     // (lowerv4 rec.rs `flags_word`): a slot between them would skip keys

@@ -131,12 +131,14 @@ impl Suspension {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn new(kind: SuspendKind, step: u32, regs: NullableDatum) -> Suspension {
         Suspension { kind, step, regs }
     }
 }
 
 impl Resume {
+    #[allow(dead_code)]
     pub(crate) fn into_parts(self) -> (NullableDatum, NullableDatum, u32) {
         (self.regs, self.result, self.step)
     }
@@ -906,7 +908,12 @@ fn run_program<'mcx>(
                 let p = unsafe { prm.read() };
                 write_out(*out, p.value, p.isnull);
             }
-            Step::ParamExternMissing { paramid, paramtype, fetch, out } => {
+            Step::ParamExternMissing {
+                paramid,
+                paramtype,
+                fetch,
+                out,
+            } => {
                 let nd = crate::compile::fetch_missing_param(*fetch, *paramid, *paramtype)?;
                 write_out(*out, nd.value, nd.isnull);
             }
@@ -3256,6 +3263,7 @@ fn eval_field_select(
     let mut isnull = false;
     // SAFETY: fieldnum validated against the tuple's descriptor above.
     let v = unsafe { ::types_tuple::heap_getattr(&tuple, fieldnum as i32, tupdesc, &mut isnull) };
+    #[allow(clippy::forget_non_drop)]
     core::mem::forget(tuple);
     Ok((v, isnull))
 }
@@ -3333,6 +3341,7 @@ fn eval_convert_rowtype(
         }
         None => ::heaptuple::heap_copy_tuple_as_datum(mcx, &tuple, &outdesc)?,
     };
+    #[allow(clippy::forget_non_drop)]
     core::mem::forget(tuple);
     Ok(result)
 }
@@ -3343,9 +3352,11 @@ fn convert_rowtype_tupdesc(
     let entry = ::typcache::lookup_type_cache(oid, ::typcache::TYPECACHE_TUPDESC)?;
     let Some(desc) = entry.tupdesc() else {
         let name = format_type::format_type_be(oid).unwrap_or_else(|_| format!("{oid}"));
-        return Err(::types_error::PgError::error(format!("type {name} is not composite"))
-            .with_sqlstate(::types_error::ERRCODE_WRONG_OBJECT_TYPE)
-            .into());
+        return Err(
+            ::types_error::PgError::error(format!("type {name} is not composite"))
+                .with_sqlstate(::types_error::ERRCODE_WRONG_OBJECT_TYPE)
+                .into(),
+        );
     };
     Ok((desc, entry.tupdesc_identifier()))
 }
@@ -3365,14 +3376,20 @@ fn field_store_tupdesc(
         let Some(td) = e.tupdesc() else {
             let name = format_type::format_type_be(st.resulttype)
                 .unwrap_or_else(|_| format!("{}", st.resulttype));
-            return Err(::types_error::PgError::error(format!("type {name} is not composite"))
-                .with_sqlstate(::types_error::ERRCODE_WRONG_OBJECT_TYPE)
-                .into());
+            return Err(
+                ::types_error::PgError::error(format!("type {name} is not composite"))
+                    .with_sqlstate(::types_error::ERRCODE_WRONG_OBJECT_TYPE)
+                    .into(),
+            );
         };
         st.tupdesc_id = e.tupdesc_identifier();
         st.cached = Some(core::mem::ManuallyDrop::new(td));
     }
-    Ok(st.cached.as_deref().map(|rc| &**rc).expect("refreshed above"))
+    Ok(st
+        .cached
+        .as_deref()
+        .map(|rc| &**rc)
+        .expect("refreshed above"))
 }
 
 fn eval_field_store_deform(
@@ -3428,6 +3445,7 @@ fn eval_field_store_deform(
     values.resize(n, Datum::null());
     nulls.resize(n, true);
     ::types_tuple::heap_deform_tuple(&tuple, desc, &mut values, &mut nulls);
+    #[allow(clippy::forget_non_drop)]
     core::mem::forget(tuple);
     for (i, c) in columns.iter_mut().enumerate() {
         *c = NullableDatum {
@@ -3697,6 +3715,7 @@ pub unsafe fn agg_copy_trans_value(
 /// execExprInterp.c:5772): the copy made by `agg_datum_copy`, same layout.
 /// # Safety: `value` was returned by `agg_datum_copy` into `mcx` and is
 /// referenced nowhere else.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn agg_datum_free(mcx: ::mcx::Mcx<'_>, value: Datum, typlen: i16) {
     if value.as_usize() == 0 {
         return;
@@ -3722,12 +3741,22 @@ pub unsafe fn agg_datum_free(mcx: ::mcx::Mcx<'_>, value: Datum, typlen: i16) {
     };
     let layout = core::alloc::Layout::from_size_align(size, 8).expect("datumCopy layout");
     // SAFETY: allocated by agg_datum_copy with exactly this layout.
-    unsafe { ::mcx::Allocator::deallocate(&mcx, core::ptr::NonNull::new_unchecked(p.cast_mut()), layout) };
+    unsafe {
+        ::mcx::Allocator::deallocate(
+            &mcx,
+            core::ptr::NonNull::new_unchecked(p.cast_mut()),
+            layout,
+        )
+    };
 }
 
 /// # Safety
 /// As [`agg_datum_copy`].
-pub unsafe fn agg_trans_value_copy(agg: &::types_fmgr::AggStateNode, value: Datum, typlen: i16) -> PgResult<Datum> {
+pub unsafe fn agg_trans_value_copy(
+    agg: &::types_fmgr::AggStateNode,
+    value: Datum,
+    typlen: i16,
+) -> PgResult<Datum> {
     if typlen == -1 && agg.expanded_trans() {
         // SAFETY: forwarded caller contract (a live by-ref datum); an RW expanded pointer embeds a live header.
         unsafe {
@@ -3744,6 +3773,7 @@ pub unsafe fn agg_trans_value_copy(agg: &::types_fmgr::AggStateNode, value: Datu
     unsafe { agg_datum_copy(agg.aggcontext(), value, typlen) }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn agg_datum_copy(mcx: ::mcx::Mcx<'_>, value: Datum, typlen: i16) -> PgResult<Datum> {
     let p = value.as_usize() as *const u8;
     // SAFETY: forwarded caller contract.
@@ -4061,10 +4091,13 @@ fn row_cache_desc(
         if rn.named.is_none() || rn.tup_type != tup_type || rn.tupdesc_id != e.tupdesc_identifier()
         {
             let Some(td) = e.tupdesc() else {
-                let name = format_type::format_type_be(tup_type).unwrap_or_else(|_| format!("{tup_type}"));
-                return Err(::types_error::PgError::error(format!("type {name} is not composite"))
-                    .with_sqlstate(::types_error::ERRCODE_WRONG_OBJECT_TYPE)
-                    .into());
+                let name =
+                    format_type::format_type_be(tup_type).unwrap_or_else(|_| format!("{tup_type}"));
+                return Err(
+                    ::types_error::PgError::error(format!("type {name} is not composite"))
+                        .with_sqlstate(::types_error::ERRCODE_WRONG_OBJECT_TYPE)
+                        .into(),
+                );
             };
             rn.tupdesc_id = e.tupdesc_identifier();
             rn.named = Some(td);
@@ -4096,9 +4129,10 @@ fn row_cache_desc(
                 ::types_tuple::TupleDescData<'static>,
             >(desc));
         }
-        rn.seen
-            .try_reserve(1)
-            .map_err(|_| rn.mcx.oom(core::mem::size_of::<(i32, core::ptr::NonNull<u8>)>()))?;
+        rn.seen.try_reserve(1).map_err(|_| {
+            rn.mcx
+                .oom(core::mem::size_of::<(i32, core::ptr::NonNull<u8>)>())
+        })?;
         rn.seen.push((tup_typmod, desc_ptr));
         rn.desc = Some(desc_ptr);
         rn.tup_type = tup_type;
@@ -4156,6 +4190,7 @@ fn eval_whole_row(
         Some(j) => unsafe {
             let j = j.as_ref();
             // The 'static restamp narrows back to the eval lifetime here.
+            #[allow(clippy::unnecessary_cast)]
             let result = &mut *(j.slot.as_ptr() as *mut SlotData<'_>);
             exectuples::slot_getallattrs(slot);
             let old = slot.base();

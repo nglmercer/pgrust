@@ -246,6 +246,7 @@ fn percode_front_fit() {
         a.swap(i, p);
         for k in i + 1..3 {
             let f = a[k][i] / a[i][i];
+            #[allow(clippy::needless_range_loop)]
             for j in i..4 {
                 a[k][j] -= f * a[i][j];
             }

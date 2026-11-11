@@ -134,5 +134,6 @@ pub(crate) unsafe fn compact_out(st: &mut State<'_>) -> gravity_driver::Result<(
     let d = st.bytes.as_mut_ptr();
     grow_to(st, HDR + rd::<u64>(d, N) as usize * rd::<u32>(d, FULL) as usize)?;
     crate::ops::hashjoin::strategies::dense_bits::expand(st.bytes.as_mut_ptr());
-    Ok(wr::<u8>(st.bytes.as_mut_ptr(), PHASE, 1))
+    wr::<u8>(st.bytes.as_mut_ptr(), PHASE, 1);
+    Ok(())
 }

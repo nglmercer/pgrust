@@ -449,6 +449,7 @@ fn RI_FKey_check<'mcx>(mcx: Mcx<'mcx>, tgdata: &RiTriggerData<'_, 'mcx>) -> PgRe
                 .expect("PgString write");
             }
             let mut querysep = "WHERE";
+            #[allow(clippy::needless_range_loop)]
             for i in 0..riinfo.nkeys {
                 let pk_type = att_type(&pk_rel, riinfo.pk_attnums[i]);
                 let fk_type = att_type(fk_rel, riinfo.fk_attnums[i]);
@@ -550,6 +551,7 @@ fn ri_restrict<'mcx>(
             write!(querybuf, "SELECT 1 FROM {fk_only}{} x", quote_relation_name(mcx, &fk_rel)?)
                 .expect("PgString write");
             let mut querysep = "WHERE";
+            #[allow(clippy::needless_range_loop)]
             for i in 0..riinfo.nkeys {
                 let pk_type = att_type(pk_rel, riinfo.pk_attnums[i]);
                 let fk_type = att_type(&fk_rel, riinfo.fk_attnums[i]);
@@ -607,6 +609,7 @@ fn ri_restrict<'mcx>(
                 )
                 .expect("PgString write");
                 let mut querysep = "WHERE";
+                #[allow(clippy::needless_range_loop)]
                 for i in 0..riinfo.nkeys {
                     let pk_type = att_type(pk_rel, riinfo.pk_attnums[i]);
                     let attname = quote_one_name(att_name(pk_rel, riinfo.pk_attnums[i]));
@@ -682,6 +685,7 @@ fn RI_FKey_cascade_del<'mcx>(mcx: Mcx<'mcx>, tgdata: &RiTriggerData<'_, 'mcx>) -
             write!(querybuf, "DELETE FROM {fk_only}{}", quote_relation_name(mcx, &fk_rel)?)
                 .expect("PgString write");
             let mut querysep = "WHERE";
+            #[allow(clippy::needless_range_loop)]
             for i in 0..riinfo.nkeys {
                 let pk_type = att_type(pk_rel, riinfo.pk_attnums[i]);
                 let fk_type = att_type(&fk_rel, riinfo.fk_attnums[i]);
@@ -834,6 +838,7 @@ fn ri_set<'mcx>(
             write!(querybuf, "UPDATE {fk_only}{} SET", quote_relation_name(mcx, &fk_rel)?)
                 .expect("PgString write");
             let mut querysep = "";
+            #[allow(clippy::needless_range_loop)]
             for i in 0..num_cols_to_set {
                 let attname = quote_one_name(att_name(&fk_rel, set_cols[i]));
                 let rhs = if is_set_null { "NULL" } else { "DEFAULT" };
@@ -841,6 +846,7 @@ fn ri_set<'mcx>(
                 querysep = ",";
             }
             let mut qualsep = "WHERE";
+            #[allow(clippy::needless_range_loop)]
             for i in 0..riinfo.nkeys {
                 let pk_type = att_type(pk_rel, riinfo.pk_attnums[i]);
                 let fk_type = att_type(&fk_rel, riinfo.fk_attnums[i]);
@@ -927,6 +933,7 @@ fn ri_Check_Pk_Match<'mcx>(
                 .expect("PgString write");
             }
             let mut querysep = "WHERE";
+            #[allow(clippy::needless_range_loop)]
             for i in 0..riinfo.nkeys {
                 let pk_type = att_type(pk_rel, riinfo.pk_attnums[i]);
                 let attname = quote_one_name(att_name(pk_rel, riinfo.pk_attnums[i]));
@@ -1871,6 +1878,7 @@ fn ri_ReportViolation<'mcx>(
             if aclresult == ACLCHECK_OK {
                 return Ok(true);
             }
+            #[allow(clippy::needless_range_loop)]
             for idx in 0..riinfo.nkeys {
                 let aclresult = aclchk_seams::pg_attribute_aclcheck::call(
                     rel.rd_id,
@@ -1892,6 +1900,7 @@ fn ri_ReportViolation<'mcx>(
     let mut key_names = String::new();
     let mut key_values = String::new();
     if has_perm {
+        #[allow(clippy::needless_range_loop)]
         for idx in 0..riinfo.nkeys {
             let fnum = attnums[idx];
             let att = desc.attr(fnum as usize - 1);
@@ -2051,6 +2060,7 @@ fn ri_NullCheck(
     let attnums = if rel_is_pk { &riinfo.pk_attnums } else { &riinfo.fk_attnums };
     let mut allnull = true;
     let mut nonenull = true;
+    #[allow(clippy::needless_range_loop)]
     for i in 0..riinfo.nkeys {
         let mut isnull = false;
         // SAFETY: live user column of the tuple's descriptor.
@@ -2081,6 +2091,7 @@ fn ri_KeysEqual(
     rel_is_pk: bool,
 ) -> PgResult<bool> {
     let attnums = if rel_is_pk { &riinfo.pk_attnums } else { &riinfo.fk_attnums };
+    #[allow(clippy::needless_range_loop)]
     for i in 0..riinfo.nkeys {
         let mut oldnull = false;
         let mut newnull = false;

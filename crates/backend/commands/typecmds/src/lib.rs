@@ -13,26 +13,29 @@ pub fn init_seams() {
     typecmds_seams::alter_type_namespace_internal::set(alter::AlterTypeNamespaceInternal);
     pg_shdepend::alter_type_owner_oid::set(alter::AlterTypeOwner_oid);
 }
-pub use range::DefineRange;
 pub use alter::{
-    checkDomainOwner, AlterDomain, AlterType, AlterTypeNamespace, AlterTypeNamespace_oid,
-    AlterTypeNamespaceInternal, AlterTypeOwner, AlterTypeOwner_oid, AlterTypeOwnerInternal,
+    checkDomainOwner, AlterDomain, AlterType, AlterTypeNamespace, AlterTypeNamespaceInternal,
+    AlterTypeNamespace_oid, AlterTypeOwner, AlterTypeOwnerInternal, AlterTypeOwner_oid,
     RenameDomainConstraint, RenameType,
 };
+pub use range::DefineRange;
 
 use datum::Datum;
 use mcx::{Mcx, PgVec};
 use parser_small1::{make_parsestate, ParseExprKind, ParseState, PreColumnRefHook};
-use types_core::{AttrNumber, InvalidOid, Oid, OidIsValid, NAMESPACE_RELATION_ID, TYPE_RELATION_ID};
+use types_core::{
+    AttrNumber, InvalidOid, Oid, OidIsValid, NAMESPACE_RELATION_ID, TYPE_RELATION_ID,
+};
 use types_error::{
     PgError, PgResult, ERRCODE_DATATYPE_MISMATCH, ERRCODE_DUPLICATE_OBJECT,
     ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_INSUFFICIENT_PRIVILEGE,
     ERRCODE_INVALID_COLUMN_REFERENCE, ERRCODE_INVALID_OBJECT_DEFINITION, ERRCODE_SYNTAX_ERROR,
-    ERRCODE_WRONG_OBJECT_TYPE,
-    ERROR,
+    ERRCODE_WRONG_OBJECT_TYPE, ERROR,
 };
 use types_nodes::primnodes::CoerceToDomainValue;
-use types_nodes::rawnodes::{AlterEnumStmt, Constraint, ConstrType, CreateDomainStmt, CreateEnumStmt, TypeName};
+use types_nodes::rawnodes::{
+    AlterEnumStmt, ConstrType, Constraint, CreateDomainStmt, CreateEnumStmt, TypeName,
+};
 use types_nodes::NodeTag;
 use types_rel::AccessShareLock;
 use types_scan::scankey::{BTEqualStrategyNumber, ScanKeyData};
@@ -85,7 +88,9 @@ fn read_text_column(mcx: Mcx<'_>, d: Datum, isnull: bool) -> PgResult<Option<Str
     let image = unsafe { core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p)) };
     let payload = varlena::open_image(mcx, image)?;
     Ok(Some(
-        core::str::from_utf8(payload.as_bytes()).expect("text column UTF-8").to_string(),
+        core::str::from_utf8(payload.as_bytes())
+            .expect("text column UTF-8")
+            .to_string(),
     ))
 }
 
@@ -151,7 +156,10 @@ fn base_type_row<'mcx>(mcx: Mcx<'mcx>, typeoid: Oid) -> PgResult<BaseTypeRow> {
     Ok(row)
 }
 
-pub(crate) fn type_name_to_string<'mcx>(mcx: Mcx<'mcx>, tn: &TypeName<'_>) -> PgResult<mcx::PgString<'mcx>> {
+pub(crate) fn type_name_to_string<'mcx>(
+    mcx: Mcx<'mcx>,
+    tn: &TypeName<'_>,
+) -> PgResult<mcx::PgString<'mcx>> {
     let mut s = mcx::PgString::new_in(mcx);
     for (i, n) in tn.names.iter().enumerate() {
         if i > 0 {
@@ -299,8 +307,7 @@ pub fn DefineDomain<'mcx>(
                     // CoerceToDomain over a base domain is kept so this
                     // default overrides the base domain's
                     // (typecmds.c:864-880).
-                    let is_null_const =
-                        default_expr.as_const().is_some_and(|c| c.constisnull);
+                    let is_null_const = default_expr.as_const().is_some_and(|c| c.constisnull);
                     if is_null_const {
                         default_expr_node = None;
                         default_value = None;
@@ -510,7 +517,11 @@ pub fn DefineDomain<'mcx>(
     }
 
     let domain_array_name = pg_type::makeArrayTypeName(domain_name, domain_namespace)?;
-    let array_alignment = if base.typalign == b'd' as i8 { b'd' as i8 } else { b'i' as i8 };
+    let array_alignment = if base.typalign == b'd' as i8 {
+        b'd' as i8
+    } else {
+        b'i' as i8
+    };
     pg_type::TypeCreate(
         mcx,
         &TypeCreateParams {
@@ -646,7 +657,9 @@ fn function_does_not_exist<'mcx>(
     procname: &types_nodes::NodeList<'mcx>,
     argtypes: &[Oid],
 ) -> PgResult<Box<PgError>> {
-    let mut sig = commands_define::NameListToString(mcx, procname)?.as_str().to_string();
+    let mut sig = commands_define::NameListToString(mcx, procname)?
+        .as_str()
+        .to_string();
     sig.push('(');
     for (i, &t) in argtypes.iter().enumerate() {
         if i > 0 {
@@ -669,8 +682,16 @@ fn volatile_warning<'mcx>(
     let name = commands_define::NameListToString(mcx, procname)?;
     elog::ereport(types_error::WARNING)
         .errcode(ERRCODE_INVALID_OBJECT_DEFINITION)
-        .errmsg(format!("type {} function {} should not be volatile", what, name.as_str()))
-        .finish(types_error::ErrorLocation::new(file!(), line!() as i32, "DefineType"))
+        .errmsg(format!(
+            "type {} function {} should not be volatile",
+            what,
+            name.as_str()
+        ))
+        .finish(types_error::ErrorLocation::new(
+            file!(),
+            line!() as i32,
+            "DefineType",
+        ))
 }
 
 fn io_func_rettype_check<'mcx>(
@@ -701,7 +722,11 @@ fn findTypeInputFunction<'mcx>(
     typeOid: Oid,
     receive: bool,
 ) -> PgResult<Oid> {
-    let first = if receive { types_core::INTERNALOID } else { types_core::CSTRINGOID };
+    let first = if receive {
+        types_core::INTERNALOID
+    } else {
+        types_core::CSTRINGOID
+    };
     let arglist = [first, types_core::OIDOID, types_core::INT4OID];
     let proc1 = parse_func::LookupFuncName(procname, 1, &arglist, true)?;
     let proc3 = parse_func::LookupFuncName(procname, 3, &arglist, true)?;
@@ -712,7 +737,10 @@ fn findTypeInputFunction<'mcx>(
             return Err(Box::new(
                 PgError::new(
                     ERROR,
-                    format!("type {what} function {} has multiple matches", name.as_str()),
+                    format!(
+                        "type {what} function {} has multiple matches",
+                        name.as_str()
+                    ),
                 )
                 .with_sqlstate(types_error::ERRCODE_AMBIGUOUS_FUNCTION),
             ));
@@ -724,7 +752,14 @@ fn findTypeInputFunction<'mcx>(
         }
         proc3
     };
-    io_func_rettype_check(mcx, proc_oid, typeOid, &format!("type {what}"), None, procname)?;
+    io_func_rettype_check(
+        mcx,
+        proc_oid,
+        typeOid,
+        &format!("type {what}"),
+        None,
+        procname,
+    )?;
     if lsyscache::func_volatile(proc_oid)? == PROVOLATILE_VOLATILE {
         volatile_warning(mcx, what, procname)?;
     }
@@ -747,7 +782,14 @@ fn findTypeOutputFunction<'mcx>(
     } else {
         ("output", types_core::CSTRINGOID, "cstring")
     };
-    io_func_rettype_check(mcx, proc_oid, want, &format!("type {what}"), Some(want_name), procname)?;
+    io_func_rettype_check(
+        mcx,
+        proc_oid,
+        want,
+        &format!("type {what}"),
+        Some(want_name),
+        procname,
+    )?;
     if lsyscache::func_volatile(proc_oid)? == PROVOLATILE_VOLATILE {
         volatile_warning(mcx, what, procname)?;
     }
@@ -759,15 +801,29 @@ fn findTypeTypmodFunction<'mcx>(
     procname: &types_nodes::NodeList<'mcx>,
     output: bool,
 ) -> PgResult<Oid> {
-    let arglist = [if output { types_core::INT4OID } else { CSTRINGARRAYOID }];
+    let arglist = [if output {
+        types_core::INT4OID
+    } else {
+        CSTRINGARRAYOID
+    }];
     let proc_oid = parse_func::LookupFuncName(procname, 1, &arglist, true)?;
     if proc_oid == InvalidOid {
         return Err(function_does_not_exist(mcx, procname, &arglist)?);
     }
     let (tag, want, want_name, warnwhat) = if output {
-        ("typmod_out", types_core::CSTRINGOID, "cstring", "modifier output")
+        (
+            "typmod_out",
+            types_core::CSTRINGOID,
+            "cstring",
+            "modifier output",
+        )
     } else {
-        ("typmod_in", types_core::INT4OID, "integer", "modifier input")
+        (
+            "typmod_in",
+            types_core::INT4OID,
+            "integer",
+            "modifier input",
+        )
     };
     io_func_rettype_check(mcx, proc_oid, want, tag, Some(want_name), procname)?;
     if lsyscache::func_volatile(proc_oid)? == PROVOLATILE_VOLATILE {
@@ -906,7 +962,9 @@ pub fn DefineType<'mcx>(
     let mut collatableEl: Option<&DefElem<'mcx>> = None;
 
     for n in parameters.iter() {
-        let defel = n.as_def_elem().expect("CREATE TYPE definition: DefElem list");
+        let defel = n
+            .as_def_elem()
+            .expect("CREATE TYPE definition: DefElem list");
         let slot: &mut Option<&DefElem<'mcx>> = match defel.defname.unwrap_or("") {
             "like" => &mut likeTypeEl,
             "internallength" => &mut internalLengthEl,
@@ -938,7 +996,11 @@ pub fn DefineType<'mcx>(
                     .errcode(ERRCODE_SYNTAX_ERROR)
                     .errmsg(format!("type attribute \"{other}\" not recognized"))
                     .errposition(pos)
-                    .finish(types_error::ErrorLocation::new(file!(), line!() as i32, "DefineType"))?;
+                    .finish(types_error::ErrorLocation::new(
+                        file!(),
+                        line!() as i32,
+                        "DefineType",
+                    ))?;
                 continue;
             }
         };
@@ -1013,7 +1075,9 @@ pub fn DefineType<'mcx>(
         let p = commands_define::defGetString(mcx, defel)?;
         let c = p.as_bytes().first().copied().unwrap_or(0);
         if !(32..=126).contains(&c) {
-            return Err(param_err(format!("invalid type category \"{p}\": must be simple ASCII")));
+            return Err(param_err(format!(
+                "invalid type category \"{p}\": must be simple ASCII"
+            )));
         }
         category = c as i8;
     }
@@ -1187,8 +1251,11 @@ pub fn DefineType<'mcx>(
     debug_assert!(typoid == address.objectId);
 
     let array_name = pg_type::makeArrayTypeName(typeName, typeNamespace)?;
-    let array_alignment =
-        if alignment == TYPALIGN_DOUBLE { TYPALIGN_DOUBLE } else { TYPALIGN_INT };
+    let array_alignment = if alignment == TYPALIGN_DOUBLE {
+        TYPALIGN_DOUBLE
+    } else {
+        TYPALIGN_INT
+    };
     pg_type::TypeCreate(
         mcx,
         &TypeCreateParams {
@@ -1230,13 +1297,11 @@ pub fn DefineType<'mcx>(
     Ok(address)
 }
 
-
 pub fn DefineEnum<'mcx>(mcx: Mcx<'mcx>, stmt: &CreateEnumStmt<'mcx>) -> PgResult<ObjectAddress> {
     let (enum_namespace, enum_name) = creation_namespace(mcx, &stmt.typeName, "DefineEnum")?;
     let user_id = miscinit::GetUserId();
 
-    let old_type_oid =
-        syscache_seams::lookup_pg_type_oid_by_name::call(enum_name, enum_namespace)?;
+    let old_type_oid = syscache_seams::lookup_pg_type_oid_by_name::call(enum_name, enum_namespace)?;
     if old_type_oid != InvalidOid
         && !pg_type::moveArrayTypeName(mcx, old_type_oid, enum_name, enum_namespace)?
     {
@@ -1403,9 +1468,14 @@ fn constraint_name<'mcx>(
             mcx::vec_append_bytes(&mut v, name.as_bytes())?;
             Ok(v)
         }
-        None => {
-            pg_constraint::ChooseConstraintName(mcx, domain_name, None, label, domain_namespace, &[])
-        }
+        None => pg_constraint::ChooseConstraintName(
+            mcx,
+            domain_name,
+            None,
+            label,
+            domain_namespace,
+            &[],
+        ),
     }
 }
 
@@ -1420,8 +1490,14 @@ pub(crate) fn domainAddCheckConstraint<'mcx>(
     is_readd: bool,
 ) -> PgResult<(Oid, mcx::PgString<'mcx>)> {
     debug_assert!(constr.contype == ConstrType::CONSTR_CHECK);
-    let conname =
-        constraint_name(mcx, domain_oid, domain_namespace, domain_name, constr, "check")?;
+    let conname = constraint_name(
+        mcx,
+        domain_oid,
+        domain_namespace,
+        domain_name,
+        constr,
+        "check",
+    )?;
 
     let mut cpstate = make_parsestate(mcx, None);
     cpstate.p_pre_columnref_hook = PreColumnRefHook::DomainValue(CoerceToDomainValue {
@@ -1490,8 +1566,14 @@ pub(crate) fn domainAddNotNullConstraint<'mcx>(
     domain_name: &str,
 ) -> PgResult<Oid> {
     debug_assert!(constr.contype == ConstrType::CONSTR_NOTNULL);
-    let conname =
-        constraint_name(mcx, domain_oid, domain_namespace, domain_name, constr, "not_null")?;
+    let conname = constraint_name(
+        mcx,
+        domain_oid,
+        domain_namespace,
+        domain_name,
+        constr,
+        "not_null",
+    )?;
     let mut entry = pg_constraint::ConstraintEntry::base(
         &conname,
         domain_namespace,
@@ -1513,7 +1595,11 @@ fn domain_err(
     location: i32,
 ) -> Box<PgError> {
     let pos = parser_small1::parser_errposition(pstate, location, mbutils::GetDatabaseEncoding());
-    Box::new(PgError::new(ERROR, msg.to_string()).with_sqlstate(sqlstate).with_cursor_position(pos))
+    Box::new(
+        PgError::new(ERROR, msg.to_string())
+            .with_sqlstate(sqlstate)
+            .with_cursor_position(pos),
+    )
 }
 
 #[track_caller]
@@ -1521,8 +1607,11 @@ fn domain_err(
 #[inline(never)]
 fn table_refs_in_domain_check() -> Box<PgError> {
     Box::new(
-        PgError::new(ERROR, "cannot use table references in domain check constraint".to_string())
-            .with_sqlstate(ERRCODE_INVALID_COLUMN_REFERENCE),
+        PgError::new(
+            ERROR,
+            "cannot use table references in domain check constraint".to_string(),
+        )
+        .with_sqlstate(ERRCODE_INVALID_COLUMN_REFERENCE),
     )
 }
 
@@ -1544,7 +1633,11 @@ fn permission_denied_schema(nsp: Oid) -> PgResult<Box<PgError>> {
 // aclcheck_error_type (aclchk.c): arrays report their element type.
 fn permission_denied_type(typeoid: Oid) -> Box<PgError> {
     let element_type = lsyscache::get_element_type(typeoid).unwrap_or(InvalidOid);
-    let shown = if OidIsValid(element_type) { element_type } else { typeoid };
+    let shown = if OidIsValid(element_type) {
+        element_type
+    } else {
+        typeoid
+    };
     let name = format_type::format_type_be(shown).unwrap_or_else(|_| "???".into());
     Box::new(
         PgError::new(ERROR, format!("permission denied for type {name}"))
@@ -1586,9 +1679,15 @@ fn invalid_base_type<'mcx>(
     let pos =
         parser_small1::parser_errposition(pstate, tn.location, mbutils::GetDatabaseEncoding());
     Ok(Box::new(
-        PgError::new(ERROR, format!("\"{}\" is not a valid base type for a domain", name.as_str()))
-            .with_sqlstate(ERRCODE_DATATYPE_MISMATCH)
-            .with_cursor_position(pos),
+        PgError::new(
+            ERROR,
+            format!(
+                "\"{}\" is not a valid base type for a domain",
+                name.as_str()
+            ),
+        )
+        .with_sqlstate(ERRCODE_DATATYPE_MISMATCH)
+        .with_cursor_position(pos),
     ))
 }
 
@@ -1600,7 +1699,9 @@ fn invalid_base_type<'mcx>(
 #[cold]
 #[inline(never)]
 pub(crate) fn cache_lookup_failed(what: &str, oid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!("cache lookup failed for {what} {oid}")))
+    Box::new(PgError::error(format!(
+        "cache lookup failed for {what} {oid}"
+    )))
 }
 
 #[cfg(test)]
@@ -1634,8 +1735,14 @@ mod tests {
             Node::mk_string(mcx, "int4").unwrap(),
         )
         .unwrap();
-        let tn = TypeName { names, ..Default::default() };
-        assert_eq!(type_name_to_string(mcx, &tn).unwrap().as_str(), "pg_catalog.int4");
+        let tn = TypeName {
+            names,
+            ..Default::default()
+        };
+        assert_eq!(
+            type_name_to_string(mcx, &tn).unwrap().as_str(),
+            "pg_catalog.int4"
+        );
     }
 
     // F1 (gramwalk 2026-08-18): >3 dotted names raise C's catchable 42601
@@ -1645,8 +1752,10 @@ mod tests {
     fn define_domain_four_dotted_name_is_42601() {
         let ctx = MemoryContext::new("t");
         let mcx = ctx.mcx();
-        let nodes: Vec<Node<'_>> =
-            ["a", "b", "c", "d"].iter().map(|p| Node::mk_string(mcx, p).unwrap()).collect();
+        let nodes: Vec<Node<'_>> = ["a", "b", "c", "d"]
+            .iter()
+            .map(|p| Node::mk_string(mcx, p).unwrap())
+            .collect();
         let stmt = CreateDomainStmt {
             domainname: NodeList::from_slice(mcx, &nodes).unwrap(),
             typeName: None,
@@ -1656,7 +1765,10 @@ mod tests {
         let mut pstate = make_parsestate(mcx, None);
         let e = DefineDomain(mcx, &mut pstate, &stmt).unwrap_err();
         assert_eq!(e.sqlstate(), ERRCODE_SYNTAX_ERROR);
-        assert_eq!(e.message(), "improper qualified name (too many dotted names): a.b.c.d");
+        assert_eq!(
+            e.message(),
+            "improper qualified name (too many dotted names): a.b.c.d"
+        );
     }
 
     #[test]
@@ -1664,7 +1776,12 @@ mod tests {
         let ctx = MemoryContext::new("t");
         let mcx = ctx.mcx();
         let pstate = make_parsestate(mcx, None);
-        let e = domain_err(&pstate, ERRCODE_SYNTAX_ERROR, "multiple default expressions", 10);
+        let e = domain_err(
+            &pstate,
+            ERRCODE_SYNTAX_ERROR,
+            "multiple default expressions",
+            10,
+        );
         assert_eq!(e.sqlstate(), ERRCODE_SYNTAX_ERROR);
         assert_eq!(e.message(), "multiple default expressions");
     }
@@ -1675,7 +1792,9 @@ mod tests {
     fn read_text_column_matches_c() {
         let ctx = MemoryContext::new("t");
         let mcx = ctx.mcx();
-        assert!(read_text_column(mcx, Datum::null(), true).unwrap().is_none());
+        assert!(read_text_column(mcx, Datum::null(), true)
+            .unwrap()
+            .is_none());
         let payload = b"nextval('s'::regclass)";
         let mut image: PgVec<'_, u8> = mcx::vec_with_capacity_in(mcx, 4 + payload.len()).unwrap();
         image.resize(4, 0);
@@ -1725,8 +1844,7 @@ pub fn DefineCompositeType<'mcx>(
             types_rel::NoLock,
             false,
         )?;
-    let old_type_oid =
-        syscache_seams::lookup_pg_type_oid_by_name::call(relname, type_namespace)?;
+    let old_type_oid = syscache_seams::lookup_pg_type_oid_by_name::call(relname, type_namespace)?;
     if old_type_oid != InvalidOid
         && !pg_type::moveArrayTypeName(mcx, old_type_oid, relname, type_namespace)?
     {
@@ -1749,5 +1867,8 @@ pub fn DefineCompositeType<'mcx>(
     )?;
     // C returns DefineRelation's typaddress — the pg_type entry, not the
     // relation (typecmds.c:2599); the composite type's reltype is that oid.
-    Ok(ObjectAddress::set(TYPE_RELATION_ID, lsyscache::get_rel_type_id(relid)?))
+    Ok(ObjectAddress::set(
+        TYPE_RELATION_ID,
+        lsyscache::get_rel_type_id(relid)?,
+    ))
 }

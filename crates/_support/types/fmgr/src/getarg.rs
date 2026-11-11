@@ -28,12 +28,15 @@ pub struct PackedVarlena<'a> {
 impl<'a> PackedVarlena<'a> {
     /// Safety: `p` is a live inline varlena image readable for its full VARSIZE_ANY, unwritten for `'a`.
     #[inline]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn from_ptr(p: *const u8) -> PackedVarlena<'a> {
         // SAFETY: caller contract — header readable.
         unsafe {
             if varatt::varatt_is_1b_e(p) || (!varatt::varatt_is_1b(p) && !varatt::varatt_is_4b_u(p))
             {
-                panic!("fmgr: external/compressed varlena where the caller guaranteed an inline image");
+                panic!(
+                    "fmgr: external/compressed varlena where the caller guaranteed an inline image"
+                );
             }
         }
         PackedVarlena {
@@ -41,7 +44,6 @@ impl<'a> PackedVarlena<'a> {
             _image: PhantomData,
         }
     }
-
 
     #[inline]
     pub fn as_ptr(self) -> *const u8 {
@@ -155,7 +157,11 @@ unsafe fn detoast_arg<'m>(p: *const u8, mcx: Mcx<'m>) -> PgResult<PackedVarlena<
 
 /// C `pg_detoast_datum_packed` over a bare Datum (executor step paths that
 /// carry no fcinfo). Safety: `d` is a non-null live varlena datum.
-pub unsafe fn datum_varlena_packed<'m>(d: ::datum::Datum, mcx: Mcx<'m>) -> PgResult<PackedVarlena<'m>> {
+#[allow(clippy::missing_safety_doc)]
+pub unsafe fn datum_varlena_packed<'m>(
+    d: ::datum::Datum,
+    mcx: Mcx<'m>,
+) -> PgResult<PackedVarlena<'m>> {
     // SAFETY: forwarded caller contract — header readable.
     unsafe {
         let p = d.as_usize() as *const u8;
@@ -165,7 +171,10 @@ pub unsafe fn datum_varlena_packed<'m>(d: ::datum::Datum, mcx: Mcx<'m>) -> PgRes
         if varlena_header_underflows(p) {
             return Err(corrupt_varlena_header_error());
         }
-        Ok(PackedVarlena { ptr: p, _image: PhantomData })
+        Ok(PackedVarlena {
+            ptr: p,
+            _image: PhantomData,
+        })
     }
 }
 
@@ -214,6 +223,7 @@ impl FunctionCallInfoBaseData {
 
     /// Safety: arg `i` is by-reference, non-null, and live for the call.
     #[inline]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn arg_ptr(&self, i: usize) -> *const u8 {
         self.arg(i).as_usize() as *const u8
     }
@@ -221,6 +231,7 @@ impl FunctionCallInfoBaseData {
     /// C `pg_detoast_datum_packed`: external/compressed args detoast into the
     /// armed result mcx. Safety: arg `i` is a non-null live varlena.
     #[inline]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn arg_varlena_packed(&self, i: usize) -> PgResult<PackedVarlena<'_>> {
         // SAFETY: forwarded caller contract — header readable.
         unsafe {
@@ -240,6 +251,7 @@ impl FunctionCallInfoBaseData {
     }
 
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn arg_varlena_is_extended(&self, i: usize) -> bool {
         // SAFETY: forwarded caller contract — header readable.
         unsafe {
@@ -251,6 +263,7 @@ impl FunctionCallInfoBaseData {
     /// Raw image, any header form (C's raw datum for slice-fetch paths).
     /// Safety: arg `i` is a non-null varlena readable for its full VARSIZE_ANY.
     #[inline]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn arg_varlena_raw(&self, i: usize) -> &[u8] {
         // SAFETY: forwarded caller contract.
         unsafe {
@@ -261,6 +274,7 @@ impl FunctionCallInfoBaseData {
 
     /// Safety: arg `i` is a non-null `cstring` (`typlen == -2`): live, NUL-terminated.
     #[inline]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn arg_cstring(&self, i: usize) -> &CStr {
         debug_assert!(
             self.arg(i).as_usize() != 0,
@@ -273,37 +287,42 @@ impl FunctionCallInfoBaseData {
     /// Safety: arg `i` is a live, unaliased `&mut StringInfo` pointer.
     #[inline]
     // clippy::mut_from_ref is intended: the caller guarantees the arg is a live, unaliased StringInfo (see the Safety note above).
-    #[allow(clippy::mut_from_ref)]
+    #[allow(clippy::missing_safety_doc, clippy::mut_from_ref)]
     pub unsafe fn arg_stringinfo(&self, i: usize) -> &mut ::stringinfo::StringInfo<'_> {
         unsafe { &mut *(self.arg_ptr(i) as *mut ::stringinfo::StringInfo) }
     }
 
     /// Safety: arg `i` is non-null with catalog `typlen == n`, live for the call.
     #[inline]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn arg_fixed(&self, i: usize, n: usize) -> &[u8] {
         unsafe { core::slice::from_raw_parts(self.arg_ptr(i), n) }
     }
 
     /// Safety: as [`Self::arg_fixed`] with `n == UUID_LEN`.
     #[inline]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn arg_uuid(&self, i: usize) -> &[u8; UUID_LEN] {
         unsafe { &*self.arg_ptr(i).cast() }
     }
 
     /// Safety: as [`Self::arg_fixed`] with `n == TID_LEN`.
     #[inline]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn arg_tid(&self, i: usize) -> &[u8; TID_LEN] {
         unsafe { &*self.arg_ptr(i).cast() }
     }
 
     /// Safety: as [`Self::arg_fixed`] with `n == NAME_LEN`.
     #[inline]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn arg_name(&self, i: usize) -> &[u8; NAME_LEN] {
         unsafe { &*self.arg_ptr(i).cast() }
     }
 
     /// Safety: as [`Self::arg_fixed`] with `n == INTERVAL_LEN`.
     #[inline]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn arg_interval(&self, i: usize) -> &[u8; INTERVAL_LEN] {
         unsafe { &*self.arg_ptr(i).cast() }
     }

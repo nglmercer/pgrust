@@ -432,6 +432,7 @@ impl SourceMech for HeapMech<'_> {
 // (15 bits), the tuple header's `t_infomask` / `t_hoff`, its null bitmap and HEAP_HASNULL.
 pub(crate) const PAGE_HEADER: i32 = 24;
 pub(crate) const LP_OFF_MASK: i64 = 0x7fff;
+#[allow(dead_code)]
 pub(crate) const T_INFOMASK: i32 = 20;
 pub(crate) const T_HOFF: i32 = 22;
 pub(crate) const T_BITS: i32 = 23;

@@ -17,6 +17,7 @@ pub(crate) const NARROW: u32 = 18;
 use gravity_decompose::catalog::numeric::{is_div, negation, numeric_type, F_NUMERIC_ADD, F_NUMERIC_MUL, F_NUMERIC_SUB, F_NUMERIC_UMINUS};
 
 #[derive(PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum Tree<'g> {
     /// A numeric column of the row at its typmod scale, `digits` its precision.
     Col { c: i16, scale: i16, digits: u32 },

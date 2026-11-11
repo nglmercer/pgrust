@@ -10,12 +10,7 @@
 //! reader set (M1: the startup/local reader; walsender and debug readers
 //! implement the same trait later, each call site monomorphizing).
 
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(non_camel_case_types)]
-#![allow(clippy::too_many_arguments)]
-#![allow(clippy::manual_range_patterns)]
-#![allow(clippy::result_unit_err)]
+#![allow(clippy::manual_range_patterns, clippy::result_unit_err, clippy::too_many_arguments, non_camel_case_types, non_snake_case, non_upper_case_globals)]
 
 use core::fmt::{self, Write as _};
 
@@ -211,7 +206,10 @@ fn parse_rel_file_locator(b: &[u8]) -> RelFileLocator {
 fn record_crc(hdr: &XLogRecord, record_bytes: &[u8]) -> u32 {
     debug_assert!(hdr.xl_tot_len as usize >= SIZE_OF_XLOG_RECORD);
     let mut crc = crc_init();
-    crc = crc_comp(crc, &record_bytes[SIZE_OF_XLOG_RECORD..hdr.xl_tot_len as usize]);
+    crc = crc_comp(
+        crc,
+        &record_bytes[SIZE_OF_XLOG_RECORD..hdr.xl_tot_len as usize],
+    );
     crc = crc_comp(crc, &record_bytes[..OFFSETOF_XLOG_RECORD_XL_CRC]);
     crc_fin(crc)
 }
@@ -646,7 +644,10 @@ impl<'mcx> XLogReaderState<'mcx> {
         }
         // XLogReleasePreviousRecord frees the record's block metadata with
         // it; the pool holds only the still-queued records' blocks.
-        let released = self.queue.first().map_or(self.blocks_pool.len(), |r| r.blocks_start as usize);
+        let released = self
+            .queue
+            .first()
+            .map_or(self.blocks_pool.len(), |r| r.blocks_start as usize);
         self.blocks_pool.drain(..released);
         for r in self.queue.iter_mut() {
             r.blocks_start -= released as u32;
@@ -706,7 +707,10 @@ impl<'mcx> XLogReaderState<'mcx> {
     // C decode_queue_head includes the record NextRecord handed out (it stays
     // queued until released); here that record lives in `current`.
     pub fn decode_queue_head_lsn(&self) -> Option<XLogRecPtr> {
-        self.current.as_ref().or_else(|| self.queue.first()).map(|r| r.lsn)
+        self.current
+            .as_ref()
+            .or_else(|| self.queue.first())
+            .map(|r| r.lsn)
     }
 
     pub fn decode_queue_tail_lsn(&self) -> Option<XLogRecPtr> {
@@ -723,12 +727,18 @@ impl<'mcx> XLogReaderState<'mcx> {
     }
 
     pub fn read_ahead_main_data(&self) -> &[u8] {
-        let rec = self.queue.last().expect("read-ahead accessors require a queued record");
+        let rec = self
+            .queue
+            .last()
+            .expect("read-ahead accessors require a queued record");
         self.payload(rec, rec.main_data)
     }
 
     pub fn read_ahead_block(&self, block_id: i32) -> ReadAheadBlock {
-        let rec = self.queue.last().expect("read-ahead accessors require a queued record");
+        let rec = self
+            .queue
+            .last()
+            .expect("read-ahead accessors require a queued record");
         let blk = self.block(rec, block_id as usize);
         ReadAheadBlock {
             in_use: blk.in_use,
@@ -742,13 +752,20 @@ impl<'mcx> XLogReaderState<'mcx> {
     }
 
     pub fn set_read_ahead_block_prefetch_buffer(&mut self, block_id: i32, buffer: Buffer) {
-        let rec = self.queue.last().expect("read-ahead accessors require a queued record");
+        let rec = self
+            .queue
+            .last()
+            .expect("read-ahead accessors require a queued record");
         debug_assert!((block_id as u32) < rec.nblocks);
         let idx = rec.blocks_start as usize + block_id as usize;
         self.blocks_pool[idx].prefetch_buffer = buffer;
     }
 
-    fn XLogReadRecordAlloc(&mut self, xl_tot_len: usize, allow_oversized: bool) -> Option<AllocSlot> {
+    fn XLogReadRecordAlloc(
+        &mut self,
+        xl_tot_len: usize,
+        allow_oversized: bool,
+    ) -> Option<AllocSlot> {
         let required_space = DecodeXLogRecordRequiredSpace(xl_tot_len);
 
         if self.decode_buffer.is_empty() {
@@ -929,8 +946,9 @@ impl<'mcx> XLogReaderState<'mcx> {
                         ref mut read_record_buf,
                         ..
                     } = *self;
-                    read_record_buf[..len as usize]
-                        .copy_from_slice(&read_buf[rec_off_in_page..rec_off_in_page + len as usize]);
+                    read_record_buf[..len as usize].copy_from_slice(
+                        &read_buf[rec_off_in_page..rec_off_in_page + len as usize],
+                    );
                 }
                 let mut buffer = len as usize;
                 let mut gotlen = len;
@@ -939,8 +957,11 @@ impl<'mcx> XLogReaderState<'mcx> {
                 loop {
                     target_page_ptr += XLOG_BLCKSZ as u64;
 
-                    read_off =
-                        self.ReadPageInternal(routine, target_page_ptr, SIZE_OF_XLOG_SHORT_PHD as i32)?;
+                    read_off = self.ReadPageInternal(
+                        routine,
+                        target_page_ptr,
+                        SIZE_OF_XLOG_SHORT_PHD as i32,
+                    )?;
                     if read_off == XLREAD_WOULDBLOCK {
                         return Ok(XLREAD_WOULDBLOCK);
                     } else if read_off < 0 {
@@ -958,7 +979,12 @@ impl<'mcx> XLogReaderState<'mcx> {
 
                     if cont.xlp_info & XLP_FIRST_IS_CONTRECORD == 0 {
                         let (h, l) = lsn_fmt(rec_ptr);
-                        report_invalid!(self.err(), "there is no contrecord flag at {:X}/{:X}", h, l);
+                        report_invalid!(
+                            self.err(),
+                            "there is no contrecord flag at {:X}/{:X}",
+                            h,
+                            l
+                        );
                         return Ok(self.decode_err(assembled, rec_ptr, target_page_ptr));
                     }
 
@@ -990,8 +1016,11 @@ impl<'mcx> XLogReaderState<'mcx> {
                     page_header_size = XLogPageHeaderSize(cont.xlp_info);
 
                     if (read_off as usize) < page_header_size {
-                        read_off =
-                            self.ReadPageInternal(routine, target_page_ptr, page_header_size as i32)?;
+                        read_off = self.ReadPageInternal(
+                            routine,
+                            target_page_ptr,
+                            page_header_size as i32,
+                        )?;
                         if read_off == XLREAD_WOULDBLOCK {
                             return Ok(XLREAD_WOULDBLOCK);
                         } else if read_off < 0 {
@@ -1024,8 +1053,9 @@ impl<'mcx> XLogReaderState<'mcx> {
                             ref mut read_record_buf,
                             ..
                         } = *self;
-                        read_record_buf[buffer..buffer + cont_len]
-                            .copy_from_slice(&read_buf[page_header_size..page_header_size + cont_len]);
+                        read_record_buf[buffer..buffer + cont_len].copy_from_slice(
+                            &read_buf[page_header_size..page_header_size + cont_len],
+                        );
                     }
                     buffer += cont_len;
                     gotlen += cont_len as u32;
@@ -1060,7 +1090,8 @@ impl<'mcx> XLogReaderState<'mcx> {
                             );
                             return Ok(self.decode_err(assembled, rec_ptr, target_page_ptr));
                         }
-                        self.read_record_buf[..gotlen as usize].copy_from_slice(&save[..gotlen as usize]);
+                        self.read_record_buf[..gotlen as usize]
+                            .copy_from_slice(&save[..gotlen as usize]);
                         buffer = gotlen as usize;
                     }
 
@@ -1192,7 +1223,12 @@ impl<'mcx> XLogReaderState<'mcx> {
     }
 
     #[cold]
-    fn decode_err(&mut self, assembled: bool, rec_ptr: XLogRecPtr, target_page_ptr: XLogRecPtr) -> i32 {
+    fn decode_err(
+        &mut self,
+        assembled: bool,
+        rec_ptr: XLogRecPtr,
+        target_page_ptr: XLogRecPtr,
+    ) -> i32 {
         if assembled {
             self.abortedRecPtr = rec_ptr;
             self.missingContrecPtr = target_page_ptr;
@@ -1439,7 +1475,8 @@ impl<'mcx> XLogReaderState<'mcx> {
             let header = parse_page_header(&self.read_buf);
             let page_header_size = XLogPageHeaderSize(header.xlp_info);
 
-            let read_len = self.ReadPageInternal(routine, target_page_ptr, page_header_size as i32)?;
+            let read_len =
+                self.ReadPageInternal(routine, target_page_ptr, page_header_size as i32)?;
             if read_len < 0 {
                 self.XLogReaderInvalReadState();
                 return Ok(InvalidXLogRecPtr);
@@ -2396,9 +2433,7 @@ pub fn WALRead<R: XLogSegmentRoutine>(
         let segbytes = nbytes.min(v.segcxt.ws_segsize as usize - startoff);
 
         let io_start = if pgstat_seams::pgstat_prepare_io_time::is_installed() {
-            pgstat_seams::pgstat_prepare_io_time::call(
-                guc_tables::vars::track_wal_io_timing.read(),
-            )
+            pgstat_seams::pgstat_prepare_io_time::call(guc_tables::vars::track_wal_io_timing.read())
         } else {
             0
         };

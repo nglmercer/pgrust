@@ -133,6 +133,7 @@ fn gen_io(g: &mut Gen) -> Vec<StmtKind> {
             ),
             // Binary literal round-trip at a boundary width.
             2 => {
+                #[allow(clippy::manual_clamp)]
                 let a = blit(1 + width(g).max(1).min(64));
                 format!("SELECT {a}::text, {a}::varbit::text;")
             }

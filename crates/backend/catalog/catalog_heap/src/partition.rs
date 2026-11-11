@@ -99,6 +99,7 @@ pub fn StorePartitionKey<'mcx>(
         &mut addrs,
         pg_depend::DependencyType::Normal,
     )?;
+    #[allow(clippy::needless_range_loop)]
     for i in 0..n {
         if partattrs[i] == 0 {
             continue;

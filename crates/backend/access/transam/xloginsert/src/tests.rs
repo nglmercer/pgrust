@@ -305,8 +305,12 @@ fn assemble_insert_decode_roundtrip() {
     let ctl = transam_xlog::ctl::XLogCtl();
     ctl.InsertTimeLineID.store(1, Relaxed);
     ctl.PrevTimeLineID.store(1, Relaxed);
-    ctl.Insert.CurrBytePos.store(XLogRecPtrToBytePos(end_of_log), Relaxed);
-    ctl.Insert.PrevBytePos.store(XLogRecPtrToBytePos(prev_rec), Relaxed);
+    ctl.Insert
+        .CurrBytePos
+        .store(XLogRecPtrToBytePos(end_of_log), Relaxed);
+    ctl.Insert
+        .PrevBytePos
+        .store(XLogRecPtrToBytePos(prev_rec), Relaxed);
     ctl.Insert.fullPageWrites.store(true, Relaxed);
     ctl.Insert.RedoRecPtr.store(prev_rec, Relaxed);
     ctl.RedoRecPtr.store(prev_rec, Relaxed);
@@ -326,9 +330,12 @@ fn assemble_insert_decode_roundtrip() {
     // Record 1: main-data-only through the xlog_insert seam.
     let frag_a = [0xA1u8; 3];
     let frag_b: Vec<u8> = (0..100u8).collect();
-    let lsn1 =
-        xloginsert_seams::xlog_insert::call(RM_XLOG_ID, 0x20 /* XLOG_NOOP */, &[&frag_a, &frag_b])
-            .unwrap();
+    let lsn1 = xloginsert_seams::xlog_insert::call(
+        RM_XLOG_ID,
+        0x20, /* XLOG_NOOP */
+        &[&frag_a, &frag_b],
+    )
+    .unwrap();
 
     assert_eq!(transam_xlog::GetFullPageWriteInfo(), (prev_rec, true));
     assert!(XLogCheckPageNeedsBackup(prev_rec - 1));
@@ -479,7 +486,10 @@ fn assemble_insert_decode_roundtrip() {
     assert!(reader.XLogRecHasBlockImage(0));
     assert!(reader.XLogRecBlockImageApply(0));
     let (got_loc, got_fork, got_blk, _) = reader.XLogRecGetBlockTagExtended(0).unwrap();
-    assert_eq!((got_loc, got_fork, got_blk), (rloc, ForkNumber::MAIN_FORKNUM, 7));
+    assert_eq!(
+        (got_loc, got_fork, got_blk),
+        (rloc, ForkNumber::MAIN_FORKNUM, 7)
+    );
     let mut restored = vec![0u8; BLCKSZ];
     assert!(reader.RestoreBlockImage(0, &mut restored));
     assert_eq!(restored, expected_restored(&page2, lower, upper));
@@ -534,20 +544,41 @@ fn compress_backup_block_per_method() {
     let mut dest = Box::new([0u8; COMPRESS_BUFSIZE]);
     let mut out = vec![0u8; orig_len];
 
-    let n = compress_backup_block(WAL_COMPRESSION_LZ4, &page[..], lower, upper - lower, &mut dest)
-        .unwrap()
-        .unwrap();
-    assert_eq!(lz4_flex::block::decompress_into(&dest[..n], &mut out).unwrap(), orig_len);
+    let n = compress_backup_block(
+        WAL_COMPRESSION_LZ4,
+        &page[..],
+        lower,
+        upper - lower,
+        &mut dest,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        lz4_flex::block::decompress_into(&dest[..n], &mut out).unwrap(),
+        orig_len
+    );
     assert_eq!(out, holed);
 
-    let n = compress_backup_block(WAL_COMPRESSION_ZSTD, &page[..], lower, upper - lower, &mut dest)
-        .unwrap()
-        .unwrap();
+    let n = compress_backup_block(
+        WAL_COMPRESSION_ZSTD,
+        &page[..],
+        lower,
+        upper - lower,
+        &mut dest,
+    )
+    .unwrap()
+    .unwrap();
     assert_eq!(zstd::bulk::decompress(&dest[..n], orig_len).unwrap(), holed);
 
-    let n = compress_backup_block(WAL_COMPRESSION_PGLZ, &page[..], lower, upper - lower, &mut dest)
-        .unwrap()
-        .unwrap();
+    let n = compress_backup_block(
+        WAL_COMPRESSION_PGLZ,
+        &page[..],
+        lower,
+        upper - lower,
+        &mut dest,
+    )
+    .unwrap()
+    .unwrap();
     assert!(n < orig_len);
 
     let mut noise = [0u8; BLCKSZ];
@@ -558,8 +589,15 @@ fn compress_backup_block_per_method() {
         x ^= x << 5;
         *b = x as u8;
     }
-    for method in [WAL_COMPRESSION_PGLZ, WAL_COMPRESSION_LZ4, WAL_COMPRESSION_ZSTD] {
-        assert_eq!(compress_backup_block(method, &noise, 0, 0, &mut dest).unwrap(), None);
+    for method in [
+        WAL_COMPRESSION_PGLZ,
+        WAL_COMPRESSION_LZ4,
+        WAL_COMPRESSION_ZSTD,
+    ] {
+        assert_eq!(
+            compress_backup_block(method, &noise, 0, 0, &mut dest).unwrap(),
+            None
+        );
     }
 }
 
@@ -660,7 +698,10 @@ fn oversized_record_error_matches_c() {
     let n: u64 = detail["WAL record would be ".len()..detail.len() - tail.len()]
         .parse()
         .expect("byte count");
-    assert!(n > 3 * (512 << 20) && n < XLogRecordMaxSize * 2, "total {n}");
+    assert!(
+        n > 3 * (512 << 20) && n < XLogRecordMaxSize * 2,
+        "total {n}"
+    );
     scratch.rdatas.clear();
 }
 

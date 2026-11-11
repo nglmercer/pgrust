@@ -287,6 +287,7 @@ fn every_nonzero_lock_depth_survives_active_drop() {
 }
 
 #[test]
+#[allow(clippy::cloned_ref_to_slice_refs)]
 fn allocation_precedes_detachment_and_changes_only_target_metadata() {
     let machine = Machine::new();
     let fixed = machine.install(9, 3);
@@ -327,6 +328,7 @@ fn allocation_error_preserves_all_metadata_and_allows_reuse() {
 }
 
 #[test]
+#[allow(clippy::cloned_ref_to_slice_refs)]
 fn backup_allocation_can_evict_another_assignment_before_detachment() {
     let machine = Machine::new();
     for id in 0..32 {

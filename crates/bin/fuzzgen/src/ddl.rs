@@ -1784,6 +1784,7 @@ mod tests {
     /// DROP/TRUNCATE carries CASCADE so it can never fail on a dependent
     /// constraint and desync the model.
     #[test]
+    #[allow(clippy::manual_strip)]
     fn foreign_keys_reference_live_pks_and_parents_drop_cascade() {
         let (sqls, prods, state) = gen_many(
             0xFC0,
@@ -1822,6 +1823,7 @@ mod tests {
                 if sql.starts_with("ALTER TABLE ") {
                     saw_alter_add = true;
                     assert!(sql.contains(" ADD FOREIGN KEY (k_int) "), "{sql}");
+                    #[allow(clippy::manual_strip)]
                     let child = sql["ALTER TABLE ".len()..].split(' ').next().unwrap();
                     assert_eq!(
                         temp_of.get(child).copied(),

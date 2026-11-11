@@ -1,18 +1,17 @@
 //! spgtextproc.c: radix tree (compressed trie) over text — the text_ops
 //! SP-GiST opclass.
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use ::datum::Datum;
 use ::mcx::Mcx;
 use ::types_core::{Oid, BLCKSZ};
 use ::types_error::{PgError, PgResult};
 use ::types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
+use ::types_spgist::spgConfigOut;
 use ::types_spgist::state::{
     spgChooseIn, spgChooseOut, spgInnerConsistentIn, spgInnerConsistentOut, spgLeafConsistentIn,
     spgLeafConsistentOut, spgPickSplitIn, spgPickSplitOut,
 };
-use ::types_spgist::spgConfigOut;
 
 const TEXTOID: Oid = 25;
 const INT2OID: Oid = 21;
@@ -22,7 +21,11 @@ const VARATT_SHORT_MAX: usize = 0x7F;
 
 const SPGIST_MAX_PREFIX_LENGTH: usize = {
     let v = BLCKSZ as isize - 258 * 16 - 100;
-    if v > 32 { v as usize } else { 32 }
+    if v > 32 {
+        v as usize
+    } else {
+        32
+    }
 };
 
 const SPG_STRATEGY_ADDITION: u16 = 10;
@@ -83,7 +86,10 @@ unsafe fn text_bytes_pp<'m>(mcx: Mcx<'m>, d: Datum) -> PgResult<&'m [u8]> {
         let len = v.len();
         core::mem::forget(v); // arena-owned; lives as long as mcx
         debug_assert!(len >= VARHDRSZ);
-        return Ok(core::slice::from_raw_parts(ptr.add(VARHDRSZ), len - VARHDRSZ));
+        return Ok(core::slice::from_raw_parts(
+            ptr.add(VARHDRSZ),
+            len - VARHDRSZ,
+        ));
     }
     // plain 1B- or 4B-header value: read in place. The bytes live at least as
     // long as the datum (page item or arena allocation), which outlives the
@@ -323,7 +329,11 @@ fn fc_spg_text_picksplit(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRe
         } else {
             -1
         };
-        nodes.push(SpgNodePtr { t: ti, i: i as i32, c });
+        nodes.push(SpgNodePtr {
+            t: ti,
+            i: i as i32,
+            c,
+        });
     }
 
     // pg_qsort is unstable; keys can tie, but grouping only needs the sort
@@ -548,8 +558,7 @@ fn fc_spg_text_leaf_consistent(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -
             // C: DirectFunctionCall2Coll(text_starts_with, ...) — which raises
             // the 0A000 "nondeterministic collations are not supported for
             // substring searches" error itself (varlena.c) before comparing.
-            res = level >= query.len()
-                || varlena::text_starts_with(full_value, query, collation)?;
+            res = level >= query.len() || varlena::text_starts_with(full_value, query, collation)?;
             if !res {
                 break;
             }
@@ -589,7 +598,12 @@ fn fc_spg_text_leaf_consistent(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -
     Ok(Datum::from_bool(res))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: ::types_fmgr::PGFunction) -> FmgrBuiltin {
+const fn b(
+    foid: Oid,
+    name: &'static str,
+    nargs: i16,
+    func: ::types_fmgr::PGFunction,
+) -> FmgrBuiltin {
     FmgrBuiltin {
         foid,
         name,
@@ -605,8 +619,18 @@ pub const SPGIST_TEXT_BUILTINS: &[FmgrBuiltin] = &[
     b(4027, "spg_text_config", 2, fc_spg_text_config),
     b(4028, "spg_text_choose", 2, fc_spg_text_choose),
     b(4029, "spg_text_picksplit", 2, fc_spg_text_picksplit),
-    b(4030, "spg_text_inner_consistent", 2, fc_spg_text_inner_consistent),
-    b(4031, "spg_text_leaf_consistent", 2, fc_spg_text_leaf_consistent),
+    b(
+        4030,
+        "spg_text_inner_consistent",
+        2,
+        fc_spg_text_inner_consistent,
+    ),
+    b(
+        4031,
+        "spg_text_leaf_consistent",
+        2,
+        fc_spg_text_leaf_consistent,
+    ),
 ];
 
 #[cfg(test)]
@@ -656,11 +680,18 @@ mod tests {
             nodeLabels: labels.as_ptr(),
         };
         let mut out = spgInnerConsistentOut::default();
-        let mut frame: ::types_fmgr::LocalFcinfo<2> = ::types_fmgr::LocalFcinfo::fresh(C_COLLATION_OID);
+        let mut frame: ::types_fmgr::LocalFcinfo<2> =
+            ::types_fmgr::LocalFcinfo::fresh(C_COLLATION_OID);
         // SAFETY: ctx outlives the call.
         unsafe { frame.set_result_mcx(mcx) };
-        frame.set_arg(0, Datum::from_usize(&input as *const spgInnerConsistentIn as usize));
-        frame.set_arg(1, Datum::from_usize(&mut out as *mut spgInnerConsistentOut as usize));
+        frame.set_arg(
+            0,
+            Datum::from_usize(&input as *const spgInnerConsistentIn as usize),
+        );
+        frame.set_arg(
+            1,
+            Datum::from_usize(&mut out as *mut spgInnerConsistentOut as usize),
+        );
         let err = fc_spg_text_inner_consistent(None, &mut frame).unwrap_err();
         assert_eq!(err.message(), "unrecognized strategy number: 16");
         assert_eq!(err.sqlstate(), ::types_error::ERRCODE_INTERNAL_ERROR);
@@ -686,11 +717,18 @@ mod tests {
             leafDatum: leaf,
         };
         let mut out = spgLeafConsistentOut::default();
-        let mut frame: ::types_fmgr::LocalFcinfo<2> = ::types_fmgr::LocalFcinfo::fresh(C_COLLATION_OID);
+        let mut frame: ::types_fmgr::LocalFcinfo<2> =
+            ::types_fmgr::LocalFcinfo::fresh(C_COLLATION_OID);
         // SAFETY: ctx outlives the call.
         unsafe { frame.set_result_mcx(mcx) };
-        frame.set_arg(0, Datum::from_usize(&input as *const spgLeafConsistentIn as usize));
-        frame.set_arg(1, Datum::from_usize(&mut out as *mut spgLeafConsistentOut as usize));
+        frame.set_arg(
+            0,
+            Datum::from_usize(&input as *const spgLeafConsistentIn as usize),
+        );
+        frame.set_arg(
+            1,
+            Datum::from_usize(&mut out as *mut spgLeafConsistentOut as usize),
+        );
         let err = fc_spg_text_leaf_consistent(None, &mut frame).unwrap_err();
         assert_eq!(err.message(), "unrecognized strategy number: 16");
         assert_eq!(err.sqlstate(), ::types_error::ERRCODE_INTERNAL_ERROR);

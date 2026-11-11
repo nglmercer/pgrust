@@ -9,9 +9,9 @@
 //! files PG's copy count (setop_retrieve_hash_table / set_output_count) in the copy word:
 //! - INTERSECT: 1 when both counts are nonzero; INTERSECT ALL: min(numLeft, numRight);
 //! - EXCEPT: 1 when numRight is 0; EXCEPT ALL: max(numLeft - numRight, 0).
-//! The protocol publishes the copy word's byte offset + 1 in this step's parameter word at prepare. The step hands each
-//! left group's row on that many times (an expanding step, H32: its offset word counts the copies handed on, so a stop
-//! inside the row resumes past them).
+//!   The protocol publishes the copy word's byte offset + 1 in this step's parameter word at prepare. The step hands each
+//!   left group's row on that many times (an expanding step, H32: its offset word counts the copies handed on, so a stop
+//!   inside the row resumes past them).
 //!
 //! Neither side spills: decompose declares both breakers `Spill::None`, so a side past its share grows (D254), as PG 18's
 //! hashed SetOp keeps its table in memory past work_mem. The protocol reads both whole tables.
@@ -59,6 +59,7 @@ pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { kinds: &[(KindId:
 /// The copy-count protocol's `arg` (exec v4 m9.rs reads the same fields): the command, the right group's slot and the key
 /// count. No field names a pipeline (D1274): exec finds the left producer from the emit's `consumes_from`, in program
 /// order, which frame/program.rs `to_program` keeps when a pass reorders the pipelines.
+#[allow(dead_code)]
 pub const ARG_CMD_MASK: u64 = 0x0f;
 pub const ARG_RIGHT_SLOT_SHIFT: u32 = 8;
 /// The key count, bits 32..48: room for every column of PostgreSQL's widest target list (MaxTupleAttributeNumber).
@@ -137,7 +138,7 @@ pub(super) fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn
     if j != 0 {
         bug(node, "a hashed set operation after another op of its emit");
     }
-    let ((lg, lp), (rg, rp)) = (side(&gx, k, *left, !*hashed, node), side(&gx, k, *right, !*hashed, node));
+    let ((lg, lp), (rg, rp)) = (side(gx, k, *left, !*hashed, node), side(gx, k, *right, !*hashed, node));
     // a right input that may raise (decompose `ahead`) runs whole under a recheck licence, held by the step
     // (`Copies::ahead`), else refuses by name; construct C2: a quiet right input the grouped form reads whole past PG's
     // sorted stop holds decompose's licence (`SetForm::Grouped`), stamped on its pipeline for the run-ahead tracer
@@ -164,12 +165,12 @@ pub(super) fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn
         shape(node, "a set operation over more key columns than the protocol's key count field holds");
     }
     let facts = gx.facts;
-    if let Some(why) = lg.keys.iter().zip(rg.keys.iter()).find_map(|(l, r)| set_key(&|c| facts.coll(c).bytes_eq, &held_form(l, crate::table::keyimg::record_words(&gx, lp, l)), &held_form(r, crate::table::keyimg::record_words(&gx, rp, r)))) {
+    if let Some(why) = lg.keys.iter().zip(rg.keys.iter()).find_map(|(l, r)| set_key(&|c| facts.coll(c).bytes_eq, &held_form(l, crate::table::keyimg::record_words(gx, lp, l)), &held_form(r, crate::table::keyimg::record_words(gx, rp, r)))) {
         shape(node, why);
     }
     // both sides' tables must hold one image per key: the same record kinds and words (a varlena numeric's Fp128 on one
     // side and a packed lane's mantissa on the other are not one domain)
-    let ((lw, words), (rw, _)) = (record_words(&gx, lp, lg), record_words(&gx, rp, rg));
+    let ((lw, words), (rw, _)) = (record_words(gx, lp, lg), record_words(gx, rp, rg));
     if lw != rw {
         shape(node, "a set operation whose sides key one column in different record images (a varlena numeric vs a packed lane's)");
     }

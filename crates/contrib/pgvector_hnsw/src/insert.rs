@@ -838,9 +838,11 @@ pub fn form_index_value<'m>(
         // HnswCheckNorm.
         let d = Datum::from_usize(img.as_ptr() as usize);
         let norm = {
+            #[allow(clippy::unnecessary_unwrap)]
             let np = support.normprocinfo.as_mut().expect("some");
             types_fmgr::function_call1_coll_in(np, support.collation, mcx, d)?.as_f64()
         };
+        #[allow(clippy::neg_cmp_op_on_partial_ord)]
         if !(norm > 0.0) {
             return Ok(None);
         }

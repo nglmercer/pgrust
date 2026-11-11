@@ -15,7 +15,9 @@ use crate::run::PlannerRun;
 // add_other_rels_to_query (initsplan.c).
 pub fn add_other_rels_to_query(run: &mut PlannerRun<'_>) -> PgResult<()> {
     for rti in 1..run.root.simple_rel_array_size as usize {
-        let Some(rel) = run.root.simple_rel_array[rti] else { continue };
+        let Some(rel) = run.root.simple_rel_array[rti] else {
+            continue;
+        };
         if run.root.rel(rel).reloptkind != RELOPT_BASEREL {
             continue;
         }
@@ -112,9 +114,7 @@ fn expand_inherited_rtentry<'mcx>(
                 let r = table::table_open(mcx, child_oid, types_rel::NoLock)?;
                 // Other sessions' temp children cannot be accessed; C silently
                 // omits them from the appendrel (inherit.c).
-                if r.rd_rel.relpersistence == types_core::RELPERSISTENCE_TEMP
-                    && !r.rd_islocaltemp
-                {
+                if r.rd_rel.relpersistence == types_core::RELPERSISTENCE_TEMP && !r.rd_islocaltemp {
                     r.close(lockmode)?;
                     continue;
                 }
@@ -254,8 +254,7 @@ fn expand_partitioned_rtentry<'mcx>(
         // PartitionDesc was read no longer opens; it is treated as pruned.
         let Some(childrel) = table::try_table_open(mcx, child_oid, lockmode)? else {
             let cur = crate::relnode::relids_take(&mut run.root.rel_mut(relinfo).live_parts);
-            run.root.rel_mut(relinfo).live_parts =
-                crate::relnode::relids_del_member(mcx, &cur, i);
+            run.root.rel_mut(relinfo).live_parts = crate::relnode::relids_del_member(mcx, &cur, i);
             i = live_parts.next_member(i);
             continue;
         };
@@ -334,7 +333,10 @@ fn expand_single_inheritance_child<'mcx>(
     }
     let alias: &'mcx Alias<'mcx> = alloc_leak_in(
         mcx,
-        Alias { aliasname: parent_eref.aliasname, colnames: child_colnames },
+        Alias {
+            aliasname: parent_eref.aliasname,
+            colnames: child_colnames,
+        },
     )?;
 
     let childrte = RangeTblEntry {
@@ -411,8 +413,7 @@ fn expand_single_inheritance_child<'mcx>(
         // Non-leaf partitions need no row identity info.
         if child_relkind != types_rel::RELKIND_PARTITIONED_TABLE {
             let cur = crate::relnode::relids_take(&mut run.root.leaf_result_relids);
-            run.root.leaf_result_relids =
-                crate::relnode::relids_add_member(mcx, &cur, child_rti);
+            run.root.leaf_result_relids = crate::relnode::relids_add_member(mcx, &cur, child_rti);
             let rrvar = mk_var(
                 mcx,
                 child_rti,
@@ -462,7 +463,14 @@ fn make_append_rel_info<'mcx>(
         }
         let (atttypid, atttypmod, attcollation) = (att.atttypid, att.atttypmod, att.attcollation);
         if same_rel {
-            let var = mk_var(mcx, child_rti, (old_attno + 1) as i16, atttypid, atttypmod, attcollation)?;
+            let var = mk_var(
+                mcx,
+                child_rti,
+                (old_attno + 1) as i16,
+                atttypid,
+                atttypmod,
+                attcollation,
+            )?;
             appinfo.translated_vars.push(run.intern_expr(var));
             appinfo.parent_colnos[old_attno] = (old_attno + 1) as i16;
             continue;
@@ -484,7 +492,14 @@ fn make_append_rel_info<'mcx>(
         if attcollation != catt.attcollation {
             return Err(attribute_mismatch(attname, childrel.name(), "collation"));
         }
-        let var = mk_var(mcx, child_rti, (new_attno + 1) as i16, atttypid, atttypmod, attcollation)?;
+        let var = mk_var(
+            mcx,
+            child_rti,
+            (new_attno + 1) as i16,
+            atttypid,
+            atttypmod,
+            attcollation,
+        )?;
         appinfo.translated_vars.push(run.intern_expr(var));
         appinfo.parent_colnos[new_attno] = (old_attno + 1) as i16;
         new_attno += 1;
@@ -605,7 +620,13 @@ pub fn adjust_appendrel_attrs_multi<'mcx>(
             }
         }
         let parent_colnames = if !types_core::OidIsValid(appinfo.child_reltype) {
-            Some(run.rte(appinfo.parent_relid as usize).eref.expect("RTE eref").colnames.clone_in(mcx)?)
+            Some(
+                run.rte(appinfo.parent_relid as usize)
+                    .eref
+                    .expect("RTE eref")
+                    .colnames
+                    .clone_in(mcx)?,
+            )
         } else {
             None
         };
@@ -667,10 +688,8 @@ pub fn adjust_appendrel_attrs_multi<'mcx>(
                         }
                         if leaf_relid != 0 {
                             let (rv, rowidrels) = &snap.rowids[v.varattno as usize - 1];
-                            if crate::relnode::relids_is_member(leaf_relid as i32, rowidrels)
-                            {
-                                let mut newvar =
-                                    copy_var(mcx, rv.as_var().expect("rowidvar"))?;
+                            if crate::relnode::relids_is_member(leaf_relid as i32, rowidrels) {
+                                let mut newvar = copy_var(mcx, rv.as_var().expect("rowidvar"))?;
                                 newvar.varno = leaf_relid as i32;
                                 debug_assert!(newvar.varnullingrels.is_empty());
                                 newvar.varnosyn = 0;
@@ -766,8 +785,7 @@ pub fn adjust_appendrel_attrs_multi<'mcx>(
                             types_nodes::ConvertRowtypeExpr {
                                 arg,
                                 resulttype: map.parent_reltype,
-                                convertformat:
-                                    types_nodes::CoercionForm::COERCE_IMPLICIT_CAST,
+                                convertformat: types_nodes::CoercionForm::COERCE_IMPLICIT_CAST,
                                 location: -1,
                             },
                         )?));
@@ -826,9 +844,9 @@ pub fn adjust_appendrel_attrs_multi<'mcx>(
                     },
                 )?))
             }
-            _ => nodes_core::expression_tree_mutator(mcx, node, &mut |n| {
-                mutate(mcx, n, maps, snap)
-            }),
+            _ => {
+                nodes_core::expression_tree_mutator(mcx, node, &mut |n| mutate(mcx, n, maps, snap))
+            }
         }
     }
     Ok(mutate(mcx, node, &maps, &snap)?.unwrap_or(node))
@@ -842,7 +860,12 @@ pub fn find_appinfos_by_relids<'mcx>(
 ) -> PgResult<PgVec<'mcx, AppendRelInfo<'mcx>>> {
     let mut out: PgVec<'mcx, AppendRelInfo<'mcx>> = PgVec::new_in(run.mcx);
     for i in crate::relnode::relids_members(relids) {
-        match run.root.append_rel_array.get(i as usize).and_then(|a| a.clone()) {
+        match run
+            .root
+            .append_rel_array
+            .get(i as usize)
+            .and_then(|a| a.clone())
+        {
             Some(appinfo) => out.push(appinfo),
             None => {
                 // Outer-join relids carry no appinfo; a baserel missing one
@@ -872,7 +895,9 @@ fn child_rel_not_in_append_rel_array(child_relid: u32) -> Box<types_error::PgErr
 // appendinfo.c:560 / :634: elog(ERROR, "childrel is not a child of
 // parentrel") (XX000), never a panic.
 fn not_a_child_of_parentrel() -> Box<types_error::PgError> {
-    Box::new(types_error::PgError::error("childrel is not a child of parentrel"))
+    Box::new(types_error::PgError::error(
+        "childrel is not a child of parentrel",
+    ))
 }
 
 // appendinfo.c:152: elog(ERROR, "could not find inherited attribute \"%s\" of
@@ -1113,7 +1138,9 @@ pub fn apply_child_basequals<'mcx>(
     let child_sq = &run.rte(appinfo.child_relid as usize).securityQuals;
     let mut security_level: u32 = 0;
     for qualset_node in child_sq {
-        let qualset = qualset_node.as_list().expect("securityQuals cell is a List");
+        let qualset = qualset_node
+            .as_list()
+            .expect("securityQuals cell is a List");
         for qual in qualset.iter() {
             let childrinfo = crate::initsplan::make_restrictinfo(
                 run,
@@ -1147,11 +1174,7 @@ fn str_in<'mcx>(mcx: Mcx<'mcx>, raw: &[u8]) -> PgResult<&'mcx str> {
 
 #[cold]
 #[inline(never)]
-fn attribute_mismatch(
-    attname: &[u8],
-    relname: &str,
-    what: &str,
-) -> Box<types_error::PgError> {
+fn attribute_mismatch(attname: &[u8], relname: &str, what: &str) -> Box<types_error::PgError> {
     Box::new(
         types_error::PgError::new(
             types_error::ERROR,
@@ -1179,7 +1202,10 @@ fn add_child_rte<'mcx>(run: &mut PlannerRun<'mcx>, rte_node: Node<'mcx>) -> PgRe
     let rti = index + 1;
     run.root
         .simple_rte_array
-        .push(types_pathnodes::RangeTblEntryId::Parse { query: run.root.parse, index });
+        .push(types_pathnodes::RangeTblEntryId::Parse {
+            query: run.root.parse,
+            index,
+        });
     run.root.simple_rel_array.push(None);
     run.root.simple_rel_array_size = run.root.simple_rel_array.len() as i32;
     while run.root.append_rel_array.len() <= rti as usize {
@@ -1324,8 +1350,7 @@ pub fn add_row_identity_columns<'mcx>(
     } else if relkind == types_rel::RELKIND_FOREIGN_TABLE {
         let kind = foreigncmds_seams::get_fdw_routine_by_rel_id::call(mcx, rel.rd_id)?;
         if let Some(f) = crate::fdwplan::fdw_plan_routine(kind).add_foreign_update_targets {
-            let mut pending: mcx::PgVec<'mcx, (Node<'mcx>, &'static str)> =
-                mcx::PgVec::new_in(mcx);
+            let mut pending: mcx::PgVec<'mcx, (Node<'mcx>, &'static str)> = mcx::PgVec::new_in(mcx);
             f(mcx, rtindex, &mut |expr, name| {
                 pending.push((expr, name));
                 Ok(())
@@ -1381,8 +1406,7 @@ pub fn distribute_row_identity_vars<'mcx>(run: &mut PlannerRun<'mcx>) -> PgResul
         return Ok(());
     }
 
-    let target_rel = run.root.simple_rel_array[result_relation as usize]
-        .expect("target rel built");
+    let target_rel = run.root.simple_rel_array[result_relation as usize].expect("target rel built");
     let tlist = run.processed_tlist.expect("processed_tlist set");
     let mut rowid_refs: PgVec<'mcx, Node<'mcx>> = PgVec::new_in(mcx);
     for tle_node in tlist {
@@ -1428,7 +1452,8 @@ pub fn get_rel_all_updated_cols<'mcx>(
     if relid != result_relation {
         updated_cols = translate_col_privs_multilevel(run, relid, result_relation, &updated_cols)?;
     }
-    let extra = crate::plancat::get_dependent_generated_columns(run, relid as usize, &updated_cols)?;
+    let extra =
+        crate::plancat::get_dependent_generated_columns(run, relid as usize, &updated_cols)?;
     updated_cols.add_members(mcx, &extra)?;
     Ok(updated_cols)
 }
@@ -1534,7 +1559,10 @@ pub fn get_translated_update_targetlist<'mcx>(
     debug_assert!(run.parse().commandType == CmdType::CMD_UPDATE);
     let result_relation = run.parse().resultRelation as u32;
     if relid == result_relation {
-        let tl = run.processed_tlist.expect("processed_tlist set").clone_in(mcx)?;
+        let tl = run
+            .processed_tlist
+            .expect("processed_tlist set")
+            .clone_in(mcx)?;
         let colnos = crate::relnode::pgvec_clone_shallow(mcx, run.root.update_colnos);
         return Ok((tl, colnos));
     }
@@ -1543,12 +1571,17 @@ pub fn get_translated_update_targetlist<'mcx>(
         &run.root.all_result_relids
     ));
     let childrel = run.root.simple_rel_array[relid as usize].expect("child rel built");
-    let toprel =
-        run.root.simple_rel_array[result_relation as usize].expect("target rel built");
-    let src = run.processed_tlist.expect("processed_tlist set").clone_in(mcx)?;
+    let toprel = run.root.simple_rel_array[result_relation as usize].expect("target rel built");
+    let src = run
+        .processed_tlist
+        .expect("processed_tlist set")
+        .clone_in(mcx)?;
     let mut tl = NodeList::nil();
     for tle in &src {
-        tl.lappend(mcx, adjust_appendrel_attrs_multilevel(run, tle, childrel, toprel)?)?;
+        tl.lappend(
+            mcx,
+            adjust_appendrel_attrs_multilevel(run, tle, childrel, toprel)?,
+        )?;
     }
     let colnos =
         adjust_inherited_attnums_multilevel(run, run.root.update_colnos, relid, result_relation)?;

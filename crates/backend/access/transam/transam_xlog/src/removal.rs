@@ -21,8 +21,14 @@ pub fn CheckXLogRemoved(segno: XLogSegNo, tli: TimeLineID) -> PgResult<()> {
         let filename = crate::XLogFileName(tli, segno, wal_segment_size());
         return elog::ereport(types_error::ERROR)
             .errcode_for_file_access()
-            .errmsg(format!("requested WAL segment {filename} has already been removed"))
-            .finish(types_error::ErrorLocation::new(file!(), line!() as i32, "CheckXLogRemoved"));
+            .errmsg(format!(
+                "requested WAL segment {filename} has already been removed"
+            ))
+            .finish(types_error::ErrorLocation::new(
+                file!(),
+                line!() as i32,
+                "CheckXLogRemoved",
+            ));
     }
     Ok(())
 }
@@ -40,7 +46,11 @@ pub(crate) fn UpdateCheckPointDistanceEstimate(nbytes: u64) {
     let nbytes = nbytes as f64;
     PREV_CHECK_POINT_DISTANCE.set(nbytes);
     let est = CHECK_POINT_DISTANCE_ESTIMATE.get();
-    CHECK_POINT_DISTANCE_ESTIMATE.set(if est < nbytes { nbytes } else { 0.90 * est + 0.10 * nbytes });
+    CHECK_POINT_DISTANCE_ESTIMATE.set(if est < nbytes {
+        nbytes
+    } else {
+        0.90 * est + 0.10 * nbytes
+    });
 }
 
 fn ConvertToXSegs(mb: i32, wal_segsz: i32) -> u64 {
@@ -95,9 +105,15 @@ thread_local! {
     static SPOOL_KEEP: Cell<Option<SpoolKeep>> = const { Cell::new(None) };
 }
 
-fn keep_log_seg_spool(recptr: XLogRecPtr, log_seg_no: &mut XLogSegNo, floor: XLogRecPtr) -> PgResult<(bool, SpoolKeep)> {
+fn keep_log_seg_spool(
+    recptr: XLogRecPtr,
+    log_seg_no: &mut XLogSegNo,
+    floor: XLogRecPtr,
+) -> PgResult<(bool, SpoolKeep)> {
     let ctl = XLogCtl();
-    let keep = ctl.info_lck.with(|| ctl.replicationSlotMinLSN.load(Relaxed));
+    let keep = ctl
+        .info_lck
+        .with(|| ctl.replicationSlotMinLSN.load(Relaxed));
     let unsummarized = walsummarizer_seams::get_oldest_unsummarized_lsn::call()?;
     Ok(pgrc_spool::with_ledger(|ledger| {
         let (slot_horizon_capped, cut) = keep_log_seg_with(recptr, log_seg_no, keep, ledger);
@@ -111,16 +127,31 @@ fn keep_log_seg_spool(recptr: XLogRecPtr, log_seg_no: &mut XLogSegNo, floor: XLo
                 *log_seg_no = seg;
             }
         }
-        (slot_horizon_capped, spool_keep(*log_seg_no, cut.min(floor), ledger))
+        (
+            slot_horizon_capped,
+            spool_keep(*log_seg_no, cut.min(floor), ledger),
+        )
     }))
 }
 
 /// Under archiving an entry goes with its segment, which the archiver sends first.
-pub(crate) fn spool_keep(segno: XLogSegNo, cut: XLogRecPtr, ledger: &pgrc_spool::Ledger) -> SpoolKeep {
+pub(crate) fn spool_keep(
+    segno: XLogSegNo,
+    cut: XLogRecPtr,
+    ledger: &pgrc_spool::Ledger,
+) -> SpoolKeep {
     let start = XLogSegNoOffsetToRecPtr(segno, 0, wal_segment_size());
-    let cut = if XLogArchivingActive() { cut.min(start) } else { cut };
+    let cut = if XLogArchivingActive() {
+        cut.min(start)
+    } else {
+        cut
+    };
     let horizon = start.max(ledger.last_below(cut).map_or(0, |e| e + 1));
-    SpoolKeep { segno, cut, horizon }
+    SpoolKeep {
+        segno,
+        cut,
+        horizon,
+    }
 }
 
 /// PG's KeepLogSeg arithmetic with spool bytes counted (WR L4b): a point X retains D(X) = the whole WAL segments from
@@ -150,7 +181,8 @@ pub(crate) fn keep_log_seg_with(
             if retained(keep) > limit {
                 let tail = |s: u64| (curr_seg_no - s) * seg + ledger.bytes_from((s + 1) * seg);
                 segno = first_seg(segno, curr_seg_no, |s| tail(s) <= limit);
-                cut = ledger.cut_to_budget(keep.max(segno * seg), limit - (curr_seg_no - segno) * seg);
+                cut = ledger
+                    .cut_to_budget(keep.max(segno * seg), limit - (curr_seg_no - segno) * seg);
                 slot_horizon_capped = true;
             }
         }
@@ -166,7 +198,9 @@ pub(crate) fn keep_log_seg_with(
                     let wal = (curr_seg_no - s) * seg;
                     let k = match wal + ledger.bytes_from((s + 1) * seg) >= need {
                         true => (s + 1) * seg,
-                        false => ledger.keep_for(s * seg, (s + 1) * seg, need - wal).unwrap_or(s * seg),
+                        false => ledger
+                            .keep_for(s * seg, (s + 1) * seg, need - wal)
+                            .unwrap_or(s * seg),
                     };
                     (segno, cut) = (segno.min(s), cut.min(k));
                 }
@@ -184,7 +218,11 @@ pub(crate) fn keep_log_seg_with(
 fn first_seg(mut lo: u64, mut hi: u64, ok: impl Fn(u64) -> bool) -> u64 {
     while lo < hi {
         let mid = lo + (hi - lo) / 2;
-        if ok(mid) { hi = mid } else { lo = mid + 1 }
+        if ok(mid) {
+            hi = mid
+        } else {
+            lo = mid + 1
+        }
     }
     lo
 }
@@ -196,7 +234,11 @@ fn last_seg(mut lo: u64, mut hi: u64, ok: impl Fn(u64) -> bool) -> Option<u64> {
     }
     while lo < hi {
         let mid = lo + (hi - lo).div_ceil(2);
-        if ok(mid) { lo = mid } else { hi = mid - 1 }
+        if ok(mid) {
+            lo = mid
+        } else {
+            hi = mid - 1
+        }
     }
     Some(lo)
 }
@@ -226,7 +268,9 @@ pub fn spool_removed_upto() -> XLogRecPtr {
 /// WAL does. A request can be spent on a checkpoint that CreateCheckPoint skips as idle or on a restartpoint with
 /// nothing new to use; the redo then stays, and the next boundary asks again.
 pub fn spool_grew(lsn: XLogRecPtr) -> PgResult<()> {
-    if !init_small::globals::IsUnderPostmaster() || !checkpointer_seams::request_checkpoint::is_installed() {
+    if !init_small::globals::IsUnderPostmaster()
+        || !checkpointer_seams::request_checkpoint::is_installed()
+    {
         return Ok(());
     }
     let redo = crate::insert::GetRedoRecPtr();
@@ -235,7 +279,12 @@ pub fn spool_grew(lsn: XLogRecPtr) -> PgResult<()> {
     }
     let seg = wal_segment_size() as u64;
     let budget = (CheckPointSegments().max(1) as u64 - 1) * seg;
-    let (held, own) = pgrc_spool::with_ledger(|l| (l.bytes_from(redo), l.bytes_from(lsn) - l.bytes_from(lsn + 1)));
+    let (held, own) = pgrc_spool::with_ledger(|l| {
+        (
+            l.bytes_from(redo),
+            l.bytes_from(lsn) - l.bytes_from(lsn + 1),
+        )
+    });
     if spool_ask(lsn - redo + held, own, budget, seg) {
         checkpointer_seams::request_checkpoint::call(CHECKPOINT_CAUSE_XLOG)?;
     }
@@ -249,7 +298,10 @@ pub(crate) fn spool_ask(dist: u64, own: u64, budget: u64, seg: u64) -> bool {
 }
 
 pub(crate) fn IsXLogFileName(fname: &str) -> bool {
-    fname.len() == 24 && fname.bytes().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_lowercase())
+    fname.len() == 24
+        && fname
+            .bytes()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_lowercase())
 }
 
 pub(crate) fn IsPartialXLogFileName(fname: &str) -> bool {
@@ -350,7 +402,9 @@ pub(crate) fn RemoveOldXlogFiles(
     // segment when the limits count spool bytes).
     let seg_cut = XLogSegNoOffsetToRecPtr(kept_seg_no, 0, wal_segsz);
     let cutoff = match SPOOL_KEEP.get() {
-        Some(k) if kept_seg_no == segno + 1 && k.segno == kept_seg_no => k.cut.min(lastredoptr).max(seg_cut),
+        Some(k) if kept_seg_no == segno + 1 && k.segno == kept_seg_no => {
+            k.cut.min(lastredoptr).max(seg_cut)
+        }
         _ => seg_cut,
     };
     injection_point::injection_point("pgrc-before-spool-removal")?;
@@ -371,16 +425,16 @@ fn remove_spool_below(cutoff: XLogRecPtr) {
             );
         }
         Err(e) => {
-            let _ = elog::elog(types_error::WARNING, format!("pgrc spool: could not remove old entries: {e}"));
+            let _ = elog::elog(
+                types_error::WARNING,
+                format!("pgrc spool: could not remove old entries: {e}"),
+            );
         }
     }
 }
 
 // After a timeline switch: drop old-timeline segments past the switch point.
-pub fn RemoveNonParentXlogFiles(
-    switchpoint: XLogRecPtr,
-    new_tli: TimeLineID,
-) -> PgResult<()> {
+pub fn RemoveNonParentXlogFiles(switchpoint: XLogRecPtr, new_tli: TimeLineID) -> PgResult<()> {
     let wal_segsz = wal_segment_size();
     let switch_seg_no = XLByteToPrevSeg(switchpoint, wal_segsz);
     let mut endlog_seg_no = XLByteToSeg(switchpoint, wal_segsz);
@@ -398,10 +452,12 @@ pub fn RemoveNonParentXlogFiles(
         if !IsXLogFileName(fname) {
             continue;
         }
-        if fname[..8] < switchseg[..8] && fname[8..] > switchseg[8..]
-            && !xlogarchive_seams::xlog_archive_is_ready::call(fname) {
-                RemoveXlogFile(fname, recycle_seg_no, &mut endlog_seg_no, new_tli)?;
-            }
+        if fname[..8] < switchseg[..8]
+            && fname[8..] > switchseg[8..]
+            && !xlogarchive_seams::xlog_archive_is_ready::call(fname)
+        {
+            RemoveXlogFile(fname, recycle_seg_no, &mut endlog_seg_no, new_tli)?;
+        }
     }
     fd::FreeDir(xldir)?;
     Ok(())
@@ -442,7 +498,10 @@ fn RemoveXlogFile(
             types_error::DEBUG2,
             format!("removing write-ahead log file \"{segname}\""),
         );
-        if fd::durable_unlink(&path, types_error::LOG).map(|rc| rc != 0).unwrap_or(true) {
+        if fd::durable_unlink(&path, types_error::LOG)
+            .map(|rc| rc != 0)
+            .unwrap_or(true)
+        {
             return Ok(());
         }
         crate::startup::checkpoint_stats_bump_segs_removed();
