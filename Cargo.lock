@@ -11472,6 +11472,7 @@ dependencies = [
  "antithesis_sdk",
  "bootstrap",
  "conv",
+ "dict_snowball",
  "elog",
  "gravity_pool",
  "guc",
