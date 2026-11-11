@@ -43,6 +43,8 @@ impl Open<'_> {
         unsafe { &*self.program }
     }
 
+    // Kept as-is on purpose: a slot of the shared section, mutated through its raw window by its owning worker.
+    #[allow(clippy::mut_from_ref)]
     pub(super) fn slot(&self, ordinal: u16) -> &mut WorkerSlot {
         assert!(ordinal < self.width, "ordinal {ordinal} of width {}", self.width);
         unsafe { &mut *self.slots.add(ordinal as usize) }
@@ -156,6 +158,8 @@ impl Open<'_> {
     }
 
     /// The produced slot's leader region.
+    // Kept as-is on purpose: the leader's window of the shared section, written only by the leader.
+    #[allow(clippy::mut_from_ref)]
     pub fn leader_region(&self) -> &mut [u8] {
         let (ptr, len) = self.leader.get();
         unsafe { core::slice::from_raw_parts_mut(ptr, len) }
@@ -177,6 +181,8 @@ impl Open<'_> {
     }
 
     /// The chunk `own_past_grant` pinned for the owners (`width` x `owner_bytes`), when it did.
+    // Kept as-is on purpose: the owners chunk of the shared section, written only by its owner.
+    #[allow(clippy::mut_from_ref)]
     pub(super) fn owners_chunk(&self) -> Option<&mut [u8]> {
         let base = self.owners_base.get();
         // SAFETY: the chunk own_past_grant pinned, `width` x `owner_bytes` long and pinned to the statement's end; its owner

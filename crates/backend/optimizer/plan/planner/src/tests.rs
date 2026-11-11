@@ -2819,6 +2819,8 @@ mod sort_limit {
     // pathkeys_contained_in skip is exercised by the Limit-over-Sort path
     // keeping the Sort's pathkeys (no second Sort above the Limit input).
     #[test]
+    // The LN_2 literal is the one costsize.c uses; the expected value must be built from the same constant.
+    #[allow(clippy::approx_constant)]
     fn order_by_without_limit_costs_full_sort() {
         install_fixtures();
         let cx = cx();

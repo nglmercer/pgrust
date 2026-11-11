@@ -104,8 +104,9 @@ fn coverage_histogram() {
         assert!(mapped.contains_key(k.name()), "mapped kind {} appears in no served golden", k.name());
     }
     for k in refused.keys() {
-        let kind = Kind::ALL.iter().find(|x| x.name() == *k).unwrap();
-        assert!(!gravity_decompose::ledger::is_mapped(*kind) || true, "{k}");
+        // Only the lookup matters: the name must be a known kind. (The former `!is_mapped || true` assertion could never
+        // fail, so it is dropped rather than kept as if it checked something.)
+        Kind::ALL.iter().find(|x| x.name() == *k).unwrap_or_else(|| panic!("refused kind {k} is unknown"));
     }
 }
 

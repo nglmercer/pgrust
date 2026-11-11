@@ -237,6 +237,9 @@ impl<'mcx, 's> CopyFromState<'mcx, 's> {
     // CopyGetData, COPY_FRONTEND arm: drain CopyData messages, terminate on
     // CopyDone/CopyFail, ignore Flush/Sync per protocol. `dst` may alias
     // raw_buf (see copy_get_data) or be an external buffer.
+    // C's `goto readmessage`: the inner loop re-runs on Flush/Sync and exits only by break/return, so the
+    // immutable `buffered` is intended; clippy::while_immutable_condition cannot see those exits.
+    #[allow(clippy::while_immutable_condition)]
     fn copy_read_frontend_into(&mut self, dst: &mut [u8], minread: usize) -> PgResult<usize> {
         let mut maxread = dst.len();
         let mut at = 0usize;

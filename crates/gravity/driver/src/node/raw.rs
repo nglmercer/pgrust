@@ -178,6 +178,8 @@ impl Node {
 
     /// Breaker slot `slot`'s region: the leader's table (the merge target, what a
     /// consumer reads, what a serial producer fills). Empty until a share-budgeted slot opens.
+    // Kept as-is on purpose: the region is the raw shared-memory window the driver hands out (see the module safety notes).
+    #[allow(clippy::mut_from_ref)]
     pub fn slot_region(&self, slot: u8) -> &mut [u8] {
         let r = &self.slots[slot as usize];
         if r.ptr.is_null() {

@@ -433,7 +433,7 @@ fn prefix_selectivity<'mcx>(
 }
 
 fn byte_increment(ptr: &mut [u8]) -> bool {
-    if ptr[0] >= 255 {
+    if ptr[0] == 255 {
         return false;
     }
     ptr[0] += 1;

@@ -628,6 +628,8 @@ impl Merge for HashAggPartial {
         (off != 0 && off < owner.len).then(|| Region { ptr: unsafe { owner.ptr.add(off) }, len: owner.len - off })
     }
 
+    // Kept safe on purpose: `site` and `cancel` are the shared-memory pointers the merge round owns for its duration.
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     fn own_partition(&self, owner: Region, part: u32, pbits: u8, partials: &[Partial<'_>], files: &[&dyn SpillFile], site: *mut gravity_abi::Site, cancel: *const u8, round: u8, flush: Flush<'_>) -> Result<()> {
         // SAFETY: as `fold_sub`'s step: the owner phase's abort byte
         unsafe { cancelpoll::step_on(cancel, "merge own_partition: a partition owned") }.tick()?;
