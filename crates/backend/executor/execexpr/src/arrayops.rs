@@ -229,6 +229,7 @@ pub fn eval_array_expr(st: &mut ArrayExprState) -> PgResult<NullableDatum> {
     let mut lbs = [0i32; MAXDIM];
     dims[0] = outer_nelems as i32;
     lbs[0] = 1;
+    #[allow(clippy::manual_memcpy)]
     for i in 1..ndims as usize {
         dims[i] = elem_dims[i - 1];
         lbs[i] = elem_lbs[i - 1];

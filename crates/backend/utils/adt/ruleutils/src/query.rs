@@ -1976,6 +1976,7 @@ fn get_tablesample_def<'mcx>(
     )?;
     ctx.buf.push_str(&format!(" TABLESAMPLE {fname} ("));
     let mut nargs = 0;
+    #[allow(clippy::explicit_counter_loop)]
     for arg in tablesample.args.iter() {
         if nargs > 0 {
             ctx.buf.push_str(", ");
@@ -2247,6 +2248,7 @@ fn get_from_clause_item<'mcx>(
                         } else {
                             ctx.buf.push_str("ROWS FROM(");
                             let mut funcno = 0;
+                            #[allow(clippy::explicit_counter_loop)]
                             for f in rte.functions.iter() {
                                 let rtfunc =
                                     f.as_range_tbl_function().expect("functions entry");

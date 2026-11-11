@@ -888,6 +888,7 @@ pub(crate) fn extract_update_targetlist_colnos<'mcx>(
 ) -> mcx::PgVec<'mcx, i16> {
     let mut update_colnos: mcx::PgVec<'mcx, i16> = mcx::PgVec::new_in(mcx);
     let mut nextresno: i16 = 1;
+    #[allow(clippy::explicit_counter_loop)]
     for tle_node in tlist {
         let resjunk = tle_node.as_target_entry().expect("tlist cell").resjunk;
         if !resjunk {
@@ -1094,6 +1095,7 @@ fn expand_insert_targetlist<'mcx>(
     // with resnos continuing past the last attribute (a flat copy only when
     // the resno changes).
     let mut attrno = numattrs as i16 + 1;
+    #[allow(clippy::explicit_counter_loop)]
     for tle_node in tlist_iter {
         let tle = tle_node.as_target_entry().expect("tlist cell");
         if !tle.resjunk {

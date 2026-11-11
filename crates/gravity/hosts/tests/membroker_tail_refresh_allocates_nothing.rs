@@ -8,7 +8,6 @@ use std::cell::Cell;
 use std::sync::Arc;
 
 #[path = "common/granule_fixtures.rs"]
-#[allow(dead_code)]
 mod granule_fixtures;
 
 use gravity_hosts::dict::text_hosts::reuse;

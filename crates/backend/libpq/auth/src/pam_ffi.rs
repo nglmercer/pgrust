@@ -1,3 +1,4 @@
+#![allow(clippy::missing_transmute_annotations)]
 //! dlopen/dlsym binding to the system libpam, resolved once per process
 //! (pg_locale icu_ffi precedent). No build-time PAM dependency. Constants
 //! and struct layouts follow OpenPAM (macOS/BSD) and Linux-PAM; the two

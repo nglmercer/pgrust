@@ -121,6 +121,7 @@ fn write_list_page(
         // SAFETY: pin + exclusive lock held (GinNewBuffer).
         let mut page = unsafe { page_mut(buffer) };
         let mut off = FirstOffsetNumber;
+        #[allow(clippy::explicit_counter_loop)]
         for t in tuples {
             // SAFETY: owned image; true length in t_info.
             let this_size = unsafe { itup::index_tuple_size(t.as_ptr()) };
@@ -352,6 +353,7 @@ pub(crate) fn ginHeapTupleFastInsert<'s>(
             metadata.nPendingHeapTuples += 1;
             write_opaque(&mut page, &opaque);
 
+            #[allow(clippy::explicit_counter_loop)]
             for t in collector.tuples.iter() {
                 // SAFETY: owned image.
                 let tupsize = unsafe { itup::index_tuple_size(t.as_ptr()) };

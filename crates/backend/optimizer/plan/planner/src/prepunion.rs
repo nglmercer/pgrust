@@ -956,6 +956,7 @@ fn generate_setop_tlist<'mcx>(
     let mut resno: i16 = 1;
     let mut it = input_tlist.iter();
     let mut rt = refnames_tlist.iter();
+    #[allow(clippy::explicit_counter_loop)]
     for (i, col_type) in col_types.iter().enumerate() {
         let col_coll = col_collations.nth(i);
         let input_tle = it

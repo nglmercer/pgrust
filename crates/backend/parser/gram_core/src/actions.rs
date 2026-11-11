@@ -11090,6 +11090,7 @@ impl<'mcx> Parser<'mcx> {
     ) -> PgResult<Node<'mcx>> {
         let n = indirection.len();
         let mut nfields = 0usize;
+        #[allow(clippy::explicit_counter_loop)]
         for (i, el) in indirection.iter().enumerate() {
             if el.node_tag() == types_nodes::NodeTag::T_A_Indices {
                 let cells = indirection.as_slice();

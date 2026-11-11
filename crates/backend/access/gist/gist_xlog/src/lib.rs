@@ -335,6 +335,7 @@ fn gistRedoPageSplitRecord(record: &XLogReaderState) -> PgResult<()> {
         );
 
         let mut insert_off = FirstOffsetNumber;
+        #[allow(clippy::explicit_counter_loop)]
         for j in 0..num {
             let sz = checked_index_tuple_size(&data[off..])?;
             // gistfillbuffer (gistutil.c:49): the split redo fills via

@@ -9,9 +9,7 @@ use gravity_kernels::table::entries::{admit_filter_bits, ADMIT_ALL, ADMIT_EMPTY,
 use pgrc_qa::corpus::{build_fixture, int8_fixture};
 use pgrc_write::writer::PartCutPolicy;
 
-#[allow(clippy::duplicate_mod)]
 #[path = "common/granule_fixtures.rs"]
-#[allow(dead_code)]
 mod granule_fixtures;
 use granule_fixtures::*;
 

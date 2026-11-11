@@ -930,6 +930,7 @@ mod tests {
             let file = fr.try_clone_file().expect("clone file");
             for c in 0..meta.columns.len() {
                 let schema = &meta.columns[c];
+                #[allow(clippy::possible_missing_comma)]
                 let vutf8 = [schema.phys == Phys::ByteArray
                     && matches!(
                         schema.logical,

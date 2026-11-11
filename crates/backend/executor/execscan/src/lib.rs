@@ -740,6 +740,7 @@ pub fn exec_type_from_expr_list<'mcx>(
 ) -> PgResult<Rc<TupleDescData<'mcx>>> {
     let mut desc = tupdesc::CreateTemplateTupleDesc(mcx, exprs.len() as i32)?;
     let mut cur_resno: i16 = 1;
+    #[allow(clippy::explicit_counter_loop)]
     for e in exprs.iter() {
         tupdesc::TupleDescInitEntry(
             &mut desc,

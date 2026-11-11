@@ -1596,6 +1596,7 @@ fn param_extern_missing_value_errors_42704() {
 // value is fetched through the hook only when evaluation reaches it, and the
 // fetched type is checked against the Param's.
 #[test]
+#[allow(unused_assignments)]
 fn param_extern_missing_slot_fetches_through_the_hook_when_reached() {
     use ::types_nodes::primnodes::BoolExprType::AND_EXPR;
     use ::types_nodes::primnodes::{BoolExpr, ParamKind};
@@ -1653,9 +1654,7 @@ fn param_extern_missing_slot_fetches_through_the_hook_when_reached() {
         let r = exec_eval_expr(&mut skipped, &mut slots).unwrap();
         assert_eq!((r.isnull, r.value.as_bool(), cell.0), (false, false, 0));
         let mut reached = exec_init_expr(mcx, Some(and(true)), bind).unwrap().unwrap();
-        #[allow(unused_attributes)]
         let r = exec_eval_expr(&mut reached, &mut slots).unwrap();
-        #[allow(unused_assignments)]
         assert_eq!((r.isnull, r.value.as_bool(), cell.0), (false, true, 1));
         cell.1 = INT4OID;
         let err = exec_eval_expr(&mut reached, &mut slots).err().unwrap();

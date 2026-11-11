@@ -614,7 +614,6 @@ fn cut_zeroed(len: usize, two_round: bool) -> usize {
 /// (`one_owner_bytes`; a two-round shape its least fitting floor), opened, every partition of every partial and file folded
 /// and reduced, the round closed, a second round over the owner's round-2 buffers and file (owner 0's of `slot`) when the
 /// shape has one. Returns the owners (one region; k past the wall, D485).
-#[allow(clippy::too_many_arguments)]
 /// `spare`: the idle leader region behind its header, where the region is cut when it fits (`owner_place`).
 /// `gate`: whether the next pin is refused (`Node::owner_refuses` of the produced slot: the forced-spill test fault, a
 /// revoke's cut); a refused pin is mapped from a temp file, as one the pool refuses.

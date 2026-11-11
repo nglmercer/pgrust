@@ -1,7 +1,6 @@
 //! `like::Matcher` against `adt_like` (pgrust's `like_match.c`, the routine `textlike` /
 //! `textnlike` / `texticlike` reach under a deterministic collation in a UTF-8 database):
 //! byte-identical verdicts and faults over an exhaustive small corpus and a URL-like one.
-#[allow(clippy::duplicate_mod)]
 mod common;
 
 use common::{url_corpus, Buf};

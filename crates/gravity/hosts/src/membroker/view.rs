@@ -439,6 +439,7 @@ pub fn fc_pgrust_memory_accounts(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fci
     // DEAD_BYTES: per cache that can tell, the bytes of its account no lookup can reach again (entries of a dropped
     // database, table or part not swept yet), one '<cache> dead_bytes' row each, every read (0 included). Information
     // inside the cache's account (no class: never summed as an account); its live LRU fill is not dead
+    #[allow(clippy::single_element_loop)]
     for (name, bytes) in [("condition_cache dead_bytes", crate::ops::scan::pgrc::cond_cache::dead_bytes())] {
         let zero = Datum::from_i64(0);
         let mut values = [zero; ACCOUNT_COLS];

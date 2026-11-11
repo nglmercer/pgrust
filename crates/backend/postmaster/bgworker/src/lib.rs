@@ -12,9 +12,7 @@
 //! block (bgworker.c:166) is the C-sized reservation so pg_shmem_allocations
 //! lists it; the live registry stays in the mutex.
 
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(clippy::result_large_err)]
+#![allow(clippy::result_large_err, non_snake_case, non_upper_case_globals)]
 
 use std::cell::RefCell;
 
@@ -242,6 +240,7 @@ pub fn BackgroundWorkerShmemInit() -> PgResult<()> {
         })
         .collect();
     let mut slotno = 0usize;
+    #[allow(clippy::explicit_counter_loop)]
     for rw in registered.iter_mut().flatten() {
         assert!(slotno < total_slots);
         rw.worker.bgw_notify_pid = 0; // might be reinit after crash

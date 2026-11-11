@@ -1685,6 +1685,7 @@ fn func_get_detail<'mcx>(
                 let first = (best.nargs - best.ndargs) as usize;
                 let defargnumbers: &[i32] = &argnumbers.as_slice()[first..best.nargs as usize];
                 let mut i = best.nominal_nargs as i64 - list.len() as i64;
+                #[allow(clippy::explicit_counter_loop)]
                 for cell in list.iter() {
                     if defargnumbers.contains(&(i as i32)) {
                         argdefaults.push(cell);

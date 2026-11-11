@@ -1,3 +1,4 @@
+#![allow(clippy::missing_safety_doc)]
 // predicate_internals.h structs, #[repr(C)] so the intrusive-dlist pointer
 // arithmetic in engine.rs matches C's layout assumptions.
 

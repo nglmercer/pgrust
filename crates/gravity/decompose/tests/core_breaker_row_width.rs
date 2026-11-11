@@ -15,7 +15,6 @@ use gravity_program::cost::{breaker, FALLBACK_RECORD};
 use gravity_program::{Arena, End};
 use mcx::MemoryContext;
 
-#[allow(clippy::duplicate_mod)]
 mod harness;
 
 #[test]

@@ -10,6 +10,7 @@ pub type OwnerCtorDesc = fn(&OwnerDesc, &[u64]) -> OwnerFns;
 
 /// A pipeline's owner phase, declared (milestone-2.md §2.6 items 12–13 and 31; ir-probe.md §12.3): `ctor` a kernel's constructor, `None` the generic phase over `layout` (`order_slot` `ORDER_NONE` / `ORDER_KEY` with `topk` the smallest key-0 records per owner, or a `Count` slot with `topk` = n:
 /// the n best per owner by count desc, keys asc — `count_topk`); `bits = (word, shift)` the bits word.
+#[allow(unpredictable_function_pointer_comparisons)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct OwnerDesc {
     pub layout: RecordLayout,
@@ -479,6 +480,7 @@ pub type GranuleMarks = unsafe fn(*const u8, &[u64], &mut dyn FnMut(u64, u64, u6
 
 /// The two-pass protocol on the admitting pipeline (milestone-2.md §2.6 item 15; ir-probe.md §19): `pass1` the exporting pipeline, its owner phase bound over the `words` parameter words from `base` (its `OwnerDesc.bits` word relative to it);
 /// then the runner lays the keys `export` lists as the admitted set and cuts this pipeline's claims to `marks`' granules.
+#[allow(unpredictable_function_pointer_comparisons)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TwoPassDesc {
     pub pass1: u16,

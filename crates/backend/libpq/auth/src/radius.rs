@@ -162,6 +162,7 @@ pub(crate) fn CheckRADIUSAuth(port: &Port) -> PgResult<i32> {
 // C atoi(3) as PerformRadiusTransaction applies it to radiusports
 // (auth.c:2977): skip leading C-locale whitespace, take an optional sign and
 // the digit prefix; 0 without digits; clamped where strtol would saturate.
+#[allow(clippy::manual_pattern_char_comparison)]
 fn c_atoi(s: &str) -> i32 {
     let t =
         s.trim_start_matches(|c: char| matches!(c, ' ' | '\t' | '\n' | '\u{0b}' | '\u{0c}' | '\r'));

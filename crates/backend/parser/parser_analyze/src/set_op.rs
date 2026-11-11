@@ -489,6 +489,7 @@ fn determineRecursiveColTypes<'mcx>(
 
     let mut targetList = NodeList::nil();
     let mut next_resno: AttrNumber = 1;
+    #[allow(clippy::explicit_counter_loop)]
     for (nrtle_node, lefttle_node) in nrtargetlist.iter().zip(leftmostQuery.targetList.iter()) {
         let nrtle = nrtle_node.as_target_entry().expect("tlist cell");
         let lefttle = lefttle_node.as_target_entry().expect("tlist cell");

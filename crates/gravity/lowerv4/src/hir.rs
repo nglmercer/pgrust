@@ -233,7 +233,7 @@ struct LaneHold {
     cells: PgVec<'static, Word<*mut Cell>>,
     #[allow(dead_code)]
     region: PgVec<'static, core::mem::MaybeUninit<u8>>,
-    #[allow(clippy::vec_box)]
+    #[allow(clippy::vec_box, dead_code)]
     calls: Vec<Box<gravity_fn::FmgrCall>>, // M8 (D1036): a nested lane's own function-manager calls (`arm_lane`)
     /// Last: the lists above drop first.
     root: mcx::SendRoot,

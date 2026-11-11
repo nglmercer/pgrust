@@ -557,7 +557,6 @@ struct KeyedGens {
 
 #[allow(clippy::declare_interior_mutable_const)]
 const ZERO32: AtomicU32 = AtomicU32::new(0);
-#[allow(clippy::declare_interior_mutable_const)]
 // A const on purpose: it is an array initializer (`[ZERO_SLOTS; 2]`), so every use needs its own fresh atomics.
 #[allow(clippy::declare_interior_mutable_const, clippy::large_const_arrays)]
 const ZERO_SLOTS: [AtomicU32; KEYED_SLOTS] = [ZERO32; KEYED_SLOTS];

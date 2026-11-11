@@ -12,7 +12,6 @@
 //! `MIRIFLAGS=-Zmiri-tree-borrows cargo +nightly miri test -p gravity_parallel --test d1708_prerun_derive`. Width 2, a few
 //! rows (Miri's speed); the kernels reach their site only through `site_ptr` (a `&mut Site` held across a host call is the
 //! kernels' own class, D1705).
-#[allow(clippy::duplicate_mod)]
 mod common;
 
 use core::cell::Cell;

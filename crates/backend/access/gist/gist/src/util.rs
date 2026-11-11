@@ -191,6 +191,7 @@ pub fn gistfillbuffer(
         off
     };
     let len = itup.len();
+    #[allow(clippy::explicit_counter_loop)]
     for (i, tup) in itup.iter().enumerate() {
         let l = page.add_item(tup, off, 0);
         if l.is_none() {

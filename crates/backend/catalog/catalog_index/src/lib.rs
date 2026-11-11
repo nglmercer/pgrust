@@ -627,7 +627,7 @@ pub struct IndexCreateExtra<'a> {
 }
 
 // Caller is responsible for ensuring the user has USAGE on all types indexInfo.ii_{Expressions,Predicate} depend on.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, unused_braces)]
 pub fn index_create<'mcx>(
     mcx: Mcx<'mcx>,
     heapRelation: &Relation<'mcx>,

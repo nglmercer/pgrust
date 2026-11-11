@@ -1,4 +1,3 @@
-#[allow(clippy::duplicate_mod)]
 mod common;
 
 use std::collections::HashMap;

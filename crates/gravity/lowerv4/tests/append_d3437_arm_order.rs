@@ -7,7 +7,7 @@
 #[allow(dead_code, unused_imports)]
 use gravity_lowerv4_it as common;
 
-#[allow(clippy::duplicate_mod, dead_code)]
+#[allow(dead_code)]
 #[path = "common/write_rig.rs"]
 mod write_rig;
 

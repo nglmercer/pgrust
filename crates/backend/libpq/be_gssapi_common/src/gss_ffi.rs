@@ -1,3 +1,4 @@
+#![allow(clippy::missing_transmute_annotations)]
 //! dlopen binding to the system GSSAPI library, resolved once per process.
 
 #![allow(non_camel_case_types)]

@@ -1,7 +1,6 @@
 //! B2-20: the code of a constant in a byte-ordered dictionary by binary search (`lookup::code_of`) and the code set's
 //! table (`Bits::of_codes`), against the per-entry byte comparison they replace. P5-06 / SRC-17: a byte interval's code
 //! run (`lookup::lower_bound`, `successor`, `prefix_run`) and its table (`Bits::of_run`), against the same comparison.
-#[allow(clippy::duplicate_mod)]
 mod common;
 
 use common::Buf;

@@ -29,8 +29,6 @@ pub const WHY: &str = "entry: CURRENT OF-eligible scroll cursor (the store fill 
 /// material product is lowering's to decide, as for any other portal (a refusal stays where lowering raises it; the lock's
 /// recheck over another pipeline's product is D652's). D2604: a family's lock over a sort is lowering's too (lockrows
 /// marks.rs: each child's mark active on its own leaf's rows alone), so `current_rowmark` answers the current row's leaf.
-
-
 /// The identity columns the plan copy's root emits after the statement's own: `ctid`, then `tableoid`.
 pub const IDENTITY: usize = 2;
 

@@ -763,6 +763,7 @@ fn redo_update_metapage(record: &XLogReaderState) -> PgResult<()> {
                 page.as_ref().max_offset_number() + 1
             };
             let mut p = 0usize;
+            #[allow(clippy::explicit_counter_loop)]
             for _ in 0..ntuples {
                 let tupsize = checked_itup_size(&payload[p..], "update-metapage tuple")?;
                 if page.add_item(&payload[p..p + tupsize], off, 0).is_none() {
@@ -840,6 +841,7 @@ fn redo_insert_listpage(record: &XLogReaderState) -> PgResult<()> {
         let mut page = unsafe { page_mut(buffer) };
         let mut off = FirstOffsetNumber;
         let mut p = 0usize;
+        #[allow(clippy::explicit_counter_loop)]
         for _ in 0..ntuples {
             let tupsize = checked_itup_size(&payload[p..], "insert-listpage tuple")?;
             if page.add_item(&payload[p..p + tupsize], off, 0).is_none() {

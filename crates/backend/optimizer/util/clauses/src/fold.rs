@@ -1692,6 +1692,7 @@ fn reorder_function_arguments<'mcx>(
     if nargsprovided < pronargs {
         let defaults = fetch_function_defaults(mcx, funcid)?;
         let mut i = pronargs - defaults.len();
+        #[allow(clippy::explicit_counter_loop)]
         for d in defaults.iter() {
             if argarray[i].is_none() {
                 argarray[i] = Some(d);

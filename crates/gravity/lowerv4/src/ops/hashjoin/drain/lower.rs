@@ -1406,6 +1406,7 @@ mod tests {
     #[test]
     fn a2a_names_are_drain_spool_own() {
         let me = include_str!("spool_admit.rs");
+        #[allow(clippy::single_element_loop)]
         for (name, text) in [("A2END", A2END)] {
             assert!(me.contains(&format!("pub(crate) const {name}: &str = \"{text}\";")), "{name}");
         }
