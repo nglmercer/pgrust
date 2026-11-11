@@ -21,7 +21,7 @@ fn side(r: PgResult<Varlena<'_>>) -> String {
         Ok(v) => format!("V:{}", hex(v.data())),
         Err(e) => format!(
             "E:{}",
-            std::str::from_utf8(&unpack_sqlstate(e.sqlstate())).unwrap().to_string()
+            std::str::from_utf8(&unpack_sqlstate(e.sqlstate())).unwrap()
         ),
     }
 }
@@ -31,7 +31,7 @@ fn side_i32(r: PgResult<i32>) -> String {
         Ok(v) => format!("V:{}", hex(v.to_string().as_bytes())),
         Err(e) => format!(
             "E:{}",
-            std::str::from_utf8(&unpack_sqlstate(e.sqlstate())).unwrap().to_string()
+            std::str::from_utf8(&unpack_sqlstate(e.sqlstate())).unwrap()
         ),
     }
 }

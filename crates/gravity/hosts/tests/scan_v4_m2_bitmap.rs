@@ -200,7 +200,7 @@ fn a_rebound_bitmap_source_holds_one_binds_bytes() {
     let l = leaves();
     let tree = BitmapSource::new(l[0].clone(), None).with_tree(Tree::new(TreeRecipe { leaves: l.clone(), shape: Shape::Or(vec![Shape::Leaf(0), Shape::Leaf(1)]) })).paged(true);
     for (name, mut src, nkeys) in [("one index", one, 1u64), ("a tree", tree, 2)] {
-        let mut cycle = |src: &mut BitmapSource, i: u64| {
+        let cycle = |src: &mut BitmapSource, i: u64| {
             src.bind(&binding_ref(&snap)).unwrap();
             let words: Vec<u64> = (0..nkeys).map(|j| 590 - i % 3 + j).collect();
             let n = drain(src, &words).0.len();

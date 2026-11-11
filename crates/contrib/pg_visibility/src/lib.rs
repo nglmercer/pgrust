@@ -17,7 +17,7 @@ use types_core::{
     BlockNumber, ForkNumber, InvalidBlockNumber, MaxBlockNumber, TransactionId,
 };
 use types_error::{
-    PgError, PgResult, ERRCODE_DATATYPE_MISMATCH, ERRCODE_FEATURE_NOT_SUPPORTED,
+    PgError, PgResult, ERRCODE_DATATYPE_MISMATCH,
     ERRCODE_INVALID_PARAMETER_VALUE, ERRCODE_WRONG_OBJECT_TYPE,
 };
 use types_fmgr::{byref_result, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};
@@ -140,7 +140,7 @@ fn tuple_image(
     nulls: &[bool],
 ) -> PgResult<Vec<u8>> {
     let tup = heaptuple::heap_form_tuple(mcx, tupdesc, values, nulls)?;
-    Ok(::mcx::std_vec_from_slice("pg_visibility", &tup.image())?)
+    ::mcx::std_vec_from_slice("pg_visibility", tup.image())
 }
 
 struct RowSet {

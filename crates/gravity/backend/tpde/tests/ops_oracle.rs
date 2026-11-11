@@ -535,7 +535,7 @@ fn addhi_under_register_pressure() {
     let exit = b.create_block(&tys);
     let zero = b.iconst(Type::I64, 0);
     let mut init = vec![zero, seed];
-    init.extend(std::iter::repeat(zero).take(12));
+    init.extend(std::iter::repeat_n(zero, 12));
     b.br(head, &init);
     b.switch_to(head);
     let p = b.block_params(head).to_vec();

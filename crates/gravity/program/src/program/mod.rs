@@ -398,9 +398,9 @@ impl Program {
         let bind_key = ContentKey(((b.hi as u128) << 64) | b.lo as u128);
         let nslots = staged.iter().filter_map(|(p, _)| p.produces()).map(|s| s as usize + 1).max().unwrap_or(0);
         let words = crate::laneset::words_for(nslots);
-        let bytes = round8(sites.len() * core::mem::size_of::<SiteDesc>())
+        let bytes = round8(std::mem::size_of_val(sites))
             + sites.iter().map(SiteDesc::arena_bytes).sum::<usize>()
-            + round8(out.len() * core::mem::size_of::<OutCol>())
+            + round8(std::mem::size_of_val(out))
             + round8(n * core::mem::size_of::<Pipeline>())
             + round8(n * core::mem::size_of::<Code>())
             + write.arena_bytes()
@@ -409,8 +409,8 @@ impl Program {
             + round8(nslots * 2)
             + words * n * 8
             + staged.iter().filter(|(p, _)| p.consumes.len() > 1).map(|(p, _)| round8(p.consumes.len())).sum::<usize>()
-            + staged.iter().map(|(p, _)| round8(p.consumes_from.len() * core::mem::size_of::<LifeId>())).sum::<usize>()
-            + staged.iter().filter_map(|(p, _)| p.owner.as_ref()).map(|o| round8(o.check.steps.len() * core::mem::size_of::<CheckStep>())).sum::<usize>();
+            + staged.iter().map(|(p, _)| round8(std::mem::size_of_val(p.consumes_from))).sum::<usize>()
+            + staged.iter().filter_map(|(p, _)| p.owner.as_ref()).map(|o| round8(std::mem::size_of_val(o.check.steps))).sum::<usize>();
         let arena = Arena::new(bytes); // alloc: Cold
         let a = arena.handle();
         let mut s = ArenaVec::with_capacity_in(sites.len(), a);

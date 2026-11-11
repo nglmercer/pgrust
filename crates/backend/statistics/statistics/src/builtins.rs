@@ -126,7 +126,7 @@ pub fn fc_pg_mcv_list_recv(
 }
 
 // PG_GETARG_BYTEA_P: detoasted, short headers expanded to the 4-byte form.
-unsafe fn bytea_body<'a>(fcinfo: &'a Fcinfo, i: usize) -> PgResult<&'a [u8]> {
+unsafe fn bytea_body(fcinfo: &Fcinfo, i: usize) -> PgResult<&[u8]> {
     // SAFETY: forwarded caller contract (strict fn, non-null varlena arg).
     let v = unsafe { fcinfo.arg_varlena_packed(i)? };
     if v.is_short() {

@@ -57,10 +57,10 @@ impl Fold {
             pw: l.partition_keys(),
         };
         for j in 0..ns {
-            let off = l.slot_off(j) as u32;
+            let off = l.slot_off(j);
             let op = |off: u32, k: u64| Op { off, j: j as u32, k };
             match l.slot_kind(j) {
-                SlotKind::Count if implicit && off == l.sentinel_off() as u32 => f.implicit = Some(op(off, 0)),
+                SlotKind::Count if implicit && off == l.sentinel_off() => f.implicit = Some(op(off, 0)),
                 SlotKind::Count => f.push(0, op(off, !MOVING)),
                 SlotKind::SumI64 => f.push(0, op(off, !0)),
                 SlotKind::SumI128 => f.push(1, op(off, 0)),
@@ -784,11 +784,10 @@ pub unsafe fn owner_fold_dense(params: *const u64, t: *mut HashAgg, recs: *const
             return v;
         }
     }
-    if plain_owner(params, t) {
-        if Fold::ident(&(*t).layout).is_some() {
+    if plain_owner(params, t)
+        && Fold::ident(&(*t).layout).is_some() {
             return owner_fold_ident(params, t, recs, nrecs, split, cand);
         }
-    }
     owner_fold(params, t, recs, nrecs, split, cand)
 }
 

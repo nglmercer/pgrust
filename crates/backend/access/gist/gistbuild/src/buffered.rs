@@ -510,9 +510,9 @@ fn gist_buffering_find_correct_parent(
     match found {
         Some(off) => Ok((pin, off)),
         None => {
-            return Err(crate::elog_error(format!(
+            Err(crate::elog_error(format!(
                 "failed to re-find parent for block {childblkno}"
-            )));
+            )))
         }
     }
 }

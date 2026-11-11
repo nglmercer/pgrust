@@ -141,10 +141,10 @@ fn fetch_array_image<'mcx>(
     detoast_seams::detoast_attr::call(mcx, raw)
 }
 
-fn array_out_cache<'f>(
-    flinfo: &'f mut FmgrInfo,
+fn array_out_cache(
+    flinfo: &mut FmgrInfo,
     element_type: Oid,
-) -> PgResult<&'f mut ArrayOutCache> {
+) -> PgResult<&mut ArrayOutCache> {
     let need = match flinfo.fn_extra_ref::<ArrayOutCache>() {
         Some(c) => c.element_type != element_type,
         None => true,

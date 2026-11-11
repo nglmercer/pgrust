@@ -223,6 +223,8 @@ crate::contract::host! {
 /// PG's error stashed. A `STATE_HOME` source (every record of a keyed hosted table's group points at its one home) is
 /// taken, not combined: an empty slot takes the tag, one on the same home keeps it. No other source reaches it (debug
 /// asserted; release keeps the combinefn call, which raises by name without one), so a hashed group needs no combinefn.
+// Kept safe on purpose: a hosted aggregate's combine hook, called with the two state pointers the executor owns.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn owner_combine(src: &Rec<'_>, _slot: usize, into: *mut u8, from: *const u8) -> bool {
     let Some(head) = handle_slot(src.layout).and_then(|h| unsafe { live(src.i64(h) as u64) }) else {
         stale();

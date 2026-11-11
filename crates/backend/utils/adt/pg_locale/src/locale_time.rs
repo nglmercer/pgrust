@@ -137,7 +137,7 @@ pub fn cache_locale_time(mcx: Mcx<'_>) -> PgResult<Rc<LocalizedTimeNames>> {
     // encoding to the database encoding.
     let mut encoding = crate::chklocale::pg_get_encoding_from_locale(Some(&locale_time), true)?;
     if encoding < 0 {
-        encoding = PG_SQL_ASCII as i32;
+        encoding = PG_SQL_ASCII;
     }
 
     let conv = |v: Vec<Vec<u8>>| -> PgResult<Vec<Vec<u8>>> {

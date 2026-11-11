@@ -274,6 +274,7 @@ impl IndexAmKind {
 
 // amapi.h OpFamilyMember: DDL carrier for opclass/opfamily member entries.
 #[derive(Clone, Copy, Debug)]
+#[derive(Default)]
 pub struct OpFamilyMember {
     pub is_func: bool,
     pub object: Oid,
@@ -286,21 +287,6 @@ pub struct OpFamilyMember {
     pub refobjid: Oid,
 }
 
-impl Default for OpFamilyMember {
-    fn default() -> Self {
-        OpFamilyMember {
-            is_func: false,
-            object: 0,
-            number: 0,
-            sortfamily: 0,
-            lefttype: 0,
-            righttype: 0,
-            ref_is_hard: false,
-            ref_is_family: false,
-            refobjid: 0,
-        }
-    }
-}
 
 // C resolves any pg_am row through its amhandler; the closed IndexAmKind set
 // gives non-builtin AMs (CREATE ACCESS METHOD over a builtin handler) a

@@ -755,21 +755,21 @@ fn miss(
     while dolacons {
         dolacons = false;
         for i in 0..d.nstates {
-            if isbset(&d.work, i) {
+            if isbset(d.work, i) {
                 let arc_range = cnfa.states[i].clone();
                 for ai in arc_range {
                     let ca = cnfa.arcs[ai];
                     if (ca.co as i32) < cnfa.ncolors {
                         continue; // not a LACON arc
                     }
-                    if isbset(&d.work, ca.to as usize) {
+                    if isbset(d.work, ca.to as usize) {
                         continue; // arc would be a no-op anyway
                     }
                     sawlacons = true; // this LACON affects our result
                     if !lacon(v, g, cnfa, cp, ca.co)? {
                         continue; // LACON arc cannot be traversed
                     }
-                    bset(&mut d.work, ca.to as usize);
+                    bset(d.work, ca.to as usize);
                     dolacons = true;
                     if ca.to == cnfa.post {
                         ispost = true;
@@ -781,7 +781,7 @@ fn miss(
             }
         }
     }
-    let h = d.hashbits(&d.work);
+    let h = d.hashbits(d.work);
 
     let mut found: Option<usize> = None;
     {

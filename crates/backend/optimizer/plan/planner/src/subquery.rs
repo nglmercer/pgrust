@@ -390,7 +390,7 @@ pub fn subquery_planner<'mcx>(
     // Indexes stay valid across flattening: it preserves havingQual list
     // length and order.
     let having_pushdown_conflicts = if parse.hasGroupRTE {
-        find_having_conflicts(&parse, run.root.group_rtindex)?
+        find_having_conflicts(parse, run.root.group_rtindex)?
     } else {
         Vec::new()
     };
@@ -398,10 +398,10 @@ pub fn subquery_planner<'mcx>(
     // grouping expressions (planner.c:1096-1103), varnullingrels preserved.
     if parse.hasGroupRTE {
         parse.targetList =
-            crate::flatten_group::flatten_group_exprs_list(run, &parse, &parse.targetList)?;
+            crate::flatten_group::flatten_group_exprs_list(run, parse, &parse.targetList)?;
         if let Some(hq) = parse.havingQual {
             parse.havingQual =
-                Some(crate::flatten_group::flatten_group_exprs_node(run, &parse, hq)?);
+                Some(crate::flatten_group::flatten_group_exprs_node(run, parse, hq)?);
         }
     }
     if parse.hasTargetSRFs {

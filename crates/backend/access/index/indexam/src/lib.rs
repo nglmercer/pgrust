@@ -62,7 +62,7 @@ pub fn try_index_open<'mcx>(
 
 /// Consumes the handle; a lock held past close is released at xact end, as in C.
 pub fn index_close(relation: Relation<'_>, lockmode: LOCKMODE) -> PgResult<()> {
-    debug_assert!(lockmode >= NoLock && lockmode <= MaxLockMode);
+    debug_assert!((NoLock..=MaxLockMode).contains(&lockmode));
     relation.close(lockmode)
 }
 
@@ -504,8 +504,8 @@ pub fn index_rescan<'mcx>(
     keys: Option<&[ScanKeyData]>,
     orderbys: Option<&[ScanKeyData]>,
 ) -> PgResult<()> {
-    debug_assert!(keys.map_or(true, |k| k.len() as i32 == scan.numberOfKeys));
-    debug_assert!(orderbys.map_or(true, |k| k.len() as i32 == scan.numberOfOrderBys));
+    debug_assert!(keys.is_none_or(|k| k.len() as i32 == scan.numberOfKeys));
+    debug_assert!(orderbys.is_none_or(|k| k.len() as i32 == scan.numberOfOrderBys));
 
     if let Some(heapfetch) = scan.xs_heapfetch.as_mut() {
         fetch::reset(heapfetch);
@@ -893,7 +893,10 @@ fn am_rescan(
         IndexScanOpaque::Bloom(_) => bloom::blrescan(scan, keys),
         IndexScanOpaque::Brin(_) => brin::brinrescan(scan, keys),
         #[cfg(any(test, feature = "mock"))]
-        IndexScanOpaque::Mock(_) => Ok(mock::rescan(scan)),
+        IndexScanOpaque::Mock(_) => {
+            mock::rescan(scan);
+            Ok(())
+        },
         #[allow(unreachable_patterns)]
         _ => mock_outside_tests(),
     }
@@ -927,7 +930,10 @@ fn am_markpos(scan: &mut IndexScanDescData<'_>) -> PgResult<()> {
         IndexScanOpaque::Bloom(_) => unreachable!("has_ammarkpos gate"),
         IndexScanOpaque::Brin(_) => unreachable!("has_ammarkpos gate"),
         #[cfg(any(test, feature = "mock"))]
-        IndexScanOpaque::Mock(_) => Ok(mock::markpos(scan)),
+        IndexScanOpaque::Mock(_) => {
+            mock::markpos(scan);
+            Ok(())
+        },
         #[allow(unreachable_patterns)]
         _ => mock_outside_tests(),
     }
@@ -1151,11 +1157,7 @@ mod fetch {
     }
 
     pub fn end(heapfetch: IndexFetchTableData<'_>) {
-        match heapfetch {
-            IndexFetchTableData::Table(t) => tableam::table_index_fetch_end(t),
-            #[allow(unreachable_patterns)]
-            _ => {}
-        }
+        if let IndexFetchTableData::Table(t) = heapfetch { tableam::table_index_fetch_end(t) }
     }
 
     pub fn tuple<'mcx>(

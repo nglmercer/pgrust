@@ -555,7 +555,7 @@ impl Entry {
             }
         }
         let before = core::mem::replace(&mut self.current, cell);
-        let mut back = Back(self, before);
+        let back = Back(self, before);
         // construct C2 (b): a runner's frame runs its pipelines in program order (a nested statement's too)
         let _order = crate::ahead_trace::scope(crate::ahead_trace::Origin::Order);
         f(&mut *back.0)
@@ -1457,7 +1457,7 @@ impl Entry {
         let last = |y: usize| {
             let program = exec.node.program();
             match program.pipelines[y].produces() {
-                Some(s) if owner != NO_OWNER => (y + 1..n).filter(|&c| c != owner && program.pipelines[c].consumes.contains(&s) && program.producer_of_slot(c, s) == Some(y)).last().unwrap_or(y),
+                Some(s) if owner != NO_OWNER => (y + 1..n).rfind(|&c| c != owner && program.pipelines[c].consumes.contains(&s) && program.producer_of_slot(c, s) == Some(y)).unwrap_or(y),
                 _ => program.last_consumer(y),
             }
         };
@@ -2078,7 +2078,7 @@ mod tests {
             let this: *mut Entry = e;
             cell.set(Some(Current { entry: this, exec: outer, binding: b }));
             let exec_now = || cell.get().map(|c| c.exec);
-            assert_eq!(unsafe { Entry::publish_current(this, inner, b, || exec_now()) }, Some(inner), "the call's own");
+            assert_eq!(unsafe { Entry::publish_current(this, inner, b, &exec_now) }, Some(inner), "the call's own");
             assert_eq!(exec_now(), Some(outer), "the one before, back after a return");
             let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
                 Entry::publish_current(this, inner, b, || {

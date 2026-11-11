@@ -426,7 +426,7 @@ fn insert_flush_smoke() {
             GATE_CALLS.fetch_add(1, Ordering::Relaxed);
             GATE_ANSWER.load(Ordering::Relaxed)
         });
-        let mut insert_noop = |fill: u8| {
+        let insert_noop = |fill: u8| {
             let body: Vec<u8> = vec![fill; 48];
             let tot_len = SizeOfXLogRecord + body.len();
             let mut h = [0u8; 24];

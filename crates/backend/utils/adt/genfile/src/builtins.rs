@@ -18,7 +18,7 @@ fn arg_filename(fcinfo: &Fcinfo, i: usize) -> PgResult<Vec<u8>> {
     let raw = unsafe { fcinfo.arg_varlena_packed(i) }?;
     let data = raw.data();
     let end = data.iter().position(|&b| b == 0).unwrap_or(data.len());
-    Ok(::mcx::std_vec_from_slice("adt", &data[..end])?)
+    ::mcx::std_vec_from_slice("adt", &data[..end])
 }
 
 fn bytes_result(fcinfo: &Fcinfo, bytes: &[u8]) -> PgResult<Datum> {

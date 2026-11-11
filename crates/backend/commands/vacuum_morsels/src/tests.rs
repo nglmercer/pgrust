@@ -153,8 +153,8 @@ fn skipmap_crafted_adversarial() {
                 check_equivalence(&params(run + 2, 0, aggr, swvm), &vm);
             }
             // Run truncated by the never-skippable LAST page.
-            check_equivalence(&params(40, 0, aggr, swvm), &vec![AF; 40]);
-            check_equivalence(&params(40, 0, aggr, swvm), &vec![AV; 40]);
+            check_equivalence(&params(40, 0, aggr, swvm), &[AF; 40]);
+            check_equivalence(&params(40, 0, aggr, swvm), &[AV; 40]);
             // Mixed av/af inside one long run (skipsallvis from one page).
             let mut vm = vec![AF; 64];
             vm[20] = AV;
@@ -169,7 +169,7 @@ fn skipmap_crafted_adversarial() {
                 check_equivalence(&params(rp, resume, aggr, swvm), &vm);
             }
             // Frozen-bit-only corruption shape (not ALL_VISIBLE): unskippable.
-            check_equivalence(&params(40, 0, aggr, swvm), &vec![VM_ALL_FROZEN; 40]);
+            check_equivalence(&params(40, 0, aggr, swvm), &[VM_ALL_FROZEN; 40]);
         }
     }
 }
@@ -327,7 +327,7 @@ fn skipmap_eager_region_hard_boundaries() {
     p.next_eager_scan_region_start = 10;
     p.eager_scan_remaining_fails = 1;
     p.eager_scan_max_fails_per_region = 1;
-    let vm = vec![0u8; 20];
+    let vm = [0u8; 20];
     let src = VacuumBlockSource::build(&p, |b| vm[b as usize]);
     assert_eq!(src.total_granules(), 20);
     assert_eq!(src.next_boundary_after(0), 10);

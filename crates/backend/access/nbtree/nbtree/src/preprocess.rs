@@ -493,11 +493,11 @@ fn compare_scankey_args_scalar<R: BtReadRel + ?Sized>(
             strat = BTCommuteStrategyNumber(strat);
         }
         let result = match strat {
-            BTLessStrategyNumber => leftnull < rightnull,
+            BTLessStrategyNumber => !leftnull & rightnull,
             BTLessEqualStrategyNumber => leftnull <= rightnull,
             BTEqualStrategyNumber => leftnull == rightnull,
             BTGreaterEqualStrategyNumber => leftnull >= rightnull,
-            BTGreaterStrategyNumber => leftnull > rightnull,
+            BTGreaterStrategyNumber => leftnull & !rightnull,
             other => panic!("unrecognized StrategyNumber: {other}"),
         };
         return Ok(Some(result));
@@ -719,7 +719,7 @@ fn bt_skiparray_shrink<R: BtReadRel + ?Sized>(
 
 /// _bt_skiparray_strat_adjust: skip support turns a final > low_compare into
 /// >= (and < high_compare into <=) so MINVAL/MAXVAL descents can carry
-/// lower-order keys.
+/// > lower-order keys.
 fn bt_skiparray_strat_adjust<R: BtReadRel + ?Sized>(
     rel: &R,
     arraysk: &ScanKeyData,
@@ -973,13 +973,13 @@ fn bt_unmark_keys(so: &mut BTScanOpaqueData<'_>) -> PgResult<()> {
         }
     }
     so.keyData.clear();
-    so.keyData.extend(kept.into_iter());
-    so.keyData.extend(unmarked.into_iter());
+    so.keyData.extend(kept);
+    so.keyData.extend(unmarked);
 
     if have_arrays {
         so.orderProcs.clear();
-        so.orderProcs.extend(kept_procs.into_iter());
-        so.orderProcs.extend(unmarked_procs.into_iter());
+        so.orderProcs.extend(kept_procs);
+        so.orderProcs.extend(unmarked_procs);
         for array in so.arrayKeys.iter_mut() {
             array.scan_key = key_map[array.scan_key as usize];
         }

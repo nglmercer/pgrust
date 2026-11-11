@@ -270,7 +270,7 @@ fn exchange_success_full_flow() {
     let final_msg = math.final_message(true, "biws");
     let mut logdetail = None;
     let (r, out) = ScramMech
-        .exchange(&mut state, &mut port, Some(final_msg.as_bytes()), &mut logdetail)
+        .exchange(&mut state, &port, Some(final_msg.as_bytes()), &mut logdetail)
         .unwrap();
     assert_eq!(r, PG_SASL_EXCHANGE_SUCCESS);
     let without_proof = final_msg.rsplit_once(",p=").unwrap().0;
@@ -291,7 +291,7 @@ fn exchange_wrong_password_fails_without_output() {
     let final_msg = math.final_message(false, "biws");
     let mut logdetail = None;
     let (r, out) = ScramMech
-        .exchange(&mut state, &mut port, Some(final_msg.as_bytes()), &mut logdetail)
+        .exchange(&mut state, &port, Some(final_msg.as_bytes()), &mut logdetail)
         .unwrap();
     assert_eq!(r, PG_SASL_EXCHANGE_FAILURE);
     assert!(out.is_none());
@@ -322,7 +322,7 @@ fn md5_secret_runs_doomed_mock_exchange() {
     let final_msg = math.final_message(true, "biws");
     let mut logdetail = None;
     let (r, out) = ScramMech
-        .exchange(&mut state, &mut port, Some(final_msg.as_bytes()), &mut logdetail)
+        .exchange(&mut state, &port, Some(final_msg.as_bytes()), &mut logdetail)
         .unwrap();
     assert_eq!(r, PG_SASL_EXCHANGE_FAILURE);
     assert!(out.is_none());
@@ -345,7 +345,7 @@ fn missing_secret_runs_doomed_mock_exchange() {
     let final_msg = math.final_message(true, "biws");
     let mut logdetail = None;
     let (r, _out) = ScramMech
-        .exchange(&mut state, &mut port, Some(final_msg.as_bytes()), &mut logdetail)
+        .exchange(&mut state, &port, Some(final_msg.as_bytes()), &mut logdetail)
         .unwrap();
     assert_eq!(r, PG_SASL_EXCHANGE_FAILURE);
     assert!(logdetail.is_none());
@@ -433,7 +433,7 @@ fn first_message_err(gs2_msg: &str, ssl: bool, mech: &[u8]) -> Box<types_error::
     let mut port = test_port("user", ssl);
     let mut state = test_scram_init(&port, mech, Some(RFC7677_SECRET)).unwrap();
     ScramMech
-        .exchange(&mut state, &mut port, Some(gs2_msg.as_bytes()), &mut None)
+        .exchange(&mut state, &port, Some(gs2_msg.as_bytes()), &mut None)
         .unwrap_err()
 }
 
@@ -494,7 +494,7 @@ fn final_message_err(final_msg: &str) -> Box<types_error::PgError> {
     let mut state = test_scram_init(&port, b"SCRAM-SHA-256", Some(RFC7677_SECRET)).unwrap();
     let (_math, _sf) = drive_first(&mut state, &mut port, "pencil", "n,,");
     ScramMech
-        .exchange(&mut state, &mut port, Some(final_msg.as_bytes()), &mut None)
+        .exchange(&mut state, &port, Some(final_msg.as_bytes()), &mut None)
         .unwrap_err()
 }
 
@@ -524,7 +524,7 @@ fn final_message_malformed_proof_and_garbage() {
     let err = ScramMech
         .exchange(
             &mut state,
-            &mut port,
+            &port,
             Some(format!("{without_proof},p=c2hvcnQ=").as_bytes()),
             &mut None,
         )
@@ -538,7 +538,7 @@ fn final_message_malformed_proof_and_garbage() {
     let err = ScramMech
         .exchange(
             &mut state,
-            &mut port,
+            &port,
             Some(format!("{good},x=trailing").as_bytes()),
             &mut None,
         )
@@ -569,7 +569,7 @@ fn channel_binding_success_with_injected_cert_hash() {
     cbind_input.extend_from_slice(b"fake-cert-hash-32-bytes....");
     let final_msg = math.final_message(true, &b64enc(&cbind_input));
     let (r, out) = ScramMech
-        .exchange(&mut state, &mut port, Some(final_msg.as_bytes()), &mut None)
+        .exchange(&mut state, &port, Some(final_msg.as_bytes()), &mut None)
         .unwrap();
     assert_eq!(r, PG_SASL_EXCHANGE_SUCCESS);
     assert!(out.is_some());
@@ -588,7 +588,7 @@ fn channel_binding_mismatch_is_28000() {
     cbind_input.extend_from_slice(b"WRONG-cert-hash-32-bytes...");
     let final_msg = math.final_message(true, &b64enc(&cbind_input));
     let err = ScramMech
-        .exchange(&mut state, &mut port, Some(final_msg.as_bytes()), &mut None)
+        .exchange(&mut state, &port, Some(final_msg.as_bytes()), &mut None)
         .unwrap_err();
     assert_eq!(err.sqlstate(), make_sqlstate(*b"28000"));
     assert_eq!(err.message(), "SCRAM channel binding check failed");
@@ -603,7 +603,7 @@ fn plus_selected_first_message_without_binding_data() {
     let err = ScramMech
         .exchange(
             &mut state,
-            &mut port,
+            &port,
             Some(b"n,,n=,r=abcdef".as_slice()),
             &mut None,
         )
@@ -620,7 +620,7 @@ fn unsupported_channel_binding_type() {
     let err = ScramMech
         .exchange(
             &mut state,
-            &mut port,
+            &port,
             Some(b"p=tls-unique,,n=,r=abcdef".as_slice()),
             &mut None,
         )
@@ -637,7 +637,7 @@ fn no_initial_response_gets_empty_challenge() {
     let mut port = test_port("user", false);
     let mut state = test_scram_init(&port, b"SCRAM-SHA-256", Some(RFC7677_SECRET)).unwrap();
     let (r, out) = ScramMech
-        .exchange(&mut state, &mut port, None, &mut None)
+        .exchange(&mut state, &port, None, &mut None)
         .unwrap();
     assert_eq!(r, PG_SASL_EXCHANGE_CONTINUE);
     assert_eq!(out, Some(Vec::new()));

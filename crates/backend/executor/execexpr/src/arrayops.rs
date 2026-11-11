@@ -251,7 +251,7 @@ pub fn eval_array_expr(st: &mut ArrayExprState) -> PgResult<NullableDatum> {
     out[0..4].copy_from_slice(&::datum::varlena::set_varsize_4b(total));
     out[4..8].copy_from_slice(&ndims.to_ne_bytes());
     out[8..12].copy_from_slice(&(dataoffset as i32).to_ne_bytes());
-    out[12..16].copy_from_slice(&(st.elemtype as u32).to_ne_bytes());
+    out[12..16].copy_from_slice(&st.elemtype.to_ne_bytes());
     let mut off = 16usize;
     for i in 0..ndims as usize {
         out[off..off + 4].copy_from_slice(&dims[i].to_ne_bytes());
@@ -585,7 +585,7 @@ pub fn eval_array_coerce(st: &mut ArrayCoerceState, arrd: Datum) -> PgResult<Nul
     let Some(elem) = &st.elem else {
         // DatumGetArrayTypePCopy + ARR_ELEMTYPE overwrite.
         let mut copy = ::mcx::slice_in(mcx, img)?;
-        copy[12..16].copy_from_slice(&(st.resultelemtype as u32).to_ne_bytes());
+        copy[12..16].copy_from_slice(&st.resultelemtype.to_ne_bytes());
         return Ok(NullableDatum {
             value: Datum::from_usize(copy.leak().as_ptr() as usize),
             isnull: false,

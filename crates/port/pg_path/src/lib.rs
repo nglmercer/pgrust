@@ -818,6 +818,8 @@ fn pipe_first_line(
 
 // exec.c:391: pclose() plus useful error reporting.
 #[cfg(not(target_family = "wasm"))]
+// Kept safe on purpose (3 call sites): `stream` must come from popen and is closed here exactly once.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn pclose_check(stream: *mut libc::FILE, log_error: &mut impl FnMut(ExecLogCode, String)) -> i32 {
     // SAFETY: stream came from popen and is closed exactly once here.
     let exitstatus = unsafe { libc::pclose(stream) };

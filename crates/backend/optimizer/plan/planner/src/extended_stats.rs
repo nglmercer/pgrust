@@ -1234,12 +1234,10 @@ fn dependencies_clauselist_selectivity<'mcx>(
         if unique_exprs.is_empty() { 0 } else { unique_exprs.len() as i16 + 1 };
 
     let mut clauses_attnums: Relids<'mcx> = crate::relnode::relids_empty();
-    for a in list_attnums.iter_mut() {
-        if let Some(v) = a {
-            *v += attnum_offset;
-            let single = crate::relnode::relids_singleton(run.mcx, *v as u32);
-            clauses_attnums = crate::relnode::relids_union(run.mcx, &clauses_attnums, &single);
-        }
+    for v in list_attnums.iter_mut().flatten() {
+        *v += attnum_offset;
+        let single = crate::relnode::relids_singleton(run.mcx, *v as u32);
+        clauses_attnums = crate::relnode::relids_union(run.mcx, &clauses_attnums, &single);
     }
 
     if relids_num_members(&clauses_attnums) < 2 {
@@ -1541,15 +1539,15 @@ mod fma_parity_tests {
 
     #[test]
     fn dependency_s1_le_s2_fused() {
-        let got = dependency_conditional_sel(0.52483957943423221, 0.2728543017032905, 0.78859946834030481);
-        let want = if AARCH64 { 0.89955083446875228 } else { 0.89955083446875239 };
+        let got = dependency_conditional_sel(0.524_839_579_434_232_2, 0.2728543017032905, 0.788_599_468_340_304_8);
+        let want = if AARCH64 { 0.899_550_834_468_752_3 } else { 0.899_550_834_468_752_4 };
         assert_eq!(got, want);
     }
 
     #[test]
     fn dependency_s1_gt_s2_fused() {
-        let got = dependency_conditional_sel(0.85098779696340898, 0.97186185258196289, 0.45181270990494937);
-        let want = if AARCH64 { 0.46294469820733458 } else { 0.46294469820733453 };
+        let got = dependency_conditional_sel(0.850_987_796_963_409, 0.971_861_852_581_962_9, 0.45181270990494937);
+        let want = if AARCH64 { 0.462_944_698_207_334_6 } else { 0.462_944_698_207_334_5 };
         assert_eq!(got, want);
     }
 }

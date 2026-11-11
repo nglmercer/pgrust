@@ -475,11 +475,10 @@ fn compute(cx: &Cx<'_, '_>, id: PathId, trace: &mut Option<&mut Vec<Pipe>>) -> G
     match node {
         PathNode::Path(p) => {
             let t = p.pathtype;
-            if t == tag16(NodeTag::T_SeqScan) || t == tag16(NodeTag::T_SampleScan) {
-                if cx.root.rel(p.parent).rtekind == types_pathnodes::RTE_RELATION && cx.root.rel(p.parent).serverid == 0 {
+            if (t == tag16(NodeTag::T_SeqScan) || t == tag16(NodeTag::T_SampleScan))
+                && cx.root.rel(p.parent).rtekind == types_pathnodes::RTE_RELATION && cx.root.rel(p.parent).serverid == 0 {
                     return range_scan(cx, p.parent, total);
                 }
-            }
             leader(0.0, total)
         }
         PathNode::IndexPath(ip) => {

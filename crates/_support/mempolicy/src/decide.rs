@@ -424,7 +424,7 @@ mod tests {
     fn grow_and_start_follow_the_fast_buffer() {
         let _one = pgsync::lock(&crate::consts::TEST_LOCK);
         let roomy = inputs(4 * GIB);
-        assert_eq!(decide(Event::Grow { held: 8 * GIB }, &roomy).spill_self, false);
+        assert!(!decide(Event::Grow { held: 8 * GIB }, &roomy).spill_self);
         assert!(!decide(Event::Start, &roomy).throttle);
         let mut short = inputs(12 * GIB); // F = 2 GiB < F* = 3.25 GiB
         assert!(!decide(Event::Start, &short).throttle, "D3941: nothing is landing, so the start does not wait");

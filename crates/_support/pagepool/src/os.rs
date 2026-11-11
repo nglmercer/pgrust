@@ -333,13 +333,13 @@ pub(crate) fn split_partial(at: usize, len: usize) {
     const MADV_COLD: c_int = 20;
     const SUPER: usize = crate::superpage::SUPER;
     let end = at + len;
-    if len == 0 || (at % SUPER == 0 && end % SUPER == 0) {
+    if len == 0 || (at.is_multiple_of(SUPER) && end.is_multiple_of(SUPER)) {
         return;
     }
     let t0 = pg_clock::mono_ns();
     let page = page_size();
     let mut n = 0u64;
-    let head = at % SUPER != 0;
+    let head = !at.is_multiple_of(SUPER);
     if head {
         // SAFETY: advice only, over one page of the caller's own range, whose bytes are dead (`release`'s contract).
         unsafe { libc::madvise(at as *mut c_void, page, MADV_COLD) };
@@ -348,7 +348,7 @@ pub(crate) fn split_partial(at: usize, len: usize) {
     }
     // the last superpage the range covers in part, unless the head's call split it already
     let tail = (end / SUPER * SUPER).max(at);
-    if end % SUPER != 0 && !(head && tail / SUPER == at / SUPER) {
+    if !end.is_multiple_of(SUPER) && !(head && tail / SUPER == at / SUPER) {
         // SAFETY: as above: `tail` lies inside the range (at <= tail < end).
         unsafe { libc::madvise(tail as *mut c_void, page, MADV_COLD) };
         log::note(log::Op::Madvise, tail, page, MADV_COLD);
@@ -584,7 +584,7 @@ pub mod log {
             if h >> 40 != (i as u64 + 1) & 0xff_ffff {
                 continue;
             }
-            let op = match (h >> 32) as u8 & 0xff {
+            let op = match (h >> 32) as u8 {
                 1 => Op::Mmap,
                 2 => Op::Madvise,
                 3 => Op::Mremap,

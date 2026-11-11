@@ -177,7 +177,7 @@ fn d259_cell(i: u64, c: usize) -> Cell {
         3 => txt(&hex(i + 1_000_003 * (c as u64 / 10), 16)),
         4 => txt(&(hex(i, 16) + &hex(i + 1, 16) + &hex(i + 2, 16))),
         5 => txt(&format!("cat{}", i % 50)),
-        6 if i % 7 == 0 => Cell::N,
+        6 if i.is_multiple_of(7) => Cell::N,
         6 => txt(&format!("c{}", i % 5)),
         7 => txt(&format!("{}", (i % 10000) as f64 / 4.0)),
         8 => Cell::W((i as f64 * 0.5).to_bits()),

@@ -109,7 +109,7 @@ fn tsq<'a>(mcx: ::mcx::Mcx<'a>, s: &str) -> TsQueryRef<'a> {
     items.extend_from_slice(&1i32.to_ne_bytes());
     let mut raw = [0u8; 12];
     raw[0] = 1;
-    let packed = (s.len() as u32 & 0xfff) | (0u32 << 12);
+    let packed = (s.len() as u32 & 0xfff);
     raw[8..12].copy_from_slice(&packed.to_ne_bytes());
     items.extend_from_slice(&raw);
     items.extend_from_slice(s.as_bytes());
@@ -274,19 +274,19 @@ fn tsvector_recv_rejects_invalid_shapes() {
     let mut wire: Vec<u8> = 513i32.to_be_bytes().to_vec();
     for i in 0..512u32 {
         let tag = i.to_string();
-        wire.extend(std::iter::repeat(b'x').take(2047 - tag.len()));
+        wire.extend(std::iter::repeat_n(b'x', 2047 - tag.len()));
         wire.extend_from_slice(tag.as_bytes());
         wire.extend_from_slice(&[0, 0, 0]);
     }
     let base = wire.len();
-    wire.extend(std::iter::repeat(b'y').take(512));
+    wire.extend(std::iter::repeat_n(b'y', 512));
     wire.extend_from_slice(&[0, 0, 0]);
     assert_eq!(
         recv(&wire).unwrap_err(),
         "invalid tsvector: maximum total lexeme length exceeded"
     );
     wire.truncate(base);
-    wire.extend(std::iter::repeat(b'y').take(511));
+    wire.extend(std::iter::repeat_n(b'y', 511));
     wire.extend_from_slice(&[0, 0, 0]);
     let img = recv(&wire).expect("datalen == MAXSTRPOS fits");
     assert_eq!(TsVec { payload: &img[4..] }.size(), 513);

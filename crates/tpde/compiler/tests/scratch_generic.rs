@@ -35,7 +35,7 @@ struct Machine {
 
 impl Machine {
     fn new() -> Self {
-        let mut registers = RegisterFile::new();
+        let registers = RegisterFile::new();
         registers.allocatable.set(u64::MAX);
         Self {
             registers: RefCell::new(registers),
@@ -60,7 +60,7 @@ impl GuardMachine<2> for Machine {
     const GP_BANK: RegBank = RegBank::new(0);
 
     fn with_registers<R>(&self, operation: impl FnOnce(&RegisterFile<2, 32>) -> R) -> R {
-        operation(&*self.registers.borrow_mut())
+        operation(&self.registers.borrow_mut())
     }
 
     fn with_assignment<R>(

@@ -106,8 +106,7 @@ pub const NUMERIC_MIN_SIG_DIGITS: i32 = 16;
 #[inline]
 pub fn numeric_can_be_short(dscale: i32, weight: i32) -> bool {
     dscale <= NUMERIC_SHORT_DSCALE_MAX
-        && weight <= NUMERIC_SHORT_WEIGHT_MAX
-        && weight >= NUMERIC_SHORT_WEIGHT_MIN
+        && (NUMERIC_SHORT_WEIGHT_MIN..=NUMERIC_SHORT_WEIGHT_MAX).contains(&weight)
 }
 
 /// Borrowed view of a packed numeric: the varlena payload (no varlena
@@ -258,7 +257,7 @@ impl<'a> Num<'a> {
         // SAFETY: from_payload's length check + header_size <= 4 keep the
         // range in bounds; alignment guarded below.
         let p = unsafe { self.ptr.add(off) };
-        if p as usize % 2 != 0 {
+        if !(p as usize).is_multiple_of(2) {
             unaligned_digits_panic();
         }
         // SAFETY: alignment checked above; n i16s lie within the payload.

@@ -157,32 +157,28 @@ pub(crate) fn check_valid_extension_name_bytes(bytes: &[u8]) -> PgResult<()> {
             "extension name",
             bytes,
             "Extension names must not be empty.",
-        )
-        .into());
+        ));
     }
     if bytes.windows(2).any(|w| w == b"--") {
         return Err(invalid_name(
             "extension name",
             bytes,
             "Extension names must not contain \"--\".",
-        )
-        .into());
+        ));
     }
     if bytes[0] == b'-' || bytes[bytes.len() - 1] == b'-' {
         return Err(invalid_name(
             "extension name",
             bytes,
             "Extension names must not begin or end with \"-\".",
-        )
-        .into());
+        ));
     }
     if first_dir_separator(bytes).is_some() {
         return Err(invalid_name(
             "extension name",
             bytes,
             "Extension names must not contain directory separator characters.",
-        )
-        .into());
+        ));
     }
     Ok(())
 }
@@ -194,32 +190,28 @@ pub fn check_valid_version_name(versionname: &str) -> PgResult<()> {
             "extension version name",
             bytes,
             "Version names must not be empty.",
-        )
-        .into());
+        ));
     }
     if versionname.contains("--") {
         return Err(invalid_name(
             "extension version name",
             bytes,
             "Version names must not contain \"--\".",
-        )
-        .into());
+        ));
     }
     if bytes[0] == b'-' || bytes[bytes.len() - 1] == b'-' {
         return Err(invalid_name(
             "extension version name",
             bytes,
             "Version names must not begin or end with \"-\".",
-        )
-        .into());
+        ));
     }
     if first_dir_separator(bytes).is_some() {
         return Err(invalid_name(
             "extension version name",
             bytes,
             "Version names must not contain directory separator characters.",
-        )
-        .into());
+        ));
     }
     Ok(())
 }

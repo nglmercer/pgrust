@@ -559,7 +559,7 @@ pub fn import(body: &[u8], now: u32) -> Result<u32, ()> {
 }
 
 fn import_into(store: &[Mutex<Shard>], body: &[u8], now: u32) -> Result<u32, ()> {
-    if body.len() % ENTRY_BYTES != 0 {
+    if !body.len().is_multiple_of(ENTRY_BYTES) {
         return Err(());
     }
     for b in body.chunks_exact(ENTRY_BYTES) {
@@ -889,10 +889,10 @@ mod tests {
         let key = |i: u32| Key { program: 7, db: 1, slot: (i % 60_000) as u16, participants: (i / 60_000) as u16 + 1 };
         let rec = |s: &mut Shard, k: &Key| s.entry(k, hash(k)).hist.record(Sample { peak: 1, need: 1, given: 1, at: T0 }, 0, Source::Est, T0, true);
         for i in 0..PER_SHARD as u32 {
-            rec(&mut *s, &key(i));
+            rec(&mut s, &key(i));
         }
         assert!(s.get(&key(0), hash(&key(0))).is_some(), "key 0 used again: now the most recent");
-        rec(&mut *s, &key(PER_SHARD as u32));
+        rec(&mut s, &key(PER_SHARD as u32));
         assert!(s.get(&key(1), hash(&key(1))).is_none(), "key 1 was the least recently used");
         for i in (0..PER_SHARD as u32 + 1).filter(|&i| i != 1) {
             assert!(s.get(&key(i), hash(&key(i))).is_some(), "key {i} kept");
@@ -908,18 +908,18 @@ mod tests {
         let key = |db: u32, i: u32| Key { program: 9, db, slot: i as u16, participants: 1 };
         let rec = |s: &mut Shard, k: &Key| s.entry(k, hash(k)).hist.record(Sample { peak: 1, need: 1, given: 1, at: T0 }, 0, Source::Est, T0, true);
         for i in 0..40 {
-            rec(&mut *s, &key(5, i));
-            rec(&mut *s, &key(6, i));
+            rec(&mut s, &key(5, i));
+            rec(&mut s, &key(6, i));
         }
         assert_eq!(s.used, 80);
         assert_eq!(s.forget_db(5), 40, "database 5's keys");
         assert!((0..40).all(|i| s.get(&key(5, i), hash(&key(5, i))).is_none()), "gone");
         assert!((0..40).all(|i| s.get(&key(6, i), hash(&key(6, i))).is_some()), "database 6's kept, still found by the index");
         for i in 0..40 {
-            rec(&mut *s, &key(7, i));
+            rec(&mut s, &key(7, i));
         }
         assert_eq!(s.used, 80, "database 7's keys took the freed entries: no new entry touched");
-        rec(&mut *s, &key(7, 40));
+        rec(&mut s, &key(7, 40));
         assert_eq!(s.used, 81, "past the free list: the next entry");
         assert!((0..41).all(|i| s.get(&key(7, i), hash(&key(7, i))).is_some()) && (0..40).all(|i| s.get(&key(6, i), hash(&key(6, i))).is_some()));
     }
@@ -929,7 +929,7 @@ mod tests {
     fn the_stores_touched_pages_are_charged_whole() {
         record(&Key { program: 0x4632, db: 4632, slot: 1, participants: 1 }, Sample { peak: 1, need: 1, given: 1, at: T0 }, 0, Source::Est, T0, true);
         let c = resident_charged();
-        assert!(c > 0 && c % PAGE as u64 == 0, "whole pages charged: {c}");
+        assert!(c > 0 && c.is_multiple_of(PAGE as u64), "whole pages charged: {c}");
         forget_db(4632);
         assert!(resident_charged() >= c, "the pages stay resident: the charge never shrinks");
     }

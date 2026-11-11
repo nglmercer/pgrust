@@ -270,7 +270,7 @@ pub(crate) fn class_of(size: usize, align: usize) -> usize {
 
 #[inline]
 fn aligned_class(mut c: usize, align: usize) -> usize {
-    while SIZES[c] as usize % align != 0 {
+    while !(SIZES[c] as usize).is_multiple_of(align) {
         c += 1;
     }
     c
@@ -1462,7 +1462,7 @@ pub(crate) mod tests {
             for align in [1, 2, 4, 8, 16, 32, 64, 128] {
                 let c = class_of(size, align);
                 let s = SIZES[c] as usize;
-                assert!(s >= size && s % align == 0, "{size} @ {align} -> {s}");
+                assert!(s >= size && s.is_multiple_of(align), "{size} @ {align} -> {s}");
                 if align <= 8 && c > 0 {
                     assert!((SIZES[c - 1] as usize) < size, "{size}: not the least class");
                 }
@@ -1512,7 +1512,7 @@ pub(crate) mod tests {
             let size = 1 + (x as usize % SMALL_MAX);
             let align = [1usize, 8, 16, 64][i % 4];
             let p = alloc(size, align) as usize;
-            assert!(p != 0 && p % align == 0 && crate::owns(p as *const u8));
+            assert!(p != 0 && p.is_multiple_of(align) && crate::owns(p as *const u8));
             assert!(usable(size, align) >= size);
             // SAFETY: a fresh block of `size` bytes.
             unsafe { core::ptr::write_bytes(p as *mut u8, (i & 0xff) as u8, size) };

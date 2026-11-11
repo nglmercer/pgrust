@@ -295,6 +295,12 @@ pub struct Mix128 {
     hi: u64,
 }
 
+impl Default for Mix128 {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Mix128 {
     pub const fn new() -> Mix128 {
         Mix128 { lo: 0xcbf2_9ce4_8422_2325, hi: 0x8422_2325_cbf2_9ce4 }

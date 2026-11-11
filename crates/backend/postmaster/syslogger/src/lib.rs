@@ -313,13 +313,11 @@ pub fn SysLoggerMain(startup_data: &StartupData) -> ! {
                     ROTATION_REQUESTED.store(true, Relaxed);
                 }
 
-                if ((elog::config::log_destination() & LOG_DESTINATION_CSVLOG) != 0)
-                    != !CSVLOG_FILE.load(Relaxed).is_null()
+                if ((elog::config::log_destination() & LOG_DESTINATION_CSVLOG) != 0) == CSVLOG_FILE.load(Relaxed).is_null()
                 {
                     ROTATION_REQUESTED.store(true, Relaxed);
                 }
-                if ((elog::config::log_destination() & LOG_DESTINATION_JSONLOG) != 0)
-                    != !JSONLOG_FILE.load(Relaxed).is_null()
+                if ((elog::config::log_destination() & LOG_DESTINATION_JSONLOG) != 0) == JSONLOG_FILE.load(Relaxed).is_null()
                 {
                     ROTATION_REQUESTED.store(true, Relaxed);
                 }
@@ -584,7 +582,7 @@ fn process_pipe_input(st: &mut SysLoggerState, logbuffer: &mut [u8], bytes_in_lo
     let mut count: usize = *bytes_in_logbuffer;
     let mut dest: i32 = LOG_DESTINATION_STDERR;
 
-    while count >= PIPE_HEADER_SIZE + 1 {
+    while count > PIPE_HEADER_SIZE {
         let buf = &logbuffer[cursor..];
         let len = u16::from_ne_bytes([buf[2], buf[3]]) as usize;
         let pid = i32::from_ne_bytes([buf[4], buf[5], buf[6], buf[7]]);

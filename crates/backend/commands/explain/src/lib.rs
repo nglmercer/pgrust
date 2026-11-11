@@ -655,7 +655,7 @@ fn elapsed_time(starttime: &types_core::instrument::instr_time) -> f64 {
 
 // explain.c BYTES_TO_KILOBYTES.
 fn bytes_to_kilobytes(b: u64) -> u64 {
-    (b + 1023) / 1024
+    b.div_ceil(1024)
 }
 
 // jit.h pins; the planner lane keeps its own private copies.

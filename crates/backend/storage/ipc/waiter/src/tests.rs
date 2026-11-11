@@ -137,11 +137,9 @@ fn slot_reuse_cannot_hijack_new_owner() {
     let fresh = rx2.recv().unwrap();
     assert_eq!(unpark(stale), Unparked::Stale);
     // Only the fresh handle wakes B.
-    while unpark(fresh) == Unparked::Pending {
-        // B may not have parked yet; Pending is already sufficient to
-        // satisfy its next park.
-        break;
-    }
+    // B may not have parked yet; Pending is already sufficient to
+    // satisfy its next park. One unpark is all this needs.
+    let _ = unpark(fresh);
     t2.join().unwrap();
 }
 

@@ -112,7 +112,7 @@ impl Rec<'_> {
 
 // XLogRecGetData: main_data points into the reader's decode buffer, valid for
 // the desc callback's duration (same contract as rmgr::xact_redo).
-pub(crate) fn rec_data<'r>(record: &'r XLogReaderState) -> &'r [u8] {
+pub(crate) fn rec_data(record: &XLogReaderState) -> &[u8] {
     match record.record.as_ref() {
         // SAFETY: see above.
         Some(r) => unsafe { r.main_data_bytes() },
@@ -128,7 +128,7 @@ pub(crate) fn has_block_data(record: &XLogReaderState, block_id: u8) -> bool {
     record.has_block_ref(block_id) && record.block(block_id).has_data
 }
 
-pub(crate) fn block_data<'r>(record: &'r XLogReaderState, block_id: u8) -> &'r [u8] {
+pub(crate) fn block_data(record: &XLogReaderState, block_id: u8) -> &[u8] {
     if !has_block_data(record, block_id) {
         return &[];
     }

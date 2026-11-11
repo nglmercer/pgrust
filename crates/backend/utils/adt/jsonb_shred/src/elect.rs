@@ -182,7 +182,7 @@ pub fn elect_manifest_auto(
 
     // Intern every observed path (elected and residual share one dictionary,
     // §2.5) plus hinted-but-unobserved paths; then the elected rows.
-    for (path, _) in &stats {
+    for path in stats.keys() {
         manifest.intern(path.clone());
     }
     for (path, ..) in &admitted {

@@ -104,7 +104,7 @@ fn bits_at(b: &[u8], pos: u64, w: u32) -> u64 {
 /// Every bit of `b` from bit `from` on is zero.
 fn zeros_from(b: &[u8], from: u64) -> bool {
     let whole = from.div_ceil(8) as usize;
-    (from % 8 == 0 || bits_at(b, from, 8 - (from % 8) as u32) == 0) && b.get(whole..).is_none_or(|t| t.iter().all(|&x| x == 0))
+    (from.is_multiple_of(8) || bits_at(b, from, 8 - (from % 8) as u32) == 0) && b.get(whole..).is_none_or(|t| t.iter().all(|&x| x == 0))
 }
 
 fn put_bits(b: &mut [u8], pos: u64, w: u32, v: u64) {
@@ -318,8 +318,8 @@ impl Writer {
                     self.emit();
                     self.in_page = 0;
                 }
-                GROUPS if self.groups as usize % GROUPS_PER != 0 => self.emit(),
-                EXCEPTIONS if self.exc as usize % EXC_PER != 0 => self.emit(),
+                GROUPS if !(self.groups as usize).is_multiple_of(GROUPS_PER) => self.emit(),
+                EXCEPTIONS if !(self.exc as usize).is_multiple_of(EXC_PER) => self.emit(),
                 _ => {}
             }
             let first = self.dir[self.phase].0;
@@ -402,7 +402,7 @@ impl Writer {
         self.page[at + 4..at + 8].copy_from_slice(&va.to_le_bytes());
         self.page[at + 8..at + 12].copy_from_slice(&vb.to_le_bytes());
         self.groups += 1;
-        if self.groups as usize % GROUPS_PER == 0 {
+        if (self.groups as usize).is_multiple_of(GROUPS_PER) {
             self.emit();
         }
         Ok(())
@@ -424,7 +424,7 @@ impl Writer {
         self.page[at + 12..at + 16].copy_from_slice(&vframe.to_le_bytes());
         self.exc += 1;
         self.last_exc = Some(id);
-        if self.exc as usize % EXC_PER == 0 {
+        if (self.exc as usize).is_multiple_of(EXC_PER) {
             self.emit();
         }
         Ok(())

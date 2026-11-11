@@ -132,6 +132,8 @@ pub const ROWID_FIRST: u64 = IDS_PER_BLOCK;
 /// One past the last ID.
 pub const ROWID_LIMIT: u64 = 1 << ROWID_BITS;
 
+// The sentinels are u64::MAX-based on purpose: these asserts state that ordering, so clippy's absurd-comparison lint is off here.
+#[allow(clippy::absurd_extreme_comparisons)]
 const _: () = {
     // Every ID below the limit lands on a block below InvalidBlockNumber (0xFFFF_FFFF).
     assert!((ROWID_LIMIT - 1) / IDS_PER_BLOCK < u32::MAX as u64);

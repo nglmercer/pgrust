@@ -191,7 +191,7 @@ fn alignments_sizes_and_usable() {
             // SAFETY: a non-zero layout, freed with the same.
             unsafe {
                 let p = A.alloc(l);
-                assert!(!p.is_null() && p as usize % align == 0, "{size} @ {align}");
+                assert!(!p.is_null() && (p as usize).is_multiple_of(align), "{size} @ {align}");
                 assert!(pagepool::usable_size(p) >= size, "{size} @ {align}: usable {}", pagepool::usable_size(p));
                 assert!(pagepool::good_size(size, align) >= size);
                 if pagepool::owns(p) {
@@ -221,7 +221,7 @@ fn realloc_across_roads_keeps_bytes() {
             }
             for new in [5usize, 17, 600, 1000, 1024, 1500, 9000, 140_000, 900_000, 5 << 20, 700_000, 2000, 900, 40, 1] {
                 p = A.realloc(p, Layout::from_size_align(size, align).unwrap(), new);
-                assert!(!p.is_null() && p as usize % align == 0);
+                assert!(!p.is_null() && (p as usize).is_multiple_of(align));
                 for i in 0..size.min(new) {
                     assert_eq!(*p.add(i), i as u8, "byte {i} after {size} -> {new} @ {align}");
                 }
@@ -411,7 +411,7 @@ fn allocation_after_the_exit_destructor() {
         // SAFETY: a valid out pointer; the destructor lives for the process.
         assert_eq!(unsafe { libc::pthread_key_create(&mut key, Some(late_destructor)) }, 0);
         // SAFETY: a live key; a non-null value arms its destructor.
-        unsafe { libc::pthread_setspecific(key, 1usize as *const libc::c_void) };
+        unsafe { libc::pthread_setspecific(key, std::ptr::dangling::<libc::c_void>()) };
         drop(warm);
     })
     .join()

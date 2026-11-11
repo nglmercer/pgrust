@@ -64,7 +64,7 @@ fn sort_keys_agree_with_their_rows() {
                 for k in s.keys.iter() {
                     n += 1;
                     let e = s.tlist.nth(k.resno as usize - 1).as_target_entry().unwrap().expr;
-                    let Some(tf) = gravity_decompose::catalog::expr_type::type_of(e).and_then(|t| gravity_decompose::catalog::typefacts::row_of(t)) else { continue };
+                    let Some(tf) = gravity_decompose::catalog::expr_type::type_of(e).and_then(gravity_decompose::catalog::typefacts::row_of) else { continue };
                     if tf.image == WordImage::NumMantissa {
                         assert!(k.image == KeyImage::NumMantissa || k.image == KeyImage::NumNormalized || k.image == KeyImage::Raw, "{name}");
                         assert_eq!(k.scale != NO_SCALE, k.image == KeyImage::NumMantissa, "{name}: a scale iff the mantissa image");

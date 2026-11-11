@@ -815,9 +815,9 @@ pub fn add_path<'mcx>(run: &mut PlannerRun<'mcx>, rel_id: RelId, new_id: PathId)
                         }
                         PathKeysComparison::Equal => match outercmp() {
                             SubsetCmp::Equal => {
-                                if new_path.parallel_safe > old_path.parallel_safe {
+                                if new_path.parallel_safe & !old_path.parallel_safe {
                                     remove_old = true;
-                                } else if new_path.parallel_safe < old_path.parallel_safe {
+                                } else if !new_path.parallel_safe & old_path.parallel_safe {
                                     accept_new = false;
                                 } else if new_path.rows < old_path.rows {
                                     remove_old = true;
@@ -2353,7 +2353,7 @@ pub fn create_groupingsets_path<'mcx>(
     debug_assert!(aggstrategy != types_pathnodes::AGG_MIXED || rollups.len() > 1);
 
     let pathkeys = if aggstrategy == types_pathnodes::AGG_SORTED && rollups.len() == 1 {
-        types_pathnodes::relids::pgvec_clone_shallow(mcx, &run.root.group_pathkeys)
+        types_pathnodes::relids::pgvec_clone_shallow(mcx, run.root.group_pathkeys)
     } else {
         PgVec::new_in(mcx)
     };

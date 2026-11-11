@@ -561,7 +561,7 @@ fn ginPlaceToPage<'r, T: GinBt<'r>>(
 
             if is_root {
                 lbuffer = GinNewBuffer(rel)?;
-                if let Some(stats) = buildStats.as_deref_mut() {
+                if let Some(stats) = buildStats {
                     if T::IS_DATA {
                         stats.nDataPages += 1;
                     } else {
@@ -931,8 +931,7 @@ mod tests {
         });
 
         let err = ginFindParents(mcx, &rel, &mut btree, &mut stack, 1)
-            .err()
-            .expect("lost path must be a catchable error");
+            .expect_err("lost path must be a catchable error");
         assert_eq!(err.message(), "Lost path");
         assert_eq!(err.sqlstate(), ERRCODE_INTERNAL_ERROR);
     }

@@ -90,7 +90,7 @@ fn check_cell(name: &str, b: &ColumnBatch, k: usize, i: usize) {
         }
         "i32opt" => {
             let I32(v) = &b.data else { panic!("i32opt type") };
-            if i % 7 == 0 {
+            if i.is_multiple_of(7) {
                 assert!(b.is_null(k), "row {i}");
             } else {
                 assert!(!b.is_null(k), "row {i}");
@@ -99,7 +99,7 @@ fn check_cell(name: &str, b: &ColumnBatch, k: usize, i: usize) {
         }
         "i64opt" => {
             let I64(v) = &b.data else { panic!("i64opt type") };
-            if i % 11 == 0 {
+            if i.is_multiple_of(11) {
                 assert!(b.is_null(k));
             } else {
                 assert_eq!(v[k], expect_i64(i));
@@ -111,7 +111,7 @@ fn check_cell(name: &str, b: &ColumnBatch, k: usize, i: usize) {
         }
         "f64opt" => {
             let F64(v) = &b.data else { panic!("f64opt type") };
-            if i % 13 == 0 {
+            if i.is_multiple_of(13) {
                 assert!(b.is_null(k));
             } else {
                 assert_eq!(v[k], (i % 10_000) as f64 * 0.25);
@@ -119,14 +119,14 @@ fn check_cell(name: &str, b: &ColumnBatch, k: usize, i: usize) {
         }
         "breq" => {
             let Bool(v) = &b.data else { panic!("breq type") };
-            assert_eq!(v[k], i % 3 == 0);
+            assert_eq!(v[k], i.is_multiple_of(3));
         }
         "bopt" => {
             let Bool(v) = &b.data else { panic!("bopt type") };
-            if i % 5 == 0 {
+            if i.is_multiple_of(5) {
                 assert!(b.is_null(k));
             } else {
-                assert_eq!(v[k], i % 2 == 0);
+                assert_eq!(v[k], i.is_multiple_of(2));
             }
         }
         "dict" => {
@@ -137,7 +137,7 @@ fn check_cell(name: &str, b: &ColumnBatch, k: usize, i: usize) {
             assert_eq!(b.bytes_at(k), format!("uniq-{i:09}").as_bytes());
         }
         "sopt" => {
-            if i % 3 == 0 {
+            if i.is_multiple_of(3) {
                 assert!(b.is_null(k));
                 assert_eq!(b.bytes_at(k), b"");
             } else {

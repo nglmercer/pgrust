@@ -293,7 +293,7 @@ pub fn release_idle_stack() -> usize {
         unsafe {
             pagegive::give_back_stack(start, len);
         }
-        return len;
+        len
     }
     #[cfg(target_os = "macos")]
     {

@@ -829,7 +829,7 @@ fn cases() -> Vec<Case> {
     v.push(tc("textcat (tier B by-ref result)", &[TEXTOID, INT4OID], &tt, TEXTOID, |m| opexpr(m, 1258, TEXTOID, 950, &[scan_var(m, 1, TEXTOID), text_const(m, "!")])));
     // D3620 fix 4 (main 09:19:17Z (d)): a 2-argument cell site (texteq) and a 100-argument one (an array of 97: its head,
     // two mask words, the values) in one program: every cell is 100 words wide, and each call reads only its own
-    v.push(tc("texteq then array of 97 (a 2- and a 100-argument site in one program)", &[TEXTOID, INT4OID], &tt, INT4ARRAYOID, |m| mixed_width(m)));
+    v.push(tc("texteq then array of 97 (a 2- and a 100-argument site in one program)", &[TEXTOID, INT4OID], &tt, INT4ARRAYOID, mixed_width));
     let nn: Vec<Vec<Word>> = vec![vec![Some(name_image("pg_catalog").as_u64()), i4(1)], vec![Some(name_image("public").as_u64()), i4(2)], vec![Some(name_image("other").as_u64()), i4(3)], vec![None, i4(4)]];
     v.push(tc("name = any (fixed-length by-ref elements, D419)", &[NAMEOID, INT4OID], &nn, BOOLOID, |m| name_saop(m, true, scan_var(m, 1, NAMEOID), name_array_const(m, &[Some("pg_catalog"), Some("public")]))));
     v.push(tc("name <> all with a null element (D419)", &[NAMEOID, INT4OID], &nn, BOOLOID, |m| {
@@ -1799,7 +1799,7 @@ fn percode_bound_code_sets_x5() {
         ("x IN ($1, lower(..)) is no root", Box::new(|m| saop_by(m, 98, F_TEXTEQ, 950, true, scan_var(m, 1, TEXTOID), text_arr(m, &[param(m, 1, TEXTOID), scan_var(m, 2, TEXTOID)]))), None),
     ];
     for (name, build, known) in cases {
-        let mut compiled = Expr::compile(lists(), build(mcx), &PgCatalog, ParamBind::NONE).unwrap_or_else(|e| panic!("{name}: compile: {e}"));
+        let compiled = Expr::compile(lists(), build(mcx), &PgCatalog, ParamBind::NONE).unwrap_or_else(|e| panic!("{name}: compile: {e}"));
         let plan = compiled.percode(&[CodeCol { attno: 1 }], scratch()).unwrap_or_else(|e| panic!("{name}: percode: {e:?}"));
         match known {
             Some(k) => {
@@ -1839,7 +1839,7 @@ fn percode_bound_like_ps115() {
     ];
     gravity_fn::typesem::collation::arm_database_encoding(6).expect("UTF8");
     for (name, build, known) in &cases {
-        let mut compiled = Expr::compile(lists(), build(mcx), &PgCatalog, ParamBind::NONE).unwrap_or_else(|e| panic!("{name}: compile: {e}"));
+        let compiled = Expr::compile(lists(), build(mcx), &PgCatalog, ParamBind::NONE).unwrap_or_else(|e| panic!("{name}: compile: {e}"));
         let plan = compiled.percode(&[CodeCol { attno: 1 }], scratch()).unwrap_or_else(|e| panic!("{name}: percode: {e:?}"));
         match known {
             Some(k) => {
@@ -1933,7 +1933,7 @@ fn percode_bound_null_reads_null_ps115() {
     let nrows = codes.len();
     let (words, faults) = ([0u64; 1], [u64::MAX; 1]); // the fixture's 8 codes: no data, every fault bit
     for (name, build, reads_null) in &cases {
-        let mut compiled = Expr::compile(lists(), build(mcx), &PgCatalog, ParamBind::NONE).unwrap_or_else(|e| panic!("{name}: compile: {e}"));
+        let compiled = Expr::compile(lists(), build(mcx), &PgCatalog, ParamBind::NONE).unwrap_or_else(|e| panic!("{name}: compile: {e}"));
         let plan = compiled.percode(&[CodeCol { attno: 1 }], scratch()).unwrap_or_else(|e| panic!("{name}: percode: {e:?}"));
         assert_eq!(plan.roots.iter().map(|r| r.form).collect::<Vec<_>>(), vec![Form::Bits], "{name}: roots");
         assert!(plan.needs.iter().all(|n| matches!(n.known, Known::EqBound { .. } | Known::LikeBound { .. })), "{name}: a bound root");
@@ -2680,7 +2680,7 @@ fn rec_run(c: &RecCase, rows: &[RecRow]) -> (Vec<Outcome>, Vec<Outcome>, Vec<Out
     compiled.emit_check().unwrap_or_else(|e| panic!("{}: emit_check: {e:?}", c.name));
     let (ir, f) = rec_build(&compiled, needs.len()).unwrap_or_else(|e| panic!("{}: emit: {e:?}", c.name));
     gravity_ir::verify::verify(&ir).unwrap_or_else(|e| panic!("{}: verify: {e:?}", c.name));
-    let bytes: Vec<u8> = rows.iter().flat_map(|r| rec_bytes(r)).collect();
+    let bytes: Vec<u8> = rows.iter().flat_map(rec_bytes).collect();
     let n = rows.len();
     let run = |code: gravity_program::Code| -> Vec<Outcome> {
         let mut out_val = vec![0u64; n];

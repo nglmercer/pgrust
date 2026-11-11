@@ -731,7 +731,7 @@ impl ParkLot {
         }
         g.wakes = g.wakes.wrapping_add(1);
         // 3-poll starvation cap: every 4th directed wake takes the OLDEST.
-        let p = if g.wakes % 4 == 0 { g.stack.remove(0) } else { g.stack.pop().unwrap() };
+        let p = if g.wakes.is_multiple_of(4) { g.stack.remove(0) } else { g.stack.pop().unwrap() };
         p.woken.store(true, atomic::Ordering::SeqCst);
         p.cv.notify_all();
         self.unparks.fetch_add(1, atomic::Ordering::SeqCst);

@@ -322,14 +322,13 @@ fn RangeVarCallbackForAlterRelation<'mcx>(
                 return wrong_type(format!("\"{}\" is not a composite type", rel.relname));
             }
         }
-        ObjectType::OBJECT_INDEX => {
+        ObjectType::OBJECT_INDEX
             if relkind != types_rel::RELKIND_INDEX
                 && relkind != types_rel::RELKIND_PARTITIONED_INDEX
                 && stmt_kind != AlterRelationStmtKind::Rename
-            {
+            => {
                 return wrong_type(format!("\"{}\" is not an index", rel.relname));
             }
-        }
         _ => {}
     }
     if objtype != ObjectType::OBJECT_TYPE && relkind == types_rel::RELKIND_COMPOSITE_TYPE {
@@ -1904,7 +1903,7 @@ fn ATRewriteCatalogs<'mcx>(
                     }
                     AlterTableType::AT_GenericOptions => {
                         if let Some(options) = cmd.def.and_then(|d| d.as_list()) {
-                            ATExecGenericOptions(mcx, &rel, &options)?;
+                            ATExecGenericOptions(mcx, &rel, options)?;
                             // Cached plans may depend on the old options.
                             inval::invalidate::CacheInvalidateRelcache(&rel)?;
                         }
@@ -1915,7 +1914,7 @@ fn ATRewriteCatalogs<'mcx>(
                                 mcx,
                                 &rel,
                                 cmd.name.expect("AT_AlterColumnGenericOptions column name"),
-                                &options,
+                                options,
                             )?;
                         }
                     }
@@ -2298,7 +2297,7 @@ fn ATRewriteTable<'mcx>(
 ) -> PgResult<()> {
     // tablecmds.c:6371/6540: expressions run in the per-tuple context, reset
     // after every row. Declared before the states so it outlives them.
-    let mut per_tuple = mcx.context().new_child_wholesale("ATRewriteTable per-tuple");
+    let per_tuple = mcx.context().new_child_wholesale("ATRewriteTable per-tuple");
     let oldrel = table::table_open(mcx, tab.relid, NoLock)?;
     let new_tupdesc = &oldrel.rd_att;
     let newrel = if oid_new_heap != InvalidOid {
@@ -3658,7 +3657,7 @@ fn ATPrepDropExpression<'mcx>(
     if !recursing {
         let col_name = cmd.name.expect("AT_DropExpression name");
         let Some((_, attinhcount)) = attname_lookup(mcx, rel.rd_id, col_name, false)? else {
-            return Err(undefined_column(col_name, &rel.name().to_string()));
+            return Err(undefined_column(col_name, rel.name()));
         };
         if attinhcount > 0 {
             return Err(Box::new(
@@ -6038,7 +6037,7 @@ fn ATPrepAlterColumnType<'mcx>(
         };
         let transform = match coerce::coerce_to_target_type(
             mcx,
-            &mut pstate,
+            &pstate,
             pre_transform,
             parse_expr::expr_type(pre_transform),
             targettype,
@@ -6083,7 +6082,7 @@ fn ATPrepAlterColumnType<'mcx>(
                 return Err(Box::new(e));
             }
         };
-        parse_collate::assign_expr_collations(mcx, &mut pstate, transform)?;
+        parse_collate::assign_expr_collations(mcx, &pstate, transform)?;
         // tablecmds.c:14545: expand virtual generated columns in the expr --
         // they have no storage, so a Var over one cannot be evaluated against
         // the old tuple during the rewrite scan.
@@ -6128,7 +6127,7 @@ fn ATPrepAlterColumnType<'mcx>(
             let childrel = relation_seams::relation_open::call(mcx, childrelid, NoLock)?;
             CheckAlterTableIsSafe(&childrel)?;
             let Some((_, childinhcount)) = attname_lookup(mcx, childrelid, col_name, false)? else {
-                return Err(undefined_column(col_name, &childrel.name().to_string()));
+                return Err(undefined_column(col_name, childrel.name()));
             };
             if childinhcount as i32 > numparents {
                 return Err(Box::new(
@@ -6357,10 +6356,10 @@ fn ATExecAlterColumnType<'mcx>(
         let defval = rewrite_handler::build_column_default(mcx, rel, attnum as usize)?
             .expect("atthasdef column has a default");
         let defval = nodes_core::strip_implicit_coercions(defval);
-        let mut pstate = parser_small1::make_parsestate(mcx, None);
+        let pstate = parser_small1::make_parsestate(mcx, None);
         let coerced = coerce::coerce_to_target_type(
             mcx,
-            &mut pstate,
+            &pstate,
             defval,
             parse_expr::expr_type(defval),
             targettype,
@@ -8277,7 +8276,7 @@ pub fn AlterTableMoveAll<'mcx>(
                 continue;
             }
 
-            if !role_oids.is_empty() && !role_oids.iter().any(|&r| r == relowner) {
+            if !role_oids.is_empty() && !role_oids.contains(&relowner) {
                 continue;
             }
 

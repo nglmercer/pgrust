@@ -20,7 +20,7 @@ fn exercise(bytes: usize) {
     assert!(t.iter().all(|&b| b == 0));
     assert!(a.try_alloc(16).is_none(), "exhausted past the capacity");
     a.zero(8, 8);
-    assert_eq!(&arena.bytes(24)[..], &[0xab; 8].iter().chain([0u8; 8].iter()).chain([0xab; 8].iter()).copied().collect::<Vec<_>>()[..]);
+    assert_eq!(arena.bytes(24), &[0xab; 8].iter().chain([0u8; 8].iter()).chain([0xab; 8].iter()).copied().collect::<Vec<_>>()[..]);
     a.reset_to(m0);
     assert_eq!(a.used(), 0);
     let q = a.alloc(24);

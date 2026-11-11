@@ -70,15 +70,14 @@ fn sampled_int_parity_and_exact_params() {
                     (
                         Election::Elected { encoding: e1, width: w1, candidate_bytes: c1, .. },
                         Election::Elected { encoding: e2, width: w2, candidate_bytes: c2, .. },
-                    ) => {
+                    )
                         // Same family ⇒ identical exact parameters (widths
                         // and sizes come from the full winner pass, never
                         // the sample).
-                        if e1 == e2 {
+                        if e1 == e2 => {
                             assert_eq!(w1, w2, "exact width, shape={shape}");
                             assert_eq!(c1, c2, "exact size, shape={shape}");
                         }
-                    }
                     // A family/gate flip near the margin is the D3 regret
                     // class — legal, bounded by the adoption gate.
                     _ => {}

@@ -315,17 +315,14 @@ pub(crate) fn check_same_host_or_net(
             return;
         }
         if method == ipCmpSameHost {
-            match ifaddr::pg_sockaddr_cidr_mask(
+            if let Ok(mask) = ifaddr::pg_sockaddr_cidr_mask(
                 None,
                 match addr {
                     IpAddr::V4(_) => ifaddr::AddressFamily::Inet,
                     IpAddr::V6(_) => ifaddr::AddressFamily::Inet6,
                 },
             ) {
-                Ok(mask) => {
-                    result = check_ip(raddr, &ipaddr_to_sockaddr(&addr), &ipaddr_to_sockaddr(&mask));
-                }
-                Err(_) => {}
+                result = check_ip(raddr, &ipaddr_to_sockaddr(&addr), &ipaddr_to_sockaddr(&mask));
             }
         } else {
             result = check_ip(

@@ -408,9 +408,7 @@ fn body(g: &mut Gen, shape: &str) -> Vec<StmtKind> {
             let k = 1 + g.rng.below(3);
             vec![
                 raw("CREATE TABLE ei_ar (a int, arr int[], m int[][]);"),
-                raw(format!(
-                    "INSERT INTO ei_ar VALUES (1, ARRAY[10, 20, 30, 40], ARRAY[[1, 2], [3, 4]]), (2, NULL, NULL);"
-                )),
+                raw("INSERT INTO ei_ar VALUES (1, ARRAY[10, 20, 30, 40], ARRAY[[1, 2], [3, 4]]), (2, NULL, NULL);".to_string()),
                 raw(format!(
                     "SELECT r.arr[{k}], r.arr[r.a], r.arr[NULL::int], r.arr[2:3], r.arr[:2], r.arr[3:], r.m[2][1], r.m[1:2][2:2], r.arr[r.a:NULL] FROM ei_ar r ORDER BY r.a;"
                 )),
@@ -455,9 +453,7 @@ fn body(g: &mut Gen, shape: &str) -> Vec<StmtKind> {
                     "SELECT (v.t)::inet, (v.t)::cidr IS NOT NULL, (v.n::text)::money::text <> '', (v.n::text)::oid, (v.t2)::interval::text FROM (VALUES ('192.168.{}.1', {k}, 'PT1H2M'), ('10.0.0.0', 0, 'P1D')) v(t, n, t2);",
                     k % 250
                 )),
-                raw(format!(
-                    "SELECT JSON_VALUE(('{{\"d\": \"2024-0' || v.m || '-03\"}}')::jsonb, '$.d' RETURNING date NULL ON ERROR), JSON_VALUE(('{{\"d\": \"not-a-date\"}}')::jsonb, '$.d' RETURNING date DEFAULT '1999-12-31'::date ON ERROR) FROM (VALUES (1), (2)) v(m);"
-                )),
+                raw("SELECT JSON_VALUE(('{\"d\": \"2024-0' || v.m || '-03\"}')::jsonb, '$.d' RETURNING date NULL ON ERROR), JSON_VALUE(('{\"d\": \"not-a-date\"}')::jsonb, '$.d' RETURNING date DEFAULT '1999-12-31'::date ON ERROR) FROM (VALUES (1), (2)) v(m);".to_string()),
                 // EEOP_IOCOERCE_SAFE: the ON ERROR / ON EMPTY default
                 // expression is coerced to the RETURNING type through the
                 // type IO routines under the soft-error context. A constant
@@ -465,13 +461,9 @@ fn body(g: &mut Gen, shape: &str) -> Vec<StmtKind> {
                 // stable current_setting() arm below is what actually keeps
                 // a CoerceViaIO under the escontext.
                 raw("SET ei.defip = '10.9.8.7';"),
-                raw(format!(
-                    "SELECT JSON_VALUE(('{{\"k\": \"nope' || v.m || '\"}}')::jsonb, '$.k' RETURNING inet DEFAULT current_setting('ei.defip') ON ERROR) FROM (VALUES (1), (2)) v(m);"
-                )),
+                raw("SELECT JSON_VALUE(('{\"k\": \"nope' || v.m || '\"}')::jsonb, '$.k' RETURNING inet DEFAULT current_setting('ei.defip') ON ERROR) FROM (VALUES (1), (2)) v(m);".to_string()),
                 raw("RESET ei.defip;"),
-                raw(format!(
-                    "SELECT JSON_VALUE(('{{\"k\": \"zz' || v.m || '\"}}')::jsonb, '$.k' RETURNING inet DEFAULT '10.1.2.3' ON ERROR), JSON_VALUE(('{{}}')::jsonb, '$.k' RETURNING interval DEFAULT 'PT2H' ON EMPTY NULL ON ERROR), JSON_QUERY(('{{\"k\": \"q\"}}')::jsonb, '$.k' RETURNING text OMIT QUOTES DEFAULT 'dq' ON ERROR) FROM (VALUES (1), (2)) v(m);"
-                )),
+                raw("SELECT JSON_VALUE(('{\"k\": \"zz' || v.m || '\"}')::jsonb, '$.k' RETURNING inet DEFAULT '10.1.2.3' ON ERROR), JSON_VALUE(('{}')::jsonb, '$.k' RETURNING interval DEFAULT 'PT2H' ON EMPTY NULL ON ERROR), JSON_QUERY(('{\"k\": \"q\"}')::jsonb, '$.k' RETURNING text OMIT QUOTES DEFAULT 'dq' ON ERROR) FROM (VALUES (1), (2)) v(m);".to_string()),
                 raw("CREATE TABLE ei_par (a int, b text);"),
                 raw("CREATE TABLE ei_chi (dropme int, extra int) INHERITS (ei_par);"),
                 raw("ALTER TABLE ei_chi DROP COLUMN dropme;"),
@@ -659,7 +651,7 @@ fn body(g: &mut Gen, shape: &str) -> Vec<StmtKind> {
             vec![
                 raw("CREATE TABLE ei_mt (a int PRIMARY KEY, b int);"),
                 raw("CREATE TABLE ei_ms (a int, b int);"),
-                raw(format!("INSERT INTO ei_mt SELECT g, g FROM generate_series(1, 6) g;")),
+                raw("INSERT INTO ei_mt SELECT g, g FROM generate_series(1, 6) g;".to_string()),
                 raw(format!(
                     "INSERT INTO ei_ms SELECT g, g * {k} FROM generate_series(4, 9) g;"
                 )),
@@ -815,7 +807,7 @@ fn body(g: &mut Gen, shape: &str) -> Vec<StmtKind> {
                 raw("CREATE TABLE ei_ph1 PARTITION OF ei_ph FOR VALUES WITH (MODULUS 2, REMAINDER 1);"),
                 raw("INSERT INTO ei_pr SELECT g, g % 8, 'p' || g FROM generate_series(1, 30) g;"),
                 raw("INSERT INTO ei_ph SELECT g, 'h' || g FROM generate_series(1, 20) g;"),
-                raw(format!("PREPARE ei_ps1 (int) AS SELECT count(*) FROM ei_pr WHERE a < $1;")),
+                raw("PREPARE ei_ps1 (int) AS SELECT count(*) FROM ei_pr WHERE a < $1;".to_string()),
                 raw(format!("EXECUTE ei_ps1({});", 5 + k)),
                 raw("EXECUTE ei_ps1(15);"),
                 raw("EXECUTE ei_ps1(25);"),
@@ -890,7 +882,7 @@ fn body(g: &mut Gen, shape: &str) -> Vec<StmtKind> {
                 raw("CREATE FUNCTION ei_pu(x int) RETURNS int LANGUAGE sql VOLATILE PARALLEL UNSAFE AS 'SELECT x + 0';"),
                 raw("CREATE TABLE ei_hz (a int, b text, jb jsonb);"),
                 raw(format!("INSERT INTO ei_hz SELECT g, 'b' || g, jsonb_build_object('n', g) FROM generate_series(1, {}) g;", 6 + k)),
-                raw(format!("SELECT percentile_disc(0.5 * ei_pu(1)) WITHIN GROUP (ORDER BY a) FROM ei_hz;")),
+                raw("SELECT percentile_disc(0.5 * ei_pu(1)) WITHIN GROUP (ORDER BY a) FROM ei_hz;".to_string()),
                 raw(format!("SELECT count(a + ei_pu(0)) FILTER (WHERE a > ei_pu({k})) FROM ei_hz;")),
                 raw(format!("SELECT count(*) FILTER (WHERE a > ei_pu({k})) OVER (ORDER BY a) FROM ei_hz;")),
                 raw(format!("SELECT sum(a) OVER (ORDER BY a ROWS BETWEEN ei_pu({k}) PRECEDING AND CURRENT ROW) FROM ei_hz;")),
@@ -1201,7 +1193,7 @@ mod tests {
                 ] {
                     if let Some(rest) = sql.strip_prefix(pat) {
                         let name = rest
-                            .split(|c: char| c == ' ' || c == '(')
+                            .split([' ', '('])
                             .next()
                             .unwrap()
                             .to_string();
@@ -1225,7 +1217,7 @@ mod tests {
                     .or_else(|| sql.strip_prefix("DROP FUNCTION "))
                 {
                     let name = rest
-                        .split(|c: char| c == ';' || c == ' ' || c == '(')
+                        .split([';', ' ', '('])
                         .next()
                         .unwrap()
                         .to_string();

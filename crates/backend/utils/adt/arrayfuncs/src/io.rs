@@ -512,7 +512,7 @@ fn read_array_str<'mcx>(
                     // typdelim byte (DELIMITER is not restricted to ASCII).
                     let mut detail = Vec::new();
                     detail.extend_from_slice(b"Unexpected \"");
-                    detail.push(meta.typdelim as u8);
+                    detail.push(meta.typdelim);
                     detail.extend_from_slice(b"\" character.");
                     return soft(escontext, malformed(orig, "").with_detail_raw(detail));
                 }
@@ -1003,7 +1003,7 @@ pub fn array_send<'mcx>(
     let mut buf = ::pqformat::pq_begintypsend(mcx)?;
     ::pqformat::pq_sendint32(&mut buf, ndim as u32)?;
     ::pqformat::pq_sendint32(&mut buf, if hasnull { 1 } else { 0 })?;
-    ::pqformat::pq_sendint32(&mut buf, meta.element_type as u32)?;
+    ::pqformat::pq_sendint32(&mut buf, meta.element_type)?;
     for i in 0..ndim as usize {
         ::pqformat::pq_sendint32(&mut buf, dims[i] as u32)?;
         ::pqformat::pq_sendint32(&mut buf, lb[i] as u32)?;

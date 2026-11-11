@@ -454,7 +454,7 @@ fn install_type_fixture() {
                     proisstrict: false,
                     proleakproof: false,
                 }),
-                3100 | 3101 | 3102 => Some(syscache_seams::PgProcShape {
+                3100..=3102 => Some(syscache_seams::PgProcShape {
                     prolang: 12,
                     prosecdef: false,
                     proconfig_isnull: true,

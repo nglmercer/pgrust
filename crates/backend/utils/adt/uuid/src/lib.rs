@@ -138,7 +138,7 @@ pub fn uuidv7_interval(shift: &adt_datetime::Interval) -> PgResult<PgUuid> {
     // Reject timestamps outside the range representable by UUID version 7's
     // 48-bit millisecond field. Compared in PostgreSQL-epoch units so that
     // the conversion back to Unix-epoch microseconds cannot overflow.
-    if ts < UUIDV7_MIN_TIMESTAMP || ts > UUIDV7_MAX_TIMESTAMP {
+    if !(UUIDV7_MIN_TIMESTAMP..=UUIDV7_MAX_TIMESTAMP).contains(&ts) {
         return Err(uuidv7_timestamp_out_of_range_err().into());
     }
 

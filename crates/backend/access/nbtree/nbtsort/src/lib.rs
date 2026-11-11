@@ -416,7 +416,7 @@ unsafe fn sort_dedup_finish_pending<'mcx>(
 
 // BTGetTargetPageFreeSpace
 fn bt_get_target_page_free_space(index: &Relation<'_>) -> usize {
-    BLCKSZ * (100 - index.get_fillfactor(BTREE_DEFAULT_FILLFACTOR as i32) as usize) / 100
+    BLCKSZ * (100 - index.get_fillfactor(BTREE_DEFAULT_FILLFACTOR) as usize) / 100
 }
 
 fn slideleft(page: &mut PageMut<'_>) {

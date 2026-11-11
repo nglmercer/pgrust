@@ -286,10 +286,10 @@ pub const fn code_table(enables: u64) -> Option<usize> {
 // bits 32..48 are no other enables bit's (the flags are below 2^16, `const_key_arg`'s lane from bit 48), and a table
 // index round-trips beside a constant key
 const _: () = assert!(
-    code_sparse_table_arg(0xffff) & (const_key_arg(0xffff) | (VERDICT_COUNT_SELECT << 1) - 1) == VERDICT_CODE_SPARSE | VERDICT_CODE_SPARSE_TABLE
+    code_sparse_table_arg(0xffff) & (const_key_arg(0xffff) | ((VERDICT_COUNT_SELECT << 1) - 1)) == VERDICT_CODE_SPARSE | VERDICT_CODE_SPARSE_TABLE
         && matches!(code_sparse_table(code_sparse_table_arg(513) | const_key_arg(7)), Some(513))
         && code_sparse_table(VERDICT_CODE_SPARSE).is_none()
-        && code_table_arg(0xffff) & (const_key_arg(0xffff) | (VERDICT_COUNT_SELECT << 1) - 1) == VERDICT_CODE_TABLE
+        && code_table_arg(0xffff) & (const_key_arg(0xffff) | ((VERDICT_COUNT_SELECT << 1) - 1)) == VERDICT_CODE_TABLE
         && matches!(code_table(code_table_arg(513) | code_sparse_table_arg(513) | const_key_arg(7)), Some(513))
         && code_table(code_sparse_table_arg(9)).is_none()
 );

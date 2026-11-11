@@ -412,7 +412,7 @@ fn mix(h: u64) -> u64 {
     h ^ (h >> 31)
 }
 
-fn chunks<'a>(v: &'a [i32], w: usize) -> impl Iterator<Item = &'a [i32]> {
+fn chunks(v: &[i32], w: usize) -> impl Iterator<Item = &[i32]> {
     v.chunks(v.len().div_ceil(w).max(1))
 }
 

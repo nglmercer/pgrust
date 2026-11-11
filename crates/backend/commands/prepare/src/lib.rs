@@ -355,7 +355,7 @@ fn EvaluateParams<'mcx>(
 
     let mut out: mcx::PgVec<'mcx, types_portal::params::ParamExternData> =
         mcx::vec_with_capacity_in(mcx, num_params)?;
-    for (i, (&coerced, state)) in coerced_exprs.iter().zip(states.into_iter()).enumerate() {
+    for (i, (&coerced, state)) in coerced_exprs.iter().zip(states).enumerate() {
         let expected_type_id = param_types[i];
         let evaluated = execexpr::evaluate_prepared_expr(
             mcx,

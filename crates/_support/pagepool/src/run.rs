@@ -48,7 +48,7 @@ const GRAIN: usize = 1 << GRAIN_SHIFT;
 /// Whether bucket `b` is taken with the switch as it is.
 #[inline]
 pub(crate) fn selectable(b: u8) -> bool {
-    (b % 2 == 0 || fine_on()) && natural_align(b) >= GRAIN
+    (b.is_multiple_of(2) || fine_on()) && natural_align(b) >= GRAIN
 }
 /// The runs road's longest take; past it, spans.
 pub(crate) const MAX_RUNS: u32 = 31;
@@ -521,7 +521,7 @@ mod tests {
         assert_eq!(bucket_of(131073, 16), None);
         assert_eq!(bucket_of(4096, 1 << 18), None);
         for b in 0..NB as u8 {
-            assert!(natural_align(b) >= 256 && bucket_bytes(b) % natural_align(b) == 0);
+            assert!(natural_align(b) >= 256 && bucket_bytes(b).is_multiple_of(natural_align(b)));
             assert!(carve_align(b) as usize * RUN >= natural_align(b).min(RUN));
             assert_eq!(selectable(b), b % 2 == 0, "off: the old sizes only");
             // the old sizes are all whole grains: the grain floor changes no route with the switch off

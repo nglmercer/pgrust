@@ -451,7 +451,8 @@ fn resolve_type_oid<'mcx>(
             tn.names.iter().map(|n| n.as_string().expect("TypeName names").sval).collect();
         let (schemaname, typname) = catalog_namespace::DeconstructQualifiedName(&names)?;
 
-        let typoid = match schemaname {
+        
+        match schemaname {
             Some(schemaname) => {
                 // pcb_error_callback (parse_node.c:170) spans both lookups.
                 let at_tn = |e: Box<PgError>| match pstate {
@@ -470,8 +471,7 @@ fn resolve_type_oid<'mcx>(
                     .map_err(at_tn)?
             }
             None => catalog_namespace::TypenameGetTypidExtended(typname, true)?,
-        };
-        typoid
+        }
     };
     let typoid = if typoid != InvalidOid && !tn.arrayBounds.is_nil() {
         lsyscache::get_array_type(typoid)?

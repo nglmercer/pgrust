@@ -190,7 +190,7 @@ unsafe extern "C" fn h_spill(ctx: *mut Ctx, op: u32, arg: u64) -> i64 {
         SPILL_RUN_CLOSE => 0,
         // NEW-43: the one run stream's runs dropped (`SortStreamRearm`)
         gravity_abi::program::SPILL_RUN_DROP => {
-            (h.runs.clear(), h.run_read.clear(), h.run_rows.clear());
+            h.runs.clear(); h.run_read.clear(); h.run_rows.clear();
             0
         }
         // one run stream: an adoption moves nothing
@@ -1410,7 +1410,7 @@ unsafe fn publish_page(site: &mut FakeSite, s: &mut Site, atts: &[(i16, u8, i16)
         *offs.add(r) = r as u16 + 1;
     }
     s.page = page as *const u8;
-    s.page_flags = (nonulls as u16) * site::PAGE_NONULLS | (full as u16) * site::PAGE_FULL;
+    s.page_flags = ((nonulls as u16) * site::PAGE_NONULLS) | ((full as u16) * site::PAGE_FULL);
     if full {
         // as the heap host publishes a raw page (`fill_raw`): a by-reference lane is left unfilled — the program reads a fast page's
         // columns from its tuples; a read of the lane instead finds every datum a numeric 0 (`POISON`), never the row's value

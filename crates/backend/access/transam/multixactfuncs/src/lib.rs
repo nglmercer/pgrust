@@ -87,7 +87,7 @@ fn member_tuple(
     }
     let (values, isnull) = attinmeta.build(mcx, &cstrings)?;
     let tuple = heaptuple::heap_form_tuple(mcx, &desc, &values, &isnull)?;
-    byref_result(mcx, &tuple.image())
+    byref_result(mcx, tuple.image())
 }
 
 pub fn fc_pg_get_multixact_members(

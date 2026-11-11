@@ -1474,7 +1474,7 @@ impl ParEngine {
         base_seq: u32,
     ) -> WriteResult<ParEngine> {
         let opts = opts.resolved(&policy);
-        if opts.chunk_rows == 0 || opts.chunk_rows % 64 != 0 {
+        if opts.chunk_rows == 0 || !opts.chunk_rows.is_multiple_of(64) {
             return Err(WriteError::Contract {
                 detail: "chunk_rows must be a positive multiple of 64",
             });

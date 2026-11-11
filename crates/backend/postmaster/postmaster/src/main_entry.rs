@@ -126,8 +126,8 @@ pub(crate) fn getopt_tokens_partial(
             }
             return (tokens, Some(GetoptError::NonOption(arg.clone())));
         };
-        let mut chars = rest.char_indices();
-        while let Some((i, opt)) = chars.next() {
+        let chars = rest.char_indices();
+        for (i, opt) in chars {
             let tail = &rest[i + opt.len_utf8()..];
             match takes_arg(opt) {
                 None => return (tokens, Some(GetoptError::UnknownOption(opt))),
@@ -1017,7 +1017,7 @@ fn CreateOptsFile(argv: &[String]) -> bool {
             .collect::<Vec<u8>>(),
     )
     .into_owned();
-    let mut line = format!("{fullprogname}");
+    let mut line = fullprogname.to_string();
     for arg in argv.iter().skip(1) {
         line.push_str(" \"");
         line.push_str(arg);

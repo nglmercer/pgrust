@@ -522,8 +522,8 @@ fn XactLockForVirtualXact(
             more = false;
         }
 
-        if xid == InvalidTransactionId {
-            if twophase_seams::two_phase_get_xid_by_virtual_xid::is_installed() {
+        if xid == InvalidTransactionId
+            && twophase_seams::two_phase_get_xid_by_virtual_xid::is_installed() {
                 let (found, have_more) = twophase_seams::two_phase_get_xid_by_virtual_xid::call(
                     vxid.procNumber,
                     vxid.localTransactionId,
@@ -531,7 +531,6 @@ fn XactLockForVirtualXact(
                 xid = found;
                 more = have_more;
             }
-        }
         if xid == InvalidTransactionId {
             debug_assert!(!more);
             return Ok(true);

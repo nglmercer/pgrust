@@ -887,7 +887,7 @@ fn plan_with(
     }
 
     // 5. the root: unchanged when the run set is; else carried by the last run written (a zero-part carrier if none)
-    let carried_refs: BTreeSet<(u64, u32)> = slots.iter().filter_map(|s| matches!(s, Slot::Carried(_)).then(|| s.run().rref.key())).collect();
+    let carried_refs: BTreeSet<(u64, u32)> = slots.iter().filter(|&s| matches!(s, Slot::Carried(_))).map(|s| s.run().rref.key()).collect();
     let base_refs: BTreeSet<(u64, u32)> = base.runs.iter().map(|r| r.rref.key()).collect();
     let fresh = slots.iter().filter(|s| matches!(s, Slot::Fresh(_))).count();
     let mut plan = StatsPlan::default();

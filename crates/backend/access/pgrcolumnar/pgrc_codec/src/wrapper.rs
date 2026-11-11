@@ -661,7 +661,7 @@ fn unwrap_section_with(section: &[u8], index: Option<&[u8]>, scratch: &mut Vec<u
         });
     }
     let first = u32::from_le_bytes(wrapped_payload[..4].try_into().expect("len 4")) as usize;
-    if first < 4 || first % 4 != 0 || first > wrapped_payload.len() {
+    if first < 4 || !first.is_multiple_of(4) || first > wrapped_payload.len() {
         return Err(FormatError::Corrupt {
             at: "wrapper block table",
         });
@@ -891,7 +891,7 @@ pub fn unwrap_dict_payload_fc_section_until(section: &[u8], index: &[u8], scratc
     }
     let wrapped = &section[STREAM_SECTION_HDR_LEN..payload_end];
     let first = u32::from_le_bytes(wrapped[..4].try_into().expect("len 4")) as usize;
-    if first < 4 || first % 4 != 0 || first > wrapped.len() {
+    if first < 4 || !first.is_multiple_of(4) || first > wrapped.len() {
         return Err(FormatError::Corrupt { at: "wrapper block table" });
     }
     let nblocks = first / 4 - 1;

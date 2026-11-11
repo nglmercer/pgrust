@@ -379,7 +379,7 @@ fn partitioned_freelists_spread_lock_and_borrow() {
         let mut hit_nonzero_freelist = false;
         for i in 0u32..24 {
             let hv = get_hash_value(table, i.to_ne_bytes().as_ptr());
-            hit_nonzero_freelist |= (hv as usize) % NUM_FREELISTS != 0;
+            hit_nonzero_freelist |= !(hv as usize).is_multiple_of(NUM_FREELISTS);
             let (p, found) =
                 search_hv(table, i.to_ne_bytes().as_ptr(), hv, HASH_ENTER)
                     .unwrap();
@@ -603,8 +603,7 @@ fn shared_without_alloc_or_fixed_size_is_a_typed_refusal() {
     install_test_seams();
     let ctl = ctl(4, 8);
     let e = hash_create("shgrow_noalloc", 8, &ctl, HASH_ELEM | HASH_BLOBS | HASH_SHARED_MEM)
-        .err()
-        .expect("HASH_SHARED_MEM without HASH_ALLOC or HASH_FIXED_SIZE must be a typed refusal");
+        .expect_err("HASH_SHARED_MEM without HASH_ALLOC or HASH_FIXED_SIZE must be a typed refusal");
     assert_eq!(e.level(), ERROR);
     assert_eq!(e.sqlstate(), ERRCODE_FEATURE_NOT_SUPPORTED);
     assert_eq!(
@@ -626,8 +625,7 @@ fn attach_is_a_typed_refusal() {
         &ctl,
         HASH_ELEM | HASH_BLOBS | HASH_SHARED_MEM | HASH_FIXED_SIZE | HASH_ATTACH,
     )
-    .err()
-    .expect("HASH_ATTACH must be a typed refusal");
+    .expect_err("HASH_ATTACH must be a typed refusal");
     assert_eq!(e.level(), ERROR);
     assert_eq!(e.sqlstate(), ERRCODE_FEATURE_NOT_SUPPORTED);
     assert_eq!(e.message(), "attaching to hash table \"shattach\" is not supported");
@@ -645,7 +643,7 @@ unsafe fn corrupt_segment_zero_and_probe(table: *mut HTAB) -> Box<PgError> {
     let key = 7u32.to_ne_bytes();
     let r = search(table, key.as_ptr(), HASH_FIND);
     *slot = saved;
-    r.err().expect("lookup through a NULL directory segment must be an error")
+    r.expect_err("lookup through a NULL directory segment must be an error")
 }
 
 #[test]

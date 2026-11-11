@@ -198,8 +198,8 @@ pub fn get_useful_group_keys_orderings<'mcx>(
     let mcx = run.mcx;
     let mut infos: PgVec<'mcx, GroupByOrdering<'mcx>> = PgVec::new_in(mcx);
     infos.push(GroupByOrdering {
-        pathkeys: crate::relnode::pgvec_clone_shallow(mcx, &run.root.group_pathkeys),
-        clauses: crate::relnode::pgvec_clone_shallow(mcx, &run.root.processed_groupClause),
+        pathkeys: crate::relnode::pgvec_clone_shallow(mcx, run.root.group_pathkeys),
+        clauses: crate::relnode::pgvec_clone_shallow(mcx, run.root.processed_groupClause),
     });
     if !crate::gucs::enable_group_by_reordering() {
         return infos;
@@ -208,16 +208,16 @@ pub fn get_useful_group_keys_orderings<'mcx>(
     if !run.parse().groupingSets.is_nil() {
         return infos;
     }
-    if !path_pathkeys.is_empty() && !pathkeys_contained_in(path_pathkeys, &run.root.group_pathkeys)
+    if !path_pathkeys.is_empty() && !pathkeys_contained_in(path_pathkeys, run.root.group_pathkeys)
     {
-        let mut pathkeys = crate::relnode::pgvec_clone_shallow(mcx, &run.root.group_pathkeys);
-        let mut clauses = crate::relnode::pgvec_clone_shallow(mcx, &run.root.processed_groupClause);
+        let mut pathkeys = crate::relnode::pgvec_clone_shallow(mcx, run.root.group_pathkeys);
+        let mut clauses = crate::relnode::pgvec_clone_shallow(mcx, run.root.processed_groupClause);
         let num = run.root.num_groupby_pathkeys as usize;
         let n =
             group_keys_reorder_by_pathkeys(run, path_pathkeys, &mut pathkeys, &mut clauses, num);
         if n > 0
             && (crate::gucs::enable_incremental_sort() || n == num)
-            && compare_pathkeys(&pathkeys, &run.root.group_pathkeys) != PathKeysComparison::Equal
+            && compare_pathkeys(&pathkeys, run.root.group_pathkeys) != PathKeysComparison::Equal
         {
             infos.push(GroupByOrdering { pathkeys, clauses });
         }
@@ -1121,7 +1121,7 @@ fn right_merge_direction(run: &PlannerRun<'_>, pathkey: &PathKey) -> bool {
 }
 
 fn pathkeys_useful_for_ordering(run: &PlannerRun<'_>, pathkeys: &[PathKey]) -> usize {
-    pathkeys_count_contained_in(&run.root.query_pathkeys, pathkeys).1
+    pathkeys_count_contained_in(run.root.query_pathkeys, pathkeys).1
 }
 
 fn pathkeys_useful_for_grouping(run: &PlannerRun<'_>, pathkeys: &[PathKey]) -> usize {
@@ -1153,7 +1153,7 @@ fn pathkeys_useful_for_distinct(run: &PlannerRun<'_>, pathkeys: &[PathKey]) -> u
 }
 
 fn pathkeys_useful_for_setop(run: &PlannerRun<'_>, pathkeys: &[PathKey]) -> usize {
-    pathkeys_count_contained_in(&run.root.setop_pathkeys, pathkeys).1
+    pathkeys_count_contained_in(run.root.setop_pathkeys, pathkeys).1
 }
 
 // get_cheapest_path_for_pathkeys (pathkeys.c); partial paths never reach

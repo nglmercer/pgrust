@@ -402,13 +402,13 @@ struct SqlFcacheGuard(McxOwned<SqlFcacheTy>);
 
 impl Drop for SqlFcacheGuard {
     fn drop(&mut self) {
-        self.0.with_mut(|s| release_execution_state(s));
+        self.0.with_mut(release_execution_state);
     }
 }
 
 pub fn shutdown_sql_srf(flinfo: &mut FmgrInfo) -> PgResult<()> {
     match flinfo.fn_extra_mut::<SqlFcacheGuard>() {
-        Some(guard) => guard.0.with_mut(|s| shutdown_sql_function(s)),
+        Some(guard) => guard.0.with_mut(shutdown_sql_function),
         None => Ok(()),
     }
 }
@@ -417,7 +417,7 @@ pub fn shutdown_sql_srf(flinfo: &mut FmgrInfo) -> PgResult<()> {
 // lazy-eval execution. Drop stays the abort path (release_query_desc).
 fn shutdown_sql_function(s: &mut SqlFcacheState<'_>) -> PgResult<()> {
     let readonly =
-        s.entry.as_ref().map_or(true, |e| e.owned.with(|es| es.readonly_func));
+        s.entry.as_ref().is_none_or(|e| e.owned.with(|es| es.readonly_func));
     for i in 0..s.eslist.len() {
         if s.eslist[i].status != ExecStatus::Run {
             continue;

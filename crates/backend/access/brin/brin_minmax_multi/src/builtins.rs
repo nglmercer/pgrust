@@ -24,7 +24,7 @@ unsafe fn arg_fixed<const N: usize>(fcinfo: &Fcinfo, i: usize) -> [u8; N] {
 // PG_GETARG_*_PP payload: compressed/short forms detoast into the armed
 // result mcx (stored BRIN bounds keep the heap value's form verbatim).
 // SAFETY: arg i is a live varlena image.
-unsafe fn arg_varlena_payload<'a>(fcinfo: &'a Fcinfo, i: usize) -> PgResult<&'a [u8]> {
+unsafe fn arg_varlena_payload(fcinfo: &Fcinfo, i: usize) -> PgResult<&[u8]> {
     Ok(fcinfo.arg_varlena_packed(i)?.data())
 }
 
@@ -85,7 +85,7 @@ fn fc_dist_tid(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum
 // C's PG_GETARG_NUMERIC: a 1B-short image (stored BRIN bounds keep the heap
 // value's packed form, so digits land misaligned) expands into the result mcx.
 // SAFETY: arg i is a live inline numeric varlena image.
-unsafe fn arg_numeric_payload<'a>(fcinfo: &'a Fcinfo, i: usize) -> PgResult<&'a [u8]> {
+unsafe fn arg_numeric_payload(fcinfo: &Fcinfo, i: usize) -> PgResult<&[u8]> {
     // SAFETY: forwarded caller contract.
     let v = unsafe { fcinfo.arg_varlena_packed(i)? };
     if v.is_short() {
@@ -268,7 +268,7 @@ fn fc_summary_out(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Da
         let d = ::fmgr::function_call1_coll_in(out_fn, ::types_core::InvalidOid, mcx, val)?;
         // SAFETY: output functions return NUL-terminated cstrings.
         let cs = unsafe { core::ffi::CStr::from_ptr(d.as_usize() as *const core::ffi::c_char) };
-        Ok(::mcx::std_vec_from_slice("brin", &cs.to_bytes())?)
+        ::mcx::std_vec_from_slice("brin", cs.to_bytes())
     };
     let text_elem = |txt: &[u8]| -> PgResult<Vec<u8>> {
         let mut img = ::mcx::std_vec_with_capacity("brin", txt.len() + 4)?;
@@ -284,7 +284,7 @@ fn fc_summary_out(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Da
         let d = ::fmgr::function_call1_coll_in(&mut arr_out, ::types_core::InvalidOid, mcx, val)?;
         // SAFETY: array_out returns a NUL-terminated cstring.
         let cs = unsafe { core::ffi::CStr::from_ptr(d.as_usize() as *const core::ffi::c_char) };
-        let s = ::mcx::std_vec_from_slice("access", &cs.to_bytes())?;
+        let s = ::mcx::std_vec_from_slice("access", cs.to_bytes())?;
         core::mem::forget(img); // keep the mcx image alive for the call above
         Ok(s)
     };

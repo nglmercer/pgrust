@@ -39,7 +39,7 @@ pub extern "C-unwind" fn jsonb_object_field_text(e: *mut ErrSlot, r: *mut Region
         }
         let jb = match varlena::open_image(mcx, image) {
             Ok(v) => v,
-            Err(err) => return fail(e, err.into()),
+            Err(err) => return fail(e, err),
         };
         field_text(e, r, mcx, jb.as_bytes(), a1)
     })
@@ -49,6 +49,6 @@ fn field_text(e: *mut ErrSlot, r: *mut Region, mcx: mcx::Mcx<'_>, payload: &[u8]
     match adt_jsonb::getfield::object_field_text(mcx, payload, a1.bytes()) {
         Ok(Some(v)) => region_datum(r, fmgr::varlena_result(v).as_usize() as *const u8, -1),
         Ok(None) => null_ret(),
-        Err(err) => fail(e, err.into()),
+        Err(err) => fail(e, err),
     }
 }

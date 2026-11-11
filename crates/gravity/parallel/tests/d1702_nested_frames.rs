@@ -174,7 +174,7 @@ fn run(pull: bool) -> Result<Vec<Vec<u64>>> {
     let mut sink = LegSink::new(true);
     let plan = Nf { inner: FixturePlan::new(&program, &derive, 1, 3), pull, frame: Cell::new(None) };
     PLAN.store(&plan as *const Nf as *mut Nf, Relaxed);
-    (LANDED.store(0, Relaxed), EMIT_SAW.store(-1, Relaxed), PULL.store(pull as u64, Relaxed));
+    LANDED.store(0, Relaxed); EMIT_SAW.store(-1, Relaxed); PULL.store(pull as u64, Relaxed);
     ERR.lock().unwrap().clear();
     let r = run_planned(&mut entry, &program, &mut derive, &pool, &plan, gravity_driver::Grant::of(16 << 20), &[1_000_000], &NO_ABORT, &mut sink);
     PLAN.store(core::ptr::null_mut(), Relaxed);

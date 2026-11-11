@@ -1065,7 +1065,7 @@ mod tests {
         install_stop_probe();
         let (p, fs) = program2(9);
         *STOP.lock().unwrap() = Some(std::thread::current().id());
-        let e = crate::mapped_cached_all(&p, &fs).err().expect("the stop point stops the compile");
+        let e = crate::mapped_cached_all(&p, &fs).expect_err("the stop point stops the compile");
         *STOP.lock().unwrap() = None;
         assert_eq!(e.message(), INTERRUPTED);
         assert_eq!(stats().entries, 0, "nothing filed");

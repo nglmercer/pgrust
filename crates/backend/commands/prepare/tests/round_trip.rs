@@ -89,10 +89,10 @@ fn select_query(mcx: mcx::Mcx<'_>) -> Query<'_> {
     }
 }
 
-fn stub_planner<'a, 'mcx>(
+fn stub_planner<'mcx>(
     mcx: mcx::Mcx<'mcx>,
     parse: &'mcx mut Query<'mcx>,
-    _query_string: &'a str,
+    _query_string: &str,
     _cursor_options: i32,
     _bound_params: ParamListHandle,
 ) -> PgResult<PlannedStmt<'mcx>> {

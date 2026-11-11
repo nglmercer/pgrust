@@ -338,7 +338,7 @@ mod tests {
             while src.len() < len {
                 let r = next();
                 match r % 4 {
-                    0 => src.extend(std::iter::repeat((r >> 8) as u8).take((r >> 16) as usize % 300 + 1)),
+                    0 => src.extend(std::iter::repeat_n((r >> 8) as u8, (r >> 16) as usize % 300 + 1)),
                     1 => src.extend((0..(r >> 16) as usize % 50 + 1).map(|i| b'a' + ((r >> 8) as u8).wrapping_add(i as u8) % 7)),
                     _ => src.extend_from_slice(&r.to_le_bytes()),
                 }

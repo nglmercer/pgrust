@@ -16,7 +16,7 @@ fn a_recursive_union_lifted_from_its_cte_decomposes_to_the_iteration_desc() {
     let mut found = 0;
     for e in fs::read_dir(&dir).unwrap() {
         let p = e.unwrap().path();
-        if !p.extension().is_some_and(|x| x == "plan") {
+        if p.extension().is_none_or(|x| x != "plan") {
             continue;
         }
         let text = fs::read_to_string(&p).unwrap();

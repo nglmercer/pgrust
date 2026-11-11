@@ -590,7 +590,7 @@ pub fn build_missing<'mcx>(
             MissingValue::ByRef(b) => {
                 let mut image = vec_with_capacity_in(mcx, b.len())?;
                 ::mcx::vec_append_bytes(&mut image, b)?;
-                debug_assert!(image.as_ptr() as usize % MAXIMUM_ALIGNOF == 0);
+                debug_assert!((image.as_ptr() as usize).is_multiple_of(MAXIMUM_ALIGNOF));
                 let datum = Datum::from_usize(image.as_ptr() as usize);
                 store.push(image);
                 datum

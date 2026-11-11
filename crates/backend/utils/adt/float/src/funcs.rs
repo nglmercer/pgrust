@@ -419,7 +419,7 @@ pub fn dacos(arg1: f64) -> PgResult<f64> {
     if arg1.is_nan() {
         return Ok(get_float8_nan());
     }
-    if arg1 < -1.0 || arg1 > 1.0 {
+    if !(-1.0..=1.0).contains(&arg1) {
         return Err(input_out_of_range().into());
     }
     let result = arg1.acos();
@@ -433,7 +433,7 @@ pub fn dasin(arg1: f64) -> PgResult<f64> {
     if arg1.is_nan() {
         return Ok(get_float8_nan());
     }
-    if arg1 < -1.0 || arg1 > 1.0 {
+    if !(-1.0..=1.0).contains(&arg1) {
         return Err(input_out_of_range().into());
     }
     let result = arg1.asin();
@@ -598,7 +598,7 @@ pub fn dacosd(arg1: f64) -> PgResult<f64> {
         return Ok(get_float8_nan());
     }
     let c = degree_consts();
-    if arg1 < -1.0 || arg1 > 1.0 {
+    if !(-1.0..=1.0).contains(&arg1) {
         return Err(input_out_of_range().into());
     }
     let result = if arg1 >= 0.0 {
@@ -617,7 +617,7 @@ pub fn dasind(arg1: f64) -> PgResult<f64> {
         return Ok(get_float8_nan());
     }
     let c = degree_consts();
-    if arg1 < -1.0 || arg1 > 1.0 {
+    if !(-1.0..=1.0).contains(&arg1) {
         return Err(input_out_of_range().into());
     }
     let result = if arg1 >= 0.0 {
@@ -819,7 +819,7 @@ pub fn dacosh(arg1: f64) -> PgResult<f64> {
 }
 
 pub fn datanh(arg1: f64) -> PgResult<f64> {
-    if arg1 < -1.0 || arg1 > 1.0 {
+    if !(-1.0..=1.0).contains(&arg1) {
         return Err(input_out_of_range().into());
     }
     Ok(if arg1 == -1.0 {

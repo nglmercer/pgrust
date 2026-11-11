@@ -155,11 +155,11 @@ fn inline_srf_body<'a, 'mcx>(
 // substitute_actual_srf_parameters (clauses.c:5360): PARAM_EXTERN Params
 // become copies of the actual arguments, var levels bumped by the query
 // nesting depth (the body starts one level down, as the new subquery RTE).
-fn substitute_actual_srf_parameters<'a, 'mcx>(
+fn substitute_actual_srf_parameters<'mcx>(
     mcx: Mcx<'mcx>,
     q: &mut Query<'mcx>,
     nargs: usize,
-    args: &'a NodeList<'mcx>,
+    args: &NodeList<'mcx>,
 ) -> PgResult<()> {
     let mut ctx = SrfSubst { mcx, args, nargs, sublevels_up: 1 };
     ctx.query_fields(q)

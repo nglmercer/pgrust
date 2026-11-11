@@ -415,14 +415,14 @@ pub(crate) fn recoveryStopsBefore(reader: &xlogreader::XLogReaderState<'_>) -> P
 
     if stops_here {
         clear_stop(false);
-        STOP_XID.store(record_xid.into(), Relaxed);
+        STOP_XID.store(record_xid, Relaxed);
         STOP_TIME.store(record_xtime.unwrap_or(0), Relaxed);
         let _ = elog(
             LOG,
             format!(
                 "recovery stopping before {} of transaction {}, time {}",
                 if is_commit { "commit" } else { "abort" },
-                u32::from(record_xid),
+                record_xid,
                 ts_str(record_xtime.unwrap_or(0))
             ),
         );
@@ -497,7 +497,7 @@ pub(crate) fn recoveryStopsAfter(reader: &xlogreader::XLogReaderState<'_>) -> Pg
                 && record_xid == recovery_target_xid()
             {
                 clear_stop(true);
-                STOP_XID.store(record_xid.into(), Relaxed);
+                STOP_XID.store(record_xid, Relaxed);
                 STOP_TIME.store(record_xtime.unwrap_or(0), Relaxed);
                 let is_commit = matches!(
                     xact_info,
@@ -508,7 +508,7 @@ pub(crate) fn recoveryStopsAfter(reader: &xlogreader::XLogReaderState<'_>) -> Pg
                     format!(
                         "recovery stopping after {} of transaction {}, time {}",
                         if is_commit { "commit" } else { "abort" },
-                        u32::from(record_xid),
+                        record_xid,
                         ts_str(record_xtime.unwrap_or(0))
                     ),
                 );
@@ -764,7 +764,7 @@ pub(crate) fn install_guc_hooks() {
         Ok(true)
     });
     hooks::assign_recovery_target.install(|newval, _extra| {
-        if newval.map_or(false, |v| !v.is_empty()) {
+        if newval.is_some_and(|v| !v.is_empty()) {
             guard_target(RecoveryTargetType::Immediate);
             set_recovery_target(RecoveryTargetType::Immediate);
         } else {
@@ -784,7 +784,7 @@ pub(crate) fn install_guc_hooks() {
         Ok(true)
     });
     hooks::assign_recovery_target_lsn.install(|newval, extra| {
-        if newval.map_or(false, |v| !v.is_empty()) {
+        if newval.is_some_and(|v| !v.is_empty()) {
             guard_target(RecoveryTargetType::Lsn);
             set_recovery_target(RecoveryTargetType::Lsn);
             let lsn = *extra
@@ -875,7 +875,7 @@ pub(crate) fn install_guc_hooks() {
         Ok(true)
     });
     hooks::assign_recovery_target_time.install(|newval, _extra| {
-        if newval.map_or(false, |v| !v.is_empty()) {
+        if newval.is_some_and(|v| !v.is_empty()) {
             guard_target(RecoveryTargetType::Time);
             set_recovery_target(RecoveryTargetType::Time);
         } else {
@@ -887,7 +887,7 @@ pub(crate) fn install_guc_hooks() {
     hooks::assign_recovery_target_timeline.install(assign_recovery_target_timeline);
     hooks::check_recovery_target_xid.install(check_recovery_target_xid);
     hooks::assign_recovery_target_xid.install(|newval, extra| {
-        if newval.map_or(false, |v| !v.is_empty()) {
+        if newval.is_some_and(|v| !v.is_empty()) {
             guard_target(RecoveryTargetType::Xid);
             set_recovery_target(RecoveryTargetType::Xid);
             let xid = *extra

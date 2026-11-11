@@ -65,7 +65,7 @@ fn arg_dict_ptr(fcinfo: &Fcinfo) -> usize {
     fcinfo.arg(0).as_usize()
 }
 
-fn arg_token<'a>(fcinfo: &'a Fcinfo) -> &'a [u8] {
+fn arg_token(fcinfo: &Fcinfo) -> &[u8] {
     let len = fcinfo.arg(2).as_i32().max(0) as usize;
     // SAFETY: dict_api lexize convention — arg1 points at `len` live bytes.
     unsafe { core::slice::from_raw_parts(fcinfo.arg(1).as_usize() as *const u8, len) }

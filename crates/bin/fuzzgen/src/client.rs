@@ -808,7 +808,7 @@ pub fn parse_data_row(body: &[u8]) -> Result<Vec<Option<Bytes>>, String> {
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 pub fn b64_encode(data: &[u8]) -> String {
-    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
         let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
         let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
@@ -849,7 +849,7 @@ pub fn b64_decode(s: &str) -> Result<Vec<u8>, String> {
             acc &= (1 << bits) - 1;
         }
     }
-    if pad > 2 || (s.len() % 4 != 0) {
+    if pad > 2 || !s.len().is_multiple_of(4) {
         return Err("malformed base64 in SCRAM message".to_string());
     }
     Ok(out)
@@ -1993,7 +1993,7 @@ mod tests {
         assert!(parse_row_description(&[0]).is_err());
         assert!(matches!(decode_frame(b'D', &[0, 1, 0, 0]), WireMsg::Raw { code: 'D', .. }));
         assert!(matches!(decode_frame(b'T', &[0]), WireMsg::Raw { code: 'T', .. }));
-        assert!(matches!(decode_frame(b'Z', &[b'I', b'I']), WireMsg::Raw { code: 'Z', .. }));
+        assert!(matches!(decode_frame(b'Z', b"II"), WireMsg::Raw { code: 'Z', .. }));
         assert!(matches!(decode_frame(b't', &[0, 2, 0]), WireMsg::Raw { code: 't', .. }));
         assert!(matches!(decode_frame(b'G', &[0, 0, 1]), WireMsg::Raw { code: 'G', .. }));
         assert!(matches!(decode_frame(b'v', &[0, 0, 0, 0]), WireMsg::Raw { code: 'v', .. }));

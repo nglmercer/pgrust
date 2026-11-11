@@ -54,7 +54,7 @@ fn fc_pg_event_trigger_dropped_objects(
     let in_drop =
         CURRENT_STATE.with(|s| s.borrow().last().map(|st| st.in_sql_drop).unwrap_or(false));
     if !in_drop {
-        return Err(protocol_violation("pg_event_trigger_dropped_objects", "a sql_drop").into());
+        return Err(protocol_violation("pg_event_trigger_dropped_objects", "a sql_drop"));
     }
 
     // SAFETY: executor arms es_query_cxt pre-call; it outlives this frame.
@@ -284,8 +284,7 @@ fn fc_pg_event_trigger_table_rewrite_oid(
     let oid = CURRENT_STATE.with(|s| s.borrow().last().map(|st| st.table_rewrite_oid));
     match oid {
         Some(o) if OidIsValid(o) => Ok(Datum::from_oid(o)),
-        _ => Err(protocol_violation("pg_event_trigger_table_rewrite_oid", "a table_rewrite")
-            .into()),
+        _ => Err(protocol_violation("pg_event_trigger_table_rewrite_oid", "a table_rewrite")),
     }
 }
 
@@ -299,8 +298,7 @@ fn fc_pg_event_trigger_table_rewrite_reason(
         _ => Err(protocol_violation(
             "pg_event_trigger_table_rewrite_reason",
             "a table_rewrite",
-        )
-        .into()),
+        )),
     }
 }
 

@@ -273,10 +273,10 @@ fn cstring_array_1d(elems: &[&[u8]]) -> Vec<u8> {
     let mut v = vec![0u8; 4];
     v.extend_from_slice(&1i32.to_ne_bytes());
     v.extend_from_slice(&0i32.to_ne_bytes());
-    v.extend_from_slice(&(types_core::CSTRINGOID as u32).to_ne_bytes());
+    v.extend_from_slice(&types_core::CSTRINGOID.to_ne_bytes());
     v.extend_from_slice(&(elems.len() as i32).to_ne_bytes());
     v.extend_from_slice(&1i32.to_ne_bytes());
-    while v.len() % 8 != 0 {
+    while !v.len().is_multiple_of(8) {
         v.push(0);
     }
     for e in elems {

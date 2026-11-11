@@ -460,12 +460,14 @@ mod wire_round_trip {
     }
 
     #[test]
+    // The E literal is a by-value round-trip input compared bit-for-bit, not an approximation of std's E.
+    #[allow(clippy::approx_constant)]
     fn byval_types_round_trip_bit_identical() {
         let ctx = MemoryContext::new("wire-rt");
         let mcx = ctx.mcx();
 
-        assert_eq!(round_trip_byval(mcx, 2437, 2436, Datum::from_bool(true)).as_bool(), true);
-        assert_eq!(round_trip_byval(mcx, 2437, 2436, Datum::from_bool(false)).as_bool(), false);
+        assert!(round_trip_byval(mcx, 2437, 2436, Datum::from_bool(true)).as_bool());
+        assert!(!round_trip_byval(mcx, 2437, 2436, Datum::from_bool(false)).as_bool());
 
         for v in [0i16, -1, 12345, i16::MIN, i16::MAX] {
             assert_eq!(round_trip_byval(mcx, 2405, 2404, Datum::from_i16(v)).as_i16(), v);

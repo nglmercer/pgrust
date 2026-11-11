@@ -17,7 +17,7 @@ const XLR_INFO_MASK: u8 = 0x0F;
 const InvalidOffsetNumber: OffsetNumber = 0;
 const InvalidBuffer: Buffer = 0;
 
-fn main_data<'a>(record: &'a XLogReaderState) -> &'a [u8] {
+fn main_data(record: &XLogReaderState) -> &[u8] {
     let rec = record.record.as_ref().expect("spg redo with no decoded record");
     // SAFETY: points into the reader's decode buffer, valid for the redo
     // callback's duration.
@@ -121,7 +121,7 @@ fn require(cond: bool, msg: impl FnOnce() -> String) -> PgResult<()> {
 /// would panic the startup redo thread. Surface a catchable
 /// ERRCODE_DATA_CORRUPTED instead.
 fn checked_u16s_at(data: &[u8], off: usize, n: usize) -> PgResult<Vec<OffsetNumber>> {
-    let end = off.checked_add(n.checked_mul(2).unwrap_or(usize::MAX)).unwrap_or(usize::MAX);
+    let end = off.saturating_add(n.saturating_mul(2));
     require(end <= data.len(), || {
         format!(
             "SP-GiST redo: offset array of {n} entries at {off} exceeds {} bytes of main data",
@@ -492,9 +492,7 @@ fn spgRedoPickSplit(record: &XLogReaderState) -> PgResult<()> {
     ptr += 2 * xldata.nDelete as usize;
     let to_insert = checked_u16s_at(md, ptr, xldata.nInsert as usize)?;
     ptr += 2 * xldata.nInsert as usize;
-    let sel_end = ptr
-        .checked_add(xldata.nInsert as usize)
-        .unwrap_or(usize::MAX);
+    let sel_end = ptr.saturating_add(xldata.nInsert as usize);
     require(sel_end <= md.len(), || {
         format!(
             "SP-GiST redo: PickSplit page-select array of {} entries at {ptr} exceeds {} bytes of main data",

@@ -72,10 +72,10 @@ impl RangeGistCache {
     }
 }
 
-pub fn cached_gist_range_cache<'f>(
-    flinfo: Option<&'f mut FmgrInfo>,
+pub fn cached_gist_range_cache(
+    flinfo: Option<&mut FmgrInfo>,
     rngtypid: Oid,
-) -> PgResult<&'f mut RangeGistCache> {
+) -> PgResult<&mut RangeGistCache> {
     let flinfo = flinfo.expect("range gist support proc: NULL flinfo (fn_extra typcache memo)");
     let need = match flinfo.fn_extra_ref::<RangeGistCache>() {
         Some(c) => c.ri.rngtypid != rngtypid,

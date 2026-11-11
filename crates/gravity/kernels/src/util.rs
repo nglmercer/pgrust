@@ -188,7 +188,7 @@ pub unsafe fn advance(ctx: *mut Ctx, i: usize) -> i64 {
         let n = window(ctx, i);
         if n < 0 {
             if matches!(gravity_abi::status::Status::decode(n), gravity_abi::status::Status::Bad(_)) {
-                gravity_fn::stash_error(Box::new(gravity_fn::PgError::error(&format!("gravity: advance: site {i}'s window returned {n:#x}")))); // alloc: Cold
+                gravity_fn::stash_error(Box::new(gravity_fn::PgError::error(format!("gravity: advance: site {i}'s window returned {n:#x}")))); // alloc: Cold
                 return ERROR;
             }
             return n;

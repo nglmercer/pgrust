@@ -364,8 +364,7 @@ fn dispatch_refusals_unknown_reserved_missing_wrapper_role_class() {
     };
     // Unknown encoding id.
     let e = open_cursor(patch_stream_entry(&b, 0, 36, &0xBEEFu16.to_le_bytes()))
-        .err()
-        .expect("unknown encoding");
+        .expect_err("unknown encoding");
     assert!(matches!(
         e,
         ReadError::Format(FormatError::UnknownEncoding { id: 0xBEEF })
@@ -373,8 +372,7 @@ fn dispatch_refusals_unknown_reserved_missing_wrapper_role_class() {
     // The retired FSST id 12 is RESERVED: a stream stamped with it refuses
     // typed at cursor open, never a kernel lookup.
     let e = open_cursor(patch_stream_entry(&b, 0, 36, &12u16.to_le_bytes()))
-        .err()
-        .expect("retired encoding id 12 refuses");
+        .expect_err("retired encoding id 12 refuses");
     assert!(matches!(
         e,
         ReadError::Format(FormatError::ReservedEncoding { id: 12 })
@@ -382,8 +380,7 @@ fn dispatch_refusals_unknown_reserved_missing_wrapper_role_class() {
     // Assigned encoding with no kernel in this binding: KernelMissing (the
     // M3-C slot-in seam — binding, not reader, decides coverage).
     let e = open_cursor(patch_stream_entry(&b, 0, 36, &8u16.to_le_bytes()))
-        .err()
-        .expect("kernel missing");
+        .expect_err("kernel missing");
     assert!(matches!(
         e,
         ReadError::Format(FormatError::KernelMissing { encoding: 8, .. })
@@ -423,30 +420,26 @@ fn dispatch_refusals_unknown_reserved_missing_wrapper_role_class() {
     // id rides the error, never a corruption verdict.
     for id in [3u8, 4, 5, 255] {
         let e = open_cursor(patch_stream_entry(&b, 0, 43, &[id]))
-            .err()
-            .expect("wrapper");
+            .expect_err("wrapper");
         assert_eq!(e, ReadError::Format(FormatError::WrapperUnsupported { wrapper: id }));
     }
     // Unknown role byte.
     let e = open_cursor(patch_stream_entry(&b, 0, 40, &[9u8]))
-        .err()
-        .expect("role");
+        .expect_err("role");
     assert!(matches!(
         e,
         ReadError::Format(FormatError::UnknownStreamRole { role: 9 })
     ));
     // Unknown storage class byte.
     let e = open_cursor(patch_stream_entry(&b, 0, 41, &[6u8]))
-        .err()
-        .expect("class");
+        .expect_err("class");
     assert!(matches!(
         e,
         ReadError::Format(FormatError::UnknownStorageClass { class: 6 })
     ));
     // Stream values vs extent sum mismatch.
     let e = open_cursor(patch_stream_entry(&b, 0, 8, &(rows + 1).to_le_bytes()))
-        .err()
-        .expect("values sum");
+        .expect_err("values sum");
     assert!(matches!(e, ReadError::Format(FormatError::Corrupt { .. })));
 }
 

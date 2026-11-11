@@ -295,7 +295,7 @@ pub fn brin_bloom_union(
     debug_assert!(read_u32(filter_a, OFF_NBITS) == read_u32(filter_b, OFF_NBITS));
     debug_assert!(filter_a[OFF_NHASHES] == filter_b[OFF_NHASHES]);
     let nbits = read_u32(filter_a, OFF_NBITS);
-    debug_assert!(nbits > 0 && nbits % 8 == 0);
+    debug_assert!(nbits > 0 && nbits.is_multiple_of(8));
     let nbytes = (nbits / 8) as usize;
 
     let mut nbits_set = 0u32;

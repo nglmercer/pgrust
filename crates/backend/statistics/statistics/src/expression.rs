@@ -170,7 +170,7 @@ pub(crate) fn eval_exprs<'mcx, 'b>(
             let nd = {
                 let mut slots =
                     execexpr::EvalSlots { scan: Some(&mut slot), inner: None, outer: None };
-                execexpr::exec_eval_expr(&mut **st, &mut slots)?
+                execexpr::exec_eval_expr(st, &mut slots)?
             };
             let v = if nd.isnull {
                 Datum::null()

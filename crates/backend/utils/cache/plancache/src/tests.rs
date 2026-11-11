@@ -29,10 +29,10 @@ thread_local! {
     static USAGE_TITLES: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
-fn stub_planner<'a, 'mcx>(
+fn stub_planner<'mcx>(
     mcx: mcx::Mcx<'mcx>,
     parse: &'mcx mut Query<'mcx>,
-    _query_string: &'a str,
+    _query_string: &str,
     _cursor_options: i32,
     _bound_params: ParamListHandle,
 ) -> PgResult<PlannedStmt<'mcx>> {
@@ -501,7 +501,7 @@ fn post_rewrite_hook_error_leaves_source_invalid() {
     ReleaseCachedPlan(p1);
     PlanCacheSysCallback(Datum::from_oid(InvalidOid), NAMESPACEOID, 0);
     let err = GetCachedPlan(h, ParamListHandle::NULL, None, QueryEnvHandle::NULL)
-        .err().expect("the hook's error must reach the caller");
+        .expect_err("the hook's error must reach the caller");
     assert!(err.message().contains("post-rewrite refusal"), "{:?}", err.message());
     assert!(!CachedPlanIsValid(h));
     DropCachedPlan(h);

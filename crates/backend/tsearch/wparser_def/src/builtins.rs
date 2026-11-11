@@ -235,21 +235,6 @@ fn push_cstrings(rows: &mut Vec<Vec<Vec<u8>>>, row: Vec<Vec<u8>>, mcx: ::mcx::Mc
     Ok(())
 }
 
-#[cfg(test)]
-mod admit_tests {
-    // wparser.c grows the LexemeEntry array by doubling from 16: pushing the
-    // 2^25-th row (index 2^25) repallocs 2^26 * 16 = 1 GiB, which C rejects
-    // with "invalid memory alloc request size 1073741824".
-    #[test]
-    fn row_admission_follows_c_doubling_ceiling() {
-        assert!(super::admit_row(0).is_ok());
-        assert!(super::admit_row((1 << 25) - 1).is_ok());
-        let err = super::admit_row(1 << 25).unwrap_err();
-        assert_eq!(err.message(), "invalid memory alloc request size 1073741824");
-        assert!(super::admit_row((1 << 26) - 1).is_err());
-    }
-}
-
 fn srf_drive(
     flinfo: Option<&mut FmgrInfo>,
     fcinfo: &mut Fcinfo,
@@ -343,8 +328,8 @@ pub(crate) fn token_type_rows(fcinfo: &Fcinfo, prsid: ::types_core::Oid) -> PgRe
             &mut rows,
             vec![
                 format!("{}", d.lexid).into_bytes(),
-                ::mcx::std_vec_from_slice("tsearch", &d.alias.as_bytes())?,
-                ::mcx::std_vec_from_slice("tsearch", &d.descr.as_bytes())?,
+                ::mcx::std_vec_from_slice("tsearch", d.alias.as_bytes())?,
+                ::mcx::std_vec_from_slice("tsearch", d.descr.as_bytes())?,
             ],
             mcx,
         )?;
@@ -465,7 +450,7 @@ pub(crate) fn parse_rows(fcinfo: &Fcinfo, prsid: ::types_core::Oid) -> PgResult<
     let mut push_row = |type_: i32, token_bytes: &[u8]| -> PgResult<()> {
         push_cstrings(
             &mut rows,
-            vec![format!("{type_}").into_bytes(), ::mcx::std_vec_from_slice("wparser_def", &token_bytes)?],
+            vec![format!("{type_}").into_bytes(), ::mcx::std_vec_from_slice("wparser_def", token_bytes)?],
             mcx,
         )
     };
@@ -547,3 +532,18 @@ pub const WPARSER_BUILTINS: &[FmgrBuiltin] = &[
     b(3720, "prsd_headline", 3, fc_prsd_headline),
     b(3721, "prsd_lextype", 1, fc_prsd_lextype),
 ];
+
+#[cfg(test)]
+mod admit_tests {
+    // wparser.c grows the LexemeEntry array by doubling from 16: pushing the
+    // 2^25-th row (index 2^25) repallocs 2^26 * 16 = 1 GiB, which C rejects
+    // with "invalid memory alloc request size 1073741824".
+    #[test]
+    fn row_admission_follows_c_doubling_ceiling() {
+        assert!(super::admit_row(0).is_ok());
+        assert!(super::admit_row((1 << 25) - 1).is_ok());
+        let err = super::admit_row(1 << 25).unwrap_err();
+        assert_eq!(err.message(), "invalid memory alloc request size 1073741824");
+        assert!(super::admit_row((1 << 26) - 1).is_err());
+    }
+}

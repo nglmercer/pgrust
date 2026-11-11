@@ -708,7 +708,7 @@ impl StreamSectionHdr {
     }
 
     /// The frame table slice (validated), or None for closed-form strides.
-    pub fn frame_table<'a>(&self, section: &'a [u8]) -> FormatResult<Option<Vec<u32>>> {
+    pub fn frame_table(&self, section: &[u8]) -> FormatResult<Option<Vec<u32>>> {
         let Some(off) = self.frame_table_at(section)? else { return Ok(None) };
         let mut v = Vec::with_capacity(self.frame_count as usize);
         self.frame_table_fill(section, off, &mut v);

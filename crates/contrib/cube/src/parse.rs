@@ -308,7 +308,7 @@ fn write_box(l1: &[&str], l2: &[&str]) -> PgResult<Vec<u8>> {
     for e in l2 {
         coords.push(parse_element(e, &s2)?);
     }
-    Ok(build_image_auto(dim, &coords)?)
+    build_image_auto(dim, &coords)
 }
 
 /// `write_point_as_box(dim, str, ...)`.
@@ -318,7 +318,7 @@ fn write_point_as_box(l: &[&str]) -> PgResult<Vec<u8>> {
     for e in l {
         coords.push(parse_element(e, &s)?);
     }
-    Ok(build_image(l.len(), true, &coords)?)
+    build_image(l.len(), true, &coords)
 }
 
 fn check_dim(n: usize) -> PgResult<()> {

@@ -204,7 +204,7 @@ fn away_from_home_holds_an_idle_home_and_refuses_a_running_one() {
 
 #[test]
 fn a_flush_while_a_level_runs_reaches_it_at_its_next_borrow() {
-    reentry::enter(Some(build), None, false, |b, _| {
+    reentry::enter(Some(build), None, false, |_b, _| {
         assert_eq!(reentry::for_each_idle(|_| ()), 1);
         reentry::flush_later();
     })

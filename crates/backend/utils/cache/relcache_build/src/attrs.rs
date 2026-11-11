@@ -382,7 +382,7 @@ pub(crate) fn scan_pg_constraint_fkeys<'mcx>(
         if ndim != 1 || hasnull || elemtype != INT2OID {
             return Err(constraint_decode_error("conkey is not a 1-D smallint array"));
         }
-        if dim0 <= 0 || dim0 > INDEX_MAX_KEYS as i32 {
+        if dim0 <= 0 || dim0 > INDEX_MAX_KEYS {
             return Err(constraint_decode_error(&format!(
                 "foreign key constraint cannot have {dim0} columns"
             )));

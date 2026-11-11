@@ -173,7 +173,7 @@ fn install() {
             Ok((relid == REL_OID).then(|| name("orders")))
         });
         s::lookup_pg_class_ls_shape::set(|relid| {
-            Ok((relid == REL_OID).then(|| syscache_seams::PgClassLsShape {
+            Ok((relid == REL_OID).then_some(syscache_seams::PgClassLsShape {
                 relnamespace: 2200,
                 reltype: 0,
                 relam: 0,
@@ -588,9 +588,9 @@ fn deparse_checks_for_interrupts() {
     dctx.wrap_column = 0;
     let query = query::get_query_def(q, &mut dctx, None, true);
     init_small::globals::SetInterruptPending(false);
-    let err = expr.err().expect("pending interrupt cancels get_rule_expr");
+    let err = expr.expect_err("pending interrupt cancels get_rule_expr");
     assert_eq!(err.sqlstate(), types_error::ERRCODE_QUERY_CANCELED);
-    let err = query.err().expect("pending interrupt cancels get_query_def");
+    let err = query.expect_err("pending interrupt cancels get_query_def");
     assert_eq!(err.sqlstate(), types_error::ERRCODE_QUERY_CANCELED);
     // With no interrupt pending the same trees deparse.
     assert!(deparse_expression_pretty(mcx, node, REL_OID, false, PRETTYFLAG_INDENT).is_ok());
@@ -632,7 +632,7 @@ fn query_def_err(action: &str) -> Box<PgError> {
     let q = node.as_list().unwrap().nth(0).as_query().unwrap();
     let mut dctx = deparse::DeparseContext::new(mcx, PRETTYFLAG_INDENT);
     dctx.wrap_column = 0;
-    query::get_query_def(q, &mut dctx, None, true).err().expect("get_query_def raises")
+    query::get_query_def(q, &mut dctx, None, true).expect_err("get_query_def raises")
 }
 
 // audit-18.6 b057 a186-candidate-fp-adt-ruleutils-p3-586a69256ed80efd5a97-1:
@@ -701,7 +701,7 @@ fn empty_ev_action_list_is_elog_error() {
         ev_qual: "<>".to_string(),
         ev_action: "<>".to_string(),
     };
-    let err = super::ruledef::make_ruledef(mcx, &row, 0).err().expect("make_ruledef raises");
+    let err = super::ruledef::make_ruledef(mcx, &row, 0).expect_err("make_ruledef raises");
     assert_eq!(err.message(), "invalid empty ev_action list");
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
 }

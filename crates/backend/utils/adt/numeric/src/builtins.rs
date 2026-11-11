@@ -970,7 +970,7 @@ unsafe fn int8_transarray_at(fcinfo: &Fcinfo, i: usize, copy: bool) -> PgResult<
             p.cast_mut()
         }
     };
-    debug_assert!(arr as usize % 8 == 0, "transarray must be MAXALIGNed");
+    debug_assert!((arr as usize).is_multiple_of(8), "transarray must be MAXALIGNed");
     // SAFETY: 4B-U image at least header-readable; size validated before the
     // data pointer is used.
     unsafe {

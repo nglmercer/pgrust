@@ -28,15 +28,15 @@ fn no_whole_pmd_dontneed() {
         unsafe { give(p.cast(), 64 << 10) };
     }
     flush_shelf();
-    let d = take(24 * 64 << 10, 64 << 10, h).unwrap().cast::<u8>();
+    let d = take((24 * 64) << 10, 64 << 10, h).unwrap().cast::<u8>();
     let s = span(16 * MIB, h).unwrap();
     touch(s.as_ptr() as usize, s.len());
     let sp = s.as_ptr() as usize;
     // SAFETY: ours, not used again.
     unsafe { give_span(s) };
-    touch(d.as_ptr() as usize, 24 * 64 << 10);
+    touch(d.as_ptr() as usize, (24 * 64) << 10);
     // SAFETY: inside our own block.
-    unsafe { give_pages(d, 64 << 10, 5 * 64 << 10) };
+    unsafe { give_pages(d, 64 << 10, (5 * 64) << 10) };
     let mut l = span(64 * MIB, h).unwrap();
     // SAFETY: ours.
     unsafe { commit_to(&mut l, 64 * MIB) };
@@ -62,16 +62,16 @@ fn no_whole_pmd_dontneed() {
     assert_eq!(resident(lp, 64 * MIB), 0, "the warm lazy span's pages went back");
     let maps = std::fs::read_to_string("/proc/self/maps").unwrap();
     let mapped = maps.lines().any(|line| {
-        let mut it = line.split(|c| c == '-' || c == ' ');
+        let mut it = line.split(['-', ' ']);
         let lo = usize::from_str_radix(it.next().unwrap(), 16).unwrap();
         let hi = usize::from_str_radix(it.next().unwrap(), 16).unwrap();
         lo <= sp && sp + 16 * MIB <= hi && line.contains(" rw")
     });
     assert!(mapped, "the pool zone stays mapped read-write over a released range");
     // SAFETY: as above.
-    assert_eq!(unsafe { take_pages(d, 64 << 10, 5 * 64 << 10) }, Zeroed::Yes);
+    assert_eq!(unsafe { take_pages(d, 64 << 10, (5 * 64) << 10) }, Zeroed::Yes);
     // SAFETY: ours, not used again.
-    unsafe { give(NonNull::new(d.as_ptr()).unwrap(), 24 * 64 << 10) };
+    unsafe { give(NonNull::new(d.as_ptr()).unwrap(), (24 * 64) << 10) };
     flush_shelf();
     balanced();
 }

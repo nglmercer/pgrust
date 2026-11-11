@@ -2800,7 +2800,7 @@ mod cost_subplan_fma_tests {
         crate::tests::install_fixtures();
         crate::gucs::set_cpu_operator_cost(0.0031);
         let cx = MemoryContext::new_bump("d400-subplan");
-        let plan = seqscan(cx.mcx(), 53216.516827383392, 620243.06967319013, 4326533.3379835319);
+        let plan = seqscan(cx.mcx(), 53_216.516_827_383_39, 620_243.069_673_190_1, 4_326_533.337_983_532);
         let mut splan = SubPlan { subLinkType: SubLinkType::ANY_SUBLINK, ..Default::default() };
         cost_subplan(&mut splan, plan).unwrap();
         check(splan.per_call_cost, 0x4114f62fae00996c, 0x4114f62fae00996d);

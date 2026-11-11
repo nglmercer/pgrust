@@ -321,12 +321,12 @@ fn gen_constraint(_g: &mut Gen, id: u32) -> Vec<StmtKind> {
     for pk in 1..=3 {
         out.push(raw(format!(
             "INSERT INTO {p} (pk, a) VALUES ({pk}, {});",
-            1 + (pk as i32)
+            1 + pk
         )));
         out.push(raw(format!(
             "INSERT INTO {c} (pk, a) VALUES ({}, {});",
             10 + pk,
-            1 + (pk as i32)
+            1 + pk
         )));
     }
     out.push(raw("SET constraint_exclusion = on;".to_string()));

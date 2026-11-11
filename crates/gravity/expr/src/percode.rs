@@ -380,7 +380,7 @@ fn extern_param(p: &Program<'_>, mut id: NodeId) -> Option<(i32, Oid)> {
 /// path to it), and no call of the range is volatile (the sweep would run it once per entry). Anything else (another
 /// column: `GREATEST(t, 'v' || i::text) = t`) keeps the subtree off the per-code form; the island runs per row.
 fn scan_island<C: Cols + ?Sized>(p: &Program<'_>, isl: &Island, codes: &C, st: &mut Scan) -> bool {
-    let volatile = |s: SiteId| p.sites.get(s.0 as usize).map_or(true, |c| c.volatile);
+    let volatile = |s: SiteId| p.sites.get(s.0 as usize).is_none_or(|c| c.volatile);
     for n in &p.nodes[isl.first.0 as usize..=isl.root.0 as usize] {
         match n {
             ExprNode::Var(v) => {
@@ -706,7 +706,7 @@ fn code_set<'m>(p: &Program<'_>, id: NodeId, negated: bool, m: Mcx<'m>) -> Optio
         return Some(Known::EqBound { values: PgVec::new_in(m), params: PgVec::new_in(m), consts: mcx::vec_elem_in(m, ConstWord { node: c, elem: None, list: false }, 1), negated: ne != negated });
     }
     // X5: `x = $n` / `$n = x` over the bare column, the parameter's value bound per execution
-    if let (ExprNode::Op(n) | ExprNode::Func(n)) = &p.nodes[id.0 as usize] {
+    if let ExprNode::Op(n) | ExprNode::Func(n) = &p.nodes[id.0 as usize] {
         let call = &p.sites[n.site.0 as usize];
         if call.args.len == 2 && deterministic(call.collation) {
             let (a, b) = (p.kids[call.args.start as usize], p.kids[call.args.start as usize + 1]);
@@ -854,8 +854,8 @@ fn nullable<'m, C: Cols + ?Sized>(p: &Program<'_>, id: NodeId, codes: &C, m: Mcx
         Some(c0) => {
             let d = const_bytes_in(c0, m)?;
             match &known {
-                Known::Eq { values, negated } => values.iter().any(|x| *x == d) != *negated,
-                Known::Range { from, to } => *from <= d && to.as_ref().map_or(true, |t| d < *t),
+                Known::Eq { values, negated } => values.contains(&d) != *negated,
+                Known::Range { from, to } => *from <= d && to.as_ref().is_none_or(|t| d < *t),
                 _ => return None,
             }
         }
@@ -1617,7 +1617,7 @@ pub(crate) fn host_calls(p: &Program<'_>, id: NodeId, plan: &Plan) -> usize {
         ExprNode::NullTest(t) => t.row as usize,
         _ => 0,
     };
-    here + walk_kids(p, id).into_iter().map(|k| host_calls(p, k, plan)).sum::<usize>()
+    here + walk_kids(p, id).map(|k| host_calls(p, k, plan)).sum::<usize>()
 }
 
 #[derive(Debug)]
@@ -2040,7 +2040,7 @@ mod d348 {
     /// A varlena image of `n` bytes of `b` at offset `at` of `buf`: a 1-byte header when it fits (`n + 1 <= 127`), else a
     /// plain 4-byte one.
     fn image(buf: &mut [u8], at: usize, n: usize, b: u8) -> ConstNode<'static> {
-        let body = if n + 1 <= 127 {
+        let body = if n < 127 {
             buf[at] = (((n + 1) << 1) | 1) as u8;
             at + 1
         } else {
@@ -2353,7 +2353,7 @@ mod e2 {
         (b, top)
     }
 
-    fn twin(pattern: &[u8], negated: bool) -> Option<TextSearch> {
+    fn twin(pattern: &[u8], negated: bool) -> Option<TextSearch<'_>> {
         Some(TextSearch { arg: NodeId(0), pattern: bv(pattern), negated })
     }
 
@@ -2479,7 +2479,7 @@ mod ps113 {
     }
 
     /// `[NOT] f(x, 'b')` and its plan, `x` column `attno` or `coalesce(column, c0)`; a `Distinct` node when `distinct`.
-    fn build(funcid: Oid, coll: Oid, attno: i16, c0: Option<Option<&'static [u8]>>, distinct: bool, not: bool) -> (Plan, NodeId) {
+    fn build(funcid: Oid, coll: Oid, attno: i16, c0: Option<Option<&'static [u8]>>, distinct: bool, not: bool) -> (Plan<'static>, NodeId) {
         let mut b = B::new();
         let mut x = b.var(attno);
         if let Some(c0) = c0 {
@@ -2504,7 +2504,7 @@ mod ps113 {
     }
 
     /// The root's table and NULL answer over column 1; a NULL-answering root is one `Bits` table.
-    fn known(funcid: Oid, coll: Oid, c0: Option<Option<&'static [u8]>>, distinct: bool, not: bool) -> Option<(Known, Option<bool>)> {
+    fn known(funcid: Oid, coll: Oid, c0: Option<Option<&'static [u8]>>, distinct: bool, not: bool) -> Option<(Known<'static>, Option<bool>)> {
         let (plan, top) = build(funcid, coll, 1, c0, distinct, not);
         let r = plan.root_at(top)?;
         if r.null.is_some() {

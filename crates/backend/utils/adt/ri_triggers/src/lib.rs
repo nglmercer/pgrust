@@ -482,7 +482,7 @@ fn RI_FKey_check<'mcx>(mcx: Mcx<'mcx>, tgdata: &RiTriggerData<'_, 'mcx>) -> PgRe
                 )?;
                 querybuf.try_push_str("(x1.r)")?;
             }
-            ri_PlanCheck(querybuf.as_str(), &queryoids[..riinfo.nkeys], &qkey, &fk_rel, &pk_rel)?
+            ri_PlanCheck(querybuf.as_str(), &queryoids[..riinfo.nkeys], &qkey, fk_rel, &pk_rel)?
         }
     };
 
@@ -637,7 +637,7 @@ fn ri_restrict<'mcx>(
                 querybuf.try_push_str(", false)")?;
             }
             querybuf.try_push_str(" FOR KEY SHARE OF x")?;
-            ri_PlanCheck(querybuf.as_str(), &queryoids[..riinfo.nkeys], &qkey, &fk_rel, &pk_rel)?
+            ri_PlanCheck(querybuf.as_str(), &queryoids[..riinfo.nkeys], &qkey, &fk_rel, pk_rel)?
         }
     };
 
@@ -699,7 +699,7 @@ fn RI_FKey_cascade_del<'mcx>(mcx: Mcx<'mcx>, tgdata: &RiTriggerData<'_, 'mcx>) -
                 querysep = "AND";
                 queryoids[i] = pk_type;
             }
-            ri_PlanCheck(querybuf.as_str(), &queryoids[..riinfo.nkeys], &qkey, &fk_rel, &pk_rel)?
+            ri_PlanCheck(querybuf.as_str(), &queryoids[..riinfo.nkeys], &qkey, &fk_rel, pk_rel)?
         }
     };
 
@@ -769,7 +769,7 @@ fn RI_FKey_cascade_upd<'mcx>(mcx: Mcx<'mcx>, tgdata: &RiTriggerData<'_, 'mcx>) -
                 queryoids[j] = pk_type;
             }
             querybuf.try_push_str(qualbuf.as_str())?;
-            ri_PlanCheck(querybuf.as_str(), &queryoids[..riinfo.nkeys * 2], &qkey, &fk_rel, &pk_rel)?
+            ri_PlanCheck(querybuf.as_str(), &queryoids[..riinfo.nkeys * 2], &qkey, &fk_rel, pk_rel)?
         }
     };
 
@@ -858,7 +858,7 @@ fn ri_set<'mcx>(
                 qualsep = "AND";
                 queryoids[i] = pk_type;
             }
-            ri_PlanCheck(querybuf.as_str(), &queryoids[..riinfo.nkeys], &qkey, &fk_rel, &pk_rel)?
+            ri_PlanCheck(querybuf.as_str(), &queryoids[..riinfo.nkeys], &qkey, &fk_rel, pk_rel)?
         }
     };
 
@@ -900,7 +900,7 @@ fn ri_Check_Pk_Match<'mcx>(
 
     spi::SPI_connect()?;
 
-    let qkey = ri_build_query_key(&riinfo, RI_PLAN_CHECK_LOOKUPPK_FROM_PK);
+    let qkey = ri_build_query_key(riinfo, RI_PLAN_CHECK_LOOKUPPK_FROM_PK);
     let qplan = match ri_FetchPreparedPlan(&qkey) {
         Some(p) => p,
         None => {
@@ -959,7 +959,7 @@ fn ri_Check_Pk_Match<'mcx>(
                 )?;
                 querybuf.try_push_str("(x1.r)")?;
             }
-            ri_PlanCheck(querybuf.as_str(), &queryoids[..riinfo.nkeys], &qkey, &fk_rel, &pk_rel)?
+            ri_PlanCheck(querybuf.as_str(), &queryoids[..riinfo.nkeys], &qkey, fk_rel, pk_rel)?
         }
     };
 

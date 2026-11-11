@@ -351,6 +351,8 @@ pub fn gistFormTuple<'mcx>(
     Ok(res)
 }
 
+// Kept safe on purpose: C's gist_index_getattr reads the index tuple the caller holds (hot path, many call sites).
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn gist_index_getattr(
     itup: ITup,
     attno_1based: usize,
@@ -484,6 +486,8 @@ pub fn gistDeCompressAtt(
 }
 
 /// gistgetadjusted: None when no key update is needed.
+// Kept safe on purpose: C's gistgetadjusted reads the index tuples the caller holds for the call.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn gistgetadjusted<'mcx>(
     mcx: Mcx<'mcx>,
     r: &Relation<'_>,

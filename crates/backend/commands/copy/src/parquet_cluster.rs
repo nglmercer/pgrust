@@ -1194,7 +1194,7 @@ pub(crate) fn copy_clustered<'mcx>(
     order.with_vec(|v| {
         v.extend(0..n_rgs); // alloc: Exec charged order.owner()
         v.sort_by(|&a, &b| {
-            composite_cmp(&keys, &bounds[a as usize].0, &bounds[b as usize].0).then(a.cmp(&b))
+            composite_cmp(keys, &bounds[a as usize].0, &bounds[b as usize].0).then(a.cmp(&b))
         });
     });
     // Sweep: (key, +1 activations before −1 releases at equal keys).
@@ -1207,7 +1207,7 @@ pub(crate) fn copy_clustered<'mcx>(
         events.with_vec(|v| v.push((&bounds[s as usize].0, 1, s))); // alloc: Exec charged events.owner()
         events.with_vec(|v| v.push((&bounds[s as usize].1, -1, s))); // alloc: Exec charged events.owner()
     }
-    events.with_vec(|v| v.sort_by(|a, b| composite_cmp(&keys, a.0, b.0).then(b.1.cmp(&a.1)).then(a.2.cmp(&b.2)))); // alloc: Exec charged events.owner()
+    events.with_vec(|v| v.sort_by(|a, b| composite_cmp(keys, a.0, b.0).then(b.1.cmp(&a.1)).then(a.2.cmp(&b.2)))); // alloc: Exec charged events.owner()
     let (mut depth, mut max_depth, mut depth_bytes, mut max_bytes) = (0i64, 0i64, 0u64, 0u64);
     for (_, d, s) in events.iter() {
         depth += i64::from(*d);
@@ -1238,7 +1238,7 @@ pub(crate) fn copy_clustered<'mcx>(
     shared.window.store(need, Ordering::Relaxed);
     let file_sorted = order.iter().enumerate().all(|(i, &s)| i as u64 == s)
         && (1..n_rgs as usize)
-            .all(|s| composite_cmp(&keys, &bounds[s - 1].1, &bounds[s].0) != Ord_::Greater);
+            .all(|s| composite_cmp(keys, &bounds[s - 1].1, &bounds[s].0) != Ord_::Greater);
     ptrace(&format!("pgrc-cluster order file_sorted={file_sorted}")); // alloc: Cold
     let _ = shared.order.set(order);
 
@@ -1594,7 +1594,7 @@ fn merge_feed<'mcx>(
             // pending front's lower bound, as (key, fseq).
             let mut ru: Option<usize> = None;
             for (i, a) in active.iter().enumerate() {
-                if i != mi && ru.map_or(true, |r| cmp_heads(keys, a, &active[r]) == Ord_::Less) {
+                if i != mi && ru.is_none_or(|r| cmp_heads(keys, a, &active[r]) == Ord_::Less) {
                     ru = Some(i);
                 }
             }
@@ -1750,7 +1750,7 @@ fn merge_feed<'mcx>(
 fn min_active(keys: &[KeyCol], active: &[Active]) -> Option<usize> {
     let mut best: Option<usize> = None;
     for (i, a) in active.iter().enumerate() {
-        if best.map_or(true, |b| cmp_heads(keys, a, &active[b]) == Ord_::Less) {
+        if best.is_none_or(|b| cmp_heads(keys, a, &active[b]) == Ord_::Less) {
             best = Some(i);
         }
     }

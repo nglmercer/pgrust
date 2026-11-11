@@ -123,11 +123,11 @@ impl GenericXLogState {
     }
 }
 
-pub fn GenericXLogRegisterBuffer<'s>(
-    state: &'s mut GenericXLogState,
+pub fn GenericXLogRegisterBuffer(
+    state: &mut GenericXLogState,
     buffer: Buffer,
     flags: i32,
-) -> PgResult<&'s mut [u8; BLCKSZ]> {
+) -> PgResult<&mut [u8; BLCKSZ]> {
     state.register_buffer(buffer, flags)
 }
 

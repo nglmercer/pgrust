@@ -182,7 +182,7 @@ pub fn vm_all_visible_by_locator(
     if mapBlock >= vm_nblocks {
         return Ok(false);
     }
-    if !matches!(&vmbuf.pin, Some(_) if vmbuf.map_block == mapBlock) {
+    if vmbuf.pin.is_none() && (vmbuf.map_block == mapBlock) {
         if let Some(pin) = vmbuf.pin.take() {
             pin.release();
         }

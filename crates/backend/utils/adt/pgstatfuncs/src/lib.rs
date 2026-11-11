@@ -16,7 +16,7 @@ mod backend;
 mod stats;
 pub use activity::fc_pg_stat_get_activity;
 
-pub(crate) fn arg_text_str<'a>(fcinfo: &'a Fcinfo, i: usize) -> PgResult<&'a str> {
+pub(crate) fn arg_text_str(fcinfo: &Fcinfo, i: usize) -> PgResult<&str> {
     // SAFETY: catalog arg type text — non-null varlena (null-checked by caller
     // for non-strict functions).
     let v = unsafe { fcinfo.arg_varlena_packed(i) }?;

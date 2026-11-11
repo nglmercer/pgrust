@@ -691,7 +691,7 @@ pub fn hex(b: &[u8]) -> String {
 }
 
 pub fn unhex(s: &str) -> Result<Vec<u8>, String> {
-    if s.len() % 2 != 0 {
+    if !s.len().is_multiple_of(2) {
         return Err("odd-length hex".to_string());
     }
     (0..s.len())
@@ -2437,7 +2437,7 @@ pub mod toml {
         Err(format!("toml line {}: unterminated string", line))
     }
 
-    fn parse_scalar<'a>(s: &'a str, line: usize) -> Result<(Value, &'a str), String> {
+    fn parse_scalar(s: &str, line: usize) -> Result<(Value, &str), String> {
         let s = s.trim_start();
         if s.starts_with('"') {
             let (raw, after) = take_basic(s, line)?;

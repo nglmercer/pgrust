@@ -509,7 +509,7 @@ fn acct_take() -> NonNull<AcctInner> {
             }
             return acct_alloc_global();
         }
-        return acct_take_from(&ACCT_POOL);
+        acct_take_from(&ACCT_POOL)
     }
     #[cfg(test)]
     acct_alloc_global()
@@ -2709,7 +2709,6 @@ fn notify_oom_observer(context_name: &str, request: usize) {
 }
 
 #[cold]
-#[cold]
 #[inline(never)]
 pub fn raise_oom_named(context_name: &str, request: usize) -> ! {
     #[cfg(any(feature = "std", test))]
@@ -3136,12 +3135,15 @@ pub fn ceiling_error(size: usize) -> PgError {
 }
 
 // SAFETY contract for callers: one-statement &mut, never re-entered; one context, one thread.
+// clippy::mut_from_ref is intended here: UnsafeCell is the hot-path design (see the comment on the arena fields).
+#[allow(clippy::mut_from_ref)]
 #[inline(always)]
 unsafe fn aset_mut(set: &core::cell::UnsafeCell<aset::AllocSet>) -> &mut aset::AllocSet {
     &mut *set.get()
 }
 
 // SAFETY contract: as aset_mut.
+#[allow(clippy::mut_from_ref)]
 #[inline(always)]
 unsafe fn bump_mut(a: &core::cell::UnsafeCell<bump::BumpArena>) -> &mut bump::BumpArena {
     &mut *a.get()
@@ -3247,7 +3249,7 @@ unsafe impl Allocator for Mcx<'_> {
                     let nn = unsafe { NonNull::new_unchecked(dangling) };
                     return Ok(NonNull::slice_from_raw_parts(nn, 0));
                 }
-                if ptr.as_ptr() as usize % new_layout.align() == 0 {
+                if (ptr.as_ptr() as usize).is_multiple_of(new_layout.align()) {
                     return Ok(NonNull::slice_from_raw_parts(ptr, new_layout.size()));
                 }
                 // SAFETY: single-statement borrow (as bump_mut); copy fits new_layout.
@@ -3265,7 +3267,7 @@ unsafe impl Allocator for Mcx<'_> {
             }
             Backend::Slab(_) => {
                 if old_layout.size() == new_layout.size()
-                    && ptr.as_ptr() as usize % new_layout.align() == 0
+                    && (ptr.as_ptr() as usize).is_multiple_of(new_layout.align())
                 {
                     Ok(NonNull::slice_from_raw_parts(ptr, new_layout.size()))
                 } else {
@@ -3274,7 +3276,7 @@ unsafe impl Allocator for Mcx<'_> {
             }
             // Bump: narrow in place, nothing to uncharge.
             Backend::Bump(a) | Backend::BumpDrop(a, _) | Backend::BumpForget(a) => {
-                if ptr.as_ptr() as usize % new_layout.align() == 0 {
+                if (ptr.as_ptr() as usize).is_multiple_of(new_layout.align()) {
                     return Ok(NonNull::slice_from_raw_parts(ptr, new_layout.size()));
                 }
                 // SAFETY: single-statement borrow (bump_mut); copy fits new_layout.
@@ -3340,7 +3342,7 @@ impl Mcx<'_> {
             // Slab realloc only tolerates the identical chunk size.
             Backend::Slab(_) => {
                 if old_layout.size() == new_layout.size()
-                    && ptr.as_ptr() as usize % new_layout.align() == 0
+                    && (ptr.as_ptr() as usize).is_multiple_of(new_layout.align())
                 {
                     Ok(NonNull::slice_from_raw_parts(ptr, new_layout.size()))
                 } else {

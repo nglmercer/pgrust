@@ -878,7 +878,7 @@ fn window_store(qd: &QueryDesc, id: i32) -> Option<TuplestoreInstrumentation> {
     let allowed = crate::inputs::hash_mem::work_mem_bytes();
     let most = mem_space(n, chunk, allowed, STORE_ARRAY)?;
     let least = if whole { most } else { mem_space(n.min(1), chunk, allowed, STORE_ARRAY)? };
-    (least.div_ceil(1024) == most.div_ceil(1024)).then(|| TuplestoreInstrumentation { space_type: types_core::instrument::TuplesortSpaceType::Memory, max_space: most as i64 })
+    (least.div_ceil(1024) == most.div_ceil(1024)).then_some(TuplestoreInstrumentation { space_type: types_core::instrument::TuplesortSpaceType::Memory, max_space: most as i64 })
 }
 
 pub(crate) fn query_desc_memoize_instrument(h: QueryDescHandle, id: i32) -> Option<MemoizeInstrumentation> {
@@ -919,7 +919,7 @@ fn index_searches(qd: &QueryDesc, id: i32) -> Option<u64> {
     let cx = mcx::MemoryContext::new_bump("GravityExplainScan"); // EXPLAIN-only scratch: the decompose walk's lists, gone with the call
     let keys = gravity_decompose::explain::index_keys(cx.mcx(), qd.plannedstmt(), id)?;
     let last = keys.iter().map(|k| k.0).max().unwrap_or(0);
-    let equal = |col: i16| keys.iter().any(|&(c, op)| c == col && op.map_or(true, |op| gravity_fn::typesem::expr::index_equality(op).unwrap_or(false)));
+    let equal = |col: i16| keys.iter().any(|&(c, op)| c == col && op.is_none_or(|op| gravity_fn::typesem::expr::index_equality(op).unwrap_or(false)));
     (1..last).all(equal).then_some(loops as u64)
 }
 

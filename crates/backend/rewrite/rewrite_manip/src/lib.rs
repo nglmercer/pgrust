@@ -445,7 +445,7 @@ impl<'mcx> nodes_core::NodeWalker<'mcx> for ChangeVars<'mcx> {
                     })
                 }
                 .expect("PlaceHolderVar")?;
-                return nodes_core::expression_tree_walker(node, self);
+                nodes_core::expression_tree_walker(node, self)
             }
             NodeTag::T_CurrentOfExpr => {
                 if self.sublevels_up == 0 {
@@ -726,7 +726,7 @@ impl<'mcx> nodes_core::NodeWalker<'mcx> for IncrVarSublevels {
             }
             NodeTag::T_CurrentOfExpr => {
                 if self.min_sublevels_up == 0 {
-                    return Err(internal("cannot push down CurrentOfExpr").into());
+                    return Err(internal("cannot push down CurrentOfExpr"));
                 }
                 Ok(false)
             }
@@ -959,7 +959,7 @@ pub fn getInsertSelectQuery_node<'mcx>(
     }
 }
 
-fn rte_at<'a, 'mcx>(rtable: &'a NodeList<'mcx>, varno: i32) -> &'mcx RangeTblEntry<'mcx> {
+fn rte_at<'mcx>(rtable: &NodeList<'mcx>, varno: i32) -> &'mcx RangeTblEntry<'mcx> {
     rtable.nth(varno as usize - 1).as_range_tbl_entry().expect("rtable holds RangeTblEntry")
 }
 
@@ -1238,7 +1238,7 @@ pub fn ReplaceVarsFromTargetList_list<'mcx>(
         nomatch_option,
         outer_has_sublinks,
     )?;
-    Ok(out.as_list().expect("List").clone_in(mcx)?)
+    out.as_list().expect("List").clone_in(mcx)
 }
 
 fn rv_mutate<'mcx>(

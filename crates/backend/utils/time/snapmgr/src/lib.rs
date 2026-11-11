@@ -1147,7 +1147,7 @@ pub fn ImportSnapshot(idstr: &str) -> PgResult<()> {
     let mut lines = text.lines();
     let mut field = |prefix: &str| -> PgResult<&str> {
         let line = lines.next().ok_or_else(invalid)?;
-        line.strip_prefix(prefix).ok_or_else(|| invalid().into())
+        line.strip_prefix(prefix).ok_or_else(&invalid)
     };
 
     let vxid_raw = field("vxid:")?;

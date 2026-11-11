@@ -147,7 +147,7 @@ fn run(w: u16, member_w: u16, drain: bool, pulls: bool) -> Result<Vec<Vec<u64>>>
     let mut sink = LegSink::new(true);
     let plan = Pw { inner: FixturePlan::new(&program, &derive, w, 3), member_w, drain, frame: Cell::new(None) };
     PLAN.store(&plan as *const Pw as *mut Pw, Relaxed);
-    (LANDED.store(0, Relaxed), EMIT_SAW.store(-1, Relaxed), EMIT_PULLS.store(pulls as u8, Relaxed));
+    LANDED.store(0, Relaxed); EMIT_SAW.store(-1, Relaxed); EMIT_PULLS.store(pulls as u8, Relaxed);
     let r = run_planned(&mut entry, &program, &mut derive, &pool, &plan, gravity_driver::Grant::of(64 << 20), &[1_000_000], &NO_ABORT, &mut sink);
     PLAN.store(core::ptr::null_mut(), Relaxed);
     r.map(|_| sink.sorted())

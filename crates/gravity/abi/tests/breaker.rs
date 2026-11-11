@@ -662,6 +662,8 @@ mod phase1 {
     /// does: none for a fresh table or a reset pool, the few buffered partitions across the mask words' edges (0, 63, 64,
     /// 200, 255 of 256), every one when every partition buffers.
     #[test]
+    // The loop's condition reads through a raw pointer that insert() writes; clippy cannot see that.
+    #[allow(clippy::while_immutable_condition)]
     fn held_chains_marks_the_partitions_whose_chain_holds_a_record() {
         let l = RecordLayout::new_nn(&[KeyKind::I64], &[SlotKind::Count]);
         let limit = 4 << 20;
@@ -818,7 +820,7 @@ mod phase1 {
             assert!(unsafe { T1::drain_below(t, 0, i64::MAX) });
         }
         for i in 0..300u64 {
-            insert(t, [((i * 31) % 997) as u64]);
+            insert(t, [(((i * 31) % 997))]);
         }
         let h = unsafe { (*t).held() } as usize;
         assert!(h > 4000, "held {h}");
@@ -858,7 +860,7 @@ mod phase1 {
         };
         for claim in 0..6u64 {
             for i in 0..700u64 {
-                insert(t, [((i * 7919 + claim * 104_729) % 1500) as u64 + 100]);
+                insert(t, [((i * 7919 + claim * 104_729) % 1500) + 100]);
             }
             assert!(unsafe { T1::drain_below(t, 0, i64::MAX) });
         }
@@ -884,8 +886,8 @@ mod phase1 {
         let mut all: Vec<i64> = chains(t).concat();
         let mut want_all: Vec<i64> = want.concat();
         want_all.extend(0..997i64);
-        (all.sort_unstable(), want_all.sort_unstable());
-        (all.dedup(), want_all.dedup());
+        all.sort_unstable(); want_all.sort_unstable();
+        all.dedup(); want_all.dedup();
         assert_eq!(all, want_all, "the kept keys and the new ones (a key evicted and reopened may hold two records)");
         // a bound under every key empties every chain; the pool is whole again and takes appends
         let mut map = vec![0u32; unsafe { (*t).nblocks } as usize];
@@ -1561,7 +1563,7 @@ fn a_key_layout_raises_where_its_extremes_tie_at_two_dscales() {
     // no tie: the extremes as the word order picks them
     assert_eq!(merge(&l, (key(10, 1), key(20, 1)), (key(5, 2), key(30, 2)), false), (true, Some(AggSlot::MinI64(key(5, 2))), Some(AggSlot::MaxI64(key(30, 2)))));
     // a tie at one dscale is one value's one text: no raise
-    assert_eq!(merge(&l, (key(10, 1), key(20, 1)), (key(10, 1), key(20, 1)), false).0, true);
+    assert!(merge(&l, (key(10, 1), key(20, 1)), (key(10, 1), key(20, 1)), false).0);
     // the destination empty: it takes the source, nothing to tie
     assert_eq!(merge(&l, (0, 0), (key(10, 2), key(20, 2)), true), (true, Some(AggSlot::MinI64(key(10, 2))), Some(AggSlot::MaxI64(key(20, 2)))));
     // 1.0 against 1.00 at the min, then at the max (a negative value's key too): the merge cannot know the later row
@@ -1719,7 +1721,7 @@ fn a_key_layout_folds_its_side_companion_with_its_key() {
             let (o, bit) = l.valid_bit(2);
             unsafe {
                 (p.add(l.slot_off(2) as usize) as *mut u64).write(s);
-                *p.add(o as usize) |= 1 << bit;
+                *p.add(o) |= 1 << bit;
             }
         }
     };

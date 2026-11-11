@@ -29,8 +29,8 @@ pub fn pg_rusage_init() -> PgRUsage {
         libc::getrusage(RUSAGE_WHO, &mut ru);
     }
     PgRUsage {
-        tv_sec: tv.tv_sec as i64,
-        tv_usec: tv.tv_usec as i64,
+        tv_sec: tv.tv_sec,
+        tv_usec: tv.tv_usec,
         ru_utime_sec: ru.ru_utime.tv_sec as i64,
         ru_utime_usec: ru.ru_utime.tv_usec as i64,
         ru_stime_sec: ru.ru_stime.tv_sec as i64,

@@ -774,7 +774,7 @@ mod tests {
     fn tablespace_line_truncated_at_1023_bytes_like_c() {
         // C caps the de-escaped line at MAXPGPATH - 1 = 1023 bytes.
         let mut line = b"1 ".to_vec();
-        line.extend(std::iter::repeat(b'a').take(1500));
+        line.extend(std::iter::repeat_n(b'a', 1500));
         line.push(b'\n');
         let ts = parse_tablespace_map_content(&line).unwrap();
         assert_eq!(ts[0].path.len(), 1021);

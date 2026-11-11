@@ -99,6 +99,12 @@ pub struct BtScanInsert {
     scankeys: [MaybeUninit<ScanKeyData>; INDEX_MAX_KEYS as usize],
 }
 
+impl Default for BtScanInsert {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BtScanInsert {
     pub fn new() -> Self {
         BtScanInsert {
@@ -866,18 +872,16 @@ pub(crate) fn bt_next<R: BtReadRel + ?Sized>(
 
     if ScanDirectionIsForward(dir) {
         ctx.so.currPos.itemIndex += 1;
-        if ctx.so.currPos.itemIndex > ctx.so.currPos.lastItem {
-            if !bt_steppage(ctx, dir)? {
+        if ctx.so.currPos.itemIndex > ctx.so.currPos.lastItem
+            && !bt_steppage(ctx, dir)? {
                 return Ok(false);
             }
-        }
     } else {
         ctx.so.currPos.itemIndex -= 1;
-        if ctx.so.currPos.itemIndex < ctx.so.currPos.firstItem {
-            if !bt_steppage(ctx, dir)? {
+        if ctx.so.currPos.itemIndex < ctx.so.currPos.firstItem
+            && !bt_steppage(ctx, dir)? {
                 return Ok(false);
             }
-        }
     }
 
     bt_returnitem(ctx);

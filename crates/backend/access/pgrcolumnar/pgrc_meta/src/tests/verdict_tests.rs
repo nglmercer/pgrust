@@ -509,7 +509,7 @@ fn coarse_text_probe_battery_holds_the_differential() {
             ];
             for (probe, val_passes) in probes {
                 checked_evaluate(&profile, &rec, n, bloom, &probe, |r| {
-                    vals[r as usize].map(|v| val_passes(v))
+                    vals[r as usize].map(&val_passes)
                 });
             }
         }
@@ -597,7 +597,7 @@ fn permuted_contents_produce_identical_verdicts() {
             if rng.chance(1, 5) {
                 None
             } else {
-                Some(TestValue::Word((rng.next() % 30) as u64))
+                Some(TestValue::Word(((rng.next() % 30))))
             }
         })
         .collect();

@@ -1493,7 +1493,7 @@ fn fc_cash_dist(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datu
 
 fn fc_oid_dist(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let (a, b) = (fcinfo.arg(0).as_oid(), fcinfo.arg(1).as_oid());
-    Ok(Datum::from_oid(if a < b { b - a } else { a - b }))
+    Ok(Datum::from_oid(b.abs_diff(a)))
 }
 
 // upstream 1e1d07792e08 (18.5): btree_gist: fix NaN handling in float4/float8 opclasses.

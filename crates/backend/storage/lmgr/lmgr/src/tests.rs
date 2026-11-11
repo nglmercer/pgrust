@@ -197,7 +197,7 @@ fn set_locktag_encodings_match_lock_h() {
     assert_eq!(tag_fields(LOCKTAG::speculative_insertion(724, 2)), (724, 2, 0, 0, 7, 1));
     assert_eq!(
         tag_fields(LOCKTAG::object(5, 1259, 16384, 3)),
-        (5, 1259, 16384, 3, LOCKTAG_OBJECT as u8, DEFAULT_LOCKMETHOD)
+        (5, 1259, 16384, 3, LOCKTAG_OBJECT, DEFAULT_LOCKMETHOD)
     );
     assert_eq!(tag_fields(LOCKTAG::advisory(1, 2, 3, 4)), (1, 2, 3, 4, 10, USER_LOCKMETHOD));
     assert_eq!(tag_fields(LOCKTAG::apply_transaction(5, 20000, 724, 1)), (5, 20000, 724, 1, 11, 1));
@@ -240,7 +240,7 @@ fn shared_relation_tag_uses_invalid_db_oid() {
     LockRelationOid(SHARED_REL, RowExclusiveLock).unwrap();
     let evs = take_events();
     let Ev::Acquire(tag, ..) = &evs[0] else { panic!("{evs:?}") };
-    assert_eq!(tag_fields(*tag), (0, SHARED_REL, 0, 0, LOCKTAG_RELATION as u8, 1));
+    assert_eq!(tag_fields(*tag), (0, SHARED_REL, 0, 0, LOCKTAG_RELATION, 1));
 }
 
 #[test]
@@ -322,7 +322,7 @@ fn xact_lock_table_insert_and_delete() {
     XactLockTableInsert(724).unwrap();
     XactLockTableDelete(724).unwrap();
     let tag = LOCKTAG::transaction(724);
-    assert_eq!(tag_fields(tag).4, LOCKTAG_TRANSACTION as u8);
+    assert_eq!(tag_fields(tag).4, LOCKTAG_TRANSACTION);
     assert_eq!(
         take_events(),
         vec![
@@ -421,7 +421,7 @@ fn xact_lock_table_wait_decorates_log_reports_raised_while_waiting() {
     LOG_ON_ACQUIRE.set(false);
     elog::set_emit_log_hook(prev);
     let after = WAIT_LOGS.lock().unwrap();
-    let last = after.iter().filter(|r| r.0 == me).last().unwrap();
+    let last = after.iter().filter(|r| r.0 == me).next_back().unwrap();
     assert_eq!(last.1.context, None);
 }
 
@@ -563,7 +563,7 @@ fn tuple_lock_tag_splits_item_pointer() {
         0x0001_0002,
         12,
     );
-    assert_eq!(tag_fields(tag).4, LOCKTAG_TUPLE as u8);
+    assert_eq!(tag_fields(tag).4, LOCKTAG_TUPLE);
     assert_eq!(
         take_events(),
         vec![
@@ -589,7 +589,7 @@ fn page_lock_cycle_and_conditional_backoff() {
     assert!(!ConditionalLockPage(&rel, 0, ExclusiveLock).unwrap());
     assert!(ConditionalLockPage(&rel, 0, ExclusiveLock).unwrap());
     let tag = LOCKTAG::page(DB, PLAIN_REL, 0);
-    assert_eq!(tag_fields(tag).4, LOCKTAG_PAGE as u8);
+    assert_eq!(tag_fields(tag).4, LOCKTAG_PAGE);
     assert_eq!(
         take_events(),
         vec![

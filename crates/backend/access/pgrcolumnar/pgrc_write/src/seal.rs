@@ -785,7 +785,7 @@ impl PartAsm {
     /// The streamed seal: write one stream's image through at `flushed` (nothing is buffered, so it is 8-aligned),
     /// then the zeros to the next 8-byte boundary that the next piece's padding would write. No copy of the image.
     fn push_write(&mut self, mut out: StreamOut, vfs: &mut dyn WriteVfs, fd: &WvFd) -> WriteResult<()> {
-        if !self.buf.is_empty() || self.flushed % 8 != 0 {
+        if !self.buf.is_empty() || !self.flushed.is_multiple_of(8) {
             return Err(WriteError::Contract { detail: "a streamed stream written over buffered bytes" });
         }
         let (base, head, img) = (self.flushed, std::mem::take(&mut out.head), std::mem::take(&mut out.buf));
@@ -3555,7 +3555,7 @@ fn seal_array_dual(
             for (bs, key, vt, datums, class) in legs {
                 let n = datums.len() as u32;
                 if datum_scratch.len() < datums.len() {
-                    datum_scratch.with_vec(|v| v.try_reserve_exact(datums.len() - v.len())).map_err(|_| WriteError::Format(pgrc_format::FormatError::OutOfMemory { bytes: datums.len() * core::mem::size_of::<u64>() }))?; // alloc: Exec charged datum_scratch.owner()
+                    datum_scratch.with_vec(|v| v.try_reserve_exact(datums.len() - v.len())).map_err(|_| WriteError::Format(pgrc_format::FormatError::OutOfMemory { bytes: std::mem::size_of_val(datums) }))?; // alloc: Exec charged datum_scratch.owner()
                     datum_scratch.with_vec(|v| v.resize(datums.len(), 0)); // alloc: Exec charged datum_scratch.owner()
                 }
                 let ctx = KernelCtx {
@@ -4194,7 +4194,7 @@ fn cluster_sort(
         let vholds: Vec<Option<Vec<Option<Vec<u8>>>>> = vcols
             .iter()
             .zip(decls)
-            .map(|(col, d)| Ok((!d.path.is_empty()).then(|| path_values(col, &d.path)).transpose()?))
+            .map(|(col, d)| (!d.path.is_empty()).then(|| path_values(col, &d.path)).transpose())
             .collect::<WriteResult<_>>()?;
         let mut vkeys: Vec<(Vec<KeySlot<'_>>, &ClusterKeyDecl)> = Vec::new();
         for ((col, d), hold) in vcols.iter().zip(decls).zip(&vholds) {

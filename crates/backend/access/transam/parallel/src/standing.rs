@@ -570,7 +570,7 @@ pub fn try_engage(shared: &Arc<ParallelShared>, dop: usize) -> Option<Arc<Standi
             *s = SlotState::Live;
         }
     }
-    if !g.slots.iter().any(|s| *s == SlotState::Live) {
+    if !g.slots.contains(&SlotState::Live) {
         return None;
     }
     let entry = Arc::new(StandingEngagement {
@@ -839,19 +839,16 @@ pub fn gang_worker_loop(_ordinal: usize) -> GangExit {
                         break Wake::Retire;
                     }
                 }
-                match g.current.as_ref() {
-                    Some(entry) => {
-                        let db = entry.shared.database_id;
-                        let mine = init_small::globals::MyDatabaseId();
-                        // DB-pinning (TD-1): unconnected workers adopt the
-                        // engagement's database; connected ones only serve
-                        // their own. Mismatch = parked non-participation.
-                        if mine == InvalidOid || mine == db {
-                            break Wake::Engage(Arc::clone(entry));
-                        }
-                        break Wake::Blocked(Arc::clone(entry));
+                if let Some(entry) = g.current.as_ref() {
+                    let db = entry.shared.database_id;
+                    let mine = init_small::globals::MyDatabaseId();
+                    // DB-pinning (TD-1): unconnected workers adopt the
+                    // engagement's database; connected ones only serve
+                    // their own. Mismatch = parked non-participation.
+                    if mine == InvalidOid || mine == db {
+                        break Wake::Engage(Arc::clone(entry));
                     }
-                    None => {}
+                    break Wake::Blocked(Arc::clone(entry));
                 }
                 g = cv.wait(g).unwrap_or_else(|p| p.into_inner());
             }

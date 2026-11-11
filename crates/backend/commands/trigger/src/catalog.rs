@@ -233,7 +233,7 @@ pub fn CreateTriggerFiringOn<'mcx>(
                     format!("relation \"{relname}\" cannot have triggers"),
                     ERRCODE_WRONG_OBJECT_TYPE,
                 ))
-                .with_detail(relkind_not_supported_detail(other as u8)?),
+                .with_detail(relkind_not_supported_detail(other)?),
             ));
         }
     }
@@ -904,7 +904,7 @@ fn check_when_var(
     var: &Var,
     tgtype: i16,
 ) -> PgResult<()> {
-    match var.varno as i32 {
+    match var.varno {
         PRS2_OLD_VARNO => {
             if tgtype & TRIGGER_TYPE_ROW == 0 {
                 return Err(when_err(
@@ -1045,7 +1045,7 @@ fn build_columns<'mcx>(
                 ERRCODE_UNDEFINED_COLUMN,
             ));
         }
-        if attnums.iter().any(|&a| a == attnum) {
+        if attnums.contains(&attnum) {
             return Err(err(
                 format!("column \"{name}\" specified more than once"),
                 ERRCODE_DUPLICATE_COLUMN,

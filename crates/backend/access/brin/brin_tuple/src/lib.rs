@@ -26,7 +26,7 @@ const fn maxalign(x: usize) -> usize {
 
 #[inline]
 const fn bitmaplen(natts: usize) -> usize {
-    (natts + 7) / 8
+    natts.div_ceil(8)
 }
 
 pub use ::adt_scalar::datum_ops::datum_copy;

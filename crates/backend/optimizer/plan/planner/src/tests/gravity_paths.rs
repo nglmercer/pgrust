@@ -110,7 +110,7 @@ fn nulls_first_census_counts_the_granules_holding_a_null() {
     assert_eq!(spread.survivors, 1, "the fewest granules the NULLs fill");
     let wider = nulls_first_census(&z, 10, false, 8_192, rows, 40.0 * rows, 0.0).unwrap();
     assert_eq!(wider.survivors, 41, "forty granules of NULLs and the keyed census's one");
-    z.extend(std::iter::repeat((i64::MAX, i64::MIN)).take(8));
+    z.extend(std::iter::repeat_n((i64::MAX, i64::MIN), 8));
     let held = nulls_first_census(&z, 10, false, 8_192, rows, 8.0 * rows, 0.0).unwrap();
     assert_eq!(held, ZoneCensus { survivors: 9, keyed: G, granules: G + 8 });
     let noisy = nulls_first_census(&z, 10, false, 8_192, rows, 8.0 * rows + 1_573.0, 0.0).unwrap();
@@ -868,7 +868,7 @@ fn pass1_records_are_the_key_the_count_and_the_extreme() {
 fn spread_candidates_grow_with_the_rows_a_key() {
     assert!((spread_candidates(1e6, 1e6, 10.0) - extreme_candidates(1e6, 1e6, 10.0)).abs() < 1e-6);
     let (few, many) = (spread_candidates(1e6, 5e5, 10.0), spread_candidates(1e6, 1e3, 10.0));
-    assert!(few < 1e4 && few >= 10.0, "two rows a key admit under 1 % of the rows: {few}");
+    assert!((10.0..1e4).contains(&few), "two rows a key admit under 1 % of the rows: {few}");
     assert!(many > 0.99e6, "a thousand rows a key admit nearly all: {many}");
     assert_eq!(spread_candidates(0.0, 5.0, 10.0), 0.0);
     assert_eq!(spread_candidates(1e6, 5.0, 10.0), 1e6);

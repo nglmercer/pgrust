@@ -71,7 +71,7 @@ impl RowOracle for LadderOracle {
             _ => {
                 if row % 5 == 2 {
                     None
-                } else if row % 13 == 0 {
+                } else if row.is_multiple_of(13) {
                     Some(OracleVal::Bytes(Vec::new()))
                 } else {
                     let len = 3 + (mix(row) % 60) as usize;
@@ -142,7 +142,7 @@ pub fn run_rounds(
         .as_ref()
         .map(|m| m.parts.iter().map(|p| p.rows).sum())
         .unwrap_or(0);
-    if total % rows_per_round != 0 {
+    if !total.is_multiple_of(rows_per_round) {
         return Err(WriteError::Contract {
             detail: "recovered row total is not a whole number of rounds",
         });

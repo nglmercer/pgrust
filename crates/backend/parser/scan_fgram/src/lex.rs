@@ -88,7 +88,7 @@ impl<'mcx> Scanner<'mcx> {
                 }
                 Ok(Lex::Continue)
             }
-            5 | 6 | 7 => Ok(Lex::Continue),
+            5..=7 => Ok(Lex::Continue),
             8 => {
                 self.set_yylloc();
                 self.state = State::Xb;
@@ -382,7 +382,7 @@ impl<'mcx> Scanner<'mcx> {
                 self.set_yylloc();
                 Err(self.yyerr("trailing junk after parameter"))
             }
-            57 | 58 | 59 | 60 => {
+            57..=60 => {
                 self.set_yylloc();
                 Ok(self.process_integer_literal())
             }
@@ -407,7 +407,7 @@ impl<'mcx> Scanner<'mcx> {
                 self.set_yylloc();
                 Ok(self.process_integer_literal())
             }
-            67 | 68 | 69 | 70 => {
+            67..=70 => {
                 self.set_yylloc();
                 Err(self.yyerr("trailing junk after numeric literal"))
             }

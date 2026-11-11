@@ -27,7 +27,7 @@ pub fn GetDatabasePath<'mcx>(mcx: Mcx<'mcx>, dbOid: Oid, spcOid: Oid) -> PgResul
     } else {
         format!("{PG_TBLSPC_DIR}/{spcOid}/{TABLESPACE_VERSION_DIRECTORY}/{dbOid}")
     };
-    Ok(PgString::from_str_in(&s, mcx)?)
+    PgString::from_str_in(&s, mcx)
 }
 
 pub fn GetRelationPath(

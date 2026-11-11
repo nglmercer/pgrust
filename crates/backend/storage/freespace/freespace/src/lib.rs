@@ -312,7 +312,7 @@ fn fsm_space_needed_to_cat(needed: Size) -> PgResult<u8> {
     if needed == 0 {
         return Ok(1);
     }
-    let cat = (needed + FSM_CAT_STEP - 1) / FSM_CAT_STEP;
+    let cat = needed.div_ceil(FSM_CAT_STEP);
     if cat > 255 {
         return Ok(255);
     }

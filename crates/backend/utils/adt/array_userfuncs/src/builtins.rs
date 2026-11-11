@@ -285,10 +285,10 @@ struct PosMemo {
     proc: FmgrInfo,
 }
 
-fn cached_pos_memo<'f>(
-    flinfo: &'f mut FmgrInfo,
+fn cached_pos_memo(
+    flinfo: &mut FmgrInfo,
     element_type: Oid,
-) -> PgResult<&'f mut PosMemo> {
+) -> PgResult<&mut PosMemo> {
     let need = match flinfo.fn_extra_ref::<PosMemo>() {
         Some(m) => m.meta.element_type != element_type,
         None => true,

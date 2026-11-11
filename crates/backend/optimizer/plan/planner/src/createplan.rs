@@ -408,7 +408,7 @@ fn create_scan_plan<'mcx>(
         // Parameterized paths enforce their movable join clauses at the scan.
         if let Some(ppi) = run.root.path(best_path).base().param_info.as_deref() {
             for &rid in ppi.ppi_clauses.iter() {
-                if !v.iter().any(|&x| x == rid) {
+                if !v.contains(&rid) {
                     v.push(rid);
                 }
             }
@@ -1129,7 +1129,7 @@ fn create_tidscan_plan<'mcx>(
             if run.root.rinfo(rid).pseudoconstant {
                 continue;
             }
-            if tidqual_rids.iter().any(|&t| t == rid) {
+            if tidqual_rids.contains(&rid) {
                 continue;
             }
             if is_redundant_derived_clause(run, rid, &tidqual_rids) {
@@ -1199,7 +1199,7 @@ fn create_tidrangescan_plan<'mcx>(
         if run.root.rinfo(rid).pseudoconstant {
             continue;
         }
-        if tidrangequal_rids.iter().any(|&t| t == rid) {
+        if tidrangequal_rids.contains(&rid) {
             continue;
         }
         qpqual_rids.push(rid);
@@ -1554,7 +1554,7 @@ fn create_worktablescan_plan<'mcx>(
         .root
         .self_ref_wt_params
         .iter()
-        .find(|&&(rti, _)| rti == scan_relid as u32)
+        .find(|&&(rti, _)| rti == scan_relid)
         .map_or(-1, |&(_, p)| p);
     if wt_param < 0 {
         return Err(Box::new(types_error::PgError::error(format!(
@@ -1697,7 +1697,7 @@ fn create_indexscan_plan<'mcx>(
             let clause = *run.root.expr_node(nid);
             indexorderbys.lappend(mcx, clause)?;
             fixed_indexorderbys
-                .lappend(mcx, fix_indexqual_clause(run, &index, col, clause, &no_indexcolnos)?)?;
+                .lappend(mcx, fix_indexqual_clause(run, index, col, clause, &no_indexcolnos)?)?;
         }
     }
 
@@ -2118,7 +2118,7 @@ fn fix_indexqual_references<'mcx>(
             stripped.lappend(mcx, clause)?;
             fixed.lappend(
                 mcx,
-                fix_indexqual_clause(run, &index, ic.indexcol as i32, clause, &ic.indexcols)?,
+                fix_indexqual_clause(run, index, ic.indexcol as i32, clause, &ic.indexcols)?,
             )?;
         }
     }
@@ -4903,7 +4903,7 @@ fn create_mergejoin_plan<'mcx>(
                 outer_plan,
                 &outersortkeys,
                 &outer_relids,
-                outer_presorted_keys as i32,
+                outer_presorted_keys,
             )?;
             label_incrementalsort_with_costsize(run, sort_plan, &outersortkeys, -1.0)?;
             outer_plan = sort_plan;

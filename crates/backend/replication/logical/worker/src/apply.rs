@@ -1659,7 +1659,7 @@ fn apply_handle_tuple_routing<'mcx>(
     // The partition set can change, so CREATE/ALTER SUBSCRIPTION-time
     // checks are insufficient.
     let (partnsp, partname) = partition_names(mcx, &partrel)?;
-    logicalrelation::check_relkind(partrel.rd_rel.relkind as u8, &partnsp, &partname)?;
+    logicalrelation::check_relkind(partrel.rd_rel.relkind, &partnsp, &partname)?;
 
     let root_to_leaf = proute.leaf_attrmap(idx);
     let mut remoteslot_part = tableam_real::table_slot_create(mcx, &partrel)?;
@@ -1675,7 +1675,7 @@ fn apply_handle_tuple_routing<'mcx>(
                 mcx,
                 entry,
                 &partrel,
-                root_to_leaf.as_deref(),
+                root_to_leaf,
             )?;
             check_relation_updatable(mcx, &partrel, &part_entry)?;
 
@@ -1717,7 +1717,7 @@ fn apply_handle_tuple_routing<'mcx>(
                 mcx,
                 entry,
                 &partrel,
-                root_to_leaf.as_deref(),
+                root_to_leaf,
             )?;
             check_relation_updatable(mcx, &partrel, &part_entry)?;
 
@@ -1769,7 +1769,7 @@ fn apply_handle_tuple_routing<'mcx>(
                 // the old partition, re-route via the root, and INSERT into
                 // the new one.
                 let mut rootslot = tableam_real::table_slot_create(mcx, rel)?;
-                match root_to_leaf.as_deref() {
+                match root_to_leaf {
                     Some(_) => {
                         let leaf_to_root =
                             tupdesc::build_attrmap_by_name(mcx, &partrel.rd_att, &rel.rd_att)?;

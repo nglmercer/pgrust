@@ -181,7 +181,7 @@ mod alloc_track {
         let mut prev = 0usize;
         while n < BT_DEPTH
             && fp > prev
-            && fp % 8 == 0
+            && fp.is_multiple_of(8)
             && (prev == 0 || fp - prev < (64 << 20))
         {
             let lr = *((fp + 8) as *const usize);
@@ -350,7 +350,7 @@ fn mempolicy_knob_on(policy: &[u8], knob: &[u8]) -> Option<bool> {
         let (Some(k), Some(v)) = (kv.next(), kv.next()) else { return None };
         let (k, v) = (k.trim_ascii(), v.trim_ascii());
         (k == knob && !v.is_empty() && v.iter().all(u8::is_ascii_digit)).then(|| v.iter().any(|&b| b != b'0'))
-    }).last()
+    }).next_back()
 }
 
 /// `mempolicy_knob_on`'s integer: the last entry naming `knob` with an integer (pagepool P2: the pool's knobs, read at the
@@ -365,7 +365,7 @@ fn mempolicy_knob_u64(policy: &[u8], knob: &[u8]) -> Option<u64> {
             return None;
         }
         v.iter().try_fold(0u64, |n, &d| n.checked_mul(10)?.checked_add(u64::from(d - b'0')))
-    }).last()
+    }).next_back()
 }
 
 // Opt-in allocator settings (lane memfree, memresearch (c)), PGRUST_ALLOC_TUNE=1:

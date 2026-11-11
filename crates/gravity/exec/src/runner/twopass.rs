@@ -16,7 +16,7 @@ impl RunnerPlan {
     /// After pass 1: the exported keys counted and pass 2's claims cut to their granules (an unowned result: pass 2 reads
     /// every claim). Pass 2's admitted set is the protocol's (`hosts::ops::agg::hosts::admit_set`, sized from these keys).
     pub(super) fn build_admit_set(&self, exec: &mut Exec) -> gravity_driver::Result<()> {
-        let Some(slot) = self.program.pipelines[self.pass1 as usize].produces() else { return Ok(()) };
+        let Some(slot) = self.program.pipelines[self.pass1].produces() else { return Ok(()) };
         let owner = exec.node_mut().slot_owner(slot);
         let region = exec.node_mut().slot_region(slot);
         if !raw::is_owned(region) {
@@ -89,7 +89,7 @@ impl RunnerPlan {
 /// key rendered through the leader's source (the layout's code keys in key order are the site's code
 /// lanes in lane order), its word replaced by the value datum; the records ordered by the keys (a code
 /// key by its bytes, C collation), equal keys folded (`Rec::fold`), the table left `DENSE`.
-pub(super) fn fold_codes_by_value(exec: &mut Exec, site: usize, params: &[u64]) -> gravity_driver::Result<()> {
+pub(super) fn fold_codes_by_value(exec: &mut Exec, site: usize, _params: &[u64]) -> gravity_driver::Result<()> {
     let node = exec.node_mut();
     let slot = node.program().pipelines[0].produces().unwrap_or(0);
     let owner = node.slot_owner(slot);

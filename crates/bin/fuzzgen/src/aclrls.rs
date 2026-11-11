@@ -506,7 +506,7 @@ fn gen_grant_defacl(g: &mut Gen) -> Vec<StmtKind> {
         "ALTER DEFAULT PRIVILEGES{} GRANT USAGE ON SEQUENCES TO {};",
         sc, d1
     ));
-    out.push(format!("SELECT count(*) FROM pg_default_acl;"));
+    out.push("SELECT count(*) FROM pg_default_acl;".to_string());
     out.push(format!("CREATE TABLE {} (a int PRIMARY KEY, b text);", dtab));
     out.push(format!("CREATE SEQUENCE {};", dseq));
     // Probe: the default grant is present on the new objects.
@@ -737,9 +737,7 @@ fn gen_aclitem(g: &mut Gen) -> Vec<StmtKind> {
         3 => {
             // aclmembers via the aclitemin/array path: build a 2-item acl and
             // check containment + equality (aclcontains, aclitem_eq).
-            format!(
-                "SELECT aclcontains(ARRAY[aclitemin('postgres=arwdDxtm/postgres'), aclitemin('=r/postgres')], aclitemin('=r/postgres'));"
-            )
+            "SELECT aclcontains(ARRAY[aclitemin('postgres=arwdDxtm/postgres'), aclitemin('=r/postgres')], aclitemin('=r/postgres'));".to_string()
         }
         4 => {
             // acldefault ::text directly (acldefault + aclitemout array path).

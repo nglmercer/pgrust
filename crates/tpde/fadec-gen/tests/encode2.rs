@@ -44,7 +44,7 @@ mod runtime {
 #[test]
 fn uniqueness_rejects_empty_and_conflicting_sets() {
     use tpde_fadec_gen::encode2::unique;
-    assert_eq!(unique([false, false, false]).unwrap(), false);
+    assert!(!unique([false, false, false]).unwrap());
     assert_eq!(
         unique([("GP", "XMM"), ("GP", "XMM")]).unwrap(),
         ("GP", "XMM")

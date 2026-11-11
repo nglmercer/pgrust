@@ -385,7 +385,7 @@ fn wave3_an_arena_draws_past_its_inline_chunk_table_its_overflow_charged_to_the_
             assert_eq!(s.chunk_draws(), n as u64, "the handle's bytes in the newest chunk, past the inline table");
             assert_eq!(s.read(b), &[5u8; 100][..], "a handle into an overflow chunk reads back");
             let table = usage(slot).held - made - s.chunk_bytes() as i64;
-            assert!(table >= 12 * 24 && table < 64 << 10, "the overflow table's bytes on the owner: {table}");
+            assert!((12 * 24..64 << 10).contains(&table), "the overflow table's bytes on the owner: {table}");
             s.reset();
             assert_eq!(s.chunk_bytes(), 0);
             assert_eq!(usage(slot).held, made + table, "every chunk back at the reset, the table kept");

@@ -163,6 +163,8 @@ impl<'mcx> SharedTuplestoreAccessor<'mcx> {
     }
 
     // C stores to the accessor's own participant slot outside the lock.
+    // clippy::mut_from_ref is intended: the slot is written through its UnsafeCell by its owning participant only.
+    #[allow(clippy::mut_from_ref)]
     unsafe fn participant_mut(&self, i: i32) -> &mut StsParticipantState {
         &mut *self.sts.participants[i as usize].state.get()
     }
@@ -267,7 +269,7 @@ impl<'mcx> SharedTuplestoreAccessor<'mcx> {
                 while size > 0 {
                     self.flush_chunk()?;
                     let overflow =
-                        ((size + STS_CHUNK_DATA_SIZE - 1) / STS_CHUNK_DATA_SIZE) as i32;
+                        size.div_ceil(STS_CHUNK_DATA_SIZE) as i32;
                     let chunk = self.write_chunk.as_mut().expect("chunk allocated");
                     chunk[4..8].copy_from_slice(&overflow.to_ne_bytes());
                     let written_this_chunk = size.min(STS_CHUNK_SIZE - self.write_pointer);

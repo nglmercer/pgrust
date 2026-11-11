@@ -323,7 +323,7 @@ mod tests {
 
     #[test]
     fn all_register_bits_assign_update_release_and_clobber() {
-        let mut file = RegisterFile::<2, 32>::new();
+        let file = RegisterFile::<2, 32>::new();
         for id in 0..64 {
             let reg = Reg::new(id);
             file.mark_used(reg, ValLocalIdx::new(id as u32), u32::MAX);
@@ -352,7 +352,7 @@ mod tests {
 
     #[test]
     fn nested_lock_transitions_and_bulk_unlock() {
-        let mut file = RegisterFile::<1, 1>::new();
+        let file = RegisterFile::<1, 1>::new();
         let reg = Reg::new(0);
         file.mark_used(reg, ValLocalIdx::new(0), 0);
         file.mark_fixed(reg);
@@ -379,7 +379,7 @@ mod tests {
 
     #[test]
     fn reset_preserves_assignments_and_allocatable() {
-        let mut file = RegisterFile::<2, 32>::new();
+        let file = RegisterFile::<2, 32>::new();
         file.allocatable.set(0xaaaa_ffff_5555_ffff);
         file.clocks[0].set(17);
         file.clocks[1].set(31);
@@ -408,7 +408,7 @@ mod tests {
 
     #[test]
     fn selections_follow_bank_masks_exclusions_and_lock_order() {
-        let mut file = RegisterFile::<2, 32>::new();
+        let file = RegisterFile::<2, 32>::new();
         file.allocatable.set(u64::MAX);
         for id in 0..64 {
             let bank = RegBank::new((id / 32) as u8);
@@ -458,7 +458,7 @@ mod tests {
             assert!(catch_unwind(|| RegisterFile::<1, 64>::bank_regs(RegBank::new(1))).is_err());
             assert!(catch_unwind(|| RegisterFile::<2, 32>::bank_regs(RegBank::new(2))).is_err());
         }
-        let mut file = RegisterFile::<1, 64>::new();
+        let file = RegisterFile::<1, 64>::new();
         file.allocatable.set(1 << 63);
         assert_eq!(
             file.find_first_free_excluding(RegBank::new(0), 0),
@@ -477,7 +477,7 @@ mod tests {
         if !tpde_util::CHECKED {
             return;
         }
-        let mut file = RegisterFile::<1, 1>::new();
+        let file = RegisterFile::<1, 1>::new();
         let reg = Reg::new(0);
         assert!(catch_unwind(AssertUnwindSafe(|| file.is_used(Reg::new(1)))).is_err());
         assert!(catch_unwind(AssertUnwindSafe(|| file.is_fixed(Reg::make_invalid()))).is_err());

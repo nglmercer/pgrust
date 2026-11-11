@@ -1350,7 +1350,7 @@ fn deferrable_arbiter(mcx: Mcx<'_>, heap: &Relation<'_>, index: &Relation<'_>) -
 }
 
 fn check_indnatts(numatts: i32, indexoid: Oid) -> PgResult<()> {
-    if numatts < 1 || numatts > INDEX_MAX_KEYS as i32 {
+    if !(1..=INDEX_MAX_KEYS).contains(&numatts) {
         return Err(invalid_indnatts(numatts, indexoid));
     }
     Ok(())

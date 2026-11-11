@@ -354,6 +354,7 @@ fn dict_byte_widths_on() -> bool {
 /// Per-column election posture (caller-supplied through [`CodecCandidates`];
 /// deterministic input to the byte-identical-parts law).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub struct ColumnPosture {
     /// Unlocks the FFOR_INTERLEAVE tier (S4: wins fused, loses flat).
     pub fused: bool,
@@ -369,16 +370,6 @@ pub struct ColumnPosture {
     pub dict: Option<DictPolicy>,
 }
 
-impl Default for ColumnPosture {
-    fn default() -> ColumnPosture {
-        ColumnPosture {
-            fused: false,
-            cold: false,
-            numeric: false,
-            dict: None,
-        }
-    }
-}
 
 /// Everything a full-registry election judges: exact whole-part stats plus
 /// the materialized per-granule inputs (the analyzers are input-decidable
@@ -1116,7 +1107,7 @@ impl CodecCandidates {
         // CONVERT W3-2a: the code arrays on the part's owner as they are built (declared after them: drops first); the
         // plan takes the charge over
         // The section images go on the same charge (declared before it: the charge drops first).
-        let images: DictSectionImages;
+        
         let mut charge = HeldCharge::new(col.owner());
         let mut codes_held = cap_bytes(codes.capacity(), &codes);
         charge.sync(codes_held);
@@ -1156,7 +1147,7 @@ impl CodecCandidates {
         if gated && !ce::wins_by_ten_percent(floor + code_bytes, baseline as usize) {
             return Ok(None);
         }
-        images = built.emit_sections_on(pgrc_format::dict::DictCharLenForm::Absolute, &mut charge, codes_held)?;
+        let images: DictSectionImages = built.emit_sections_on(pgrc_format::dict::DictCharLenForm::Absolute, &mut charge, codes_held)?;
         built.verify_sections(&images)?;
         let dict_bytes = images.index_section.len() + images.payload_section.len();
         // FORMAT-LAYOUT lever A: payload-ratio demotion (see
@@ -1361,7 +1352,7 @@ impl CodecCandidates {
         // CONVERT W3-2a: the code arrays on the part's owner as they are built (declared after them: drops first); the
         // plan takes the charge over
         // The section images go on the same charge (declared before it: the charge drops first).
-        let images: DictSectionImages;
+        
         let mut charge = HeldCharge::new(col.owner());
         let mut codes_held = cap_bytes(codes.capacity(), &codes);
         charge.sync(codes_held);
@@ -1410,7 +1401,7 @@ impl CodecCandidates {
         }
 
         // ---- emit + verify + decide: the rebuild path verbatim -----------
-        images = built.emit_sections_on(pgrc_format::dict::DictCharLenForm::Absolute, &mut charge, codes_held)?;
+        let images: DictSectionImages = built.emit_sections_on(pgrc_format::dict::DictCharLenForm::Absolute, &mut charge, codes_held)?;
         built.verify_sections(&images)?;
         let dict_bytes = images.index_section.len() + images.payload_section.len();
         // FORMAT-LAYOUT lever A: payload-ratio demotion (see

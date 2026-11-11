@@ -251,7 +251,7 @@ pub fn typeInheritsFrom(subclass_type_id: Oid, superclass_type_id: Oid) -> PgRes
     'search: while i < queue.len() {
         let this_relid = queue[i];
         i += 1;
-        if visited.iter().any(|&r| r == this_relid) {
+        if visited.contains(&this_relid) {
             continue;
         }
         visited.push(this_relid);

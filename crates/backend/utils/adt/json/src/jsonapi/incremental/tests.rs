@@ -335,13 +335,13 @@ fn nesting_limit_is_json_td_max_stack() {
     let depth = JSON_TD_MAX_STACK as usize;
 
     let mut ok = vec![b'['; depth];
-    ok.extend(std::iter::repeat(b']').take(depth));
+    ok.extend(std::iter::repeat_n(b']', depth));
     let mut st = JsonLexIncremental::new(PG_UTF8, true);
     let mut ev = Events::default();
     assert_eq!(pg_parse_json_incremental(&mut st, cx.mcx(), &mut ev, &ok, true).unwrap(), JsonError::Success);
 
     let mut too_deep = vec![b'['; depth + 1];
-    too_deep.extend(std::iter::repeat(b']').take(depth + 1));
+    too_deep.extend(std::iter::repeat_n(b']', depth + 1));
     let mut st = JsonLexIncremental::new(PG_UTF8, true);
     let mut ev = Events::default();
     let mut ch = st.chunk(cx.mcx(), &too_deep, true);

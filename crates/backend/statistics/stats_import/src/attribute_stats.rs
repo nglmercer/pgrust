@@ -994,8 +994,7 @@ mod tests {
         let args = [Arg::NULL; C_NUM_ATTRIBUTE_STATS_ARGS];
         let msg = |argnum: usize| {
             stats_check_required_arg(&args, &CLEARARGINFO, argnum)
-                .err()
-                .expect("NULL required argument must fail")
+                .expect_err("NULL required argument must fail")
                 .message()
                 .to_string()
         };

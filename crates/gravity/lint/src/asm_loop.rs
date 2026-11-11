@@ -260,7 +260,7 @@ pub fn blocks(f: &Func) -> Vec<(usize, usize, Vec<usize>)> {
         if x.class == Class::Label {
             leader[i] = true;
         }
-        if x.class == Class::Branch && i + 1 <= n {
+        if x.class == Class::Branch && i < n {
             leader[i + 1] = true;
         }
     }

@@ -308,7 +308,7 @@ fn store_heap<'mcx>(
 #[inline]
 pub fn exec_store_heap_tuple<'mcx>(
     slot: &mut SlotData<'mcx>,
-    mcx: Mcx<'mcx>,
+    _mcx: Mcx<'mcx>,
     tuple: HeapTupleData<'mcx>,
 ) {
     let SlotData::Heap(h) = slot else {
@@ -324,7 +324,7 @@ pub fn exec_store_heap_tuple<'mcx>(
 #[inline]
 pub fn exec_store_heap_tuple_owned<'mcx>(
     slot: &mut SlotData<'mcx>,
-    mcx: Mcx<'mcx>,
+    _mcx: Mcx<'mcx>,
     tuple: HeapTuple<'mcx>,
 ) {
     let SlotData::Heap(h) = slot else {
@@ -363,7 +363,7 @@ fn store_minimal<'mcx>(
 #[inline]
 pub unsafe fn exec_store_minimal_tuple_ptr<'mcx>(
     slot: &mut SlotData<'mcx>,
-    mcx: Mcx<'mcx>,
+    _mcx: Mcx<'mcx>,
     mtup: NonNull<MinimalTupleData>,
 ) {
     let SlotData::Minimal(m) = slot else {
@@ -377,7 +377,7 @@ pub unsafe fn exec_store_minimal_tuple_ptr<'mcx>(
 #[inline]
 pub fn exec_store_minimal_tuple_owned<'mcx>(
     slot: &mut SlotData<'mcx>,
-    mcx: Mcx<'mcx>,
+    _mcx: Mcx<'mcx>,
     mtup: MinimalTuple<'mcx>,
 ) {
     let SlotData::Minimal(m) = slot else {
@@ -1234,7 +1234,7 @@ pub unsafe fn datum_get_heap_tuple_header<'mcx>(
     mcx: Mcx<'mcx>,
     datum: Datum,
 ) -> PgResult<*const HeapTupleHeaderData> {
-    let aligned = |p: *const u8| (p as usize) % core::mem::align_of::<HeapTupleHeaderData>() == 0;
+    let aligned = |p: *const u8| (p as usize).is_multiple_of(core::mem::align_of::<HeapTupleHeaderData>());
     let src = datum.as_usize() as *const u8;
     // SAFETY: caller contract.
     let hdr = unsafe {

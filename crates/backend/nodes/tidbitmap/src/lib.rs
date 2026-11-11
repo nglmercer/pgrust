@@ -887,7 +887,7 @@ impl<'mcx> TIDBitmap<'mcx> {
             let table = self.pagetable.as_ref().expect("TBM_HASH without pagetable");
             let Some(i) = table.iterate(&mut it) else { break };
             let page = table.entry(i);
-            if page.ischunk || page.blockno as usize % PAGES_PER_CHUNK == 0 {
+            if page.ischunk || (page.blockno as usize).is_multiple_of(PAGES_PER_CHUNK) {
                 continue;
             }
             let blockno = page.blockno;

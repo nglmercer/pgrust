@@ -870,7 +870,7 @@ pub fn publish_self_run<'b>(
     let sidecars: Vec<(u32, SidecarKind, u64, &[u8])> = nos.iter().zip(maps).map(|(&no, m)| (no, SidecarKind::RowIdentMap, 1, &m.1[..])).collect();
     let rows: u64 = sealed.iter().map(|s| s.rows).sum();
     let mut edit = |b: Option<&Manifest>, plan: &mut PlanBuilder<'_>| {
-        if !b.is_some_and(|m| m.header.gen == base_gen) || plan.gen() != gen {
+        if b.is_none_or(|m| m.header.gen != base_gen) || plan.gen() != gen {
             return Err(contract("run renumber base generation moved"));
         }
         retire.iter().for_each(|&(no, _)| plan.retire(no));

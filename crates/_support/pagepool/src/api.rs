@@ -149,8 +149,8 @@ static MISS_UNNAMED: AtomicU64 = AtomicU64::new(0);
 fn missed(a: usize, excess: usize, tag: Tag) {
     FIT_TAIL_MISSES.fetch_add(1, Relaxed);
     let page = os::page_size();
-    debug_assert!(a % SUPER == 0 && excess % page == 0 && excess / page < 512 && SUPER / page <= 512);
-    let w = a | (tag.0 as usize) << 9 | excess / page;
+    debug_assert!(a.is_multiple_of(SUPER) && excess.is_multiple_of(page) && excess / page < 512 && SUPER / page <= 512);
+    let w = a | (tag.0 as usize) << 9 | (excess / page);
     if !MISS.iter().any(|e| e.compare_exchange(0, w, Relaxed, Relaxed).is_ok()) {
         MISS_UNNAMED.fetch_add(1, Relaxed);
         return;
@@ -499,11 +499,11 @@ pub unsafe fn resize(p: NonNull<u8>, old: usize, new: usize, align: usize) -> Op
     match info.kind {
         Kind::Blocks { bucket } => {
             let s = run::bucket_bytes(bucket);
-            (new <= s && a % align == 0).then(|| slice(a, s)).flatten()
+            (new <= s && a.is_multiple_of(align)).then(|| slice(a, s)).flatten()
         }
         Kind::Run { runs } => {
             let nk = new.div_ceil(RUN);
-            if a % align != 0 || nk > MAX_RUNS as usize {
+            if !a.is_multiple_of(align) || nk > MAX_RUNS as usize {
                 return None;
             }
             let (k, nk) = (runs as u32, nk as u32);
@@ -538,7 +538,7 @@ pub unsafe fn resize(p: NonNull<u8>, old: usize, new: usize, align: usize) -> Op
                 // ppround (`PGRUST_POOL_FIT_TAIL`): in place up to its superpages, committed to what `usable` says; a
                 // shrink under the commit moves (its pages past the new size may be resident)
                 let want = usable(new, align);
-                if want > s.len() || want < s.committed() || a % align != 0 {
+                if want > s.len() || want < s.committed() || !a.is_multiple_of(align) {
                     return None;
                 }
                 let len = handed(&mut s, want);
@@ -777,7 +777,7 @@ pub(crate) fn release_dead(want: usize, fast: bool) -> usize {
         }
         let j = if keep && span::huge_at(a) {
             // D4760 (`pool_thp_partial` 1): whole dead superpages only; the rest of the dead runs stay held
-            let j = if a % SUPER == 0 { grab_whole(z.pool.lo, i, total, max_batch, true) } else { i };
+            let j = if a.is_multiple_of(SUPER) { grab_whole(z.pool.lo, i, total, max_batch, true) } else { i };
             if j == i {
                 stats::THP_KEPT.fetch_add(1, Relaxed);
                 stats::THP_KEPT_BYTES.fetch_add(RUN as u64, Relaxed);
@@ -927,7 +927,7 @@ pub(crate) fn dead_pass(pass: DeadPass, want: usize, budget: usize, batch: usize
             }
             let j = if keep && span::huge_at(a) {
                 // D4760 (`pool_thp_partial` 1): whole dead superpages only; a superpage in part waits, held
-                if a % SUPER != 0 {
+                if !a.is_multiple_of(SUPER) {
                     i += (SUPER - a % SUPER) / RUN;
                     continue;
                 }

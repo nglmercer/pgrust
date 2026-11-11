@@ -410,7 +410,7 @@ pub fn ean2string(
         } else if prefix_is(b"977-") {
             ty = IsnType::Issn;
             table = Some((ISSN_RANGE, &ISSN_INDEX));
-        } else if n + 1 <= 5 && result[..n + 1] == b"979-0"[..n + 1] {
+        } else if n < 5 && result[..n + 1] == b"979-0"[..n + 1] {
             ty = IsnType::Ismn;
             table = Some((ISMN_RANGE, &ISMN_INDEX));
         } else if prefix_is(b"979-") {

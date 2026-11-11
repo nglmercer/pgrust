@@ -4357,9 +4357,9 @@ pub(crate) fn fix_join_expr_mutator<'mcx>(
                 return fix_join_acceptable_rel_var(mcx, var, rtoffset, node);
             }
             // setrefs.c:3186: elog(ERROR), XX000.
-            return Err(Box::new(types_error::PgError::error(
+            Err(Box::new(types_error::PgError::error(
                 "variable not found in subplan target lists",
-            )));
+            )))
         }
         NodeTag::T_PlaceHolderVar => {
             let phv = node.as_place_holder_var().unwrap();
@@ -5595,6 +5595,28 @@ pub(crate) fn find_minmax_agg_replacement_param<'mcx>(
     None
 }
 
+/// eval_const_expressions with a PlannerInfo (clauses.c:2214): the folded
+/// domains and inlined SQL functions become plan dependencies so the cached
+/// plan is dropped when pg_type/pg_proc change (record_plan_*_dependency).
+pub(crate) fn fold_with_deps<'mcx>(run: &mut PlannerRun<'mcx>, expr: Node<'mcx>) -> PgResult<Node<'mcx>> {
+    let mut type_deps: Vec<types_core::Oid> = Vec::new();
+    let mut func_deps: Vec<types_core::Oid> = Vec::new();
+    let folded = clauses::fold::eval_const_expressions_planner(
+        run.mcx,
+        expr,
+        run.glob.bound_params,
+        &mut type_deps,
+        &mut func_deps,
+    )?;
+    for typid in type_deps {
+        record_plan_type_dependency(run, typid)?;
+    }
+    for funcid in func_deps {
+        record_plan_function_dependency(run, funcid)?;
+    }
+    Ok(folded)
+}
+
 #[cfg(test)]
 mod scan_mutator_tests {
     use crate::run::PlannerRun;
@@ -5660,26 +5682,4 @@ mod scan_mutator_tests {
             .unwrap();
         assert_eq!(inner.varno, 2);
     }
-}
-
-/// eval_const_expressions with a PlannerInfo (clauses.c:2214): the folded
-/// domains and inlined SQL functions become plan dependencies so the cached
-/// plan is dropped when pg_type/pg_proc change (record_plan_*_dependency).
-pub(crate) fn fold_with_deps<'mcx>(run: &mut PlannerRun<'mcx>, expr: Node<'mcx>) -> PgResult<Node<'mcx>> {
-    let mut type_deps: Vec<types_core::Oid> = Vec::new();
-    let mut func_deps: Vec<types_core::Oid> = Vec::new();
-    let folded = clauses::fold::eval_const_expressions_planner(
-        run.mcx,
-        expr,
-        run.glob.bound_params,
-        &mut type_deps,
-        &mut func_deps,
-    )?;
-    for typid in type_deps {
-        record_plan_type_dependency(run, typid)?;
-    }
-    for funcid in func_deps {
-        record_plan_function_dependency(run, funcid)?;
-    }
-    Ok(folded)
 }

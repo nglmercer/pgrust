@@ -351,7 +351,7 @@ fn agg_array_bitmap_fills_exact_capacity() {
     const INT4_ARRAY: Oid = 1007;
     let mut st = init_array_result_arr(mcx, INT4_ARRAY, INT4OID).unwrap();
     for i in 0..257 {
-        let elem = if i % 4 == 0 { None } else { Some(i as i32) };
+        let elem = if i % 4 == 0 { None } else { Some(i) };
         let img = int4_arr(mcx, &[elem], 1);
         st = accum_array_result_arr(mcx, Some(st), Some(&img), INT4_ARRAY).unwrap();
     }

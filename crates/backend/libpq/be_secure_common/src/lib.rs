@@ -253,10 +253,10 @@ pub fn check_ssl_key_file_permissions(ssl_key_file: &str, is_server_start: bool)
         }
 
         let mode = st.st_mode as u32;
-        let irwxg = libc::S_IRWXG as u32;
-        let irwxo = libc::S_IRWXO as u32;
-        let iwgrp = libc::S_IWGRP as u32;
-        let ixgrp = libc::S_IXGRP as u32;
+        let irwxg = libc::S_IRWXG;
+        let irwxo = libc::S_IRWXO;
+        let iwgrp = libc::S_IWGRP;
+        let ixgrp = libc::S_IXGRP;
         if (st.st_uid == euid && mode & (irwxg | irwxo) != 0)
             || (st.st_uid == 0 && mode & (iwgrp | ixgrp | irwxo) != 0)
         {

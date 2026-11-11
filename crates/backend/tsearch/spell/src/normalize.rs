@@ -191,7 +191,7 @@ impl<'mcx> IspellDict<'mcx> {
         let mut pnewword: Vec<u8> = Vec::new();
 
         if self.find_word(word, &[], flag)? != 0 {
-            forms.push(::mcx::std_vec_from_slice("tsearch", &word)?);
+            forms.push(::mcx::std_vec_from_slice("tsearch", word)?);
         }
 
         let mut pnode = self.prefix;
@@ -462,8 +462,7 @@ impl<'mcx> IspellDict<'mcx> {
                 if d_isword
                     && (d_compoundflag & compoundflag as u32) != 0
                     && notprobed[level as usize] != 0
-                {
-                    if level > minpos {
+                    && level > minpos {
                         if wordlen == level + 1 {
                             var.add_stem(::mcx::std_vec_from_slice("tsearch", &word[startpos as usize..wordlen as usize])?);
                             result.insert(0, var);
@@ -480,7 +479,6 @@ impl<'mcx> IspellDict<'mcx> {
                             continue;
                         }
                     }
-                }
                 node = d_node;
             } else {
                 node = None;

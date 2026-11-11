@@ -12,8 +12,7 @@ pub(super) fn try_out_node(out: &mut PgString<'_>, node: Node<'_>) -> Option<PgR
         };
     }
     let mut handled = true;
-    let r = (|| -> PgResult<()> {
-        match node.node_tag() {
+    let r = match node.node_tag() {
             NodeTag::T_IntoClause => arm!(IntoClause, out_into_clause),
             NodeTag::T_RoleSpec => arm!(RoleSpec, out_role_spec),
             NodeTag::T_RangeTableFunc => arm!(RangeTableFunc, out_range_table_func),
@@ -159,8 +158,7 @@ pub(super) fn try_out_node(out: &mut PgString<'_>, node: Node<'_>) -> Option<PgR
                 handled = false;
                 Ok(())
             }
-        }
-    })();
+        };
     if handled {
         Some(r)
     } else {
@@ -715,7 +713,7 @@ pub(super) fn out_at_alter_constraint(out: &mut PgString<'_>, node: &ATAlterCons
 pub(super) fn out_replica_identity_stmt(out: &mut PgString<'_>, node: &ReplicaIdentityStmt<'_>) -> PgResult<()> {
     w!(out, "{{REPLICAIDENTITYSTMT");
     w!(out, " :identity_type ");
-    out_char(out, node.identity_type as u8)?;
+    out_char(out, node.identity_type)?;
     w!(out, " :name ");
     out_str(out, node.name);
     w!(out, "}}");
@@ -733,7 +731,7 @@ pub(super) fn out_alter_collation_stmt(out: &mut PgString<'_>, node: &AlterColla
 pub(super) fn out_alter_domain_stmt(out: &mut PgString<'_>, node: &AlterDomainStmt<'_>) -> PgResult<()> {
     w!(out, "{{ALTERDOMAINSTMT");
     w!(out, " :subtype ");
-    out_char(out, node.subtype as u8)?;
+    out_char(out, node.subtype)?;
     w!(out, " :typeName ");
     out_list(out, &node.typeName)?;
     w!(out, " :name ");
@@ -849,9 +847,9 @@ pub(super) fn out_constraint(out: &mut PgString<'_>, node: &Constraint<'_>) -> P
     w!(out, " :cooked_expr ");
     out_str(out, node.cooked_expr);
     w!(out, " :generated_when ");
-    out_char(out, node.generated_when as u8)?;
+    out_char(out, node.generated_when)?;
     w!(out, " :generated_kind ");
-    out_char(out, node.generated_kind as u8)?;
+    out_char(out, node.generated_kind)?;
     w!(out, " :nulls_not_distinct ");
     out_bool(out, node.nulls_not_distinct);
     w!(out, " :keys ");
@@ -885,11 +883,11 @@ pub(super) fn out_constraint(out: &mut PgString<'_>, node: &Constraint<'_>) -> P
     w!(out, " :pk_with_period ");
     out_bool(out, node.pk_with_period);
     w!(out, " :fk_matchtype ");
-    out_char(out, node.fk_matchtype as u8)?;
+    out_char(out, node.fk_matchtype)?;
     w!(out, " :fk_upd_action ");
-    out_char(out, node.fk_upd_action as u8)?;
+    out_char(out, node.fk_upd_action)?;
     w!(out, " :fk_del_action ");
-    out_char(out, node.fk_del_action as u8)?;
+    out_char(out, node.fk_del_action)?;
     w!(out, " :fk_del_set_cols ");
     out_list(out, &node.fk_del_set_cols)?;
     w!(out, " :old_conpfeqop ");
@@ -1174,7 +1172,7 @@ pub(super) fn out_create_am_stmt(out: &mut PgString<'_>, node: &CreateAmStmt<'_>
     w!(out, " :handler_name ");
     out_list(out, &node.handler_name)?;
     w!(out, " :amtype ");
-    out_char(out, node.amtype as u8)?;
+    out_char(out, node.amtype)?;
     w!(out, "}}");
     Ok(())
 }

@@ -259,7 +259,7 @@ fn system_user_registered_at_6311() {
         .find(|b| b.foid == 6311)
         .expect("system_user registered");
     assert_eq!(row.name, "system_user");
-    assert_eq!(row.func as usize, fc_system_user as usize);
+    assert_eq!(row.func as usize, fc_system_user as *const () as usize);
     assert_eq!(row.nargs, 0);
 }
 

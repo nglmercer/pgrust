@@ -156,7 +156,7 @@ pub(crate) fn compute_range_stats<'mcx>(
         stats.stats_valid = true;
         stats.stanullfrac = null_cnt as f32 / samplerows as f32;
         stats.stawidth = (total_width / non_null_cnt as f64) as i32;
-        stats.stadistinct = (-1.0 * (1.0 - stats.stanullfrac as f64)) as f32;
+        stats.stadistinct = -(1.0 - stats.stanullfrac as f64) as f32;
 
         if non_empty_cnt >= 2 {
             // rangetypes_typanalyze.c:112 range_bound_qsort_cmp -> range_cmp_bounds:

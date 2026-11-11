@@ -1908,7 +1908,7 @@ mod tests {
 
         // Degenerate shapes: empty queue, and an all-cold queue (handout
         // serves nothing -> exactly one round, straight to the cap).
-        let (b, d) = gather_batch(Vec::new, |e| Ok(e), MINT_BATCH_MAX).unwrap();
+        let (b, d) = gather_batch(Vec::new, Ok, MINT_BATCH_MAX).unwrap();
         assert!(b.is_empty() && d == 0);
         let all_cold: Vec<_> = (0..5).map(cold).collect();
         let calls = RefCell::new(0usize);

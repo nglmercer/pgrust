@@ -117,7 +117,7 @@ const PGJIT_DEFORM: i32 = 1 << 4;
 // GUC backing this crate reads (double-install panics flag future homes).
 pub mod gucs {
     guc_tables::session_guc_cluster!(PlannerGucs, PLANNER_GUCS:
-        (cursor_tuple_fraction_cell, f64, cursor_tuple_fraction, set_cursor_tuple_fraction, (0.1) as f64),
+        (cursor_tuple_fraction_cell, f64, cursor_tuple_fraction, set_cursor_tuple_fraction, 0.1_f64),
         // pgrust copy-and-patch JIT defaults (was C's 100000/500000/500000);
         // must match guc_tables::tables boot_vals. 200 amortizes the WHOLE
         // per-execution compile bill over ONE execution: expression kernels
@@ -128,9 +128,9 @@ pub mod gucs {
         // optimize/inline are inert under copy-and-patch (no LLVM phase) so
         // they equal jit_above_cost. Full derivation in guc_tables/tables.rs
         // + docs/design/jit-parallel-defaults.md.
-        (jit_above_cost_cell, f64, jit_above_cost, set_jit_above_cost, (200.0) as f64),
-        (jit_optimize_above_cost_cell, f64, jit_optimize_above_cost, set_jit_optimize_above_cost, (200.0) as f64),
-        (jit_inline_above_cost_cell, f64, jit_inline_above_cost, set_jit_inline_above_cost, (200.0) as f64),
+        (jit_above_cost_cell, f64, jit_above_cost, set_jit_above_cost, 200.0_f64),
+        (jit_optimize_above_cost_cell, f64, jit_optimize_above_cost, set_jit_optimize_above_cost, 200.0_f64),
+        (jit_inline_above_cost_cell, f64, jit_inline_above_cost, set_jit_inline_above_cost, 200.0_f64),
         (from_collapse_limit_cell, i32, from_collapse_limit, set_from_collapse_limit, 8),
         (join_collapse_limit_cell, i32, join_collapse_limit, set_join_collapse_limit, 8),
         (constraint_exclusion_cell, i32, constraint_exclusion, set_constraint_exclusion, guc_tables::consts::CONSTRAINT_EXCLUSION_PARTITION),
@@ -353,7 +353,7 @@ fn plan_query<'mcx>(
     bound_params: ParamListHandle,
     tuple_fraction: f64,
 ) -> PgResult<types_pathnodes::PathId> {
-    let mut run = &mut **run_owner;
+    let run = &mut **run_owner;
     plancat::install_partition_directory_slot(run, partition_directory);
     run.glob.bound_params = bound_params;
     run.glob.max_parallel_hazard = PROPARALLEL_UNSAFE;
@@ -361,9 +361,9 @@ fn plan_query<'mcx>(
     // never builds Gather or parallel paths; max_parallel_workers_per_gather
     // stays readable as the width ceiling of a Gravity section.
     run.assess_parallel = false;
-    subquery_planner(&mut run, parse, false, tuple_fraction, None)?;
-    let final_rel = fetch_final_rel(&mut run);
-    Ok(get_cheapest_fractional_path(&run, final_rel, tuple_fraction))
+    subquery_planner(run, parse, false, tuple_fraction, None)?;
+    let final_rel = fetch_final_rel(run);
+    Ok(get_cheapest_fractional_path(run, final_rel, tuple_fraction))
 }
 
 pub fn standard_planner<'mcx>(
@@ -410,7 +410,7 @@ pub fn standard_planner<'mcx>(
     };
 
     let best_path = plan_query(&mut run_owner, &mut partition_directory, parse, bound_params, tuple_fraction)?;
-    let (mut run, best_path) = match alternative {
+    let (run, best_path) = match alternative {
         Some(alt) => {
             let alt_owner = alt_owner.insert(mcx::ArenaForget::new(PlannerRun::new(mcx)));
             let alt_path = plan_query(alt_owner, &mut alt_directory, alt, bound_params, tuple_fraction)?;
@@ -422,7 +422,7 @@ pub fn standard_planner<'mcx>(
         }
         None => (&mut *run_owner, best_path),
     };
-    let (mut run, best_path) = match unnested {
+    let (run, best_path) = match unnested {
         Some(u) => match plan_query(
             unnest_owner.insert(mcx::ArenaForget::new(PlannerRun::new(mcx))),
             &mut unnest_directory,
@@ -445,7 +445,7 @@ pub fn standard_planner<'mcx>(
     };
     // the unnested form with a binding's group restricted to the outer level's keys (unnest.rs restriction), costed against
     // the full grouped pass above
-    let (mut run, best_path) = match restricted {
+    let (run, best_path) = match restricted {
         Some(u) => match plan_query(
             restricted_owner.insert(mcx::ArenaForget::new(PlannerRun::new(mcx))),
             &mut restricted_directory,
@@ -466,7 +466,7 @@ pub fn standard_planner<'mcx>(
         },
         None => (run, best_path),
     };
-    let (mut run, best_path) = match union {
+    let (run, best_path) = match union {
         Some(u) => match plan_query(
             union_owner.insert(mcx::ArenaForget::new(PlannerRun::new(mcx))),
             &mut union_directory,
@@ -492,7 +492,7 @@ pub fn standard_planner<'mcx>(
         None => (run, best_path),
     };
     crate::gravity_width_cost::trace(run, best_path)?;
-    let mut top_plan = create_plan(&mut run, best_path)?;
+    let mut top_plan = create_plan(run, best_path)?;
 
     // C planner.c:444-451 wraps a SCROLL cursor's plan in Material when
     // !ExecSupportsBackwardScan, so the EXECUTOR can run backwards on demand.
@@ -567,13 +567,13 @@ pub fn standard_planner<'mcx>(
         for i in 0..run.glob.subplans.len() {
             let subplan = run.glob.subplans.nth(i).expect("subplan cells are live until set_plan_references");
             let subroot = &run.subroots[i].root;
-            crate::subselect::ss_finalize_plan(&run, subroot, subplan, &subroot.outer_params)?;
+            crate::subselect::ss_finalize_plan(run, subroot, subplan, &subroot.outer_params)?;
         }
-        crate::subselect::ss_finalize_plan(&run, &run.root, top_plan, &run.root.outer_params)?;
+        crate::subselect::ss_finalize_plan(run, &run.root, top_plan, &run.root.outer_params)?;
     }
 
     debug_assert!(run.glob.finalrtable.is_nil());
-    let top_plan = set_plan_references(&mut run, top_plan)?;
+    let top_plan = set_plan_references(run, top_plan)?;
     // ... and the subplans, each under its own root (C's forboth over
     // glob->subplans/glob->subroots, planner.c:561-567). A cell NULLed by an
     // earlier level's set_plan_references (an unchosen AlternativeSubPlan
@@ -585,7 +585,7 @@ pub fn standard_planner<'mcx>(
             core::mem::swap(&mut run.subroots[i].root, &mut run.root);
             let top_tlist =
                 core::mem::replace(&mut run.processed_tlist, run.subroots[i].processed_tlist);
-            let fixed = crate::setrefs::set_plan_references_opt(&mut run, subplan);
+            let fixed = crate::setrefs::set_plan_references_opt(run, subplan);
             core::mem::swap(&mut run.subroots[i].root, &mut run.root);
             run.processed_tlist = top_tlist;
             run.glob.subplans.as_mut_slice()[i] = fixed?;

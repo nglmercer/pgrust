@@ -314,7 +314,7 @@ fn param_err(msg: String, sqlstate: types_error::SqlState) -> PgError {
     PgError::error(msg).with_sqlstate(sqlstate)
 }
 
-fn levenshtein_args<'a>(fcinfo: &'a Fcinfo) -> PgResult<(&'a [u8], &'a [u8])> {
+fn levenshtein_args(fcinfo: &Fcinfo) -> PgResult<(&[u8], &[u8])> {
     // SAFETY: catalog args are non-null text varlenas (strict fns).
     let (s, t) = unsafe { (fcinfo.arg_varlena_packed(0)?, fcinfo.arg_varlena_packed(1)?) };
     Ok((s.data(), t.data()))

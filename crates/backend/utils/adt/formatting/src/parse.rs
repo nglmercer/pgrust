@@ -333,8 +333,7 @@ mod tests {
     fn picture_workspace_admitted_at_c_node_size() {
         let pic = vec![b'"'; 68_000_000];
         let err = parse_format(&pic, DCH_KEYWORDS, DCH_SUFF, &DCH_INDEX, DCH_FLAG, None)
-            .err()
-            .expect("oversized picture must be rejected");
+            .expect_err("oversized picture must be rejected");
         assert_eq!(err.message(), "invalid memory alloc request size 1088000016");
     }
 }

@@ -178,7 +178,7 @@ pub fn get(f: &Fold, key: &[u64; LAYOUT_WORDS]) -> Option<Pin> {
     };
     let s = victim(set_index(key))?;
     // SAFETY: under `LOCK`, the slot odd and unpinned (`victim`): no reader holds it and none can pin it.
-    let old = unsafe { core::mem::replace(&mut *s.own.get(), None) };
+    let old = unsafe { (*s.own.get()).take() };
     if s.ver.load(Ordering::Relaxed) != 1 {
         EVICTED.fetch_add(1, Ordering::Relaxed);
         LIVE_BYTES.fetch_sub(s.bytes.load(Ordering::Relaxed) as u64, Ordering::Relaxed);

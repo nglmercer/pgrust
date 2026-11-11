@@ -734,7 +734,7 @@ pub unsafe fn index_tuple_verify(itup: ITup, lp_len: usize, atts: &[CompactAttri
                 }
                 let tagsz = match vartag_external(p) {
                     // varatt_indirect / varatt_expanded (8) ; varatt_external (16).
-                    1 | 2 | 3 => 8,
+                    1..=3 => 8,
                     18 => 16,
                     _ => return false,
                 };

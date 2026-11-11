@@ -3473,7 +3473,7 @@ fn gen_ident(g: &mut Gen) -> Vec<StmtKind> {
     let (s, strict) = *g.rng.pick(idents);
     raw(format!(
         "SELECT parse_ident('{}', {})::text;",
-        esc_s(&s),
+        esc_s(s),
         strict
     ))
 }

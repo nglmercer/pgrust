@@ -61,7 +61,7 @@ fn digest(t: &[u8]) -> u64 {
 }
 
 fn skip(rows: &[Row], deleted: &[u32]) -> Vec<Row> {
-    rows.iter().filter(|r| !seg_local(r.0, r.1).is_some_and(|p| deleted.binary_search(&p).is_ok())).copied().collect()
+    rows.iter().filter(|r| seg_local(r.0, r.1).is_none_or(|p| deleted.binary_search(&p).is_err())).copied().collect()
 }
 
 /// Rows in exactly one of the two lists (a ctid is unique in each).

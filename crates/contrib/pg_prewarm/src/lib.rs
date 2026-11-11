@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use datum::Datum;
 use types_core::{BlockNumber, ForkNumber, Oid, OidIsValid, BLCKSZ};
 use types_error::{
-    PgError, PgResult, ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_INVALID_PARAMETER_VALUE,
+    PgError, PgResult, ERRCODE_INVALID_PARAMETER_VALUE,
     ERRCODE_UNDEFINED_TABLE, ERRCODE_WRONG_OBJECT_TYPE,
 };
 use types_fmgr::{FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};

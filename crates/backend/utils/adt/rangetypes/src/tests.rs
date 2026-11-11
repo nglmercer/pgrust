@@ -593,7 +593,7 @@ mod recv_wire {
         let mcx = ctx.mcx();
         // flags = LB_INC|UB_INC (both bounds present), lower bound length 0.
         let wire = [RANGE_LB_INC | RANGE_UB_INC, 0, 0, 0, 0];
-        let e = recv(mcx, &wire).err().expect("zero-length bound must be a protocol error");
+        let e = recv(mcx, &wire).expect_err("zero-length bound must be a protocol error");
         assert_eq!(e.sqlstate, ERRCODE_PROTOCOL_VIOLATION);
     }
 
@@ -605,7 +605,7 @@ mod recv_wire {
         // rejects it before any allocation, so pgrust must too (never a
         // multi-GiB reserve).
         let wire = [RANGE_LB_INC | RANGE_UB_INC, 0xEB, 0xFF, 0xFF, 0xFF];
-        let e = recv(mcx, &wire).err().expect("oversized bound length must be a protocol error");
+        let e = recv(mcx, &wire).expect_err("oversized bound length must be a protocol error");
         assert_eq!(e.sqlstate, ERRCODE_PROTOCOL_VIOLATION);
     }
 
@@ -1079,7 +1079,7 @@ fn range_deparse_over_ceiling_bound_raises_stringinfo_error() {
     let n = ::mcx::MAX_ALLOC_SIZE / 2 + 16;
     let huge = std::vec![b'"'; n];
     let err = crate::io::range_deparse(mcx, RANGE_LB_INC, Some(&huge), Some(b"x"))
-        .err().expect("range output above MaxAllocSize must raise the StringInfo ceiling error");
+        .expect_err("range output above MaxAllocSize must raise the StringInfo ceiling error");
     assert_eq!(
         err.message(),
         std::format!(
@@ -1145,8 +1145,8 @@ fn pseudotype_aliases_delegate_to_range_out() {
             .find(|b| b.foid == oid)
             .unwrap_or_else(|| panic!("oid {oid} not registered"))
     };
-    assert_eq!(by_oid(3833).func as usize, crate::builtins::fc_range_out as usize);
-    assert_eq!(by_oid(5095).func as usize, crate::builtins::fc_range_out as usize);
+    assert_eq!(by_oid(3833).func as usize, crate::builtins::fc_range_out as *const () as usize);
+    assert_eq!(by_oid(5095).func as usize, crate::builtins::fc_range_out as *const () as usize);
     assert_eq!(by_oid(5095).name, "anycompatiblerange_out");
 }
 

@@ -254,7 +254,7 @@ fn labels_run(rank: RankForm) -> Built {
     for &(lo, hi) in &ranges {
         for id in lo..hi {
             k += 1;
-            if k % 11 == 0 {
+            if k.is_multiple_of(11) {
                 continue; // a hole: no row took this ID
             }
             present.push((id, if k % 25 == 7 { Place::Exc((k % 7) as u16, k % 97) } else { Place::Group(k / 17 % 1000) }));

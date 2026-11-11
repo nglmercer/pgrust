@@ -297,7 +297,7 @@ fn reserve_child_pid() -> Option<pid_t> {
         // 0/negative), normalizing any out-of-range value the same way.
         let mut cur = NEXT_CHILD_PID.load(Ordering::Relaxed);
         let candidate = loop {
-            let c = if cur < MIN_SYNTHETIC_PID || cur > MAX_SYNTHETIC_PID {
+            let c = if !(MIN_SYNTHETIC_PID..=MAX_SYNTHETIC_PID).contains(&cur) {
                 MIN_SYNTHETIC_PID
             } else {
                 cur
@@ -1410,56 +1410,6 @@ pub mod wpool {
         }
     }
 
-    #[cfg(test)]
-    mod retirement_tests {
-        use super::*;
-
-        fn install() {
-            static ONCE: std::sync::Once = std::sync::Once::new();
-            ONCE.call_once(mcxt_stats::init_seams);
-        }
-
-        #[test]
-        fn retired_standby_drains_session_roots() {
-            install();
-            std::thread::spawn(|| {
-                for _ in 0..8 {
-                    let root = mcx::session_root("retired-standby-test");
-                    root.mcx().alloc_uninit_bytes(
-                        std::alloc::Layout::from_size_align(4096, 8).unwrap(),
-                    ).unwrap();
-                    assert!(mcxt_stats::session_cleanup_count() > 0);
-                    let (tx, rx) = pgsync::mpsc::sync_channel(1);
-                    let (ack_tx, ack_rx) = pgsync::mpsc::sync_channel(1);
-                    drop(tx);
-                    standby_loop(0, rx, ack_tx);
-                    assert_eq!(ack_rx.recv(), Ok(()));
-                    assert_eq!(mcxt_stats::session_cleanup_count(), 0);
-                    assert!(mcxt_stats::backend_context_forest()
-                        .iter()
-                        .filter(|root| root.name == "retired-standby-test")
-                        .all(|root| root.used == 0 && root.arena_footprint == 0));
-                }
-            })
-            .join()
-            .unwrap();
-        }
-
-        #[test]
-        fn crash_retirement_preserves_teardown_gate() {
-            install();
-            std::thread::spawn(|| {
-                let _root = mcx::session_root("crashed-standby-test");
-                let pending = mcxt_stats::session_cleanup_count();
-                retire_session(CRASH_EPOCH.load(Relaxed).wrapping_add(1));
-                assert_eq!(mcxt_stats::session_cleanup_count(), pending);
-                mcxt_stats::run_session_teardown();
-            })
-            .join()
-            .unwrap();
-        }
-    }
-
     fn standby_loop(spawn_pid: pid_t, mut rx: Receiver<StandbyTask>, mut ack_tx: SyncSender<()>) {
         // CHILD_THREADS key for our JoinHandle; re-keyed to each task's pid
         // so a rotation exit's announce joins this thread, while a park's
@@ -1835,6 +1785,56 @@ pub mod wpool {
         if let Some(entry) = t.iter_mut().find(|(p, _)| *p == old_pid) {
             entry.0 = new_pid;
             super::release_reserved_pid(old_pid);
+        }
+    }
+
+    #[cfg(test)]
+    mod retirement_tests {
+        use super::*;
+
+        fn install() {
+            static ONCE: std::sync::Once = std::sync::Once::new();
+            ONCE.call_once(mcxt_stats::init_seams);
+        }
+
+        #[test]
+        fn retired_standby_drains_session_roots() {
+            install();
+            std::thread::spawn(|| {
+                for _ in 0..8 {
+                    let root = mcx::session_root("retired-standby-test");
+                    root.mcx().alloc_uninit_bytes(
+                        std::alloc::Layout::from_size_align(4096, 8).unwrap(),
+                    ).unwrap();
+                    assert!(mcxt_stats::session_cleanup_count() > 0);
+                    let (tx, rx) = pgsync::mpsc::sync_channel(1);
+                    let (ack_tx, ack_rx) = pgsync::mpsc::sync_channel(1);
+                    drop(tx);
+                    standby_loop(0, rx, ack_tx);
+                    assert_eq!(ack_rx.recv(), Ok(()));
+                    assert_eq!(mcxt_stats::session_cleanup_count(), 0);
+                    assert!(mcxt_stats::backend_context_forest()
+                        .iter()
+                        .filter(|root| root.name == "retired-standby-test")
+                        .all(|root| root.used == 0 && root.arena_footprint == 0));
+                }
+            })
+            .join()
+            .unwrap();
+        }
+
+        #[test]
+        fn crash_retirement_preserves_teardown_gate() {
+            install();
+            std::thread::spawn(|| {
+                let _root = mcx::session_root("crashed-standby-test");
+                let pending = mcxt_stats::session_cleanup_count();
+                retire_session(CRASH_EPOCH.load(Relaxed).wrapping_add(1));
+                assert_eq!(mcxt_stats::session_cleanup_count(), pending);
+                mcxt_stats::run_session_teardown();
+            })
+            .join()
+            .unwrap();
         }
     }
 }
@@ -2638,8 +2638,7 @@ pub mod rtpool {
     ) -> std::io::Result<std::thread::JoinHandle<()>> {
         let Some(pid) = super::reserve_child_pid() else {
             // Synthetic pid space exhausted: fail the worker spawn cleanly.
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            return Err(std::io::Error::other(
                 "synthetic child pid space exhausted",
             ));
         };
@@ -2787,14 +2786,7 @@ pub mod rtpool {
                 }
                 body();
             }));
-        match spawned {
-            Ok(h) => Ok(h),
-            Err(e) => {
-                #[cfg(pgrust_sim)]
-                pgsync::sim::spawn_door::cancel_child(sim_sched_slot);
-                Err(e)
-            }
-        }
+        spawned
     }
 
     /// M4 bgjobs increment 4 (docs/design/m4-bgjobs.md §3.6, the virtual

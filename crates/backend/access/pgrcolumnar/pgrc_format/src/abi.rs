@@ -92,7 +92,7 @@ pub struct ByteArena<'a> {
 impl<'a> ByteArena<'a> {
     pub fn new(buf: &'a mut [u8]) -> ByteArena<'a> {
         debug_assert!(
-            buf.as_ptr() as usize % 8 == 0,
+            (buf.as_ptr() as usize).is_multiple_of(8),
             "arena buffers are 8-aligned"
         );
         ByteArena { buf, used: 0 }
@@ -618,11 +618,11 @@ pub trait ColumnMetaBuilder {
 /// live, correctly-shaped image (Fixed: `len` readable bytes; Varlena: a
 /// valid 4B-U varlena image) that outlives the returned slice. Byval classes
 /// return a slice of `scratch`.
-pub unsafe fn datum_canonical_bytes<'a>(
+pub unsafe fn datum_canonical_bytes(
     class: StorageClass,
     datum: u64,
-    scratch: &'a mut [u8; 8],
-) -> FormatResult<&'a [u8]> {
+    scratch: &mut [u8; 8],
+) -> FormatResult<&[u8]> {
     match class {
         StorageClass::ByvalWord { width, .. } => {
             scratch.copy_from_slice(&datum.to_le_bytes());

@@ -1234,20 +1234,20 @@ mod tests {
         }
         if has_nulls {
             let hdr = img.len();
-            img.resize(hdr + (elems.len() + 7) / 8, 0);
+            img.resize(hdr + elems.len().div_ceil(8), 0);
             for (i, e) in elems.iter().enumerate() {
                 if e.is_some() {
                     img[hdr + i / 8] |= 1 << (i % 8);
                 }
             }
-            while img.len() % 8 != 0 {
+            while !img.len().is_multiple_of(8) {
                 img.push(0);
             }
             let dataoffset = img.len() as i32;
             img[8..12].copy_from_slice(&dataoffset.to_ne_bytes());
         }
         for e in elems.iter().flatten() {
-            while img.len() % 4 != 0 {
+            while !img.len().is_multiple_of(4) {
                 img.push(0);
             }
             img.extend_from_slice(&(((e.len() + 4) as u32) << 2).to_ne_bytes());

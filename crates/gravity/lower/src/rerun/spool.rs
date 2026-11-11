@@ -105,7 +105,7 @@ pub struct Col {
 
 pub fn declare_producer(pb: &mut ProgramBuilder) -> Producer {
     let mem = HostFlags { touches_memory: true, ..HostFlags::default() };
-    Producer { open: pb.declare_host("spool_open", &[Type::Ptr], Some(Type::I64), h_spool_open as usize, mem), full: pb.declare_host("spool_full", &[Type::Ptr, Type::Ptr], Some(Type::I64), h_spool_full as usize, mem) }
+    Producer { open: pb.declare_host("spool_open", &[Type::Ptr], Some(Type::I64), h_spool_open as *const () as usize, mem), full: pb.declare_host("spool_full", &[Type::Ptr, Type::Ptr], Some(Type::I64), h_spool_full as *const () as usize, mem) }
 }
 
 /// `spool_open`'s word: `<= 0` the pipeline leaves with it (0: the section end's put is done), else the run.
@@ -236,7 +236,7 @@ unsafe fn lay(ctx: *mut Ctx, base: *mut u8, bytes: usize, stream: u64) -> u64 {
     if (*ctx).resume != RESUME_NONE && (*rd).magic == MAGIC {
         return base as u64;
     }
-    if bytes < READER_HDR + 16 || (base as usize) % 8 != 0 {
+    if bytes < READER_HDR + 16 || !(base as usize).is_multiple_of(8) {
         return unsupported(UNSUPPORTED_SCRATCH) as u64;
     }
     let nruns = spill(ctx, SPILL_RUNS, stream as i64);
@@ -399,16 +399,16 @@ pub struct Sink {
 pub fn declare_reader(pb: &mut ProgramBuilder) -> ReaderHosts {
     let mem = HostFlags { touches_memory: true, ..HostFlags::default() };
     ReaderHosts {
-        open: pb.declare_host("spool_reader", &[Type::Ptr, Type::I64, Type::I64], Some(Type::I64), h_reader_open as usize, mem),
-        open_at: pb.declare_host("spool_reader_at", &[Type::Ptr, Type::Ptr, Type::I64, Type::I64], Some(Type::I64), h_reader_open_at as usize, mem),
-        fill: pb.declare_host("spool_fill", &[Type::Ptr, Type::Ptr], Some(Type::I64), h_reader_fill as usize, mem),
-        seek: pb.declare_host("spool_seek", &[Type::Ptr, Type::Ptr, Type::I64, Type::I64], Some(Type::I64), h_reader_seek as usize, mem),
+        open: pb.declare_host("spool_reader", &[Type::Ptr, Type::I64, Type::I64], Some(Type::I64), h_reader_open as *const () as usize, mem),
+        open_at: pb.declare_host("spool_reader_at", &[Type::Ptr, Type::Ptr, Type::I64, Type::I64], Some(Type::I64), h_reader_open_at as *const () as usize, mem),
+        fill: pb.declare_host("spool_fill", &[Type::Ptr, Type::Ptr], Some(Type::I64), h_reader_fill as *const () as usize, mem),
+        seek: pb.declare_host("spool_seek", &[Type::Ptr, Type::Ptr, Type::I64, Type::I64], Some(Type::I64), h_reader_seek as *const () as usize, mem),
     }
 }
 
 pub fn declare_sink(pb: &mut ProgramBuilder) -> Sink {
     let mem = HostFlags { touches_memory: true, ..HostFlags::default() };
-    Sink { emit: pb.declare_host("spool_emit", &[Type::Ptr, Type::Ptr, Type::Ptr, Type::I64], Some(Type::I64), h_emit as usize, mem), stopped: pb.declare_host("spool_stopped", &[Type::Ptr], Some(Type::I64), h_stopped as usize, mem), done: pb.declare_host("spool_done", &[Type::Ptr], Some(Type::I64), h_done as usize, mem) }
+    Sink { emit: pb.declare_host("spool_emit", &[Type::Ptr, Type::Ptr, Type::Ptr, Type::I64], Some(Type::I64), h_emit as *const () as usize, mem), stopped: pb.declare_host("spool_stopped", &[Type::Ptr], Some(Type::I64), h_stopped as *const () as usize, mem), done: pb.declare_host("spool_done", &[Type::Ptr], Some(Type::I64), h_done as *const () as usize, mem) }
 }
 
 fn opened(b: &mut FunctionBuilder<'_>, r: Value, l_exit: Block) -> Value {

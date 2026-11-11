@@ -1624,12 +1624,12 @@ fn unwind_pg_error<R>(f: impl FnOnce() -> R) -> types_error::PgError {
 fn bms_negative_member_fallible_entry_points_raise_c_elog() {
     let ctx = MemoryContext::new_bump("t");
     let mcx = ctx.mcx();
-    let err = Bitmapset::make_singleton(mcx, -1).err().expect("bms_make_singleton");
+    let err = Bitmapset::make_singleton(mcx, -1).expect_err("bms_make_singleton");
     assert_negative_member_error(&err);
     let mut b = from_set(mcx, &BTreeSet::from([1]));
-    let err = b.add_member(mcx, -7).err().expect("bms_add_member");
+    let err = b.add_member(mcx, -7).expect_err("bms_add_member");
     assert_negative_member_error(&err);
-    let err = b.add_range(mcx, -1, 5).err().expect("bms_add_range");
+    let err = b.add_range(mcx, -1, 5).expect_err("bms_add_range");
     assert_negative_member_error(&err);
     // bitmapset.c:1032: upper < lower returns before the negative check.
     b.add_range(mcx, 5, -1).unwrap();
@@ -1643,7 +1643,7 @@ fn bms_negative_member_fallible_entry_points_raise_c_elog() {
 fn bms_singleton_member_matches_c_elog() {
     let ctx = MemoryContext::new_bump("t");
     let mcx = ctx.mcx();
-    let err = Bitmapset::empty().singleton_member().err().expect("empty set");
+    let err = Bitmapset::empty().singleton_member().expect_err("empty set");
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
     assert_eq!(err.message(), "bitmapset is empty");
     for x in [0, 63, 64, 130] {
@@ -1651,7 +1651,7 @@ fn bms_singleton_member_matches_c_elog() {
     }
     // multiple ones in one word, and across words
     for set in [BTreeSet::from([3, 4]), BTreeSet::from([3, 130])] {
-        let err = from_set(mcx, &set).singleton_member().err().expect("multiple members");
+        let err = from_set(mcx, &set).singleton_member().expect_err("multiple members");
         assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
         assert_eq!(err.message(), "bitmapset has multiple members");
     }

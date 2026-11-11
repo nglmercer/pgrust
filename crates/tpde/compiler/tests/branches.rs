@@ -244,7 +244,7 @@ struct Machine<'m, 'a, 'id> {
 }
 impl<'m, 'a, 'id> Machine<'m, 'a, 'id> {
     fn new(mcx: Mcx<'m>, assignments: &'a [Assignment<'a, 'id>]) -> Self {
-        let mut registers = RegisterFile::new();
+        let registers = RegisterFile::new();
         registers.allocatable.set(u64::MAX);
         Self {
             adaptor: Adaptor {
@@ -339,7 +339,7 @@ impl GuardMachine<2> for Machine<'_, '_, '_> {
     type Special = ValRefSpecial<()>;
     const GP_BANK: RegBank = RegBank::new(0);
     fn with_registers<R>(&self, operation: impl FnOnce(&RegisterFile<2, 32>) -> R) -> R {
-        operation(&*self.registers.borrow_mut())
+        operation(&self.registers.borrow_mut())
     }
     fn with_assignment<R>(
         &self,

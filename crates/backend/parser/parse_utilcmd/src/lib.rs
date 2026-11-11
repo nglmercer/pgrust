@@ -553,7 +553,7 @@ fn resolveTypeNames<'mcx, 'tn>(
 // pstate: the explicit-schema lookup's errors carry typeName->location;
 // DeconstructQualifiedName runs outside that callback and stays bare.
 fn resolve_type_names_ext<'mcx, 'tn>(
-    mcx: Mcx<'mcx>,
+    _mcx: Mcx<'mcx>,
     tn: &TypeName<'tn>,
     missing_ok: bool,
     src: Option<&[u8]>,
@@ -2531,8 +2531,8 @@ fn transform_index_constraints<'mcx>(
             }
             // C: the WITHOUT OVERLAPS part must be a range or multirange type,
             // or a domain over such a type.
-            if constraint.without_overlaps && keyidx == nkeys - 1 {
-                if found {
+            if constraint.without_overlaps && keyidx == nkeys - 1
+                && found {
                     if typid == InvalidOid {
                         if let Some(cn) = found_column {
                             let cd = cn.as_variant::<ColumnDef>().expect("ColumnDef");
@@ -2565,7 +2565,6 @@ fn transform_index_constraints<'mcx>(
                         ));
                     }
                 }
-            }
             let mut iparam = Node::build::<IndexElem>(mcx)?;
             iparam.name = Some(key);
             iparam.ordering = SortByDir::SORTBY_DEFAULT;

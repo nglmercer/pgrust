@@ -5,6 +5,8 @@ use core::cell::Cell;
 use core::ffi::CStr;
 use std::rc::Rc;
 
+// The tests reach Datum through `use super::*`; the lib itself no longer names it.
+#[cfg(test)]
 use ::datum::Datum;
 use ::mcx::{Mcx, MemoryContext, PgVec};
 use ::pqformat::{
@@ -320,7 +322,7 @@ impl<'mcx> DrPrinttup<'mcx> {
 
         pq_endmessage_reuse(buf)?;
         // C resets the per-row tmpcontext here; the byteas were copied above.
-        if let Some(ctx) = send_ctx.as_deref_mut() {
+        if let Some(ctx) = send_ctx {
             ctx.reset();
         }
         Ok(true)

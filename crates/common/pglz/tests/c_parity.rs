@@ -37,7 +37,7 @@ fn gen_input(kind: &str, n: usize) -> Vec<u8> {
             let digits = b"0123456789.";
             (0..n).map(|_| digits[(prng.next_byte() % 11) as usize]).collect()
         }
-        "high" => (0..n).map(|_| 0x80 | (prng.next_byte() % 7) * 17).collect(),
+        "high" => (0..n).map(|_| 0x80 | ((prng.next_byte() % 7) * 17)).collect(),
         "mixed" => {
             let mut buf = Vec::with_capacity(n);
             for i in 0..n {

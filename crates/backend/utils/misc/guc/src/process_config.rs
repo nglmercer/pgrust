@@ -417,7 +417,7 @@ fn report(elevel: ErrorLevel, error: PgError) -> PgResult<()> {
 // GetConfigOption(name, true, false) for the change-report diff; missing or
 // NULL is the empty string.
 fn current_value(name: &str) -> String {
-    with_store(|reg| reg.find_option(name).map(|record| crate::registry::raw_config_value(record)))
+    with_store(|reg| reg.find_option(name).map(crate::registry::raw_config_value))
         .flatten()
         .unwrap_or_default()
 }

@@ -230,7 +230,7 @@ pub fn GetNewTransactionId(isSubXact: bool) -> PgResult<FullTransactionId> {
 
         LWLockRelease(XidGenLock())?;
 
-        if globals::IsUnderPostmaster() && (xid % 65536) == 0 {
+        if globals::IsUnderPostmaster() && xid.is_multiple_of(65536) {
             SendPostmasterSignal(PMSignalReason::PMSIGNAL_START_AUTOVAC_LAUNCHER);
         }
 

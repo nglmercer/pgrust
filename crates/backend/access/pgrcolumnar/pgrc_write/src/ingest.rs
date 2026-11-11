@@ -1236,7 +1236,7 @@ impl ColBuffer {
                 detail: "splice of a foreign-schema chunk",
             });
         }
-        if self.rows % 64 != 0 {
+        if !self.rows.is_multiple_of(64) {
             return Err(WriteError::Contract {
                 detail: "splice seam off the 64-row validity-word boundary",
             });

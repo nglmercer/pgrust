@@ -72,7 +72,7 @@ fn install() -> MutexGuard<'static, ()> {
             Ok(matches!(t, 23 | 25 | 2281 | 1007).then(|| syscache_seams::PgTypeBaseShape { typtype: if t == 2281 { b'p' as i8 } else { b'b' as i8 }, typbasetype: 0, typtypmod: -1, typelem: if t == 1007 { 23 } else { 0 }, typsubscript: 0 }))
         });
         // the typcache entries a parallel arena images: no default opclass here (the tests' types compare in their own code)
-        syscache_seams::syscache_hash_value_typeoid::set(|t| Ok(t));
+        syscache_seams::syscache_hash_value_typeoid::set(Ok);
         indexcmds_seams::get_default_opclass::set(|_, _| Ok(0));
         // int4in for the initcond
         syscache_seams::pg_type_io_shape::set(|t| {
@@ -360,7 +360,7 @@ fn a_parallel_arena_folds_a_slot_per_worker_thread_and_combines_on_the_leader() 
             let mut g = [0u64; 2];
             for s in ws {
                 let mut v = text(s);
-                trans_as(w as u16, h, 2, &mut g, (!s.is_empty()).then(|| v.as_mut_ptr() as u64)).unwrap();
+                trans_as(w as u16, h, 2, &mut g, (!s.is_empty()).then_some(v.as_mut_ptr() as u64)).unwrap();
                 v.fill(0xee);
             }
             g
@@ -410,7 +410,7 @@ fn a_wide_keyed_arena_keeps_a_state_per_worker_in_each_home_and_gathers_at_the_f
                 let mut rec = tagged();
                 for s in ws {
                     let mut v = text(s);
-                    trans_as(w as u16, h, 2, &mut rec, (!s.is_empty()).then(|| v.as_mut_ptr() as u64)).unwrap();
+                    trans_as(w as u16, h, 2, &mut rec, (!s.is_empty()).then_some(v.as_mut_ptr() as u64)).unwrap();
                     v.fill(0xee);
                 }
                 assert_eq!(rec[0], home, "the record still names the home");
@@ -440,7 +440,7 @@ fn a_keyed_fold_combines_two_partials_of_one_group_through_m6_agg_combine() {
         let mut g = [0u64; 2];
         for s in ws {
             let mut v = text(s);
-            trans(h, 2, &mut g, (!s.is_empty()).then(|| v.as_mut_ptr() as u64)).unwrap();
+            trans(h, 2, &mut g, (!s.is_empty()).then_some(v.as_mut_ptr() as u64)).unwrap();
             v.fill(0xee);
         }
         g
@@ -521,7 +521,7 @@ fn a_nested_lanes_ordinal_folds_in_the_leaders_slot() {
         let mut g = [0u64; 2];
         for s in ws {
             let mut v = text(s);
-            trans_as(ordinal, h, 2, &mut g, (!s.is_empty()).then(|| v.as_mut_ptr() as u64)).unwrap();
+            trans_as(ordinal, h, 2, &mut g, (!s.is_empty()).then_some(v.as_mut_ptr() as u64)).unwrap();
             v.fill(0xee);
         }
         g

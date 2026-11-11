@@ -178,7 +178,7 @@ pub fn gistbuild<'mcx>(
             temp.reset();
 
             if build_mode == GistBuildMode::Active
-                && indtuples % BUFFERING_MODE_TUPLE_SIZE_STATS_TARGET == 0
+                && indtuples.is_multiple_of(BUFFERING_MODE_TUPLE_SIZE_STATS_TARGET)
             {
                 let bb = bufstate.as_mut().expect("buffering active");
                 bb.gfbb.pages_per_buffer = buffered::calculate_pages_per_buffer(
@@ -194,7 +194,7 @@ pub fn gistbuild<'mcx>(
             // once tuple-size stats are settled (buffering=on).
             let switch = match build_mode {
                 GistBuildMode::Auto => {
-                    indtuples % BUFFERING_MODE_SWITCH_CHECK_STEP == 0 && {
+                    indtuples.is_multiple_of(BUFFERING_MODE_SWITCH_CHECK_STEP) && {
                         let nblocks = bufmgr::RelationGetNumberOfBlocksInFork(
                             index_rel,
                             ForkNumber::MAIN_FORKNUM,

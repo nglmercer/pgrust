@@ -126,7 +126,7 @@ impl PartDeletes {
                     for (w, chunk) in block.payload.chunks_exact(8).enumerate() {
                         mask[w] = u64::from_le_bytes(chunk.try_into().expect("chunks_exact(8)"));
                     }
-                    mask.iter().map(|w| w.count_ones() as u32).sum()
+                    mask.iter().map(|w| w.count_ones()).sum()
                 }
             };
             if count != block.count {

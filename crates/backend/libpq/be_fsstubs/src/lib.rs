@@ -461,7 +461,7 @@ pub fn be_lo_export<'mcx>(mcx: Mcx<'mcx>, lobjId: Oid, filename: &[u8]) -> PgRes
         libc::O_CREAT | libc::O_WRONLY | libc::O_TRUNC,
         // 0600: no umask can widen it, so the file is never momentarily
         // group/other-accessible before the fchmod below.
-        (libc::S_IRUSR | libc::S_IWUSR) as u32,
+        libc::S_IRUSR | libc::S_IWUSR,
     )?;
     if fd < 0 {
         return Err(ereport(ERROR)

@@ -1117,7 +1117,7 @@ mod order_by_limit_e2e {
                 Ok(Some(n))
             });
             syscache_seams::lookup_pg_class_ls_shape::set(|relid| {
-                Ok((relid == TBL).then(|| syscache_seams::PgClassLsShape {
+                Ok((relid == TBL).then_some(syscache_seams::PgClassLsShape {
                     relnamespace: 2200,
                     reltype: 0,
                     relam: 2,
@@ -1192,7 +1192,7 @@ mod order_by_limit_e2e {
                 Ok(if typid == INT4OID && am == 403 { INT4_BTREE_OPCLASS } else { 0 })
             });
             syscache_seams::lookup_pg_opclass_shape::set(|opclass| {
-                Ok((opclass == INT4_BTREE_OPCLASS).then(|| syscache_seams::PgOpclassShape {
+                Ok((opclass == INT4_BTREE_OPCLASS).then_some(syscache_seams::PgOpclassShape {
                     opcmethod: 403,
                     opcfamily: INT4_BTREE_FAM,
                     opcintype: INT4OID,

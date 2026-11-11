@@ -21,7 +21,8 @@ fn trickle_refusal_identity_is_pinned() {
     // F-1; wording frozen to the v3 gate @ dc3c67c56214 so error-parity
     // suites see ONE message shape across the lanes): 0A000 always.
     use crate::dml::{trickle_unsupported, TrickleOp};
-    for (op, msg) in [(TrickleOp::Merge, "pgrcolumnar does not support MERGE")] {
+    {
+        let (op, msg) = (TrickleOp::Merge, "pgrcolumnar does not support MERGE");
         let e = trickle_unsupported(op);
         assert_eq!(e.sqlstate(), types_error::ERRCODE_FEATURE_NOT_SUPPORTED);
         assert_eq!(e.message(), msg);
@@ -398,7 +399,7 @@ pub(crate) mod catalog_load {
         let dir = committed_dir("dangling", 779);
         let slot: catalog::RelSlot = (1663, 5, 779);
         std::fs::write(format!("{dir}/CURRENT"), CommitPointer::new(2, 96, 0xDEAD_BEEF).encode()).expect("dangle CURRENT");
-        let err = catalog::load_dir_with(slot, &dir, &CommittedProbe, &|_| panic!("no generation"), &|_| Ok(None)).err().expect("load refuses");
+        let err = catalog::load_dir_with(slot, &dir, &CommittedProbe, &|_| panic!("no generation"), &|_| Ok(None)).expect_err("load refuses");
         assert_eq!(err.sqlstate(), types_error::ERRCODE_DATA_CORRUPTED);
         assert!(err.message().contains("manifest generation 2"), "{}", err.message());
         assert!(!catalog::contains(slot));

@@ -341,7 +341,7 @@ pub fn delete_keys<'mcx>(
         skip_nested = true;
         if matches!(r, WjbToken::Elem | WjbToken::Key) {
             if let JsonbItem::String(s) = v {
-                if keys.iter().any(|k| *k == s) {
+                if keys.contains(&s) {
                     if r == WjbToken::Key {
                         it.next(true);
                     }
@@ -482,7 +482,7 @@ fn set_path_rec<'mcx>(
             else {
                 unreachable!()
             };
-            if args.op_type & JB_PATH_FILL_GAPS != 0 && level <= args.path.len() - 1 && raw_scalar
+            if args.op_type & JB_PATH_FILL_GAPS != 0 && level < args.path.len() && raw_scalar
             {
                 return Err(cannot_replace_scalar());
             }
@@ -503,7 +503,7 @@ fn set_path_rec<'mcx>(
             ps.push_token(r)
         }
         WjbToken::Elem | WjbToken::Value => {
-            if args.op_type & JB_PATH_FILL_GAPS != 0 && level <= args.path.len() - 1 {
+            if args.op_type & JB_PATH_FILL_GAPS != 0 && level < args.path.len() {
                 return Err(cannot_replace_scalar());
             }
             ps.push(r, v)
@@ -665,7 +665,7 @@ fn set_path_array<'mcx>(
             }
             idx = i32::MIN;
         } else {
-            idx = nelems_i + idx;
+            idx += nelems_i;
         }
     }
 

@@ -38,7 +38,7 @@ unsafe fn arg_circle(fcinfo: &Fcinfo, i: usize) -> CIRCLE {
 // PathRef/PolyRef readers are unaligned-safe, so short-header payloads are
 // read in place (no C-style un-packing copy); external/compressed images
 // detoast inside arg_varlena_packed.
-unsafe fn varlena_payload<'a>(fcinfo: &'a Fcinfo, i: usize) -> PgResult<&'a [u8]> {
+unsafe fn varlena_payload(fcinfo: &Fcinfo, i: usize) -> PgResult<&[u8]> {
     Ok(unsafe { fcinfo.arg_varlena_packed(i) }?.data())
 }
 
@@ -52,7 +52,7 @@ unsafe fn arg_poly<'a>(fcinfo: &'a Fcinfo, i: usize) -> PgResult<PolyRef<'a>> {
 
 // Raw server-encoding bytes: C's parsers take the cstring as-is and echo it
 // in the 22P02 message (SQL_ASCII / non-UTF-8 input).
-unsafe fn arg_cstr<'a>(fcinfo: &'a Fcinfo, i: usize) -> PgResult<&'a [u8]> {
+unsafe fn arg_cstr(fcinfo: &Fcinfo, i: usize) -> PgResult<&[u8]> {
     Ok(fcinfo.arg_cstring(i).to_bytes())
 }
 

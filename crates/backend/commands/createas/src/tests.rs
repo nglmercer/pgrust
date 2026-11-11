@@ -77,8 +77,7 @@ fn ctas_rewrite_result_not_single_query_is_internal_error() {
         QueryEnvHandle::NULL,
         None,
     )
-    .err()
-    .expect("createas.c:318 raises elog(ERROR) on a non-single rewrite result");
+    .expect_err("createas.c:318 raises elog(ERROR) on a non-single rewrite result");
     assert_eq!(err.level(), ERROR);
     assert_eq!(err.sqlstate(), ERRCODE_INTERNAL_ERROR);
     assert_eq!(err.message(), "unexpected rewrite result for CREATE TABLE AS SELECT");

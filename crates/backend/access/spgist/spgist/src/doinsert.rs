@@ -910,7 +910,7 @@ fn doPickSplit<'m>(
 
         bufmgr::mark_buffer_dirty::call(current.buffer)?;
     }
-    let save_current_valid = save_current.buffer != current.buffer && save_current.buffer != InvalidBuffer && !(new_inner_buffer == InvalidBuffer);
+    let save_current_valid = save_current.buffer != current.buffer && save_current.buffer != InvalidBuffer && (new_inner_buffer != InvalidBuffer);
 
     if relation_needs_wal(index) && !state.isBuild {
         xlrec.nInsert = n_to_insert as u16;

@@ -101,7 +101,7 @@ fn each_rows(flinfo: &FmgrInfo, fcinfo: &mut Fcinfo, pairs: Pairs) -> PgResult<V
             None => (Datum::null(), true),
         };
         let tuple = heaptuple::heap_form_tuple(mcx, &desc, &[k, v], &[false, vnull])?;
-        rows.push(::mcx::std_vec_from_slice("contrib", &tuple.image())?);
+        rows.push(::mcx::std_vec_from_slice("contrib", tuple.image())?);
     }
     Ok(rows)
 }

@@ -107,7 +107,7 @@ pub fn validity_pattern(kind: u32, rows: u32, seed: &mut u64) -> Option<Vec<u64>
             // Sparse nulls (~1/16).
             let mut words = vec![u64::MAX; rows.div_ceil(64) as usize];
             for r in 0..rows {
-                if splitmix(seed) % 16 == 0 {
+                if splitmix(seed).is_multiple_of(16) {
                     words[(r / 64) as usize] &= !(1u64 << (r % 64));
                 }
             }
@@ -117,7 +117,7 @@ pub fn validity_pattern(kind: u32, rows: u32, seed: &mut u64) -> Option<Vec<u64>
             // Dense nulls (~3/4).
             let mut words = vec![0u64; rows.div_ceil(64) as usize];
             for r in 0..rows {
-                if splitmix(seed) % 4 == 0 {
+                if splitmix(seed).is_multiple_of(4) {
                     words[(r / 64) as usize] |= 1u64 << (r % 64);
                 }
             }
@@ -291,7 +291,7 @@ pub fn canon_eq(class: StorageClass, a: u64, b: u64) -> bool {
 /// A permuted-but-ascending selection over `rows` rows (deterministic).
 pub fn random_selection(rows: u32, keep_mod: u64, seed: &mut u64) -> Vec<u16> {
     (0..rows)
-        .filter(|_| splitmix(seed) % keep_mod == 0)
+        .filter(|_| splitmix(seed).is_multiple_of(keep_mod))
         .map(|r| r as u16)
         .collect()
 }
@@ -301,13 +301,13 @@ pub fn roundtrip_int_corpus(shape: u32, rows: u32, seed: &mut u64) -> GranuleDat
     let validity = validity_pattern(shape, rows, seed);
     let datums = (0..rows)
         .map(|r| match shape % 6 {
-            0 => 1_000_000 + (splitmix(seed) % 200) as u64, // narrow
-            1 => (splitmix(seed) % 70_000) as u64,          // 2-4 byte deltas
+            0 => 1_000_000 + (splitmix(seed) % 200), // narrow
+            1 => (splitmix(seed) % 70_000),          // 2-4 byte deltas
             2 => splitmix(seed),                            // full u64
             3 => (-(splitmix(seed) as i64 % 100_000)) as u64, // negative
             4 => (r as u64) * 3 + splitmix(seed) % 4,       // near-sorted
             _ => {
-                if splitmix(seed) % 128 == 0 {
+                if splitmix(seed).is_multiple_of(128) {
                     splitmix(seed) // outlier spikes
                 } else {
                     42

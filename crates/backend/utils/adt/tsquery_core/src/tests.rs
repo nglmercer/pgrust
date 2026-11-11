@@ -555,7 +555,7 @@ fn qtn_binary_child_allocation_failure_is_catchable() {
     let mut tree = qt2qtn(mcx, TsQueryRef { payload: &img[4..] }, 0).expect("qt2qtn");
     qtn_ternary(&mut tree).expect("ternary");
     assert!(tree.children.len() > 2, "ternary form has a >2-ary node to rebuild");
-    let err = qtn_binary(tiny.mcx(), &mut tree).err().expect("allocation failure is an error");
+    let err = qtn_binary(tiny.mcx(), &mut tree).expect_err("allocation failure is an error");
     assert_eq!(err.sqlstate(), ::types_error::ERRCODE_OUT_OF_MEMORY);
 }
 

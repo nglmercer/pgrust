@@ -279,7 +279,7 @@ fn build_minmax_path<'mcx>(
     let sorted_path = crate::pathkeys::get_cheapest_fractional_path_for_pathkeys(
         run,
         &pathlist,
-        &query_pathkeys,
+        query_pathkeys,
         path_fraction,
     );
     let Some(sorted_path) = sorted_path else {

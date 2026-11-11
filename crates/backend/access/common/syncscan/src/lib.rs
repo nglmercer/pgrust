@@ -177,7 +177,7 @@ fn get_location(locator: RelFileLocator, relnblocks: BlockNumber) -> PgResult<Bl
 }
 
 fn report_location(locator: RelFileLocator, location: BlockNumber) -> PgResult<()> {
-    if location % SYNC_SCAN_REPORT_INTERVAL == 0 {
+    if location.is_multiple_of(SYNC_SCAN_REPORT_INTERVAL) {
         // Contended hint updates are skippable; never block a running scan.
         if LWLockConditionalAcquire(sync_scan_lock(), LW_EXCLUSIVE)? {
             let cell = SCAN_LOCATIONS.get().expect("syncscan shmem not initialized");

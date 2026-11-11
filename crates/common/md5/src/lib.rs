@@ -34,6 +34,12 @@ pub struct Md5 {
     fill: usize,
 }
 
+impl Default for Md5 {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Md5 {
     pub fn new() -> Md5 {
         Md5 {

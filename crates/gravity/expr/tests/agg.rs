@@ -338,7 +338,7 @@ fn a_folded_builder_compiles_an_aggregate_as_its_cell_and_never_its_plan() {
     };
     for fnoid in [2149, 2119] {
         // variance(int4) (int4_accum: non-strict, an internal state) and one without a pg_aggregate row
-        let e = compile(call(fnoid, b'n'), false).err().expect("no plan: refused without the flag");
+        let e = compile(call(fnoid, b'n'), false).expect_err("no plan: refused without the flag");
         assert!(e.to_string().contains("no pg_aggregate row"), "{e}");
         let (cell, naggs) = compile(call(fnoid, b'n'), true).expect("the cell compiles under folded");
         assert_eq!(cell, Some(1), "the root is a read of cell 1, no other node");
@@ -348,6 +348,6 @@ fn a_folded_builder_compiles_an_aggregate_as_its_cell_and_never_its_plan() {
     // folds it or refuses it by name); without the flag the cell gate still refuses it by name
     let (cell, naggs) = compile(call(3972, b'o'), true).expect("an ordered-set cell compiles under folded");
     assert_eq!((cell, naggs), (Some(1), 2), "the root is a read of cell 1");
-    let e = compile(call(3972, b'o'), false).err().expect("the cell gate stands without the flag");
+    let e = compile(call(3972, b'o'), false).expect_err("the cell gate stands without the flag");
     assert!(e.to_string().contains("ordered-set"), "{e}");
 }

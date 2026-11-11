@@ -37,7 +37,7 @@ pub fn compile(b: &mut Builder<'_, '_>, v: &types_nodes::primnodes::Var<'_>) -> 
             // is the ROW of its columns there (`image_row`)
             // an image that exists per row (ON CONFLICT DO UPDATE's OLD, MERGE's): NULL where its flag says it does not,
             // as ExecEvalWholeRowVar under EEO_FLAG_OLD_IS_NULL / NEW_IS_NULL, never a row of NULLs
-            let Some((fsrc, fattno)) = exists.is_none().then(|| if old { r.old_flag } else { r.new_flag }).flatten() else {
+            let Some((fsrc, fattno)) = exists.is_none().then_some(if old { r.old_flag } else { r.new_flag }).flatten() else {
                 return image_row(b, src, off, v.vartype);
             };
             let cond = b.push(ExprNode::Var(Var { src: fsrc, attno: fattno, typ: crate::percode::BOOLOID, desc: 0 }));

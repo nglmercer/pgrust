@@ -294,7 +294,8 @@ mod tests {
                     assert!(wrapped, "unwrapped stat probe: {sql}");
                 }
                 // Raw wall-clock values must never be a bare output column.
-                for volatile in ["SELECT pg_stat_get_snapshot_timestamp()"] {
+                {
+                    let volatile = "SELECT pg_stat_get_snapshot_timestamp()";
                     assert!(!sql.starts_with(volatile), "raw volatile projection: {sql}");
                 }
             }

@@ -1353,7 +1353,7 @@ fn spill_toast_chunks_reassemble_after_restore() {
         let change = tuple_change(&rb, &toast_desc, &values, &[false, false, false]);
         rb.queue_change(xid, 100 + seq, change, true).unwrap();
     }
-    let pointer = ondisk_toast_pointer(valueid, raw_len as i32 + 4, raw_len as u32);
+    let pointer = ondisk_toast_pointer(valueid, raw_len + 4, raw_len as u32);
     let values = [Datum::from_usize(pointer.as_ptr() as usize)];
     rb.queue_change(xid, 110, tuple_change(&rb, &main_desc, &values, &[false]), false)
         .unwrap();

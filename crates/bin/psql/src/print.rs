@@ -103,7 +103,7 @@ fn wcsformat(s: &str) -> String {
                 loop {
                     out.push(' ');
                     linewidth += 1;
-                    if linewidth % 8 == 0 {
+                    if linewidth.is_multiple_of(8) {
                         break;
                     }
                 }

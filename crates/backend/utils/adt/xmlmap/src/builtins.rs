@@ -6,13 +6,13 @@ use types_core::Oid;
 use types_error::PgResult;
 use types_fmgr::{varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};
 
-fn arg_str<'a>(fcinfo: &'a Fcinfo, i: usize) -> PgResult<&'a str> {
+fn arg_str(fcinfo: &Fcinfo, i: usize) -> PgResult<&str> {
     // SAFETY: catalog arg i is a non-null text/refcursor varlena (strict fn).
     let bytes = unsafe { fcinfo.arg_varlena_packed(i)? }.data();
     core::str::from_utf8(bytes).map_err(|_| crate::non_utf8_unsupported("text arguments"))
 }
 
-fn arg_name<'a>(fcinfo: &'a Fcinfo, i: usize) -> PgResult<&'a str> {
+fn arg_name(fcinfo: &Fcinfo, i: usize) -> PgResult<&str> {
     let p = fcinfo.arg(i).as_usize() as *const u8;
     // SAFETY: catalog arg i is a NameData pointer (64-byte NUL-terminated).
     unsafe {

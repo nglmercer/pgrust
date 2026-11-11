@@ -589,8 +589,8 @@ fn markRTEForSelectPriv(
         }
         // A whole-row join reference propagates to both inputs; merged USING
         // columns need nothing (the join qual already marked the inputs).
-        RTEKind::RTE_JOIN => {
-            if col == InvalidAttrNumber {
+        RTEKind::RTE_JOIN
+            if col == InvalidAttrNumber => {
                 let j = pstate
                     .p_joinexprs
                     .get(rtindex as usize - 1)
@@ -607,7 +607,6 @@ fn markRTEForSelectPriv(
                     markRTEForSelectPriv(mcx, pstate, varno, InvalidAttrNumber)?;
                 }
             }
-        }
         _ => {}
     }
     Ok(())

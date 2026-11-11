@@ -589,13 +589,7 @@ unsafe fn bt_swap_posting<'mcx>(
     // at postoff + nhtids*IPD_SIZE (gap fill + shifted TIDs); require it to lie
     // within the tuple, mirroring the corruption ERROR raised just above.
     let tuple_size = index_tuple_size(nposting.as_ptr());
-    let tid_span_end = postoff
-        .checked_add(
-            (nhtids as usize)
-                .checked_mul(IPD_SIZE)
-                .unwrap_or(usize::MAX),
-        )
-        .unwrap_or(usize::MAX);
+    let tid_span_end = postoff.saturating_add((nhtids as usize).saturating_mul(IPD_SIZE));
     if postoff < INDEX_TUPLE_HEADER_SIZE || tid_span_end > tuple_size {
         return Err(posting_offset_corrupt(postoff, nhtids, tuple_size));
     }

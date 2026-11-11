@@ -270,8 +270,7 @@ fn map_variable_attnos_bad_attno_is_catchable_internal_error() {
     )
     .unwrap();
     let err = crate::map_variable_attnos(mcx, dropped, 1, 0, &attnums, 0)
-        .err()
-        .expect("dropped-column attno must be an error");
+        .expect_err("dropped-column attno must be an error");
     assert_eq!(err.message(), "unexpected varattno 2 in expression to be mapped");
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
     // attno 5 exceeds maplen.
@@ -281,8 +280,7 @@ fn map_variable_attnos_bad_attno_is_catchable_internal_error() {
     )
     .unwrap();
     let err = crate::map_variable_attnos(mcx, beyond, 1, 0, &attnums, 0)
-        .err()
-        .expect("out-of-range attno must be an error");
+        .expect_err("out-of-range attno must be an error");
     assert_eq!(err.message(), "unexpected varattno 5 in expression to be mapped");
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
     // A valid attno still maps.

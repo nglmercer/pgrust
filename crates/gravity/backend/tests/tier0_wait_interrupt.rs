@@ -90,7 +90,7 @@ fn a_waiter_with_a_pending_interrupt_leaves_and_the_held_compile_files_its_modul
         let waited = cache::stats().waited;
         *PENDING.lock().unwrap() = Some(std::thread::current().id());
         let t0 = Instant::now();
-        let e = cache::get_or_compile_all(&p, &[f], |_| panic!("the waiter compiles nothing")).err().expect("the wait ends at the pending interrupt");
+        let e = cache::get_or_compile_all(&p, &[f], |_| panic!("the waiter compiles nothing")).expect_err("the wait ends at the pending interrupt");
         let el = t0.elapsed();
         *PENDING.lock().unwrap() = None;
         assert_eq!(e.message(), cache::INTERRUPTED);
@@ -120,7 +120,7 @@ fn a_promotion_stopped_in_its_wait_raises_the_interrupt_and_stays_promotable() {
         let t = codes[0].tier0().expect("tier-0 code");
         *PENDING.lock().unwrap() = Some(std::thread::current().id());
         let t0 = Instant::now();
-        let raised = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| t.promote())).err().expect("the promotion raises the interrupt");
+        let raised = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| t.promote())).expect_err("the promotion raises the interrupt");
         let el = t0.elapsed();
         assert_eq!(*PENDING.lock().unwrap(), None, "the host's check took the interrupt");
         let e = raised.downcast_ref::<Box<PgError>>().expect("PostgreSQL's error, thrown as an ereport is");

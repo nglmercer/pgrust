@@ -479,7 +479,7 @@ pub(crate) fn wc_tolower_1byte(c: u8, lt: LibcLocale) -> u32 {
 fn write_prefix(dest: &mut [u8], src: &[u8]) {
     // C's SB arms: no-op unless srclen+1 fits (caller retries with a bigger
     // buffer using the returned length).
-    if src.len() + 1 <= dest.len() {
+    if src.len() < dest.len() {
         dest[..src.len()].copy_from_slice(src);
         dest[src.len()] = 0;
     }
@@ -487,7 +487,7 @@ fn write_prefix(dest: &mut [u8], src: &[u8]) {
 
 pub(crate) fn strlower_libc_sb(dest: &mut [u8], src: &[u8], locale: &PgLocale) -> usize {
     write_prefix(dest, src);
-    if src.len() + 1 <= dest.len() {
+    if src.len() < dest.len() {
         for p in &mut dest[..src.len()] {
             if *p == 0 {
                 break;
@@ -504,7 +504,7 @@ pub(crate) fn strlower_libc_sb(dest: &mut [u8], src: &[u8], locale: &PgLocale) -
 
 pub(crate) fn strupper_libc_sb(dest: &mut [u8], src: &[u8], locale: &PgLocale) -> usize {
     write_prefix(dest, src);
-    if src.len() + 1 <= dest.len() {
+    if src.len() < dest.len() {
         for p in &mut dest[..src.len()] {
             if *p == 0 {
                 break;
@@ -522,7 +522,7 @@ pub(crate) fn strupper_libc_sb(dest: &mut [u8], src: &[u8], locale: &PgLocale) -
 
 pub(crate) fn strtitle_libc_sb(dest: &mut [u8], src: &[u8], locale: &PgLocale) -> usize {
     write_prefix(dest, src);
-    if src.len() + 1 <= dest.len() {
+    if src.len() < dest.len() {
         let mut wasalnum = false;
         for p in &mut dest[..src.len()] {
             if *p == 0 {
@@ -667,7 +667,7 @@ fn case_libc_mb(
     // wcstombs failure would mean the towlower output can't re-encode.
     debug_assert!(result_size != usize::MAX);
 
-    if dest.len() >= result_size + 1 {
+    if dest.len() > result_size {
         dest[..result_size].copy_from_slice(&result[..result_size]);
         dest[result_size] = 0;
     }

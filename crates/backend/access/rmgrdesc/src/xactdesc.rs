@@ -321,6 +321,19 @@ pub fn xact_desc(buf: &mut StringInfo<'_>, record: &XLogReaderState) -> PgResult
     Ok(())
 }
 
+pub fn xact_identify(info: u8) -> Option<&'static str> {
+    match info & XLOG_XACT_OPMASK {
+        XLOG_XACT_COMMIT => Some("COMMIT"),
+        XLOG_XACT_PREPARE => Some("PREPARE"),
+        XLOG_XACT_ABORT => Some("ABORT"),
+        XLOG_XACT_COMMIT_PREPARED => Some("COMMIT_PREPARED"),
+        XLOG_XACT_ABORT_PREPARED => Some("ABORT_PREPARED"),
+        XLOG_XACT_ASSIGNMENT => Some("ASSIGNMENT"),
+        XLOG_XACT_INVALIDATIONS => Some("INVALIDATION"),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -347,18 +360,5 @@ mod tests {
         data[76..80].copy_from_slice(&22u32.to_ne_bytes());
         let (parsed, _) = parse_prepare_record(&data).unwrap();
         assert_eq!(parsed.subxacts, vec![11, 22]);
-    }
-}
-
-pub fn xact_identify(info: u8) -> Option<&'static str> {
-    match info & XLOG_XACT_OPMASK {
-        XLOG_XACT_COMMIT => Some("COMMIT"),
-        XLOG_XACT_PREPARE => Some("PREPARE"),
-        XLOG_XACT_ABORT => Some("ABORT"),
-        XLOG_XACT_COMMIT_PREPARED => Some("COMMIT_PREPARED"),
-        XLOG_XACT_ABORT_PREPARED => Some("ABORT_PREPARED"),
-        XLOG_XACT_ASSIGNMENT => Some("ASSIGNMENT"),
-        XLOG_XACT_INVALIDATIONS => Some("INVALIDATION"),
-        _ => None,
     }
 }

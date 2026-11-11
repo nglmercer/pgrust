@@ -156,7 +156,7 @@ pub fn owns(p: *const u8) -> bool {
 /// The run length (slices) a request takes here, or None (served elsewhere).
 #[inline]
 pub fn run_of(size: usize, align: usize) -> Option<usize> {
-    (size >= OWN_MIN && size <= OWN_MAX && align <= SLICE).then(|| size.div_ceil(SLICE))
+    ((OWN_MIN..=OWN_MAX).contains(&size) && align <= SLICE).then(|| size.div_ceil(SLICE))
 }
 
 fn locked<R>(s: &Stack, f: impl FnOnce(&Stack) -> R) -> R {

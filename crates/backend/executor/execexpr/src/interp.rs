@@ -2041,7 +2041,7 @@ fn run_program<'mcx>(
 }
 
 #[inline(always)]
-fn need_slot<'a, 'b, 'mcx>(slot: &'a mut Option<&'b mut SlotData<'mcx>>) -> &'a mut SlotData<'mcx> {
+fn need_slot<'a, 'mcx>(slot: &'a mut Option<&mut SlotData<'mcx>>) -> &'a mut SlotData<'mcx> {
     match slot {
         Some(s) => s,
         None => missing_slot_hoisted(),

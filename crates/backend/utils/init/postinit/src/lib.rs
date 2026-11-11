@@ -990,7 +990,7 @@ fn process_startup_options(am_superuser: bool) -> PgResult<()> {
     });
 
     if let Some(cmdline_options) = cmdline_options {
-        let maxac = 2 + (cmdline_options.len() + 1) / 2;
+        let maxac = 2 + cmdline_options.len().div_ceil(2);
         let mut av: Vec<String> = Vec::new();
         let _ = av.try_reserve(maxac);
         av.push("postgres".to_string());
@@ -1152,7 +1152,7 @@ fn ThereIsAtLeastOneRole(mcx: Mcx<'_>) -> PgResult<bool> {
 }
 
 fn strlcpy_name(src: &str) -> String {
-    if src.len() <= NAMEDATALEN - 1 {
+    if src.len() < NAMEDATALEN {
         src.to_string()
     } else {
         String::from_utf8_lossy(&src.as_bytes()[..NAMEDATALEN - 1]).into_owned()

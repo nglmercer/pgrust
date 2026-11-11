@@ -166,26 +166,6 @@ impl DictFoldTables {
     }
 }
 
-#[cfg(test)]
-pub(crate) mod seed {
-    //! The born-RED tooth: when armed, the batched hash lane SKIPS the
-    //! span's last HLL update — a deliberate accumulator-coverage leak.
-    //! The equivalence battery must go RED with this armed and GREEN with
-    //! it disarmed; that failure is the proof the battery has teeth.
-    //! THREAD-LOCAL so the armed test cannot poison concurrently running
-    //! suites (builders fold on the driving thread).
-    use std::cell::Cell;
-    thread_local! {
-        pub static SKIP_LAST_HLL: Cell<bool> = const { Cell::new(false) };
-    }
-    pub fn armed() -> bool {
-        SKIP_LAST_HLL.with(|c| c.get())
-    }
-    pub fn arm(on: bool) {
-        SKIP_LAST_HLL.with(|c| c.set(on));
-    }
-}
-
 /// The batched span fold — the exact fold set of `observe_value_at` over
 /// rows `[first, first+n)` of `input`, restructured into per-lane passes.
 #[allow(clippy::too_many_arguments)]
@@ -1045,5 +1025,25 @@ pub(crate) fn observe_codes_granule(
     }
     if lens {
         cur.have_len = true;
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod seed {
+    //! The born-RED tooth: when armed, the batched hash lane SKIPS the
+    //! span's last HLL update — a deliberate accumulator-coverage leak.
+    //! The equivalence battery must go RED with this armed and GREEN with
+    //! it disarmed; that failure is the proof the battery has teeth.
+    //! THREAD-LOCAL so the armed test cannot poison concurrently running
+    //! suites (builders fold on the driving thread).
+    use std::cell::Cell;
+    thread_local! {
+        pub static SKIP_LAST_HLL: Cell<bool> = const { Cell::new(false) };
+    }
+    pub fn armed() -> bool {
+        SKIP_LAST_HLL.with(|c| c.get())
+    }
+    pub fn arm(on: bool) {
+        SKIP_LAST_HLL.with(|c| c.set(on));
     }
 }

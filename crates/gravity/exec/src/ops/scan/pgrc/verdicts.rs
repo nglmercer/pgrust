@@ -41,7 +41,7 @@ impl Protocol for Verdicts {
         }
         let heap = usize::try_from(p.site).ok().and_then(|s| cx.program.sites.get(s)).map(|d| d.relation);
         let reg = &cx.admitted.registry;
-        if (0..reg.len()).filter_map(|i| reg.range_recipe(i)).any(|r| Some(r.heap) == heap.map(|h| h as u32)) {
+        if (0..reg.len()).filter_map(|i| reg.range_recipe(i)).any(|r| Some(r.heap) == heap.map(|h| h)) {
             return Ok(None);
         }
         let Some(r) = usize::try_from(p.site).ok().and_then(|s| cx.admitted.registry.granule_recipe(s)) else {
@@ -50,7 +50,7 @@ impl Protocol for Verdicts {
         let shape_word = |slot: u8| cx.program.v4.as_ref().and_then(|d| d.protos.iter().find(|q| q.kind == ProtoKind::Verdicts && q.site == p.site && q.slot == slot)).map_or(0, |q| q.arg);
         let shape = [shape_word(1), shape_word(2)];
         let mut enables = p.arg;
-        let words = (enables & VERDICT_COND != 0 && shape != [0, 0]).then(|| cond_words(cx.program, p, cx.owner)).unwrap_or_default();
+        let words = if enables & VERDICT_COND != 0 && shape != [0, 0] { cond_words(cx.program, p, cx.owner) } else { Default::default() };
         // D289: a covered word bound NULL (an extern parameter) takes no cache for the execution: it fills nothing
         let bound = words.iter().all(|&(w, _)| cx.nulls.get(w) == Some(&0));
         // an unlogged relation takes the cache only under pgrust.condition_cache_unlogged (default on)
@@ -112,7 +112,7 @@ fn list_preds_of<'q>(slots: impl Iterator<Item = &'q Proto>, words: &[u64], null
         let mut members = Vec::new(); // alloc: Exec
         // a probe-word list (`WORD_ZONE_LIST_HASH`): each member's probe word, made from its image as the lowering makes a
         // constant's (P5-11 / P5-13 `HashEq`); a member the host does not read in place gives the list none
-        let hash = gravity_program::protos::word_zone_list_hash(q.arg).then(|| if ef.len == -1 { gravity_program::BOUND_TEXT_HASH } else { gravity_program::BOUND_FIXED_HASH | ef.len as u8 });
+        let hash = gravity_program::protos::word_zone_list_hash(q.arg).then_some(if ef.len == -1 { gravity_program::BOUND_TEXT_HASH } else { gravity_program::BOUND_FIXED_HASH | ef.len as u8 });
         // sortpath (4): a path lane's list: each member's prefix key (`WORD_ZONE_LIST_PREFIX`), a text image's as the
         // lowering makes a constant's (SRC-09); a member it cannot read gives the list none
         let prefix = gravity_program::protos::word_zone_list_prefix(q.arg) && ef.len == -1;
@@ -260,7 +260,7 @@ fn set_streams(program: &gravity_program::Program, reg: &gravity_hosts::ops::Hos
     let mut bit: std::collections::HashMap<u32, bool> = std::collections::HashMap::new(); // alloc: Exec
     for q in program.v4.iter().flat_map(|d| d.protos.iter()).filter(|q| q.kind == ProtoKind::Verdicts && q.slot == 0) {
         if let Some(d) = usize::try_from(q.site).ok().and_then(|s| program.sites.get(s)) {
-            bit.insert(d.relation as u32, q.arg & VERDICT_STREAM != 0);
+            bit.insert(d.relation, q.arg & VERDICT_STREAM != 0);
         }
     }
     for r in (0..reg.len()).filter_map(|i| reg.range_recipe(i)) {

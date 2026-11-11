@@ -56,7 +56,7 @@ fn install() {
             Ok(pos)
         });
         // Child's first cross-unit call in backend_initialize: capture here.
-        pqcomm_seams::pq_init::set(|client_sock| {
+        pqcomm_seams::pq_init::set(|_client_sock| {
             let timing = backend_startup::conn_timing::get();
             let masks = libpq_pqsignal::signal_masks();
             let mut cur: libc::sigset_t = unsafe { core::mem::zeroed() };

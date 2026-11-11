@@ -106,10 +106,10 @@ fn new_state(aggmcx: Mcx<'_>, open: &[u8], unique_keys: bool) -> PgResult<*mut J
     Ok(p)
 }
 
-fn cats<'f>(
-    flinfo: &'f mut FmgrInfo,
+fn cats(
+    flinfo: &mut FmgrInfo,
     build: impl FnOnce() -> PgResult<AggCats>,
-) -> PgResult<&'f mut AggCats> {
+) -> PgResult<&mut AggCats> {
     if flinfo.fn_extra_ref::<AggCats>().is_none() {
         let c = build()?;
         flinfo.set_fn_extra(c);
@@ -159,7 +159,7 @@ fn json_agg_transfn_worker(
     let c = flinfo.fn_extra_mut::<AggCats>().expect("cats built on first call");
     if b.isnull {
         let mut null_cat = TypeCat::null();
-        datum_to_json_internal(mcx, &mut *state.str, Datum::null(), true, &mut null_cat, false)?;
+        datum_to_json_internal(mcx, &mut state.str, Datum::null(), true, &mut null_cat, false)?;
         return Ok(state_datum);
     }
 
@@ -173,7 +173,7 @@ fn json_agg_transfn_worker(
         state.str.append_bytes(b"\n ")?;
     }
 
-    datum_to_json_internal(mcx, &mut *state.str, b.value, false, &mut c.val, false)?;
+    datum_to_json_internal(mcx, &mut state.str, b.value, false, &mut c.val, false)?;
     Ok(state_datum)
 }
 
@@ -295,7 +295,7 @@ fn json_object_agg_transfn_worker(
             state.str.append_bytes(b", ")?;
         }
         key_offset = state.str.len();
-        datum_to_json_internal(mcx, &mut *state.str, k.value, false, c.key.as_mut().unwrap(), true)?;
+        datum_to_json_internal(mcx, &mut state.str, k.value, false, c.key.as_mut().unwrap(), true)?;
     }
 
     if unique_keys {
@@ -315,7 +315,7 @@ fn json_object_agg_transfn_worker(
 
     state.str.append_bytes(b" : ")?;
     let val = if v.isnull { Datum::null() } else { v.value };
-    datum_to_json_internal(mcx, &mut *state.str, val, v.isnull, &mut c.val, false)?;
+    datum_to_json_internal(mcx, &mut state.str, val, v.isnull, &mut c.val, false)?;
     Ok(state_datum)
 }
 

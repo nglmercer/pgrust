@@ -295,7 +295,7 @@ pub fn map_sql_value_to_xml_value(
                 ::adt_datetime::consts::USE_XSD_DATES,
                 &mut buf,
             );
-            return Ok(::mcx::std_vec_from_slice("execexpr", &buf[..n])?);
+            return ::mcx::std_vec_from_slice("execexpr", &buf[..n]);
         }
         TIMESTAMPOID => {
             let ts = value.as_i64();
@@ -317,7 +317,7 @@ pub fn map_sql_value_to_xml_value(
                 ::adt_datetime::consts::USE_XSD_DATES,
                 &mut buf,
             );
-            return Ok(::mcx::std_vec_from_slice("execexpr", &buf[..n])?);
+            return ::mcx::std_vec_from_slice("execexpr", &buf[..n]);
         }
         TIMESTAMPTZOID => {
             let ts = value.as_i64();
@@ -350,7 +350,7 @@ pub fn map_sql_value_to_xml_value(
                 ::adt_datetime::consts::USE_XSD_DATES,
                 &mut buf,
             );
-            return Ok(::mcx::std_vec_from_slice("execexpr", &buf[..n])?);
+            return ::mcx::std_vec_from_slice("execexpr", &buf[..n]);
         }
         BYTEAOID => {
             let payload = varlena_payload(value, resmcx)?;
@@ -374,7 +374,7 @@ pub fn map_sql_value_to_xml_value(
     let bytes = cstr.to_bytes();
 
     if type_ == XMLOID || !xml_escape_strings {
-        Ok(::mcx::std_vec_from_slice("execexpr", &bytes)?)
+        Ok(::mcx::std_vec_from_slice("execexpr", bytes)?)
     } else {
         Ok(adt_xml::escape_xml(bytes))
     }

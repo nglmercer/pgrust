@@ -48,7 +48,7 @@ fn records(layout: &RecordLayout, n: usize, domain: u64, seed: u64) -> Vec<u8> {
         r.open(&keys);
         for j in 0..layout.nslots() {
             let s = lcg(&mut rng);
-            if layout.slot_off(j) != layout.sentinel_off() && s % 4 == 0 {
+            if layout.slot_off(j) != layout.sentinel_off() && s.is_multiple_of(4) {
                 continue;
             }
             match layout.slot_kind(j) {

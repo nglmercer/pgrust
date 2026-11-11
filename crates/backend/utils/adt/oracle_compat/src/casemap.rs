@@ -52,7 +52,7 @@ fn pg_case<'mcx>(
             .map_err(|_| mcx.oom(dstsize))?;
         dst.resize(dstsize, 0);
         needed = worker(mcx, &mut dst, buff, locale)?;
-        debug_assert!(needed + 1 <= dstsize);
+        debug_assert!(needed < dstsize);
     }
     dst.truncate(nul_pos(&dst[..needed]));
     Ok(dst)

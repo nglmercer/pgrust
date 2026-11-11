@@ -462,7 +462,7 @@ fn createdb_guts<'mcx>(
             }
         }
         if let Some(err) = server_encoding_gate(encoding, errpos(pstate, el.location)) {
-            return Err(err.into());
+            return Err(err);
         }
     }
     let mut dbcollate = arg_str(collate_el)?;
@@ -611,7 +611,7 @@ fn createdb_guts<'mcx>(
     if encoding < 0 {
         encoding = src.encoding;
         if let Some(err) = server_encoding_gate(encoding, 0) {
-            return Err(err.into());
+            return Err(err);
         }
     }
     let src_collate = src.datcollate.as_str();

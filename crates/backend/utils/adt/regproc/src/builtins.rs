@@ -162,7 +162,7 @@ pub fn fc_reg_send(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRes
     let oid = fcinfo.arg(0).as_oid();
     let mut b = pqformat::pq_begintypsend(fcinfo.result_mcx())?;
     pqformat::pq_sendint32(&mut b, oid)?;
-    Ok(varlena_result(pqformat::pq_endtypsend(b).into()))
+    Ok(varlena_result(pqformat::pq_endtypsend(b)))
 }
 
 const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {

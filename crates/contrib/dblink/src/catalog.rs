@@ -190,7 +190,7 @@ fn get_text_array_contents(
         } else {
             // SAFETY: text element datum from the array image.
             let pv = unsafe { types_fmgr::datum_varlena_packed(*d, mcx)? };
-            out.push(Some(::mcx::std_vec_from_slice("dblink", &pv.data())?));
+            out.push(Some(::mcx::std_vec_from_slice("dblink", pv.data())?));
         }
     }
     Ok(out)
@@ -511,7 +511,7 @@ pub fn fc_dblink_build_sql_insert(
     }
     let sql = get_sql_insert(mcx, &rel, &pkattnums, &src, &tgt)?;
     table::table_close(rel, AccessShareLock)?;
-    Ok(crate::text_result_bytes(mcx, &sql)?)
+    crate::text_result_bytes(mcx, &sql)
 }
 
 pub fn fc_dblink_build_sql_delete(
@@ -530,7 +530,7 @@ pub fn fc_dblink_build_sql_delete(
     }
     let sql = get_sql_delete(mcx, &rel, &pkattnums, &tgt)?;
     table::table_close(rel, AccessShareLock)?;
-    Ok(crate::text_result_bytes(mcx, &sql)?)
+    crate::text_result_bytes(mcx, &sql)
 }
 
 pub fn fc_dblink_build_sql_update(
@@ -554,7 +554,7 @@ pub fn fc_dblink_build_sql_update(
     }
     let sql = get_sql_update(mcx, &rel, &pkattnums, &src, &tgt)?;
     table::table_close(rel, AccessShareLock)?;
-    Ok(crate::text_result_bytes(mcx, &sql)?)
+    crate::text_result_bytes(mcx, &sql)
 }
 
 #[cfg(test)]

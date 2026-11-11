@@ -70,7 +70,7 @@ fn split_fc(fc: &[u8], records: &[u8], meta: &mut Vec<u8>, text: &mut Vec<u8>) -
     let mut pos = 0;
     for i in 0..records.len() / DICT_INDEX_ENTRY_LEN {
         let len = rec_len(records, i);
-        let take = if i as u32 % DICT_FC_RESTART == 0 {
+        let take = if (i as u32).is_multiple_of(DICT_FC_RESTART) {
             pos += 4;
             len
         } else {
@@ -93,7 +93,7 @@ fn join_fc(meta: &[u8], text: &[u8], records: &[u8], fc: &mut Vec<u8>) -> Format
     let (mut m, mut t) = (0, 0);
     for i in 0..records.len() / DICT_INDEX_ENTRY_LEN {
         let len = rec_len(records, i);
-        let take = if i as u32 % DICT_FC_RESTART == 0 {
+        let take = if (i as u32).is_multiple_of(DICT_FC_RESTART) {
             fc.extend_from_slice(&varlena_header_4b_u(len as u32).to_le_bytes()); // alloc: Exec charged caller
             len
         } else {
@@ -283,7 +283,7 @@ impl<'a> Frames<'a> {
         }
         let wrapped = &section[STREAM_SECTION_HDR_LEN..pend];
         let first = u32::from_le_bytes(wrapped[..4].try_into().expect("len 4")) as usize;
-        if first < 8 || first % 4 != 0 || first > wrapped.len() {
+        if first < 8 || !first.is_multiple_of(4) || first > wrapped.len() {
             return Err(FormatError::Corrupt { at: "wrapper block table" });
         }
         let nb = first / 4 - 1;

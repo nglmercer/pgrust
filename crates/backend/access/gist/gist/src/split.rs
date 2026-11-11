@@ -27,6 +27,12 @@ pub struct GistSplitVector {
     pub spl_dontcare: Option<Vec<bool>>,
 }
 
+impl Default for GistSplitVector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GistSplitVector {
     pub fn new() -> Self {
         GistSplitVector {
@@ -265,7 +271,7 @@ fn genericPickSplit(
     v.spl_right = ::mcx::std_vec_with_capacity("access", maxoff as usize + 2)?;
 
     for i in FirstOffsetNumber..=maxoff {
-        if i <= (maxoff - FirstOffsetNumber + 1) / 2 {
+        if i <= (maxoff - FirstOffsetNumber).div_ceil(2) {
             v.spl_left.push(i);
         } else {
             v.spl_right.push(i);

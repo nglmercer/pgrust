@@ -180,7 +180,7 @@ fn readline_drops_bytes_after_an_embedded_nul_like_fgets() {
     };
     assert_eq!(read_all("b109_nul.syn"), vec![b"foo barbaz qux\n".to_vec()]);
     let mut chunked = b"x ".to_vec();
-    chunked.extend(std::iter::repeat(b'a').take(1500));
+    chunked.extend(std::iter::repeat_n(b'a', 1500));
     assert_eq!(read_all("b109_nul_chunk.syn"), vec![chunked]);
 }
 

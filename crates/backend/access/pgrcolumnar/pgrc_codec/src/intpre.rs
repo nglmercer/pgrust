@@ -305,7 +305,7 @@ fn delta_scale(vals: &[u64]) -> u64 {
     let mut g = 0u64;
     for w in vals.windows(2) {
         let a = (w[1].wrapping_sub(w[0]) as i64).unsigned_abs();
-        if g == 0 || a % g != 0 {
+        if g == 0 || !a.is_multiple_of(g) {
             g = gcd(g, a);
             if g == 1 {
                 break;
@@ -582,7 +582,7 @@ fn prepass_encode(view: View, raw: &[u8], f100: u32, pre: &mut Vec<u8>) -> Forma
     match view {
         View::Words(w) => {
             let wu = w as usize;
-            if !(1..=8).contains(&wu) || len == 0 || len % wu != 0 {
+            if !(1..=8).contains(&wu) || len == 0 || !len.is_multiple_of(wu) {
                 return Ok(false);
             }
             let mut vals = try_filled(len / wu, 0u64, "intpre values")?;
@@ -627,7 +627,7 @@ fn prepass_encode(view: View, raw: &[u8], f100: u32, pre: &mut Vec<u8>) -> Forma
                 let rest = len - pos - 16;
                 let cnt = if rest == FV * wf || rest >= FV * wf + 16 {
                     FV
-                } else if rest > 0 && rest < FV * wf && rest % wf == 0 {
+                } else if rest > 0 && rest < FV * wf && rest.is_multiple_of(wf) {
                     rest / wf
                 } else {
                     return Ok(false);
@@ -693,7 +693,7 @@ pub fn prepass_decode(pre: &[u8], dst: &mut [u8]) -> FormatResult<()> {
     let len = dst.len();
     match view {
         0 => {
-            if !(1..=8).contains(&w) || len % w != 0 {
+            if !(1..=8).contains(&w) || !len.is_multiple_of(w) {
                 return Err(corrupt("intpre words geometry"));
             }
             let mut vals = try_filled(len / w, 0u64, "intpre values")?;
@@ -876,7 +876,7 @@ pub(crate) fn wrap_block(view: Option<View>, raw: &[u8], out: &mut Vec<u8>, tria
     zstd_compress_block_at(&pre, &mut z, level)?;
     let frames = matches!(view, View::Frames(_) | View::DeltaFrames);
     if verdict == Some(true) || (frames && raw.len() >= SURE_MIN && pre.len() * SURE_FACTOR <= raw.len()) {
-        if 9 + z.len() >= 1 + crate::wrapper::zstd_bound(raw.len()) {
+        if 9 + z.len() > crate::wrapper::zstd_bound(raw.len()) {
             return plain(out);
         }
         trial.note(9 + z.len(), raw.len());
@@ -932,7 +932,7 @@ fn block_table(image: &[u8]) -> FormatResult<(StreamSectionHdr, usize, Vec<usize
         return Err(FormatError::Bounds { at: "payload region" });
     }
     let first = u32::from_le_bytes(image[p0..p0 + 4].try_into().expect("len 4")) as usize;
-    if first < 4 || first % 4 != 0 || p0 + first > end {
+    if first < 4 || !first.is_multiple_of(4) || p0 + first > end {
         return Err(corrupt("wrapper block table"));
     }
     let offs: Vec<usize> = (0..first / 4)

@@ -2256,7 +2256,8 @@ mod p1_lanex_builtin_tables {
             );
         }
         // ... and the 8 deconstruct types still work end-to-end.
-        for oid in [CSTRINGOID] {
+        {
+            let oid = CSTRINGOID;
             assert!(deconstruct_builtin_meta(oid).is_ok());
         }
         let ctx = MemoryContext::new_bump("t");
@@ -2365,10 +2366,10 @@ fn pseudotype_aliases_delegate_to_array_io() {
             .find(|b| b.foid == oid)
             .unwrap_or_else(|| panic!("oid {oid} not registered"))
     };
-    assert_eq!(by_oid(2297).func as usize, crate::builtins::fc_array_out as usize);
-    assert_eq!(by_oid(5089).func as usize, crate::builtins::fc_array_out as usize);
-    assert_eq!(by_oid(2503).func as usize, crate::builtins::fc_array_send as usize);
-    assert_eq!(by_oid(5091).func as usize, crate::builtins::fc_array_send as usize);
+    assert_eq!(by_oid(2297).func as usize, crate::builtins::fc_array_out as *const () as usize);
+    assert_eq!(by_oid(5089).func as usize, crate::builtins::fc_array_out as *const () as usize);
+    assert_eq!(by_oid(2503).func as usize, crate::builtins::fc_array_send as *const () as usize);
+    assert_eq!(by_oid(5091).func as usize, crate::builtins::fc_array_send as *const () as usize);
     assert_eq!(by_oid(2503).name, "anyarray_send");
     assert_eq!(by_oid(5089).name, "anycompatiblearray_out");
     assert_eq!(by_oid(5091).name, "anycompatiblearray_send");
@@ -2695,7 +2696,7 @@ fn flat_subscript_assign_past_max_alloc_size_is_an_alloc_error() {
     img[0..4].copy_from_slice(&::datum::varlena::set_varsize_4b(total));
     img[4..8].copy_from_slice(&1i32.to_ne_bytes());
     img[8..12].copy_from_slice(&0i32.to_ne_bytes());
-    img[12..16].copy_from_slice(&(TEXTOID as u32).to_ne_bytes());
+    img[12..16].copy_from_slice(&TEXTOID.to_ne_bytes());
     img[16..20].copy_from_slice(&(n as i32).to_ne_bytes());
     img[20..24].copy_from_slice(&1i32.to_ne_bytes());
     let value = build_varlena(mcx, &[b'y'; 1020]).unwrap();
@@ -2723,7 +2724,7 @@ fn element_append_past_max_alloc_size_is_a_flat_size_error() {
     img[0..4].copy_from_slice(&::datum::varlena::set_varsize_4b(total));
     img[4..8].copy_from_slice(&1i32.to_ne_bytes());
     img[8..12].copy_from_slice(&0i32.to_ne_bytes());
-    img[12..16].copy_from_slice(&(TEXTOID as u32).to_ne_bytes());
+    img[12..16].copy_from_slice(&TEXTOID.to_ne_bytes());
     img[16..20].copy_from_slice(&(n as i32).to_ne_bytes());
     img[20..24].copy_from_slice(&1i32.to_ne_bytes());
     let value = build_varlena(mcx, &[b'y'; 1020]).unwrap();

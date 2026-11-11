@@ -225,7 +225,7 @@ fn with_machine(parts: &[u32], references: u32, run: impl for<'a, 'id> FnOnce(&M
             .allocate(1)
             .unwrap()
             .initialize(AssignmentInit::default(), |_| 3 << 12);
-        let mut registers = RegisterFile::new();
+        let registers = RegisterFile::new();
         registers.allocatable.set(u32::MAX as u64);
         let machine = Machine {
             assignments: RefCell::new(assignments),
@@ -268,7 +268,7 @@ impl GuardMachine<1> for Machine<'_, '_> {
     type Special = ValRefSpecial<u32>;
     const GP_BANK: RegBank = RegBank::new(0);
     fn with_registers<R>(&self, operation: impl FnOnce(&RegisterFile<1, 32>) -> R) -> R {
-        operation(&*self.registers.borrow_mut())
+        operation(&self.registers.borrow_mut())
     }
     fn with_assignment<R>(
         &self,

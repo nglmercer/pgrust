@@ -108,7 +108,7 @@ const XLR_INFO_MASK: u8 = 0x0F;
 const SizeOfHeapHeader: usize = 5;
 const FirstCommandId: u32 = 0;
 
-fn main_data<'a>(record: &'a XLogReaderState) -> &'a [u8] {
+fn main_data(record: &XLogReaderState) -> &[u8] {
     let rec = record.record.as_ref().expect("heap redo with no decoded record");
     // SAFETY: points into the reader's decode buffer, valid for the redo
     // callback's duration.
@@ -1616,7 +1616,7 @@ pub fn heap_mask(pagedata: &mut [u8], blkno: types_core::BlockNumber) -> PgResul
         // dereference for normal items, plus the MAXALIGN padding fill for
         // items with storage) falls outside the page. `item_raw` applies the
         // same rule for the normal read path.
-        if lp_off < SizeOfPageHeaderData || lp_off > BLCKSZ {
+        if !(SizeOfPageHeaderData..=BLCKSZ).contains(&lp_off) {
             return Err(corrupt_err(format!(
                 "heap_mask: line pointer {off} offset {lp_off} out of range"
             )));

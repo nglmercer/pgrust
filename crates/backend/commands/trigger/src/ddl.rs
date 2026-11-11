@@ -141,7 +141,7 @@ pub fn RemoveTriggerById<'mcx>(mcx: Mcx<'mcx>, trig_oid: Oid) -> PgResult<()> {
                     format!("relation \"{}\" cannot have triggers", rel.name()),
                     ERRCODE_WRONG_OBJECT_TYPE,
                 ))
-                .with_detail(relkind_not_supported_detail(other as u8)?),
+                .with_detail(relkind_not_supported_detail(other)?),
             ));
         }
     }

@@ -970,53 +970,6 @@ fn store_returning_result<'mcx>(
     crate::exec::store_remote_heap_tuple(slot, mcx, &values, &nulls, ctid)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{cmd_tuples, init_returning_filter, parse_batch_size};
-    use types_nodes::list::NodeList;
-    use types_nodes::Node;
-
-    // A direct UPDATE on a join (wio P224): the target row is rebuilt from the
-    // retrieved fdw_scan_tlist entries of the target rel only.
-    #[test]
-    fn returning_filter_maps_target_columns_and_ctid() {
-        let cx = mcx::MemoryContext::new("t");
-        let m = cx.mcx();
-        let mut tl: NodeList<'_> = NodeList::nil();
-        for (resno, (varno, attno)) in [(1, 2), (2, 2), (1, -1), (1, 1), (1, 3)].into_iter().enumerate() {
-            let var = Node::mk_var(m, varno, attno, 23, -1, 0, 0).unwrap();
-            tl.lappend(m, Node::mk_target_entry(m, var, resno as i16 + 1, None, false).unwrap()).unwrap();
-        }
-        let f = init_returning_filter(&tl, 1, &[1, 2, 3, 4], 3, executils::ExecSlotId(0)).unwrap();
-        assert_eq!(f.attno_map, vec![4, 1, 0]);
-        assert_eq!(f.ctid_attno, 3);
-    }
-
-    // postgres_fdw.c:7983 reads batch_size through parse_int: octal, hex,
-    // surrounding whitespace and rounded floats are all accepted, and an
-    // unparseable value leaves parse_int's zeroed output.
-    #[test]
-    fn batch_size_option_is_read_through_parse_int() {
-        assert_eq!(parse_batch_size("010"), 8);
-        assert_eq!(parse_batch_size("0x10"), 16);
-        assert_eq!(parse_batch_size(" 16.0 "), 16);
-        assert_eq!(parse_batch_size("16.6"), 17);
-        assert_eq!(parse_batch_size("7"), 7);
-        assert_eq!(parse_batch_size("abc"), 0);
-    }
-
-    // PQcmdTuples shapes: INSERT carries an OID slot, UPDATE/DELETE don't.
-    #[test]
-    fn cmd_tuples_parses_command_tags() {
-        assert_eq!(cmd_tuples("INSERT 0 1"), 1);
-        assert_eq!(cmd_tuples("INSERT 0 0"), 0);
-        assert_eq!(cmd_tuples("UPDATE 1"), 1);
-        assert_eq!(cmd_tuples("DELETE 0"), 0);
-        assert_eq!(cmd_tuples("UPDATE 42"), 42);
-        assert_eq!(cmd_tuples("SELECT"), 0);
-    }
-}
-
 // postgresEndForeignModify + finish_foreign_modify + deallocate_query.
 pub(crate) fn end_foreign_modify(state: Box<dyn core::any::Any>) -> PgResult<()> {
     let st = state
@@ -1722,4 +1675,51 @@ pub(crate) fn end_direct_modify<'mcx>(
     connection::release_connection(state.conn_key);
     node.fdw_state = None;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{cmd_tuples, init_returning_filter, parse_batch_size};
+    use types_nodes::list::NodeList;
+    use types_nodes::Node;
+
+    // A direct UPDATE on a join (wio P224): the target row is rebuilt from the
+    // retrieved fdw_scan_tlist entries of the target rel only.
+    #[test]
+    fn returning_filter_maps_target_columns_and_ctid() {
+        let cx = mcx::MemoryContext::new("t");
+        let m = cx.mcx();
+        let mut tl: NodeList<'_> = NodeList::nil();
+        for (resno, (varno, attno)) in [(1, 2), (2, 2), (1, -1), (1, 1), (1, 3)].into_iter().enumerate() {
+            let var = Node::mk_var(m, varno, attno, 23, -1, 0, 0).unwrap();
+            tl.lappend(m, Node::mk_target_entry(m, var, resno as i16 + 1, None, false).unwrap()).unwrap();
+        }
+        let f = init_returning_filter(&tl, 1, &[1, 2, 3, 4], 3, executils::ExecSlotId(0)).unwrap();
+        assert_eq!(f.attno_map, vec![4, 1, 0]);
+        assert_eq!(f.ctid_attno, 3);
+    }
+
+    // postgres_fdw.c:7983 reads batch_size through parse_int: octal, hex,
+    // surrounding whitespace and rounded floats are all accepted, and an
+    // unparseable value leaves parse_int's zeroed output.
+    #[test]
+    fn batch_size_option_is_read_through_parse_int() {
+        assert_eq!(parse_batch_size("010"), 8);
+        assert_eq!(parse_batch_size("0x10"), 16);
+        assert_eq!(parse_batch_size(" 16.0 "), 16);
+        assert_eq!(parse_batch_size("16.6"), 17);
+        assert_eq!(parse_batch_size("7"), 7);
+        assert_eq!(parse_batch_size("abc"), 0);
+    }
+
+    // PQcmdTuples shapes: INSERT carries an OID slot, UPDATE/DELETE don't.
+    #[test]
+    fn cmd_tuples_parses_command_tags() {
+        assert_eq!(cmd_tuples("INSERT 0 1"), 1);
+        assert_eq!(cmd_tuples("INSERT 0 0"), 0);
+        assert_eq!(cmd_tuples("UPDATE 1"), 1);
+        assert_eq!(cmd_tuples("DELETE 0"), 0);
+        assert_eq!(cmd_tuples("UPDATE 42"), 42);
+        assert_eq!(cmd_tuples("SELECT"), 0);
+    }
 }

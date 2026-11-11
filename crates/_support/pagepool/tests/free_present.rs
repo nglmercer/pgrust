@@ -187,7 +187,7 @@ fn a_retagged_build_block_moves_to_the_cache_term_and_back() {
         let h = Hint::new(Class::Session, Tag::BUILD);
         let use_of = |t: Tag| stats().in_use[t.0 as usize];
         let _ = quiet();
-        let (_, f0, c0, b0) = swept_build();
+        let (_, _f0, c0, b0) = swept_build();
         let (ub0, ud0) = (use_of(Tag::BUILD), use_of(Tag::DICT));
         // a pool span, a runs block and a committed lazy span, each BUILD's
         let s = span(4 * MIB, h).expect("a BUILD pool span");

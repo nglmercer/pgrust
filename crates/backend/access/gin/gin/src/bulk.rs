@@ -261,7 +261,7 @@ impl<'s> BuildAccumulator<'s> {
             mcx::vec_with_capacity_in(self.mcx, DEF_NPTR)?;
         list.push(*heapptr);
         self.allocated_memory += chunk_space(DEF_NPTR * 6);
-        if self.entries.len() % DEF_NENTRY == 0 {
+        if self.entries.len().is_multiple_of(DEF_NENTRY) {
             // C's entryallocator chunks.
             self.allocated_memory += chunk_space(DEF_NENTRY * SIZEOF_C_ENTRY_ACCUMULATOR);
         }

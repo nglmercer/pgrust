@@ -350,7 +350,7 @@ fn hash_folds_match_c_shape() {
     let v = -42i64;
     assert_eq!(int64_hash_fold(v), (v as u32) ^ !((v >> 32) as u32));
     // equal int4/int8 values hash equal (cross-type hash join contract)
-    assert_eq!(int64_hash_fold(12345), 12345u32 ^ 0);
+    assert_eq!(int64_hash_fold(12345), 12345u32);
 }
 
 #[test]

@@ -152,7 +152,7 @@ pub fn fc_pg_stat_get_backend_client_addr(
     }
     // C:938-945 — every family but INET/INET6 (unix sockets included) is NULL.
     match ss_family(&be.st_clientaddr.addr) {
-        f if f == crate::activity::AF_INET as i32 || f == crate::activity::AF_INET6 as i32 => {}
+        f if f == crate::activity::AF_INET || f == crate::activity::AF_INET6 => {}
         _ => return Ok(fcinfo.return_null()),
     }
     // C:947-959 — numeric host via pg_getnameinfo_all (NULL on failure),
@@ -179,9 +179,9 @@ pub fn fc_pg_stat_get_backend_client_port(
         return Ok(fcinfo.return_null());
     }
     match ss_family(&be.st_clientaddr.addr) {
-        f if f == crate::activity::AF_INET as i32 || f == crate::activity::AF_INET6 as i32 => {}
+        f if f == crate::activity::AF_INET || f == crate::activity::AF_INET6 => {}
         // C:986-987 — unix sockets report -1.
-        f if f == crate::activity::AF_UNIX as i32 => return Ok(Datum::from_i32(-1)),
+        f if f == crate::activity::AF_UNIX => return Ok(Datum::from_i32(-1)),
         // C:988-989 — unknown family is NULL.
         _ => return Ok(fcinfo.return_null()),
     }

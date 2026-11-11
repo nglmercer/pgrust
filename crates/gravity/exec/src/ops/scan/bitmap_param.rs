@@ -352,7 +352,7 @@ fn key_fn(v: Node<'static>, vals: &ExecVals, cx: &BindCx<'_>, exprs: &mut shapes
         debug_assert_eq!(std::thread::current().id(), owner, "gravity: a computed bitmap key evaluated off its creating thread (D1016 row 6)");
         let mut st = cell.borrow_mut();
         st.arm_result_mcx(mcx);
-        let nd = execexpr::exec_eval_expr(&mut *st, &mut execexpr::EvalSlots { scan: None, inner: None, outer: None })?;
+        let nd = execexpr::exec_eval_expr(&mut st, &mut execexpr::EvalSlots { scan: None, inner: None, outer: None })?;
         Ok((nd.value.as_u64(), nd.isnull))
     }))) // alloc: Program
 }

@@ -232,51 +232,6 @@ pub fn fc_brin_desummarize_range(
     Ok(Datum::null())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::BRIN_FUNCS_BUILTINS;
-
-    // Rows must carry pg_proc.dat's metadata: fmgr resolves fn_nargs/strict
-    // from the registered row when the canonical entry is a stub. The three
-    // SQL-callable admin functions keep their exact pins; the internal
-    // support-proc shim rows (registration-parity lane) are checked against
-    // the canonical pg_proc table wholesale.
-    #[test]
-    fn builtin_rows_match_pg_proc() {
-        let expect_admin = [
-            (3952, "brin_summarize_new_values", 1),
-            (3999, "brin_summarize_range", 2),
-            (4014, "brin_desummarize_range", 2),
-        ];
-        // pg_proc.dat pins for the internal-dispatch shim rows.
-        let expect_internal = [
-            (335, "brinhandler", 1),
-            (3383, "brin_minmax_opcinfo", 1),
-            (3384, "brin_minmax_add_value", 4),
-            (3385, "brin_minmax_consistent", 3),
-            (3386, "brin_minmax_union", 3),
-            (4105, "brin_inclusion_opcinfo", 1),
-            (4106, "brin_inclusion_add_value", 4),
-            (4107, "brin_inclusion_consistent", 3),
-            (4108, "brin_inclusion_union", 3),
-        ];
-        assert_eq!(
-            BRIN_FUNCS_BUILTINS.len(),
-            expect_admin.len() + expect_internal.len()
-        );
-        for (foid, name, nargs) in expect_admin.iter().chain(&expect_internal) {
-            let b = BRIN_FUNCS_BUILTINS
-                .iter()
-                .find(|b| b.foid == *foid)
-                .unwrap_or_else(|| panic!("missing builtin {name}"));
-            assert_eq!(b.name, *name);
-            assert_eq!(b.nargs, *nargs);
-            assert!(b.strict);
-            assert!(!b.retset);
-        }
-    }
-}
-
 // brinhandler (brin.c) + the brin_minmax.c/brin_inclusion.c opclass support
 // procs (those two C files have no crate of their own): BRIN build/scan
 // resolves these natively; rows exist for fmgr-lookup parity.
@@ -333,3 +288,48 @@ pub static BRIN_FUNCS_BUILTINS: &[FmgrBuiltin] = &[
         func: fc_brin_desummarize_range as PGFunction,
     },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::BRIN_FUNCS_BUILTINS;
+
+    // Rows must carry pg_proc.dat's metadata: fmgr resolves fn_nargs/strict
+    // from the registered row when the canonical entry is a stub. The three
+    // SQL-callable admin functions keep their exact pins; the internal
+    // support-proc shim rows (registration-parity lane) are checked against
+    // the canonical pg_proc table wholesale.
+    #[test]
+    fn builtin_rows_match_pg_proc() {
+        let expect_admin = [
+            (3952, "brin_summarize_new_values", 1),
+            (3999, "brin_summarize_range", 2),
+            (4014, "brin_desummarize_range", 2),
+        ];
+        // pg_proc.dat pins for the internal-dispatch shim rows.
+        let expect_internal = [
+            (335, "brinhandler", 1),
+            (3383, "brin_minmax_opcinfo", 1),
+            (3384, "brin_minmax_add_value", 4),
+            (3385, "brin_minmax_consistent", 3),
+            (3386, "brin_minmax_union", 3),
+            (4105, "brin_inclusion_opcinfo", 1),
+            (4106, "brin_inclusion_add_value", 4),
+            (4107, "brin_inclusion_consistent", 3),
+            (4108, "brin_inclusion_union", 3),
+        ];
+        assert_eq!(
+            BRIN_FUNCS_BUILTINS.len(),
+            expect_admin.len() + expect_internal.len()
+        );
+        for (foid, name, nargs) in expect_admin.iter().chain(&expect_internal) {
+            let b = BRIN_FUNCS_BUILTINS
+                .iter()
+                .find(|b| b.foid == *foid)
+                .unwrap_or_else(|| panic!("missing builtin {name}"));
+            assert_eq!(b.name, *name);
+            assert_eq!(b.nargs, *nargs);
+            assert!(b.strict);
+            assert!(!b.retset);
+        }
+    }
+}

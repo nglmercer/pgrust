@@ -14,6 +14,12 @@ use crate::{CheckPoint, RecoveryState, InvalidXLogRecPtr, NUM_XLOGINSERT_LOCKS, 
 // job pgrust-m4mc-gate-1783128775-95788).
 pub struct SpinLock(AtomicBool);
 
+impl Default for SpinLock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SpinLock {
     pub const fn new() -> Self {
         SpinLock(AtomicBool::new(false))

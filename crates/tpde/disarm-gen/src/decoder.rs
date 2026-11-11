@@ -706,7 +706,7 @@ pub fn generate_opdecoder(text: &str, desc: &Desc) -> Result<(String, String), S
         .unwrap();
     }
     c.push_str("break;}");
-    rust.push_str("}");
+    rust.push('}');
     Ok((c, rust))
 }
 

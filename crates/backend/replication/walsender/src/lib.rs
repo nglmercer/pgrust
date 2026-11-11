@@ -1485,7 +1485,7 @@ fn SendTimeLineHistory(mcx: mcx::Mcx<'_>, cmd: TimeLineHistoryCmd) -> PgResult<(
 
     // Send a RowDescription message (walsender.c:603 dest->rStartup) BEFORE
     // touching the file: an open error follows the 'T' on the wire, as in C.
-    let mut tstate = exectuples_output::begin_tup_output_tupdesc(mcx, &mut dest, Rc::new(tupdesc))?;
+    let tstate = exectuples_output::begin_tup_output_tupdesc(mcx, &mut dest, Rc::new(tupdesc))?;
 
     // O_RDONLY | PG_BINARY (PG_BINARY == 0 on non-Windows).
     let fd = fd::OpenTransientFile(&path, libc::O_RDONLY)?;
@@ -1951,10 +1951,10 @@ mod tests {
     fn option_booleans_take_only_define_c_strings() {
         let s = |v: &str| Some(ReplOptionArg::Str(v.to_string()));
         for v in ["true", "TRUE", "on", "On"] {
-            assert_eq!(def_get_boolean("reserve_wal", &s(v), "t").unwrap(), true, "{v}");
+            assert!(def_get_boolean("reserve_wal", &s(v), "t").unwrap(), "{v}");
         }
         for v in ["false", "off", "OFF"] {
-            assert_eq!(def_get_boolean("reserve_wal", &s(v), "t").unwrap(), false, "{v}");
+            assert!(!def_get_boolean("reserve_wal", &s(v), "t").unwrap(), "{v}");
         }
         assert!(def_get_boolean("reserve_wal", &None, "t").unwrap());
         assert!(!def_get_boolean("reserve_wal", &Some(ReplOptionArg::Int(0)), "t").unwrap());

@@ -979,7 +979,7 @@ fn GetNewMultiXactId(nmembers_in: i32) -> PgResult<(MultiXactId, MultiXactOffset
 
         // Issue the autovac request once per 64K multis to avoid swamping
         // the postmaster with signals.
-        if globals::IsUnderPostmaster() && result % 65536 == 0 {
+        if globals::IsUnderPostmaster() && result.is_multiple_of(65536) {
             SendPostmasterSignal(PMSignalReason::PMSIGNAL_START_AUTOVAC_LAUNCHER);
         }
 
@@ -1769,7 +1769,7 @@ pub fn SetMultiXactIdLimit(
     let st = MultiXactState();
     LWLockAcquire(MultiXactGenLock(), LW_EXCLUSIVE, globals::MyProcNumber())?;
     st.oldestMultiXactId.store(oldest_datminmxid, Relaxed);
-    st.oldestMultiXactDB.store(oldest_datoid.into(), Relaxed);
+    st.oldestMultiXactDB.store(oldest_datoid, Relaxed);
     st.multiVacLimit.store(multi_vac_limit, Relaxed);
     st.multiWarnLimit.store(multi_warn_limit, Relaxed);
     st.multiStopLimit.store(multi_stop_limit, Relaxed);
@@ -2458,7 +2458,7 @@ pub fn multixact_redo(record: &mut XLogReaderState) -> PgResult<()> {
         // from overflowing; without this the per-member slicing below and the
         // reserve() would panic / wild-allocate on a hostile record.
         let members_bytes = (nmembers >= 0)
-            .then(|| nmembers as usize)
+            .then_some(nmembers as usize)
             .and_then(|n| n.checked_mul(SIZE_OF_MULTIXACT_MEMBER))
             .and_then(|m| m.checked_add(SIZE_OF_MULTIXACT_CREATE));
         match members_bytes {

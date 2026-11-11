@@ -66,6 +66,8 @@ fn cross_context_move_is_rejected_before_effects() {
 }
 
 #[test]
+// The empty ranges (2..1, 0..3 on a short vector) are the invalid-range inputs under test.
+#[allow(clippy::reversed_empty_ranges)]
 fn uninitialized_suffix_commit_cancel_and_shrink() {
     let context = MemoryContext::new("small-vector-uninit");
     let mut values = SmallVec::<u32, 1>::new(context.mcx());

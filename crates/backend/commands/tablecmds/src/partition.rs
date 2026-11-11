@@ -82,7 +82,7 @@ pub(crate) fn compute_partition_key<'mcx>(
                     raw,
                     parser_small1::ParseExprKind::EXPR_KIND_PARTITION_EXPRESSION,
                 )?;
-                parse_collate::assign_expr_collations(mcx, &mut pstate, transformed)?;
+                parse_collate::assign_expr_collations(mcx, &pstate, transformed)?;
                 Some(transformed)
             }
             _ => None,
@@ -174,7 +174,7 @@ pub(crate) fn compute_partition_key<'mcx>(
             let mut expr_attrs = types_nodes::Bitmapset::empty();
             vars::pull_varattnos(mcx, expr, 1, &mut expr_attrs)?;
             if expr_attrs.is_member(-FLIHAN) {
-                expr_attrs.add_range(mcx, 1 - FLIHAN, rel.rd_att.natts as i32 - FLIHAN)?;
+                expr_attrs.add_range(mcx, 1 - FLIHAN, rel.rd_att.natts - FLIHAN)?;
                 expr_attrs.del_member(-FLIHAN);
             }
             let mut b = -1;

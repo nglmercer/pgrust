@@ -62,7 +62,7 @@ fn payload<'a>(d: Datum) -> &'a [u8] {
 }
 
 fn fc_mytextout(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
-    let bytes = ::mcx::std_vec_from_slice("adt", &payload(fcinfo.arg(0)))?;
+    let bytes = ::mcx::std_vec_from_slice("adt", payload(fcinfo.arg(0)))?;
     OUT_SCRATCH.with(|c| {
         let mut b = c.borrow_mut();
         b.clear();
@@ -77,7 +77,7 @@ static SEAMS: std::sync::Once = std::sync::Once::new();
 fn install() {
     SEAMS.call_once(|| {
         ::syscache_seams::pg_type_io_shape::set(|typid| {
-            Ok((typid == TEXTOID).then(|| ::syscache_seams::PgTypeIoShape {
+            Ok((typid == TEXTOID).then_some(::syscache_seams::PgTypeIoShape {
                 oid: TEXTOID,
                 typinput: MYTEXTIN,
                 typoutput: MYTEXTOUT,

@@ -694,7 +694,7 @@ fn hexdecode_char(c: u8) -> Option<u8> {
 
 /// C: hexdecode_string, plus the callers' `length % 2 != 0` pre-check.
 fn hexdecode_string(input: &[u8]) -> Option<Vec<u8>> {
-    if input.len() % 2 != 0 {
+    if !input.len().is_multiple_of(2) {
         return None;
     }
     let mut result = Vec::with_capacity(input.len() / 2);

@@ -1372,11 +1372,10 @@ fn session_chkhost(ssl: &SslRef, name_in: &str, chk_san: i32) -> Result<(), i32>
                 // does not match: "hostname does not match subjectAltName"
                 return Err(LDAP_CONNECT_ERROR);
             }
-            LDAP_OPT_X_TLS_TRY => {
-                if got_san {
+            LDAP_OPT_X_TLS_TRY
+                if got_san => {
                     return Err(LDAP_CONNECT_ERROR);
                 }
-            }
             _ => {} // LDAP_OPT_X_TLS_ALLOW
         }
     }
@@ -1461,6 +1460,8 @@ mod ber_tests {
     use super::*;
 
     #[test]
+    // The fake server only has to drain the client's request; the byte count it gets is not what this test checks.
+    #[allow(clippy::unused_io_amount)]
     fn bind_timeout_bounds_dribbled_response() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();

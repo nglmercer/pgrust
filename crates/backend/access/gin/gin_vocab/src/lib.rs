@@ -874,7 +874,7 @@ pub struct GinState {
 impl GinState {
     #[inline]
     pub fn col(&self, attnum: OffsetNumber) -> &GinColState {
-        debug_assert!(attnum >= 1 && (attnum as u16) <= self.natts);
+        debug_assert!(attnum >= 1 && attnum <= self.natts);
         &self.cols[attnum as usize - 1]
     }
 }
@@ -990,6 +990,12 @@ impl<'scan> GinScanState<'scan> {
 pub struct GinScanWork {
     state: core::mem::MaybeUninit<GinScanState<'static>>,
     key_ctx: mcx::PinnedContext,
+}
+
+impl Default for GinScanWork {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl GinScanWork {

@@ -359,7 +359,7 @@ fn proc_call_stamp(
         }) {
             return Ok(Vec::new());
         }
-        let mut argtypes = ::mcx::std_vec_from_slice("plpgsql", &args)?;
+        let mut argtypes = ::mcx::std_vec_from_slice("plpgsql", args)?;
         let (proname_d, _) = SysCacheGetAttr(PROCOID, &tup, ANUM_PG_PROC_PRONAME)?;
         // SAFETY: NameData attr from the live pinned syscache tuple — 64
         // NUL-padded bytes.
@@ -713,7 +713,7 @@ fn do_compile(
             for_validator,
             &proc.proname,
         )
-        .map_err(|e| hdr_ctx(e))?;
+        .map_err(&hdr_ctx)?;
 
         let mut out_arg_variables: Vec<Dno> = Vec::new();
         for (i, &argtypeid) in proc.argtypes.iter().enumerate() {
@@ -743,9 +743,9 @@ fn do_compile(
             if matches!(argmode, PROARGMODE_OUT | PROARGMODE_INOUT | PROARGMODE_TABLE) {
                 out_arg_variables.push(dno);
             }
-            add_parameter_name(&mut comp, dno, &buf).map_err(|e| hdr_ctx(e))?;
+            add_parameter_name(&mut comp, dno, &buf).map_err(&hdr_ctx)?;
             if !argname.is_empty() {
-                add_parameter_name(&mut comp, dno, argname).map_err(|e| hdr_ctx(e))?;
+                add_parameter_name(&mut comp, dno, argname).map_err(&hdr_ctx)?;
             }
         }
 

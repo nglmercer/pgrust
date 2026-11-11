@@ -83,7 +83,7 @@ pub fn fc_gin_clean_pending_list(
         )?;
     }
 
-    let is_valid = indexRel.rd_index.as_ref().map_or(false, |i| i.indisvalid);
+    let is_valid = indexRel.rd_index.as_ref().is_some_and(|i| i.indisvalid);
 
     let pages_deleted: i64 = if is_valid {
         let mut stats = ::types_nbtree::IndexBulkDeleteResult::default();
@@ -194,8 +194,7 @@ mod rem_b084_tests {
         fcinfo.set_arg(0, Datum::from_oid(9999999));
 
         let err = fc_gin_clean_pending_list(None, &mut fcinfo)
-            .err()
-            .expect("unknown index OID is an error");
+            .expect_err("unknown index OID is an error");
         assert_eq!(err.sqlstate(), ERRCODE_UNDEFINED_TABLE);
         assert_eq!(err.message(), "relation with OID 9999999 does not exist");
     }

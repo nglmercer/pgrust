@@ -1535,7 +1535,7 @@ pub fn get_translated_update_targetlist<'mcx>(
     let result_relation = run.parse().resultRelation as u32;
     if relid == result_relation {
         let tl = run.processed_tlist.expect("processed_tlist set").clone_in(mcx)?;
-        let colnos = crate::relnode::pgvec_clone_shallow(mcx, &run.root.update_colnos);
+        let colnos = crate::relnode::pgvec_clone_shallow(mcx, run.root.update_colnos);
         return Ok((tl, colnos));
     }
     debug_assert!(crate::relnode::relids_is_member(

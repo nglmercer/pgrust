@@ -89,7 +89,7 @@ fn paired_node<T>(kind: BreakerKind, f: impl FnOnce(&gravity_driver::Node) -> T)
     let mut sink = LegSink::new();
     let params = [7u64, 3];
     let mut b = binding(&params, &[0, 0], &mut sink, &flag);
-    let mut exec = entry.start(Some(PlanKey { handle: Handle(13), generation: Generation(kind as u32) }), &program, &mut derive, &mut b, lease(Grant::of(64 << 20))).unwrap();
+    let exec = entry.start(Some(PlanKey { handle: Handle(13), generation: Generation(kind as u32) }), &program, &mut derive, &mut b, lease(Grant::of(64 << 20))).unwrap();
     let out = f(exec.node());
     entry.end(exec, false);
     out

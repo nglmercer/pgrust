@@ -303,7 +303,7 @@ impl FmgrCall {
             return Ok(NullableDatum { value, isnull: false });
         }
         self.fc.isnull = false;
-        let value = if self.fusage { self.invoke_fusage()? } else { self.flinfo.invoke(&mut *self.fc)? };
+        let value = if self.fusage { self.invoke_fusage()? } else { self.flinfo.invoke(&mut self.fc)? };
         Ok(NullableDatum { value, isnull: self.fc.isnull })
     }
 
@@ -313,10 +313,10 @@ impl FmgrCall {
         // pgstat_init_function_usage re-reads track_functions per call: an argument's set_config can turn tracking off
         // after the program entry chose the bracketed path (D2819)
         if !tracks(&self.flinfo) {
-            return self.flinfo.invoke(&mut *self.fc);
+            return self.flinfo.invoke(&mut self.fc);
         }
         let fcu =pgstat::function::pgstat_init_function_usage(self.flinfo.fn_oid)?;
-        let value = self.flinfo.invoke(&mut *self.fc)?;
+        let value = self.flinfo.invoke(&mut self.fc)?;
         pgstat::function::pgstat_end_function_usage(&fcu, true);
         Ok(value)
     }

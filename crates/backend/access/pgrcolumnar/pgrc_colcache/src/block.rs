@@ -171,7 +171,7 @@ fn classify(h: &mut Hdr, tomb: bool, cx: &Ctx<'_>) -> PgResult<Result<St, Unimag
 impl BlockImage {
     /// Decode a share-locked page. LP_NORMAL items only; `Ok(Err(_))` = this block cannot be imaged.
     pub fn decode(block: u32, page: &[u8], kind: Kind, cx: &Ctx<'_>) -> PgResult<Result<BlockImage, Unimageable>> {
-        assert!(page.len() >= BLCKSZ && page.as_ptr() as usize % 8 == 0, "a MAXALIGNed BLCKSZ page");
+        assert!(page.len() >= BLCKSZ && (page.as_ptr() as usize).is_multiple_of(8), "a MAXALIGNed BLCKSZ page");
         let tomb = kind == Kind::Tomb;
         // SAFETY: a live, 8-aligned BLCKSZ page for this call (asserted above).
         let pr = unsafe { PageRef::from_raw(std::ptr::NonNull::new(page.as_ptr() as *mut u8).expect("page")) };

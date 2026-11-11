@@ -190,7 +190,7 @@ fn datum_copy_in<'mcx>(mcx: Mcx<'mcx>, value: Datum, typlen: i16) -> PgResult<Da
                     // VARHDRSZ_EXTERNAL + VARTAG_SIZE (postgres.h).
                     let body = match *p.add(1) {
                         18 => 16,
-                        1 | 2 | 3 => 8,
+                        1..=3 => 8,
                         tag => panic!("datum_copy_in: unknown vartag {tag}"),
                     };
                     let img = core::slice::from_raw_parts(p, 2 + body);
@@ -347,11 +347,10 @@ fn ece_mutator<'mcx>(node: Node<'mcx>, cx: &EceContext<'mcx>) -> PgResult<Option
             let all_const =
                 new_args.as_ref().unwrap_or(&sa.args).iter().all(|a| a.as_const().is_some());
             let changed = new_args.is_some() || opfuncid != sa.opfuncid;
-            if !all_const || !ece_function_is_safe(cx, opfuncid)? {
-                if !changed {
+            if (!all_const || !ece_function_is_safe(cx, opfuncid)?)
+                && !changed {
                     return Ok(None);
                 }
-            }
             let args = match new_args {
                 Some(a) => a,
                 None => sa.args.clone_in(cx.mcx)?,

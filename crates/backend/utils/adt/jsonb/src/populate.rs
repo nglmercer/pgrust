@@ -661,7 +661,7 @@ enum JsObject<'v> {
 fn js_object_is_empty(obj: &JsObject<'_>) -> bool {
     match obj {
         JsObject::Json(h) => h.is_empty(),
-        JsObject::Jsonb(c) => c.map_or(true, |c| container_size(c) == 0),
+        JsObject::Jsonb(c) => c.is_none_or(|c| container_size(c) == 0),
     }
 }
 
@@ -819,9 +819,7 @@ fn populate_record<'c>(
         // catchable error rather than forge an unsound &str.
         let colname_str = core::str::from_utf8(colname).map_err(|_| {
             Box::new(
-                PgError::error(alloc::format!(
-                    "invalid byte sequence in record attribute name"
-                ))
+                PgError::error("invalid byte sequence in record attribute name".to_string())
                 .with_sqlstate(ERRCODE_INVALID_TEXT_REPRESENTATION),
             )
         })?;
@@ -1193,11 +1191,9 @@ fn populate_array_dim_jsonb(
         && (tok == WjbToken::EndArray
             || (tok == WjbToken::Elem
                 && !matches!(val, JsonbItem::Binary(c) if container_is_array(c))))
-    {
-        if !populate_array_assign_ndims(ctx, ndim, escontext.as_deref_mut())? {
+        && !populate_array_assign_ndims(ctx, ndim, escontext.as_deref_mut())? {
             return Ok(false);
         }
-    }
 
     while tok == WjbToken::Elem {
         if ctx.ndims > 0 && ndim >= ctx.ndims {
@@ -1257,7 +1253,7 @@ fn populate_array(
         }
         JsValue::Jsonb(v) => {
             let jbv = v.as_ref().expect("non-null jsonb jsv");
-            if !populate_array_dim_jsonb(&mut ctx, *jbv, 1, escontext.as_deref_mut())? {
+            if !populate_array_dim_jsonb(&mut ctx, *jbv, 1, escontext)? {
                 *isnull = true;
                 return Ok(Datum::null());
             }
@@ -1469,13 +1465,11 @@ fn populate_record_worker(
             } else {
                 get_record_type_from_query(flinfo, fcinfo, funcname, &mut cache)
             };
-            if let Err(e) = r {
-                return Err(e);
-            }
+            r?;
             types_fmgr::FnExtra::new(cache)
         }
     };
-    let mut cache = cache_extra.downcast_mut::<PopulateRecordCache>();
+    let cache = cache_extra.downcast_mut::<PopulateRecordCache>();
 
     let mut rec_holder: Option<PgVec<'_, u8>> = None;
     // C keeps the cache in fn_mcxt across errors; restore before `?`.
@@ -1490,7 +1484,7 @@ fn populate_record_worker(
                 io.base_typmod = hdr.typmod();
             }
         } else if have_record_arg && cache.argtype == RECORDOID {
-            get_record_type_from_query(flinfo, fcinfo, funcname, &mut cache)?;
+            get_record_type_from_query(flinfo, fcinfo, funcname, cache)?;
             debug_assert!(cache.argtype == RECORDOID);
         }
 
@@ -1760,13 +1754,11 @@ fn populate_recordset_worker(
             } else {
                 get_record_type_from_query(flinfo, fcinfo, funcname, &mut cache)
             };
-            if let Err(e) = r {
-                return Err(e);
-            }
+            r?;
             types_fmgr::FnExtra::new(cache)
         }
     };
-    let mut cache = cache_extra.downcast_mut::<PopulateRecordCache>();
+    let cache = cache_extra.downcast_mut::<PopulateRecordCache>();
 
     let mut rec_holder: Option<PgVec<'_, u8>> = None;
     if have_record_arg && !fcinfo.argisnull(0) {
@@ -1778,9 +1770,7 @@ fn populate_recordset_worker(
             io.base_typmod = hdr.typmod();
         }
     } else if have_record_arg && cache.argtype == RECORDOID {
-        if let Err(e) = get_record_type_from_query(flinfo, fcinfo, funcname, &mut cache) {
-            return Err(e);
-        }
+        get_record_type_from_query(flinfo, fcinfo, funcname, cache)?;
     }
 
     // C: null json sends back an empty set.

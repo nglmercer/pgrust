@@ -372,6 +372,8 @@ pub fn cache_alloc(size: usize, align: usize, zeroed: bool) -> *mut u8 {
 }
 
 /// The cache path's realloc: `p` moved into (or grown within) the cache heap, or null with `p` untouched.
+// Kept safe on purpose: passed as a fn pointer to set_cache_alloc (see the tests). Its contract is the doc above.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn cache_realloc(p: *mut u8, align: usize, new_size: usize) -> *mut u8 {
     #[cfg(not(target_family = "wasm"))]
     {

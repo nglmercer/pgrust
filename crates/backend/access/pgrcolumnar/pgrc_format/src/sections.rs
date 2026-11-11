@@ -221,7 +221,7 @@ impl SectionsFile {
         for _ in 0..n {
             let e = SectionEntry { kind: c.u32(at)?, attno: c.u32(at)?, off: c.u64(at)?, len: c.u64(at)?, crc: c.u32(at)? };
             let _ = c.u32(at)?;
-            if e.off.checked_add(e.len).map_or(true, |end| end > bytes.len() as u64) {
+            if e.off.checked_add(e.len).is_none_or(|end| end > bytes.len() as u64) {
                 return Err(FormatError::Truncated { at: "section" });
             }
             entries.push(e);

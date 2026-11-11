@@ -748,8 +748,8 @@ pub fn worker_set_end(id: u32) -> Option<Residue> {
     let c = find(SET_AT, SET_CELLS, id as u64 + 1, None)?;
     let a = Acct(CELLS[c].acct.load(Relaxed));
     CELLS[c].acct.store(0, Relaxed);
-    let r = end_cell(c, ORPHAN, OwnerClass::WorkerSet, a);
-    r
+    
+    end_cell(c, ORPHAN, OwnerClass::WorkerSet, a)
 }
 
 /// An operator cell's parent cell (`NO_PARENT as usize`: none) and the key it was begun under.

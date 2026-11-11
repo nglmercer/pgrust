@@ -64,7 +64,7 @@ use ::bufmgr::{
 
 const INVALID_BTREE_LEVEL: u32 = InvalidBlockNumber;
 const INTERVAL_BTREE_FAM_OID: Oid = 1982;
-const Anum_pg_index_indcheckxmin: i32 = 12;
+const ANUM_PG_INDEX_INDCHECKXMIN: i32 = 12;
 const OPAQUE_MAXALIGN: usize = 16;
 // heaptoast.h:68: TOAST_INDEX_TARGET = MaxHeapTupleSize / 16 (510), the cut nbtree::itup's index_form_tuple compresses
 // at since the nbtree audit b002 (#1650). D3454: the 8160 / 4 = 2040 copy of itup's pre-audit value outlived it here, so a
@@ -355,7 +355,7 @@ fn bt_check_every_level<'mcx>(
                     SysCacheKey::Value(Datum::from_oid(state.rel.rd_id)),
                 )? {
                     let (d, isnull) =
-                        SysCacheGetAttr(INDEXRELID, &tup, Anum_pg_index_indcheckxmin)?;
+                        SysCacheGetAttr(INDEXRELID, &tup, ANUM_PG_INDEX_INDCHECKXMIN)?;
                     let indcheckxmin = !isnull && d.as_bool();
                     let index_xmin = tup.tuple().t_data().xmin();
                     let snap_xmin = reg.xmin;
@@ -905,7 +905,7 @@ fn bt_target_page_check(state: &mut BtreeCheckState<'_>) -> PgResult<()> {
         }
         skey.scantid = scantid_save;
 
-        if offset + 1 <= max && !invariant_l_offset(state, &mut skey, skey_keysz, offset + 1, &mut frame)? {
+        if offset < max && !invariant_l_offset(state, &mut skey, skey_keysz, offset + 1, &mut frame)? {
             let tid = unsafe { btree_tuple_points_to_tid(itup) };
             let itemid2 = page_get_item_id_careful(
                 state,
@@ -947,7 +947,7 @@ fn bt_target_page_check(state: &mut BtreeCheckState<'_>) -> PgResult<()> {
             unique_checked = true;
         }
 
-        if state.checkunique && state.ii_unique() && is_leaf && offset + 1 <= max {
+        if state.checkunique && state.ii_unique() && is_leaf && offset < max {
             let scantid = skey.scantid;
             skey.scantid = None;
             let cmp = bt_compare(&state.rel, &mut skey, &state.target_page(), offset + 1, &mut frame)?;
@@ -1106,7 +1106,7 @@ fn bt_right_page_check_scankey<'mcx>(
         let off = P_FIRSTDATAKEY(&ropaque);
         *rightfirstoffset = off;
         off
-    } else if !is_leaf && nline >= P_FIRSTDATAKEY(&ropaque) + 1 {
+    } else if !is_leaf && nline > P_FIRSTDATAKEY(&ropaque) {
         P_FIRSTDATAKEY(&ropaque) + 1
     } else {
         elog_seams::ereport::call(

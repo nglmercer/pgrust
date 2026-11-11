@@ -401,7 +401,7 @@ impl<'a> FlatStatsRef<'a> {
 
     fn cast<T>(&self, ord: usize) -> Option<&'a [T]> {
         let b = self.plane(ord, core::mem::size_of::<T>());
-        if b.as_ptr() as usize % core::mem::align_of::<T>() != 0 {
+        if !(b.as_ptr() as usize).is_multiple_of(core::mem::align_of::<T>()) {
             return None;
         }
         // SAFETY: length exact, alignment checked, T is a plain LE integer

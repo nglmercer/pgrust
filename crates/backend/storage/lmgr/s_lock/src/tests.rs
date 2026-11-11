@@ -51,7 +51,7 @@ fn stuck_spinlock_is_elog_panic_not_a_bare_panic() {
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         super::perform_spin_delay(&mut st)
     }));
-    let payload = outcome.err().expect("a stuck spinlock must not return");
+    let payload = outcome.expect_err("a stuck spinlock must not return");
     assert!(
         payload.is::<types_error::PanicExitThread>(),
         "stuck spinlock unwinds with PanicExitThread (elog PANIC), not a bare Rust panic: {:?}",

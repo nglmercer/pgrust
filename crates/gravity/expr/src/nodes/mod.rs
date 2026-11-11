@@ -524,7 +524,7 @@ impl<'b, 'mcx> Builder<'b, 'mcx> {
     fn covered<'n>(&mut self, n: Node<'n>, f: impl FnOnce(&mut Self) -> CompileResult<NodeId>) -> CompileResult<NodeId> {
         let (first, sites) = (self.prog.nodes.len(), self.prog.sites.len());
         let root = f(self)?;
-        if crate::emit::scalar::check_node(&self.prog, root, false).is_ok() {
+        if crate::emit::scalar::check_node(self.prog, root, false).is_ok() {
             return Ok(root);
         }
         Ok(self.island(first, sites, root, n))

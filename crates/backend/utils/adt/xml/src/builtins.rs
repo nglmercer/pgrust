@@ -11,7 +11,7 @@ use ::types_fmgr::{
 
 use crate::XmlStandaloneType;
 
-fn arg_text<'a>(fcinfo: &'a Fcinfo, i: usize) -> PgResult<&'a [u8]> {
+fn arg_text(fcinfo: &Fcinfo, i: usize) -> PgResult<&[u8]> {
     // SAFETY: catalog arg i is a non-null text/xml varlena (strict fn).
     Ok(unsafe { fcinfo.arg_varlena_packed(i)? }.data())
 }
@@ -30,7 +30,7 @@ fn payload_varlena<'mcx>(mcx: Mcx<'mcx>, payload: &[u8]) -> PgResult<Varlena<'mc
 
 pub fn fc_xml_in(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     // SAFETY: catalog arg 0 of the in-function is cstring (typlen -2).
-    let s = ::mcx::std_vec_from_slice("adt", &unsafe { fcinfo.arg_cstring(0) }.to_bytes())?;
+    let s = ::mcx::std_vec_from_slice("adt", unsafe { fcinfo.arg_cstring(0) }.to_bytes())?;
     // SAFETY: context, if set, rides per the ErrorSaveNode contract.
     let esc = unsafe { fcinfo.soft_error_context() };
     match crate::xml_in(&s, esc)? {

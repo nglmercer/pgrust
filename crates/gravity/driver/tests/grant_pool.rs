@@ -519,7 +519,7 @@ fn queued_waiters_take_their_whole_asks_oldest_first() {
         // its ticket follows within a few loads, hence the margin) or already admitted: the queue order is the test's, not the
         // scheduler's
         let t0 = std::time::Instant::now();
-        let queued = |s: gravity_driver::PoolStats| s.waits - base >= i + 1 && s.trims - trims >= i + 1;
+        let queued = |s: gravity_driver::PoolStats| s.waits - base > i && s.trims - trims > i;
         while !queued(POOL.stats()) && order.load(std::sync::atomic::Ordering::Acquire) < i + 1 {
             assert!(t0.elapsed() < Duration::from_secs(20), "waiter {i} never reached the queue");
             std::thread::sleep(Duration::from_millis(1));
@@ -988,7 +988,7 @@ fn a_share_just_over_a_power_of_two_draws_its_bytes_not_its_class() {
     // D3074 / D3089: the parked region serves the take it fits, fitted to the ask (its last page an uncharged tail)
     assert_eq!((again.whole(), REGIONS.stats().takes), (len, before.takes + 1), "a parked region of the class under serves a take it fits");
     assert_eq!(again.len(), 9 * MIB as usize, "fitted to the ask");
-    assert_eq!(POOL.held(), 9 * MIB as u64, "charged the ask");
+    assert_eq!(POOL.held(), 9 * MIB, "charged the ask");
     REGIONS.put(again);
     let wide = REGIONS.take(12 * MIB as usize, None).expect("12 of 64");
     assert_eq!(wide.len(), 12 * MIB as usize, "a parked region shorter than the take is never handed out");
@@ -1026,7 +1026,7 @@ fn serial_run(entry: &mut Entry, program: &Arc<gravity_program::Program>, derive
     let mut exec = entry.start(Some(key), program, derive, &mut b, lease(grant)).unwrap();
     assert_eq!(entry.run_pipeline(&mut exec, &mut b, gravity_driver::Call::batch(64)).unwrap(), Step::Done);
     let at = exec.node().slot_region(0).as_ptr() as usize;
-    assert_eq!(exec.node().slot_bytes(0), u32::MAX & !7, "the share at the u32 cap (a multiple of 8, D335)");
+    assert_eq!(exec.node().slot_bytes(0), !7, "the share at the u32 cap (a multiple of 8, D335)");
     assert_eq!(entry.run(&mut exec, &mut b, gravity_driver::Call::batch(64)).unwrap(), Step::Done);
     entry.end(exec, true);
     assert_eq!(sink.sorted().len(), 8, "eight groups of v % 8");

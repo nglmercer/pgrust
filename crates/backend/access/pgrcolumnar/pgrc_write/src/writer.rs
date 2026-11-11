@@ -159,7 +159,7 @@ impl Default for PartCutPolicy {
 impl PartCutPolicy {
     /// True at a cut-decision boundary (never at zero rows).
     pub fn at_granule(&self, rows: u64) -> bool {
-        rows > 0 && rows % self.cut_granule_rows as u64 == 0
+        rows > 0 && rows.is_multiple_of(self.cut_granule_rows as u64)
     }
 
     /// THE cut predicate — the ONE implementation shared by serial ingest
@@ -608,7 +608,7 @@ impl TableWriter {
             Some(p) => p.pool.run(slots.len(), &run),
             None => SerialPool.run(slots.len(), &run),
         }
-        slots.into_iter().map(|s| s.into_inner().unwrap_or_else(|e| e.into_inner()).1).collect()
+        slots.into_iter().try_for_each(|s| s.into_inner().unwrap_or_else(|e| e.into_inner()).1)
     }
 
     /// Seal the buffered rows into a part (no-op on empty buffers).
@@ -616,7 +616,7 @@ impl TableWriter {
         self.ladder_bytes = 0;
         crate::par::seal_ahead_shrink(core::mem::take(&mut self.ladder_reserve));
         if self.buffered_rows() == 0 {
-            self.released.extend(self.ranges.drain(..));
+            self.released.append(&mut self.ranges);
             (self.held, self.last_start, self.last_grant) = (0, 0, 0);
             return Ok(());
         }

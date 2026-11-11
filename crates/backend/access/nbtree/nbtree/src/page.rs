@@ -28,7 +28,7 @@ pub(crate) fn page_special_off(page: &PageRef<'_>) -> usize {
     let off = unsafe { page.as_ptr().add(PD_SPECIAL_OFF).cast::<u16>().read() } as usize;
     // hard-validated once per acquisition (bt_checkpage, C's model)
     debug_assert!(
-        off >= SizeOfPageHeaderData && off <= BLCKSZ,
+        (SizeOfPageHeaderData..=BLCKSZ).contains(&off),
         "corrupt pd_special"
     );
     off.min(BLCKSZ - core::mem::size_of::<BTPageOpaqueData>())

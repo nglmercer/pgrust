@@ -36,7 +36,7 @@ fn opened_under(program: &Arc<Program>, res: std::rc::Rc<gravity_driver::Reserva
             let open = entry.open_section(&mut exec, &b, &mut derive, p, width).unwrap();
             let split = share(program, p, grant, width);
             assert_eq!(open.owner_bytes(), split.owner.bytes, "pipeline {p} W{width}: the owners' cut is share(..).owner");
-            assert_eq!(split.owner.bytes, (split.breaker.bytes - gravity_abi::breaker::OWNED_HDR as u32) / width as u32 & !7, "behind the Owned header, width ways");
+            assert_eq!(split.owner.bytes, ((split.breaker.bytes - gravity_abi::breaker::OWNED_HDR as u32) / width as u32) & !7, "behind the Owned header, width ways");
             let cursor = AtomicU64::new(0);
             for o in 0..width {
                 loop {

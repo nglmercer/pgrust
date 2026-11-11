@@ -329,6 +329,15 @@ pub fn aclitemout_into(aip: &AclItem, buf: &mut Vec<u8>) -> PgResult<()> {
     Ok(())
 }
 
+pub fn aclitemout<'mcx>(mcx: Mcx<'mcx>, aip: &AclItem) -> PgResult<PgVec<'mcx, u8>> {
+    let mut buf: Vec<u8> = Vec::with_capacity(2 * NAMEDATALEN + 40);
+    aclitemout_into(aip, &mut buf)?;
+    let mut out: PgVec<'mcx, u8> = mcx::vec_with_capacity_in(mcx, buf.len() + 1)?;
+    vec_append_bytes(&mut out, &buf)?;
+    out.push(0);
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     /// Behavior-identity witness for the kernel extraction: push_oid_decimal
@@ -374,13 +383,4 @@ mod tests {
             assert_eq!(buf, v.to_string().into_bytes(), "v={v}");
         }
     }
-}
-
-pub fn aclitemout<'mcx>(mcx: Mcx<'mcx>, aip: &AclItem) -> PgResult<PgVec<'mcx, u8>> {
-    let mut buf: Vec<u8> = Vec::with_capacity(2 * NAMEDATALEN + 40);
-    aclitemout_into(aip, &mut buf)?;
-    let mut out: PgVec<'mcx, u8> = mcx::vec_with_capacity_in(mcx, buf.len() + 1)?;
-    vec_append_bytes(&mut out, &buf)?;
-    out.push(0);
-    Ok(out)
 }

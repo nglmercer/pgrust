@@ -1700,7 +1700,7 @@ impl<'mcx> PgrcScanDescData<'mcx> {
         let map = if ided {
             Some(gen.row_map(i, &self.dir)?)
         } else if self.tid_strict {
-            return Err(crate::no_row_ids(&self.rs_base.rs_rd.name()));
+            return Err(crate::no_row_ids(self.rs_base.rs_rd.name()));
         } else {
             None
         };
@@ -2092,7 +2092,7 @@ fn stored_sample_rows(
         let sc = &schemas[c];
         match s.col(sc.attno).map_err(|e| read_error(ReadError::Format(e)))? {
             // a cstring column (typlen -2) is read by the granule path: the section stores varlena and fixed shapes
-            Some(col) if col.byref() == !sc.typbyval && sc.typlen != -2 => cols.push(col),
+            Some(col) if col.byref() != sc.typbyval && sc.typlen != -2 => cols.push(col),
             _ => return Ok(false),
         }
     }
@@ -3850,7 +3850,7 @@ mod live_position_tests {
     fn random_mask(s: &mut u64, n: u32, every: u64) -> Box<Mask> {
         let mut m = Box::new([0u64; DV_GRANULE_WORDS]);
         for r in 0..n {
-            if lcg(s) % every == 0 {
+            if lcg(s).is_multiple_of(every) {
                 m[(r / 64) as usize] |= 1 << (r % 64);
             }
         }
@@ -3897,7 +3897,7 @@ mod live_position_tests {
                     })
                     .collect();
                 let all = brute(first, rows, grain, granules, &masks);
-                let ords: Vec<u64> = (0..all.len() as u64).filter(|_| lcg(&mut s) % 4 == 0).collect();
+                let ords: Vec<u64> = (0..all.len() as u64).filter(|_| lcg(&mut s).is_multiple_of(4)).collect();
                 let mut got = Vec::new();
                 part_live_positions(first, rows, grain, granules, |g| masks[g as usize].clone(), &ords, &mut got);
                 let want: Vec<u64> = ords.iter().map(|&o| all[o as usize]).collect();

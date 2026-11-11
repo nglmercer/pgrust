@@ -162,7 +162,7 @@ pub fn picksplit<T: NumOps>(
     let mut left: Option<(T::V, T::V)> = None;
     let mut right: Option<(T::V, T::V)> = None;
     for (pos, &(off, pair)) in arr.iter().enumerate() {
-        let (side, acc) = if pos + 1 <= maxoff / 2 {
+        let (side, acc) = if pos < maxoff / 2 {
             (&mut spl_left, &mut left)
         } else {
             (&mut spl_right, &mut right)

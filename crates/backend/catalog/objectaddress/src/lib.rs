@@ -657,7 +657,7 @@ fn get_object_address_publication_rel<'mcx>(
         .nth(0)
         .as_list()
         .expect("publication relation object leads with a name list");
-    let rv = makeRangeVarFromNameList(&relname)?;
+    let rv = makeRangeVarFromNameList(relname)?;
     let Some(relation) =
         relation::relation_openrv_extended(mcx, &rv, types_rel::AccessShareLock, missing_ok)?
     else {
@@ -1360,14 +1360,14 @@ pub fn get_object_address<'mcx>(
             }
             OBJECT_PUBLICATION_NAMESPACE => (
                 get_object_address_publication_schema(
-                    &object.as_list().expect("publication schema object is a list"),
+                    object.as_list().expect("publication schema object is a list"),
                     missing_ok,
                 )?,
                 None,
             ),
             OBJECT_PUBLICATION_REL => get_object_address_publication_rel(
                 mcx,
-                &object.as_list().expect("publication relation object is a list"),
+                object.as_list().expect("publication relation object is a list"),
                 missing_ok,
             )?,
             OBJECT_AGGREGATE | OBJECT_FUNCTION | OBJECT_PROCEDURE | OBJECT_ROUTINE => {
@@ -1513,14 +1513,14 @@ pub fn get_object_address<'mcx>(
             }
             OBJECT_USER_MAPPING => (
                 get_object_address_usermapping(
-                    &object.as_list().expect("user mapping object is a list"),
+                    object.as_list().expect("user mapping object is a list"),
                     missing_ok,
                 )?,
                 None,
             ),
             OBJECT_DEFACL => (
                 get_object_address_defacl(
-                    &object.as_list().expect("default ACL object is a list"),
+                    object.as_list().expect("default ACL object is a list"),
                     missing_ok,
                 )?,
                 None,
@@ -1529,7 +1529,7 @@ pub fn get_object_address<'mcx>(
                 get_object_address_opf_member(
                     mcx,
                     objtype,
-                    &object.as_list().expect("opfamily member object is a list"),
+                    object.as_list().expect("opfamily member object is a list"),
                     missing_ok,
                 )?,
                 None,

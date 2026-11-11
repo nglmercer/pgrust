@@ -771,7 +771,7 @@ pub(crate) fn WalSndWait(socket_events: u32, timeout: c_long, wait_event: u32) -
     };
     condition_variable::ConditionVariablePrepareToSleep(cv);
 
-    let events = pqcomm::pq_wait_event_set_wait_fe_be(timeout as i64, wait_event)?;
+    let events = pqcomm::pq_wait_event_set_wait_fe_be(timeout, wait_event)?;
     if events & WL_POSTMASTER_DEATH != 0 {
         condition_variable::ConditionVariableCancelSleep();
         proc_exit(1);

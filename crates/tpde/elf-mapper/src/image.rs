@@ -199,7 +199,7 @@ impl<'m> MapperImage<'m> {
             "mapping layout missing or buffer too small",
         )?;
         ensure(
-            base != 0 && self.state.page != 0 && base % self.state.page == 0,
+            base != 0 && self.state.page != 0 && base.is_multiple_of(self.state.page),
             "mapping base must be nonzero and page aligned",
         )?;
         ensure(

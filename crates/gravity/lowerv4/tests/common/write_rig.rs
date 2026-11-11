@@ -817,7 +817,7 @@ fn drive_write(program: &std::sync::Arc<gravity_program::Program>, params: &[u64
     let mut sink = Rows { out: &program.out, rows: Vec::new(), err: None };
     let parts = BindingParts { snapshot: Snapshot(0), command_id: CommandId(0), params, param_nulls: nulls, abort_flag: flag, pins: Pins(0), per_tuple: PerTuple(0), identity: Identity { proc_number: 0, resource_owner: 0, latch: 0 }, resolved: None };
     let mut b = Binding::new(parts, &mut sink);
-    let (mut entry, cap) = (Entry::new(1), if let Mode::Stop(n) = mode { n.max(1) } else { program.layout.out_rows.max(1) as u32 });
+    let (mut entry, cap) = (Entry::new(1), if let Mode::Stop(n) = mode { n.max(1) } else { program.layout.out_rows.max(1) });
     let lease = std::rc::Rc::new(Reservation::unadmitted(Grant::of(64 << 20)));
     let r = match entry.start(None, program, derive, &mut b, lease) {
         Err(e) => Err(e),

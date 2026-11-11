@@ -221,7 +221,7 @@ pub fn RemoveRelations<'mcx>(mcx: Mcx<'mcx>, drop: &DropStmt<'mcx>) -> PgResult<
 
     for cell in drop.objects.iter() {
         let names = cell.as_list().expect("DROP object is a name list");
-        let rel = makeRangeVarFromNameList(&names)?;
+        let rel = makeRangeVarFromNameList(names)?;
 
         inval::local::AcceptInvalidationMessages()?;
 

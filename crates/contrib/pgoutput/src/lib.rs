@@ -1538,7 +1538,7 @@ fn rel_sync_cache_publication_cb(_arg: Datum, _cacheid: i32, _hashvalue: u32) {
 fn is_publishable_relation_data(rel: &RelationData<'static>) -> bool {
     pg_publication::is_publishable_class(
         rel.rd_id,
-        rel.rd_rel.relkind as u8,
+        rel.rd_rel.relkind,
         rel.rd_rel.relpersistence,
     )
 }

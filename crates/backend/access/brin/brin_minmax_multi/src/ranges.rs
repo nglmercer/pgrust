@@ -691,7 +691,7 @@ pub fn reduce_expanded_ranges<'mcx>(
         values.push(eranges[index + 1].minval);
         debug_assert!(values.len() <= max_values as usize);
     }
-    debug_assert!(values.len() % 2 == 0);
+    debug_assert!(values.len().is_multiple_of(2));
 
     pg_qsort_arg(&mut values, |a, b| compare_values(mcx, cmp, colloid, *a, *b))?;
 

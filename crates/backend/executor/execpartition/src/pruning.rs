@@ -202,9 +202,9 @@ fn create_partition_prune_state<'mcx>(
                 && partdesc.oids.iter().zip(pinfo.relid_map.iter()).all(|(a, b)| a == b);
             let (subplan_map, subpart_map, leafpart_rti_map) = if identical {
                 (
-                    ::mcx::std_vec_from_slice("execpartition", &pinfo.subplan_map)?,
-                    ::mcx::std_vec_from_slice("execpartition", &pinfo.subpart_map)?,
-                    ::mcx::std_vec_from_slice("execpartition", &pinfo.leafpart_rti_map)?,
+                    ::mcx::std_vec_from_slice("execpartition", pinfo.subplan_map)?,
+                    ::mcx::std_vec_from_slice("execpartition", pinfo.subpart_map)?,
+                    ::mcx::std_vec_from_slice("execpartition", pinfo.leafpart_rti_map)?,
                 )
             } else {
                 let mut subplan_map = ::mcx::std_vec_from_elem("ExecutorState", -1i32, n_new)?;

@@ -3283,7 +3283,7 @@ impl<'m> TuplesortData<'m> {
         let tmcx = self.tuplecontext.mcx();
         let mut tie_dirty = false;
         let mut freed: i64 = 0;
-        let result = (|| {
+        let result = {
             let ctx = ctx!(self);
             dispatch_cmp!(ctx, |cmp| {
                 if rowref_mode {
@@ -3314,7 +3314,7 @@ impl<'m> TuplesortData<'m> {
                     )
                 }
             })
-        })();
+        };
         tuples.truncate(bound);
         self.memtuples = tuples;
         self.avail_mem += freed;

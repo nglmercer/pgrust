@@ -364,7 +364,7 @@ fn zone_prune_fires_and_census_is_dop_identical() {
         ScanPredicate {
             attno: 1,
             // 30000*3 lies in granule 3 (row 30000 of 40000).
-            eq: ScanConst::Word((30_000u64 * 3) as u64),
+            eq: ScanConst::Word(((30_000u64 * 3))),
         },
         profile,
     ));
@@ -418,7 +418,7 @@ fn zone_records_match_granule_records_are_counted_and_go_with_the_part() {
         let r0 = part.resident();
         let recs = crate::meta::zone_records(part, schema.attno).expect("read").expect("a stats section");
         let kept = part.zone_resident();
-        let rec_bytes = (recs.len() * std::mem::size_of::<Option<StatsRecord>>()) as u64;
+        let rec_bytes = std::mem::size_of_val(recs) as u64;
         assert!(kept > rec_bytes, "the records and the cell table: {kept} vs {rec_bytes}");
         assert_eq!(part.resident() - r0, kept, "the kept bytes, and only they, join the part's resident bytes");
         let meta = crate::meta::ColumnMeta::load(part, profile, schema.attno).expect("load");
@@ -665,7 +665,7 @@ fn dv_composes_with_zone_pruning() {
     scan.predicate = Some((
         ScanPredicate {
             attno: 1,
-            eq: ScanConst::Word((30_000u64 * 3) as u64),
+            eq: ScanConst::Word(((30_000u64 * 3))),
         },
         profile,
     ));
@@ -815,11 +815,11 @@ impl ProbeStubs {
                         let r = pos as usize;
                         assert!(col.validity.is_valid(r), "dict lanes are all-valid (C2)");
                         let code = codes[r];
-                        if !memo.contains_key(&code) {
+                        if let std::collections::btree_map::Entry::Vacant(e) = memo.entry(code) {
                             // First sight of the code: the ONLY hydration.
                             let mut c = Vec::new();
                             push_varlena_canon(space.entry_datum(code).as_u64(), &mut c);
-                            memo.insert(code, c);
+                            e.insert(c);
                             self.hydrations += 1;
                         }
                         let chunk = memo.get(&code).expect("just memoized");

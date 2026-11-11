@@ -962,7 +962,7 @@ fn interpret_ident_response_cases() {
     );
     // User name is capped at IDENT_USERNAME_MAX bytes.
     let mut long = b"1,2:USERID:UNIX:".to_vec();
-    long.extend(std::iter::repeat(b'a').take(IDENT_USERNAME_MAX + 50));
+    long.extend(std::iter::repeat_n(b'a', IDENT_USERNAME_MAX + 50));
     long.extend(b"\r\n");
     let got = interpret_ident_response(&long).unwrap();
     assert_eq!(got.len(), IDENT_USERNAME_MAX);
@@ -992,7 +992,7 @@ unsafe extern "C" fn mock_pam_start(
     pamh: *mut *mut pam_ffi::pam_handle_t,
 ) -> c_int {
     MOCK_CONV.with(|c| *c.borrow_mut() = conv as usize);
-    *pamh = 0x1 as *mut pam_ffi::pam_handle_t;
+    *pamh = std::ptr::dangling_mut::<pam_ffi::pam_handle_t>();
     pam_ffi::PAM_SUCCESS
 }
 

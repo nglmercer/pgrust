@@ -31,10 +31,10 @@ std::thread_local! {
         const { core::cell::UnsafeCell::new(None) };
 }
 
-fn flinfo_mi<'f>(
-    flinfo: Option<&'f mut FmgrInfo>,
+fn flinfo_mi(
+    flinfo: Option<&mut FmgrInfo>,
     mltrngtypid: Oid,
-) -> PgResult<&'f mut MultirangeInfo> {
+) -> PgResult<&mut MultirangeInfo> {
     if let Some(fl) = flinfo {
         return cached_multirange_info(fl, mltrngtypid);
     }

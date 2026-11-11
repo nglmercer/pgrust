@@ -6916,7 +6916,7 @@ fn select_scan_contains_clause(state: &ExprState<'_>) -> Option<crate::steps::Sc
         return None;
     }
     let needle = &bytes[lead..bytes.len() - trail];
-    if needle.iter().any(|&b| b == b'%') {
+    if needle.contains(&b'%') {
         return None;
     }
     Some(crate::steps::ScanContainsClause::new(
@@ -7054,7 +7054,7 @@ fn select_scan_proj_cols(state: &ExprState<'_>) -> Option<crate::steps::ScanProj
                     out: b_out,
                     ..
                 }) => {
-                    if i + 3 >= done + 1 {
+                    if i + 3 > done {
                         return None;
                     }
                     let Step::FuncExprStrict2 { call, out: fout } = &steps[i + 2] else {
@@ -7077,7 +7077,7 @@ fn select_scan_proj_cols(state: &ExprState<'_>) -> Option<crate::steps::ScanProj
                 // Var op Const / Const op Var: the const arg was prefilled
                 // at compile (const_args bit), only the Var evaluates.
                 Some(Step::FuncExprStrict2 { call, out: fout }) => {
-                    if i + 2 >= done + 1 {
+                    if i + 2 > done {
                         return None;
                     }
                     let Step::AssignTmp { resultnum } = steps[i + 2] else {

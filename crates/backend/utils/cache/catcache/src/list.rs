@@ -172,10 +172,7 @@ fn build_list(
     let result = build_list_scan(cache_id, nkeys, reloid, indexoid, keys, &mut members);
     let in_progress_dead = with_state(pop_in_progress);
 
-    let ordered = match result {
-        Ok(v) => v,
-        Err(e) => return Err(e),
-    };
+    let ordered = result?;
     debug_assert!(!in_progress_dead, "list build retry loop exited dead");
 
     let (slot, n_members) = adopt_members(cache_id, nkeys, l_hash, keys, &members, ordered)?;

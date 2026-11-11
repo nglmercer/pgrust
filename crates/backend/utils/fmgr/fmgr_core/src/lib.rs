@@ -256,7 +256,7 @@ const fn build_not_ported() -> [bool; FMGR_NBUILTINS] {
     stub
 }
 
-const BUILTINS: [FmgrBuiltin; FMGR_NBUILTINS] = build_builtins();
+static BUILTINS: [FmgrBuiltin; FMGR_NBUILTINS] = build_builtins();
 const OID_INDEX: BuiltinOidIndex<FMGR_OID_INDEX_SIZE> = BuiltinOidIndex::build(&BUILTINS);
 // A static, not a const: a const array is materialized at every use.
 static NOT_PORTED_ROW: [bool; FMGR_NBUILTINS] = build_not_ported();

@@ -1011,20 +1011,16 @@ fn gen_tfunc(g: &mut Gen) -> Vec<StmtKind> {
                )) jt;"
         ))],
         "exr:tf:err" => vec![
-            raw(format!(
-                "SELECT * FROM JSON_TABLE('{{\"a\": \"notint\"}}', '$' COLUMNS \
-                 (a int PATH '$.a' ERROR ON ERROR)) jt;"
-            )), // ERROR (matched)
+            raw("SELECT * FROM JSON_TABLE('{\"a\": \"notint\"}', '$' COLUMNS \
+                 (a int PATH '$.a' ERROR ON ERROR)) jt;".to_string()), // ERROR (matched)
             raw(format!(
                 "SELECT * FROM JSON_TABLE('{{\"a\": \"notint\"}}', '$' COLUMNS \
                  (a int PATH '$.a' NULL ON ERROR, b int PATH '$.a' DEFAULT {k} ON ERROR)) jt;"
             )),
         ],
-        _ => vec![raw(format!(
-            "SELECT s.i, jt.v FROM generate_series(1, 4) s(i), \
+        _ => vec![raw("SELECT s.i, jt.v FROM generate_series(1, 4) s(i), \
              JSON_TABLE(('[' || s.i || ',' || s.i * 2 || ']')::jsonb, '$[*]' \
-               COLUMNS (v int PATH '$')) jt ORDER BY s.i, jt.v;"
-        ))],
+               COLUMNS (v int PATH '$')) jt ORDER BY s.i, jt.v;".to_string())],
     }
 }
 

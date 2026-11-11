@@ -230,7 +230,7 @@ fn foreign_expr_walker<'mcx>(
             if types_pathnodes::relids::relids_is_member(var.varno, glob.relids())
                 && var.varlevelsup == 0
             {
-                if var.varattno < 0 && var.varattno as i16 != SELF_ITEM_POINTER_ATTNUM {
+                if var.varattno < 0 && var.varattno != SELF_ITEM_POINTER_ATTNUM {
                     return Ok(false);
                 }
                 collation = var.varcollid;
@@ -562,11 +562,9 @@ fn walk_opt_list<'mcx>(
     inner: &mut LocCxt,
     case_arg_cxt: Option<&LocCxt>,
 ) -> PgResult<bool> {
-    for cell in list.iter() {
-        if let Some(n) = cell {
-            if !foreign_expr_walker(glob, n, inner, case_arg_cxt)? {
-                return Ok(false);
-            }
+    for n in list.iter().flatten() {
+        if !foreign_expr_walker(glob, n, inner, case_arg_cxt)? {
+            return Ok(false);
         }
     }
     Ok(true)
@@ -1647,7 +1645,7 @@ fn deparse_target_list<'mcx>(
 ) -> PgResult<()> {
     let _ = run;
     let tupdesc = &rel.rd_att;
-    let natts = tupdesc.natts as i32;
+    let natts = tupdesc.natts;
     let have_wholerow = attrs_used.is_member(0 - FIRST_LOW_INVALID_HEAP_ATTNUM);
     let mut first = true;
     for i in 1..=natts {
@@ -1820,7 +1818,7 @@ fn deparse_select_stmt_inner<'mcx>(
     let where_conds: Vec<types_pathnodes::RinfoId> = if is_upper {
         fpinfo(run.root.rel(ctx.scanrel)).borrow().remote_conds.iter().copied().collect()
     } else {
-        ::mcx::std_vec_from_slice("postgres_fdw", &remote_conds)?
+        ::mcx::std_vec_from_slice("postgres_fdw", remote_conds)?
     };
 
     // FROM + WHERE.

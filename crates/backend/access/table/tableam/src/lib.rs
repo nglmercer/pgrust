@@ -2404,14 +2404,12 @@ pub fn table_scan_batch_complete_deform<'mcx>(
 /// length lanes (`seq_scan_batch_len_want` is pgrcolumnar-batch-scoped), so the
 /// heap arm is unreachable.
 pub fn table_scan_batch_fill_len<'mcx>(
-    scan: &mut TableScanDesc<'mcx>,
+    _scan: &mut TableScanDesc<'mcx>,
     _c: u16,
     _chars: bool,
     _soa: &mut ::exectuples::SoaBatch<'_>,
 ) {
-    match scan {
-        _ => unreachable!("length lanes arm on pgrcolumnar batches only"),
-    }
+    unreachable!("length lanes arm on pgrcolumnar batches only")
 }
 
 /// Dict-code side channel of one staged pgrcolumnar window column (str MIN/MAX

@@ -71,7 +71,7 @@ pub struct BpClip {
 pub fn bpchar_clip(
     s: &[u8],
     atttypmod: i32,
-    mut escontext: Option<&mut SoftErrorContext>,
+    escontext: Option<&mut SoftErrorContext>,
 ) -> PgResult<Option<BpClip>> {
     let len = s.len();
     if atttypmod < VARHDRSZ as i32 {
@@ -87,7 +87,7 @@ pub fn bpchar_clip(
         let mbmaxlen = mbutils::pg_mbcharcliplen(s, len as i32, maxchars as i32)? as usize;
         if s[mbmaxlen..].iter().any(|&b| b != b' ') {
             return ereturn(
-                escontext.as_deref_mut(),
+                escontext,
                 None,
                 value_too_long_bpchar(maxchars as i32),
             );
@@ -176,7 +176,7 @@ pub fn bpchar<'mcx>(
     // near INT32_MAX; palloc's Size (u64) parameter then sign-extends, and
     // the alloc guard reports that wrapped size (e.g. 18446744071562067969
     // for typmod = INT32_MAX). Reproduce the exact request C makes.
-    let request = (total as i32).wrapping_add(VARHDRSZ as i32) as i64 as u64;
+    let request = total.wrapping_add(VARHDRSZ as i32) as i64 as u64;
     mcx::check_alloc_size(request as usize)?;
     // Guard passed → the C int arithmetic did not wrap; safe as usize.
     let total = total as usize;
@@ -299,7 +299,7 @@ pub fn anychar_typmodout(typmod: i32, buf: &mut [u8; 16]) -> usize {
 pub fn varchar_clip(
     s: &[u8],
     atttypmod: i32,
-    mut escontext: Option<&mut SoftErrorContext>,
+    escontext: Option<&mut SoftErrorContext>,
 ) -> PgResult<Option<usize>> {
     let len = s.len();
     if atttypmod >= VARHDRSZ as i32 && len > atttypmod as usize - VARHDRSZ {
@@ -307,7 +307,7 @@ pub fn varchar_clip(
         let mbmaxlen = mbutils::pg_mbcharcliplen(s, len as i32, maxlen as i32)? as usize;
         if s[mbmaxlen..].iter().any(|&b| b != b' ') {
             return ereturn(
-                escontext.as_deref_mut(),
+                escontext,
                 None,
                 value_too_long_varchar(maxlen as i32),
             );

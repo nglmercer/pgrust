@@ -50,7 +50,7 @@ struct DsmControlHeader {
 
 const ITEM_OFFSET: usize = {
     let a = std::mem::align_of::<DsmControlItem>();
-    (std::mem::size_of::<DsmControlHeader>() + a - 1) / a * a
+    std::mem::size_of::<DsmControlHeader>().div_ceil(a) * a
 };
 
 unsafe fn control_item(control: *mut DsmControlHeader, i: u32) -> *mut DsmControlItem {
@@ -323,6 +323,8 @@ pub(crate) fn cleanup_mmap_dir(dirname: &str) -> PgResult<()> {
     Ok(())
 }
 
+// Kept safe on purpose: the postmaster passes its shim header, which is live for the whole startup (C's dsm_postmaster_startup).
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn dsm_postmaster_startup(shim: *mut PGShmemHeader) -> PgResult<()> {
     // If we're using the mmap implementations, clean up any leftovers
     // (dsm.c:191); the other C implementations clean up through the old

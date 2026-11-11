@@ -29,7 +29,7 @@ fn corpora() -> Vec<(&'static str, Vec<u64>)> {
         })
         .collect();
     let exceptions: Vec<u64> =
-        (0..6000).map(|_| if splitmix(&mut s) % 50 == 0 { splitmix(&mut s) >> 24 } else { splitmix(&mut s) % 256 }).collect();
+        (0..6000).map(|_| if splitmix(&mut s).is_multiple_of(50) { splitmix(&mut s) >> 24 } else { splitmix(&mut s) % 256 }).collect();
     let nested: Vec<u64> = (0..8000)
         .map(|_| match splitmix(&mut s) % 400 {
             0 => splitmix(&mut s) >> 10,
@@ -237,7 +237,7 @@ fn randomized_words_roundtrip() {
                 prev = match shape {
                     0 => r,
                     1 => prev.wrapping_add(r % 5),
-                    2 => if r % 10 == 0 { r } else { prev },
+                    2 => if r.is_multiple_of(10) { r } else { prev },
                     3 => prev.wrapping_sub(r % 1000 * 1000),
                     _ => r % (1 + (r >> 60)),
                 };

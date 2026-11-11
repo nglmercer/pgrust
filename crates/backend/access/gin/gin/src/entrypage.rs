@@ -481,7 +481,7 @@ pub(crate) unsafe fn ginReadTuple<'mcx>(
         // Uncompressed posting list: nipd item pointers of 6 bytes each.
         if nipd
             .checked_mul(core::mem::size_of::<ItemPointerData>())
-            .map_or(true, |need| need > avail)
+            .is_none_or(|need| need > avail)
         {
             return Err(gin_corrupt_posting(posting_offset, nipd, tup_size));
         }
@@ -539,7 +539,7 @@ mod gin_read_tuple_tests {
         let mut out = ::mcx::vec_new_in::<ItemPointerData>(ctx.mcx());
         // SAFETY: itup is a live image built above.
         let res = unsafe { ginReadTuple(ctx.mcx(), itup, &mut out) };
-        let err = res.err().expect("2^30 posting offset must be rejected");
+        let err = res.expect_err("2^30 posting offset must be rejected");
         assert_eq!(err.sqlstate(), ERRCODE_DATA_CORRUPTED);
     }
 
@@ -1066,7 +1066,7 @@ mod attrnum_tests {
         let payload = catch_unwind(AssertUnwindSafe(|| unsafe {
             gintuple_get_attrnum(&state, buf.0.as_ptr())
         }))
-        .err().expect("out-of-range attnum must raise a catchable error, not return");
+        .expect_err("out-of-range attnum must raise a catchable error, not return");
         let err = pg_error_from_panic(payload)
             .unwrap_or_else(|_| panic!("payload must be a structured PgError, not a raw panic"));
         assert_eq!(

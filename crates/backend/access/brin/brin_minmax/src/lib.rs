@@ -191,7 +191,7 @@ fn minmax_get_strategy_procinfo(
     subtype: Oid,
     strategynum: u16,
 ) -> PgResult<FmgrInfo> {
-    debug_assert!(strategynum >= 1 && strategynum <= BTMaxStrategyNumber);
+    debug_assert!((1..=BTMaxStrategyNumber).contains(&strategynum));
     let opaque = &bdesc.bd_info[attno as usize - 1].minmax;
 
     if opaque.cached_subtype.get() != subtype {

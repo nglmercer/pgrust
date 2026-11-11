@@ -1268,7 +1268,7 @@ fn lazy_scan_heap(vacrel: &mut LVRelState<'_, '_>, mcx: Mcx<'_>, nrequested: i32
         vacuum_delay_point(false)?;
 
         if vacrel.folds.counters.scanned_pages > 0
-            && vacrel.folds.counters.scanned_pages % FAILSAFE_EVERY_PAGES as u64 == 0
+            && vacrel.folds.counters.scanned_pages.is_multiple_of(FAILSAFE_EVERY_PAGES as u64)
         {
             lazy_check_wraparound_failsafe(vacrel)?;
         }
@@ -1352,7 +1352,7 @@ fn lazy_scan_heap(vacrel: &mut LVRelState<'_, '_>, mcx: Mcx<'_>, nrequested: i32
             ..
         } = &mut *vacrel;
         let env = ScanEnv {
-            rel: *rel,
+            rel,
             cutoffs: &*cutoffs,
             vistest: *vistest,
             aggressive: *aggressive,
@@ -2692,7 +2692,7 @@ fn count_nondeletable_pages(
     while blkno > vacrel.folds.counters.nonempty_pages {
         // Waiters queue behind our AccessExclusiveLock; probe at most every
         // VACUUM_TRUNCATE_LOCK_CHECK_INTERVAL, checked once per 32 blocks.
-        if blkno % 32 == 0 {
+        if blkno.is_multiple_of(32) {
             let currenttime = pg_clock::MonoStamp::now();
             if currenttime.since_ns(starttime) as i64 / 1_000_000
                 >= VACUUM_TRUNCATE_LOCK_CHECK_INTERVAL_MS

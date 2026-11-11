@@ -2346,12 +2346,12 @@ fn clone_constraint_node<'mcx>(
 // table to a newly acquired partition.
 pub(crate) fn CloneForeignKeyConstraints<'mcx>(
     mcx: Mcx<'mcx>,
-    mut wqueue: Option<&mut crate::alter::Wqueue<'mcx>>,
+    wqueue: Option<&mut crate::alter::Wqueue<'mcx>>,
     parent_rel: &Relation<'mcx>,
     partition_rel: &Relation<'mcx>,
 ) -> PgResult<()> {
     debug_assert!(parent_rel.rd_rel.relkind == RELKIND_PARTITIONED_TABLE);
-    clone_fk_referencing(mcx, wqueue.as_deref_mut(), parent_rel, partition_rel)?;
+    clone_fk_referencing(mcx, wqueue, parent_rel, partition_rel)?;
     clone_fk_referenced(mcx, parent_rel, partition_rel)
 }
 

@@ -148,17 +148,17 @@ impl FileInfo {
 
     #[inline]
     pub fn is_dir(&self) -> bool {
-        self.mode & (libc::S_IFMT as u32) == libc::S_IFDIR as u32
+        self.mode & libc::S_IFMT == libc::S_IFDIR
     }
 
     #[inline]
     pub fn is_file(&self) -> bool {
-        self.mode & (libc::S_IFMT as u32) == libc::S_IFREG as u32
+        self.mode & libc::S_IFMT == libc::S_IFREG
     }
 
     #[inline]
     pub fn is_symlink(&self) -> bool {
-        self.mode & (libc::S_IFMT as u32) == libc::S_IFLNK as u32
+        self.mode & libc::S_IFMT == libc::S_IFLNK
     }
 }
 

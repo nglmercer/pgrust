@@ -227,7 +227,7 @@ fn update_local_synced_slot(
             ))
             .finish(loc("update_local_synced_slot"));
 
-        if let Some(f) = remote_slot_precedes.as_deref_mut() {
+        if let Some(f) = remote_slot_precedes {
             *f = true;
         }
         return Ok(false);
@@ -258,7 +258,7 @@ fn update_local_synced_slot(
 
             let (_retlsn, consistent) =
                 logical_slot_advance_and_check_snap_state::call(remote_slot.confirmed_lsn)?;
-            if let Some(f) = found_consistent_snapshot.as_deref_mut() {
+            if let Some(f) = found_consistent_snapshot {
                 *f = consistent;
             }
 
@@ -332,7 +332,7 @@ fn transaction_id_precedes(a: TransactionId, b: TransactionId) -> bool {
         return false;
     }
     // TransactionIdPrecedes: modulo-2^31 comparison for normal xids.
-    if !(a >= 3) || !(b >= 3) {
+    if (a < 3) || (b < 3) {
         return a < b;
     }
     ((a.wrapping_sub(b)) as i32) < 0
@@ -342,7 +342,7 @@ fn transaction_id_follows(a: TransactionId, b: TransactionId) -> bool {
     if a == b {
         return false;
     }
-    if !(a >= 3) || !(b >= 3) {
+    if (a < 3) || (b < 3) {
         return a > b;
     }
     ((a.wrapping_sub(b)) as i32) > 0

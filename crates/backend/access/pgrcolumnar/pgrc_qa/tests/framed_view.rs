@@ -64,7 +64,7 @@ fn check(name: &'static str, relf: u64, plan: ForcedPlan, span: u64, framed: boo
         assert_eq!(mine, theirs, "{name} g{g}: the cursor's view is the ctx's view");
         assert_eq!(mine.4 as usize, rows, "{name} g{g}: a root stream's values are its rows");
         for keep in [1u64, 3, 97] {
-            let sel_rows: Vec<u16> = (0..rows as u16).filter(|_| mix(&mut seed) % keep == 0).collect();
+            let sel_rows: Vec<u16> = (0..rows as u16).filter(|_| mix(&mut seed).is_multiple_of(keep)).collect();
             let (sel, n) = (Selection { rows: &sel_rows }, sel_rows.len());
             let mut want = vec![0u64; n.max(1)];
             let mut arena = [0u8; 64];

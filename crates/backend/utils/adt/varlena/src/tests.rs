@@ -1072,7 +1072,7 @@ mod string_agg_fns {
 
     fn run_string_agg(rows: &[Option<&str>], delim: Option<&str>) -> Option<String> {
         let agg_ctx = MemoryContext::new_bump("aggcontext");
-        let mut node = AggStateNode::new(agg_ctx);
+        let node = AggStateNode::new(agg_ctx);
         let result_ctx = MemoryContext::new_bump("per-tuple");
 
         let delim_img = delim.map(|d| text_image(d.as_bytes()));
@@ -1142,7 +1142,7 @@ mod string_agg_fns {
     #[test]
     fn bytea_string_agg_matches_text_shape() {
         let agg_ctx = MemoryContext::new_bump("aggcontext");
-        let mut node = AggStateNode::new(agg_ctx);
+        let node = AggStateNode::new(agg_ctx);
         let result_ctx = MemoryContext::new_bump("per-tuple");
         let vals = [text_image(&[0xde, 0xad]), text_image(&[0xbe, 0xef])];
         let delim = text_image(&[0x00]);

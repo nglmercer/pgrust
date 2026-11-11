@@ -376,25 +376,18 @@ impl Default for MergeAppend<'_> {
 }
 
 #[repr(C)]
+#[derive(Default)]
 pub struct PartitionPruneInfo<'mcx> {
     pub relids: Bitmapset<'mcx>,
     pub prune_infos: NodeList<'mcx>,
     pub other_subplans: Bitmapset<'mcx>,
 }
 
-impl Default for PartitionPruneInfo<'_> {
-    fn default() -> Self {
-        PartitionPruneInfo {
-            relids: Bitmapset::empty(),
-            prune_infos: NodeList::nil(),
-            other_subplans: Bitmapset::empty(),
-        }
-    }
-}
 
 /// Per-partition maps use C's empty entries: -1 (subplan/subpart maps) and
 /// 0 (leafpart_rti/relid maps).
 #[repr(C)]
+#[derive(Default)]
 pub struct PartitionedRelPruneInfo<'mcx> {
     pub rtindex: Index,
     pub present_parts: Bitmapset<'mcx>,
@@ -408,26 +401,11 @@ pub struct PartitionedRelPruneInfo<'mcx> {
     pub execparamids: Bitmapset<'mcx>,
 }
 
-impl Default for PartitionedRelPruneInfo<'_> {
-    fn default() -> Self {
-        PartitionedRelPruneInfo {
-            rtindex: 0,
-            present_parts: Bitmapset::empty(),
-            nparts: 0,
-            subplan_map: &[],
-            subpart_map: &[],
-            leafpart_rti_map: &[],
-            relid_map: &[],
-            initial_pruning_steps: NodeList::nil(),
-            exec_pruning_steps: NodeList::nil(),
-            execparamids: Bitmapset::empty(),
-        }
-    }
-}
 
 /// `opstrategy` 0 (InvalidStrategy) marks the IS NULL-only step and the list
 /// `<>` special case, per C.
 #[repr(C)]
+#[derive(Default)]
 pub struct PartitionPruneStepOp<'mcx> {
     pub step_id: i32,
     pub opstrategy: u16,
@@ -436,17 +414,6 @@ pub struct PartitionPruneStepOp<'mcx> {
     pub nullkeys: Bitmapset<'mcx>,
 }
 
-impl Default for PartitionPruneStepOp<'_> {
-    fn default() -> Self {
-        PartitionPruneStepOp {
-            step_id: 0,
-            opstrategy: 0,
-            exprs: NodeList::nil(),
-            cmpfns: OidList::nil(),
-            nullkeys: Bitmapset::empty(),
-        }
-    }
-}
 
 pub const PARTPRUNE_COMBINE_UNION: u32 = 0;
 pub const PARTPRUNE_COMBINE_INTERSECT: u32 = 1;
@@ -750,6 +717,7 @@ impl Default for WindowAgg<'_> {
 /// `aggstrategy`/`aggsplit` carry the C AggStrategy/AggSplit values
 /// (canonical consts in types_pathnodes); per-key arrays as in [`Sort`].
 #[repr(C)]
+#[derive(Default)]
 pub struct Agg<'mcx> {
     pub plan: Plan<'mcx>,
     pub aggstrategy: u32,
@@ -773,28 +741,6 @@ pub struct Agg<'mcx> {
     pub gravity_groups_default: bool,
 }
 
-impl Default for Agg<'_> {
-    fn default() -> Self {
-        Agg {
-            plan: Plan::default(),
-            aggstrategy: 0,
-            aggsplit: 0,
-            numCols: 0,
-            grpColIdx: &[],
-            grpOperators: &[],
-            grpCollations: &[],
-            numGroups: 0,
-            transitionSpace: 0,
-            aggParams: Bitmapset::empty(),
-            groupingSets: NodeList::nil(),
-            chain: NodeList::nil(),
-            distinctHashed: false,
-            gravity_rewrite: None,
-            gravity_finals: &[],
-            gravity_groups_default: false,
-        }
-    }
-}
 
 /// `onConflictAction` carries the C OnConflictAction value (0 = NONE).
 #[repr(C)]
@@ -930,6 +876,7 @@ pub struct Material<'mcx> {
 
 /// Per-key arrays as in [`Sort`].
 #[repr(C)]
+#[derive(Default)]
 pub struct Memoize<'mcx> {
     pub plan: Plan<'mcx>,
     pub numKeys: i32,
@@ -942,21 +889,6 @@ pub struct Memoize<'mcx> {
     pub keyparamids: Bitmapset<'mcx>,
 }
 
-impl Default for Memoize<'_> {
-    fn default() -> Self {
-        Memoize {
-            plan: Plan::default(),
-            numKeys: 0,
-            hashOperators: &[],
-            collations: &[],
-            param_exprs: NodeList::nil(),
-            singlerow: false,
-            binary_mode: false,
-            est_entries: 0,
-            keyparamids: Bitmapset::empty(),
-        }
-    }
-}
 
 #[derive(Default)]
 #[repr(C)]

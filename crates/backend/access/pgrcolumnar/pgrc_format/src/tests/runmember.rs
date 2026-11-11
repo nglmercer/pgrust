@@ -129,7 +129,7 @@ fn runmember_a_rewrite_keeps_the_virtual_frames() {
     let m = GranMap::decode(&encode_run_member(&ids, &vstarts, Some(&vmin)).unwrap(), ids.len() as u64).unwrap();
     let fast = check_member(&m, &ids, &vstarts, &spans, &group_of);
     let gone_v = 5u32;
-    let keep = |o: usize| o % 3 != 0 && vframe_of(&vstarts, o) != gone_v;
+    let keep = |o: usize| !o.is_multiple_of(3) && vframe_of(&vstarts, o) != gone_v;
     let kept: Vec<usize> = (0..ids.len()).filter(|&o| keep(o)).collect();
     let new_ids: Vec<u64> = kept.iter().map(|&o| ids[o]).collect();
     let new_starts: Vec<u32> = vstarts.iter().map(|&s| kept.partition_point(|&o| o < s as usize) as u32).collect();

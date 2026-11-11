@@ -23,7 +23,7 @@ pub fn make_numeric_typmod_safe(
 ) -> PgResult<i32> {
     use ::types_error::ERRCODE_INVALID_PARAMETER_VALUE;
 
-    if precision < 1 || precision > crate::NUMERIC_MAX_PRECISION {
+    if !(1..=crate::NUMERIC_MAX_PRECISION).contains(&precision) {
         return ereturn(
             escontext,
             -1,
@@ -35,7 +35,7 @@ pub fn make_numeric_typmod_safe(
             .with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE),
         );
     }
-    if scale < crate::NUMERIC_MIN_SCALE || scale > crate::NUMERIC_MAX_SCALE {
+    if !(crate::NUMERIC_MIN_SCALE..=crate::NUMERIC_MAX_SCALE).contains(&scale) {
         return ereturn(
             escontext,
             -1,
@@ -807,7 +807,7 @@ pub fn numeric_float8_no_overflow(num: Num<'_>) -> f64 {
 // viewing (C: DatumGetNumeric's unpacking copy).
 pub fn numeric_float8_no_overflow_any(payload: &[u8]) -> f64 {
     let num = Num::from_payload(payload);
-    if num.is_special() || (payload.as_ptr() as usize + num.header_size()) % 2 == 0 {
+    if num.is_special() || (payload.as_ptr() as usize + num.header_size()).is_multiple_of(2) {
         return numeric_float8_no_overflow(num);
     }
     let nwords = payload.len().div_ceil(2);

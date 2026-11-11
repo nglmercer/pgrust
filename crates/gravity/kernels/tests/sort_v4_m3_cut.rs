@@ -63,7 +63,7 @@ fn a_cut_keeps_the_first_n_rows_in_key_order_and_hands_back_the_bound() {
 fn a_compared_cut_selects_then_sorts_the_kept_rows() {
     let all: Vec<i64> = (0..20i64).map(|i| i / 2).collect(); // alloc: Cold
     for n in 1..=21u64 {
-        for ties in [0, CUT_TIES as u64] {
+        for ties in [0, CUT_TIES] {
             // a fresh rig per cut: the slot's run keeps the last cut's rows across opens
             let mut rig = Rig::new(programs::par_sort_with(Oids::T_A, 64, 0, &[1, 2]), vec![]);
             unsafe {

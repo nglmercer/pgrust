@@ -108,7 +108,7 @@ mod tests {
             (1.2345678901234567, "1.2345678901234567"),
             (1e308, "1e+308"),
             (1e-308, "1e-308"),
-            (4.9406564584124654e-324, "5e-324"),
+            (5e-324, "5e-324"),
             (f64::INFINITY, "Infinity"),
             (f64::NEG_INFINITY, "-Infinity"),
             (0.0025, "0.0025"),
@@ -155,6 +155,8 @@ mod tests {
     }
 
     #[test]
+    // The literals below are the exact test inputs; they are not approximations of the constants.
+    #[allow(clippy::approx_constant)]
     fn double_roundtrips_sample() {
         let mut values = std::vec![
             0.0,
@@ -170,7 +172,7 @@ mod tests {
             1e300,
             1.7976931348623157e308,
             5e-324,
-            123456789.123456789,
+            123_456_789.123_456_79,
             0.0000123,
             9999999999999999.0,
             42.0,

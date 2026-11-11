@@ -1576,19 +1576,18 @@ fn pgrc_decode(ctx: &mut LogicalDecodingContext, buf: XLogRecordBuffer) -> PgRes
     }
 
     match info {
-        XLOG_PGRC_ROW_DELETE | XLOG_PGRC_ROW_UPDATE | XLOG_PGRC_BULK_ROWS => {
+        XLOG_PGRC_ROW_DELETE | XLOG_PGRC_ROW_UPDATE | XLOG_PGRC_BULK_ROWS
             if ctx
                 .snapshot_builder
                 .process_change(&mut ctx.reorder, xid, buf.origptr)
                 && !ctx.fast_forward
-            {
+            => {
                 if info == XLOG_PGRC_BULK_ROWS {
                     decode_pgrc_bulk_rows(ctx, buf)?;
                 } else {
                     decode_pgrc_row(ctx, buf, info)?;
                 }
             }
-        }
         _ => {}
     }
     Ok(())

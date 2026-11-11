@@ -115,7 +115,7 @@ pub(crate) fn transformJsonTable<'mcx>(
             pstate,
             &mut cxt,
             jt,
-            &mut *tf,
+            &mut tf,
             &jt.columns,
             &jt.passing,
             root_pathspec_node,
@@ -185,7 +185,7 @@ fn CheckDuplicateColumnOrPathNames<'mcx>(
 }
 
 fn LookupPathOrColumnName(cxt: &JsonTableParseContext<'_>, name: &str) -> bool {
-    cxt.path_names.iter().any(|n| *n == name)
+    cxt.path_names.contains(&name)
 }
 
 fn generateJsonTablePathName<'mcx>(

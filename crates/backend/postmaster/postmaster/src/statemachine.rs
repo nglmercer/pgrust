@@ -646,13 +646,12 @@ pub fn StartAutovacuumWorker() {
     use types_startup::CacState;
     // Not in condition to run a process: don't try, but handle it like a
     // fork failure (postmaster.c:4024-4046).
-    if canAcceptConnections(BackendType::AutovacWorker) == CacState::Ok {
-        if StartChildProcess(BackendType::AutovacWorker).is_some() {
+    if canAcceptConnections(BackendType::AutovacWorker) == CacState::Ok
+        && StartChildProcess(BackendType::AutovacWorker).is_some() {
             return;
         }
         // fork failed, fall through to report -- actual error message was
         // logged by StartChildProcess
-    }
 
     // Report the failure to the launcher, if it's running (postmaster.c:
     // 4048-4056); ServerLoop sends the signal, avoiding a ping-pong.

@@ -54,7 +54,7 @@ fn q15s_generic_owner_runs_pooled_at_two_gib_over_sixteen_owners() {
     let known = OwnerDesc { groups: 17_000_000, ..unknown };
     let fns = owner_fns(&unknown, 10);
     let floor = (fns.min_bytes)(fns.params.as_ptr(), 1);
-    assert!(floor >= 512 * MIB && floor < 513 * MIB, "bits 10 without an estimate: 1024 partitions of 512 KiB ({floor})");
+    assert!((512 * MIB..513 * MIB).contains(&floor), "bits 10 without an estimate: 1024 partitions of 512 KiB ({floor})");
     let fns = owner_fns(&known, 10);
     let floor = (fns.min_bytes)(fns.params.as_ptr(), 1);
     assert!(floor >= 17_000_000 * layout.size() as u64 && floor < 17_000_000 * layout.size() as u64 + 64 * 1024, "the estimate's records ({floor})");
@@ -158,7 +158,7 @@ fn an_estimate_a_hundredth_of_the_groups_regrows_its_owners_and_a_full_pool_redo
             gravity_driver::POOL.arm(cap);
         }
         let (o0, p0) = (OWN_OVERFLOW.load(Ordering::Relaxed), gravity_driver::OWN_PAST_GRANT.load(Ordering::Relaxed));
-        let plan = FixturePlan::new(&program, &mut derive, 4, 33);
+        let plan = FixturePlan::new(&program, &derive, 4, 33);
         let merge = HashAggPartial::new(0, Some(gravity_exec::table::owner::bind(&d, &mut params.clone(), 3, None)));
         let plan = Keyed { inner: plan, merge };
         let mut sink = LegSink::new(true);
@@ -215,7 +215,7 @@ fn a_partition_past_the_estimates_table_is_refolded_at_the_records_size() {
     let program = Arc::new(declared(T_KV, 1_300_000, d));
     let params = DEFAULT_PARAMS;
     let before = TABLE_RETRY.load(Ordering::Relaxed);
-    let plan = FixturePlan::new(&program, &mut derive, 4, 33);
+    let plan = FixturePlan::new(&program, &derive, 4, 33);
     let merge = HashAggPartial::new(0, Some(gravity_exec::table::owner::bind(&d, &mut params.clone(), 4, None)));
     let plan = Keyed { inner: plan, merge };
     let mut sink = LegSink::new(true);

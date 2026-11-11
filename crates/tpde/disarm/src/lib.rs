@@ -21,7 +21,9 @@ mod format;
 pub mod runtime;
 mod types;
 
-#[allow(non_upper_case_globals, unused_parens)]
+// The included files are written by build.rs (tpde_disarm_gen) on every build: clippy findings in them cannot be
+// fixed by hand, so clippy is off for this module only.
+#[allow(non_upper_case_globals, unused_parens, clippy::all)]
 pub mod generated {
     include!(concat!(env!("OUT_DIR"), "/public.rs"));
     include!(concat!(env!("OUT_DIR"), "/private.rs"));

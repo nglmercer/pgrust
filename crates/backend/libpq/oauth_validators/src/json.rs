@@ -287,7 +287,7 @@ pub fn b64url_encode(data: &[u8]) -> String {
 
 pub fn b64_std_encode(data: &[u8]) -> String {
     let mut s = b64url_encode(data).replace('-', "+").replace('_', "/");
-    while s.len() % 4 != 0 {
+    while !s.len().is_multiple_of(4) {
         s.push('=');
     }
     s

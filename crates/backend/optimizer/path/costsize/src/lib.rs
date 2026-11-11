@@ -518,7 +518,7 @@ fn cost_qual_eval_walker<'mcx>(
         NodeTag::T_PlaceHolderVar => Ok(()),
         // No C case: falls to C's expression_tree_walker default.
         NodeTag::T_ReturningExpr => {
-            cost_qual_eval_walker(run.as_deref_mut(), node.as_returning_expr().unwrap().retexpr, cost, scale)
+            cost_qual_eval_walker(run, node.as_returning_expr().unwrap().retexpr, cost, scale)
         }
         // costsize.c:5003-5007: this routine is never applied to an
         // un-planned expression; a SubLink here is elog(ERROR), catchable.
@@ -2311,7 +2311,7 @@ pub fn cost_agg_shape(
         let hashentrysize = crate::exec_sizing::hash_agg_entry_size(
             run.root.aggtransinfos.len(),
             input_width.max(0) as usize,
-            aggcosts.transitionSpace as usize,
+            aggcosts.transitionSpace,
         );
         let (mem_limit, ngroups_limit, num_partitions) =
             crate::exec_sizing::hash_agg_set_limits(hashentrysize, num_groups, 0);
@@ -2388,7 +2388,7 @@ pub fn hashed_agg_spill_surcharge(
     let hashentrysize = crate::exec_sizing::hash_agg_entry_size(
         run.root.aggtransinfos.len(),
         input_width.max(0) as usize,
-        aggcosts.transitionSpace as usize,
+        aggcosts.transitionSpace,
     );
     let (mem_limit, ngroups_limit, num_partitions) =
         crate::exec_sizing::hash_agg_set_limits(hashentrysize, num_groups, 0);
@@ -2811,6 +2811,8 @@ pub fn set_rel_width<'mcx>(run: &mut PlannerRun<'mcx>, rel: RelId) -> PgResult<(
     Ok(())
 }
 
+// costsize.c's exact literal. std's LN_2 is a different double, which would shift cost estimates in the last bit.
+#[allow(clippy::approx_constant)]
 const LOG2_DIVISOR: f64 = 0.693147180559945;
 fn log2(x: f64) -> f64 {
     x.ln() / LOG2_DIVISOR
@@ -4435,15 +4437,9 @@ pub fn final_cost_mergejoin(
         true
     } else if path.innersortkeys.is_empty() && !exec_supports_mark_restore(run, inner_path) {
         true
-    } else if gucs::enable_material()
-        && !path.innersortkeys.is_empty()
-        && crate::relation_byte_size(inner_path_rows, inner_width)
-            > init_small::globals::work_mem() as f64 * 1024.0
-    {
-        true
-    } else {
-        false
-    };
+    } else { gucs::enable_material()
+        && !path.innersortkeys.is_empty() && crate::relation_byte_size(inner_path_rows, inner_width)
+            > init_small::globals::work_mem() as f64 * 1024.0 };
 
     run_cost += if path.materialize_inner {
         mat_inner_cost

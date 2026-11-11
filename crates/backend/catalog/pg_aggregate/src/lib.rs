@@ -244,14 +244,13 @@ pub fn AggregateCreate<'mcx>(
     // A strict transfn with NULL initval seeds the state from the first
     // input, so that input must be binary-compatible with the transtype.
     let proc = proc_shape(transfn)?;
-    if proc.proisstrict && a.agg_initval.is_none() {
-        if numArgs < 1 || !coerce::IsBinaryCoercible(aggArgTypes[0], a.agg_trans_type)? {
+    if proc.proisstrict && a.agg_initval.is_none()
+        && (numArgs < 1 || !coerce::IsBinaryCoercible(aggArgTypes[0], a.agg_trans_type)?) {
             return Err(err(
                 ERRCODE_INVALID_FUNCTION_DEFINITION,
                 "must not omit initial value when transition function is strict and transition type is not compatible with input type".to_string(),
             ));
         }
-    }
 
     let mut mtransfn = InvalidOid;
     let mut minvtransfn = InvalidOid;
@@ -282,14 +281,13 @@ pub fn AggregateCreate<'mcx>(
         }
 
         let proc = proc_shape(mtransfn)?;
-        if proc.proisstrict && a.agg_minitval.is_none() {
-            if numArgs < 1 || !coerce::IsBinaryCoercible(aggArgTypes[0], a.agg_mtrans_type)? {
+        if proc.proisstrict && a.agg_minitval.is_none()
+            && (numArgs < 1 || !coerce::IsBinaryCoercible(aggArgTypes[0], a.agg_mtrans_type)?) {
                 return Err(err(
                     ERRCODE_INVALID_FUNCTION_DEFINITION,
                     "must not omit initial value when transition function is strict and transition type is not compatible with input type".to_string(),
                 ));
             }
-        }
         mtransIsStrict = proc.proisstrict;
     }
 

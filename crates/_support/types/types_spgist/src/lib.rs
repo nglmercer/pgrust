@@ -133,7 +133,7 @@ fn special_off(bytes: *const u8) -> usize {
     // SAFETY: pd_special is at a 2-aligned in-page offset (page contract).
     let off = unsafe { bytes.add(PD_SPECIAL_OFF).cast::<u16>().read() } as usize;
     debug_assert!(
-        off >= SizeOfPageHeaderData && off <= BLCKSZ,
+        (SizeOfPageHeaderData..=BLCKSZ).contains(&off),
         "corrupt pd_special"
     );
     off.min(BLCKSZ - core::mem::size_of::<SpGistPageOpaqueData>())

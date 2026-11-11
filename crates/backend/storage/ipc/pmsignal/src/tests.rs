@@ -65,9 +65,8 @@ fn standalone_send_is_a_noop() {
     let wakeups_before = WAKEUPS.lock().unwrap().len();
     SendPostmasterSignal(PMSignalReason::PMSIGNAL_ROTATE_LOGFILE);
     assert_eq!(WAKEUPS.lock().unwrap().len(), wakeups_before);
-    assert_eq!(
-        state().PMSignalFlags[PMSignalReason::PMSIGNAL_ROTATE_LOGFILE as usize].load(Acquire),
-        false
+    assert!(
+        !state().PMSignalFlags[PMSignalReason::PMSIGNAL_ROTATE_LOGFILE as usize].load(Acquire)
     );
 }
 

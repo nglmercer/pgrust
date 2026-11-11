@@ -32,7 +32,7 @@ fn spgist(step: u8) -> String {
 fn key(text: &str) -> gravity_program::ContentKey {
     let (ctx, arena) = (mcx::MemoryContext::new("d1108 key"), gravity_program::Arena::new(1 << 20));
     let fx = corpus::load(ctx.mcx(), text).unwrap_or_else(|e| panic!("fixture: {e}"));
-    let g = gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx).ok().expect("decomposes");
+    let g = gravity_decompose::decompose_in(arena.handle(), fx.stmt, &fx.facts, fx.mcx).expect("decomposes");
     gravity_lower::inputs::key::key(&g)
 }
 

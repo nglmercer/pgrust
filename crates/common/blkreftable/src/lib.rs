@@ -231,7 +231,7 @@ impl<'mcx> BlockRefTableEntry<'mcx> {
 
         let start_chunkno = start_blkno / BLOCKS_PER_CHUNK;
         let mut stop_chunkno = stop_blkno / BLOCKS_PER_CHUNK;
-        if (stop_blkno % BLOCKS_PER_CHUNK) != 0 {
+        if !stop_blkno.is_multiple_of(BLOCKS_PER_CHUNK) {
             stop_chunkno += 1;
         }
         if stop_chunkno > self.nchunks() {

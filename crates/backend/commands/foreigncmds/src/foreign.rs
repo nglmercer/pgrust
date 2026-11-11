@@ -353,21 +353,6 @@ fn fdw_kind_from_handler_result(datum: Datum, fdwhandler: Oid) -> PgResult<FdwKi
     Ok(unsafe { (*p).kind })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn null_handler_result_is_an_error_not_a_panic() {
-        let err = fdw_kind_from_handler_result(Datum::from_usize(0), 4242).unwrap_err();
-        assert_eq!(
-            err.message(),
-            "foreign-data wrapper handler function 4242 did not return an FdwRoutine struct"
-        );
-        assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
-    }
-}
-
 /// GetFdwRoutineByServerId (foreign.c): the no-handler error surface plus the
 /// handler invocation.
 pub fn GetFdwRoutineByServerId<'mcx>(mcx: Mcx<'mcx>, serverid: Oid) -> PgResult<FdwKind> {
@@ -456,4 +441,19 @@ pub(crate) fn user_mapping_lookup(user: Oid, server: Oid) -> PgResult<Option<cat
         SysCacheKey::Value(Datum::from_oid(user)),
         SysCacheKey::Value(Datum::from_oid(server)),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn null_handler_result_is_an_error_not_a_panic() {
+        let err = fdw_kind_from_handler_result(Datum::from_usize(0), 4242).unwrap_err();
+        assert_eq!(
+            err.message(),
+            "foreign-data wrapper handler function 4242 did not return an FdwRoutine struct"
+        );
+        assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
+    }
 }

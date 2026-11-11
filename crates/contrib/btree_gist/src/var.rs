@@ -340,7 +340,7 @@ pub fn picksplit<T: VarOps>(
     let mut ldatum: Option<Vec<u8>> = None;
     let mut rdatum: Option<Vec<u8>> = None;
     for (pos, &(off, key)) in arr.iter().enumerate() {
-        if pos + 1 <= maxoff / 2 {
+        if pos < maxoff / 2 {
             bin_union::<T>(&mut ldatum, key, ctx)?;
             spl_left.push(off);
         } else {

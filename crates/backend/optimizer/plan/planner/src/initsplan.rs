@@ -1058,15 +1058,15 @@ fn strip_var_nulling<'mcx>(
             }
             let new_expr = strip_var_nulling(mcx, phv.phexpr, removable)?;
             let hit = crate::relnode::relids_members(removable)
-                .any(|m| phv.phnullingrels.is_member(m as i32) || phv.phrels.is_member(m as i32));
+                .any(|m| phv.phnullingrels.is_member(m) || phv.phrels.is_member(m));
             if new_expr.is_none() && !hit {
                 return Ok(None);
             }
             let mut nulling = phv.phnullingrels.clone_in(mcx)?;
             let mut rels = phv.phrels.clone_in(mcx)?;
             for m in crate::relnode::relids_members(removable) {
-                nulling.del_member(m as i32);
-                rels.del_member(m as i32);
+                nulling.del_member(m);
+                rels.del_member(m);
             }
             debug_assert!(!rels.is_empty());
             Ok(Some(Node::mk(

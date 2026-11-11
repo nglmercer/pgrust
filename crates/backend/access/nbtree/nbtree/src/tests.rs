@@ -722,7 +722,7 @@ fn want_itup_publishes_page_copied_tuples() {
             };
             let buf = so.currTuples.as_ref().unwrap();
             let off = itup as usize - buf.as_ptr() as usize;
-            assert!(off < ::types_core::BLCKSZ as usize);
+            assert!(off < ::types_core::BLCKSZ);
         }
         vals.push(v.as_i32());
     }
@@ -1519,7 +1519,7 @@ fn single_value_strategy_splits_after_six_capped_postings() {
     }
 
     let infos = wal_infos();
-    assert!(infos.iter().any(|i| *i == ::types_nbtree::XLOG_BTREE_DEDUP));
+    assert!(infos.contains(&::types_nbtree::XLOG_BTREE_DEDUP));
     assert!(infos
         .iter()
         .any(|i| *i == ::types_nbtree::XLOG_BTREE_SPLIT_R
@@ -1761,7 +1761,7 @@ fn lp_dead_page_fill_runs_simple_deletion_instead_of_split() {
 
     let setup = 380u32;
     for k in 1..=setup {
-        let (blk, pos) = (((k - 1) / 220) as u32, ((k - 1) % 220 + 1) as u16);
+        let (blk, pos) = ((((k - 1) / 220)), ((k - 1) % 220 + 1) as u16);
         insert_key(&rel, &heap, k as i32, tid(blk, pos));
     }
     mark_leaf_items_dead(1);
@@ -1770,7 +1770,7 @@ fn lp_dead_page_fill_runs_simple_deletion_instead_of_split() {
     // TIDs continue the sequence: heap_index_delete_tuples' shellsort asserts
     // strict TID uniqueness on a leaf, as C
     for k in setup + 1..=setup + 60 {
-        let (blk, pos) = (((k - 1) / 220) as u32, ((k - 1) % 220 + 1) as u16);
+        let (blk, pos) = ((((k - 1) / 220)), ((k - 1) % 220 + 1) as u16);
         insert_key(&rel, &heap, k as i32, tid(blk, pos));
     }
 

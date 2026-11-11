@@ -27,18 +27,18 @@ fn word_popcounts() {
 #[test]
 fn one_positions() {
     for i in 0..32 {
-        assert_eq!(pg_leftmost_one_pos32(1u32 << i), i as i32);
-        assert_eq!(pg_rightmost_one_pos32(1u32 << i), i as i32);
+        assert_eq!(pg_leftmost_one_pos32(1u32 << i), i);
+        assert_eq!(pg_rightmost_one_pos32(1u32 << i), i);
         if i > 0 {
-            assert_eq!(pg_leftmost_one_pos32((1u32 << i) | 1), i as i32);
-            assert_eq!(pg_rightmost_one_pos32((1u32 << i) | (1u32 << (i - 1))), (i - 1) as i32);
+            assert_eq!(pg_leftmost_one_pos32((1u32 << i) | 1), i);
+            assert_eq!(pg_rightmost_one_pos32((1u32 << i) | (1u32 << (i - 1))), ((i - 1)));
         }
     }
     for i in 0..64 {
-        assert_eq!(pg_leftmost_one_pos64(1u64 << i), i as i32);
-        assert_eq!(pg_rightmost_one_pos64(1u64 << i), i as i32);
+        assert_eq!(pg_leftmost_one_pos64(1u64 << i), i);
+        assert_eq!(pg_rightmost_one_pos64(1u64 << i), i);
         if i > 0 {
-            assert_eq!(pg_leftmost_one_pos64((1u64 << i) | 1), i as i32);
+            assert_eq!(pg_leftmost_one_pos64((1u64 << i) | 1), i);
         }
     }
 }

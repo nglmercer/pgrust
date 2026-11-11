@@ -45,7 +45,7 @@ fn owner(slot: &Slot, stop: &AtomicBool, admits: &AtomicU64) {
         i += 1;
         let base = pgsync::lock(slot).clone();
         let k = base.as_ref().map_or_else(|| Arc::new(Charge::new(K)), |b| Arc::clone(&b.0[0]));
-        let img = Arc::new(Img(vec![k, Arc::new(Charge::new(if i % 2 == 0 { N } else { N2 }))]));
+        let img = Arc::new(Img(vec![k, Arc::new(Charge::new(if i.is_multiple_of(2) { N } else { N2 }))]));
         if !mem::make_room() {
             unmap(slot);
             continue;

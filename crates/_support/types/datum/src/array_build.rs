@@ -461,7 +461,7 @@ fn deconstruct_1d_image<'mcx>(
     let mut off = hdrsz;
     let mut bitmap: Option<&[u8]> = None;
     if dataoffset != 0 {
-        let bitmap_bytes = (nelems + 7) / 8;
+        let bitmap_bytes = nelems.div_ceil(8);
         let expected = (hdrsz + bitmap_bytes + 7) & !7;
         if !allow_nulls
             || dataoffset < 0
@@ -808,7 +808,7 @@ mod tests {
         // (e) Varlena element whose 4-byte header advertises a length running
         // past the image end (elmlen == -1).
         let mut img = header(1, 0, 1).to_vec();
-        img.extend_from_slice(&(((100u32) << 2)).to_ne_bytes()); // claims 100 bytes
+        img.extend_from_slice(&((100u32) << 2).to_ne_bytes()); // claims 100 bytes
         let _ = deconstruct_array_image(mcx, &img, -1, false, b'i')
             .err()
             .unwrap();

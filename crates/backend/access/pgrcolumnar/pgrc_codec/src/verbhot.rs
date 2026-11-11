@@ -384,7 +384,7 @@ fn varlena_frame_full(
         for (i, off) in offs[..vif].iter_mut().enumerate() {
             let eo = slot(frame, i)? as usize;
             *off = eo as u32;
-            if eo % 8 != 0 || eo < entries_base || eo + 4 > end {
+            if !eo.is_multiple_of(8) || eo < entries_base || eo + 4 > end {
                 canonical = false;
                 break;
             }

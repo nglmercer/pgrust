@@ -383,7 +383,7 @@ fn pass3_hand_adapters() {
     let jb = input_image("jsonb_in", "{\"a\": 1, \"b\": [1, 2, 3]}", 0, None);
     let jp = input_image("jsonpath_in", "$.b[*] ? (@ > 1)", 0, None);
     let vars = input_image("jsonb_in", "{}", 0, None);
-    let mut cx = mcx::MemoryContext::new_bump("hostcall arrays");
+    let cx = mcx::MemoryContext::new_bump("hostcall arrays");
     let arr = arrayfuncs::construct_array(cx.mcx(), &[Datum::from_i32(1), Datum::from_i32(2), Datum::from_i32(3)], 23, 4, true, arrayfuncs::foundation::TYPALIGN_INT).unwrap().to_vec();
     let tz_a = input_image("timetz_in", "12:34:56+05", 0, Some(12));
     let tz_b = input_image("timetz_in", "12:34:57+05", 0, Some(12));
@@ -392,7 +392,7 @@ fn pass3_hand_adapters() {
     let name = b"pg_class\0".to_vec();
     let pat = b"PG\\_%".to_vec();
     let mut acc = 0i64;
-    let mut count = |label: &str, mut f: &mut dyn FnMut() -> i64| {
+    let mut count = |label: &str, f: &mut dyn FnMut() -> i64| {
         acc += f();
         let before = allocs_here();
         let t = Instant::now();

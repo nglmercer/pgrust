@@ -638,7 +638,7 @@ fn init_publishes_pid_before_adopting_barrier_generation() {
         let mut spins: u32 = 0;
         while phase.load(SeqCst) != 2 * round + 2 {
             spins = spins.wrapping_add(1);
-            if spins % 1024 == 0 && (worker.is_finished() || std::time::Instant::now() > deadline)
+            if spins.is_multiple_of(1024) && (worker.is_finished() || std::time::Instant::now() > deadline)
             {
                 stalled = Some(round);
                 break;

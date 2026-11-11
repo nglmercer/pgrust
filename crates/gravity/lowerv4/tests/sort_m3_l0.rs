@@ -111,7 +111,8 @@ fn psql_lookup_nest_takes_catalog_nest() {
             assert!(v.contains("NotBuilt") && !v.contains("nest.loop"), "{fx}: {v}");
         }
     }
-    for fx in ["regress-full/aggregates-037.plan"] {
+    {
+        let fx = "regress-full/aggregates-037.plan";
         assert!(!props(fx).contains("catalog_nest"), "{fx}: {:?}", props(fx));
     }
 }

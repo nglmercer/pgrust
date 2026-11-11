@@ -133,8 +133,8 @@ pub fn execute_attr_map_tuple<'mcx>(
 
     let mut invalues = vec_with_capacity_in(mcx, in_natts)?;
     let mut innulls = vec_with_capacity_in(mcx, in_natts)?;
-    invalues.extend(core::iter::repeat(Datum::null()).take(in_natts));
-    innulls.extend(core::iter::repeat(true).take(in_natts));
+    invalues.extend(core::iter::repeat_n(Datum::null(), in_natts));
+    innulls.extend(core::iter::repeat_n(true, in_natts));
     heap_deform_tuple(tuple, indesc, &mut invalues, &mut innulls);
 
     let mut outvalues = vec_with_capacity_in(mcx, out_natts)?;

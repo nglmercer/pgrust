@@ -200,7 +200,7 @@ fn compile_expr<'mcx>(b: &mut Builder<'_, 'mcx>, j: &types_nodes::primnodes::Jso
     }
     let passing = b.kids(&j.passing_values)?;
     let throw_error = on_error.btype == JBT::JSON_BEHAVIOR_ERROR;
-    let mut behavior = |b: &mut Builder<'_, 'mcx>, bh: &types_nodes::primnodes::JsonBehavior<'mcx>| -> CompileResult<Behavior> {
+    let behavior = |b: &mut Builder<'_, 'mcx>, bh: &types_nodes::primnodes::JsonBehavior<'mcx>| -> CompileResult<Behavior> {
         let shortcut = bh.expr.and_then(|e| e.as_const()).is_some_and(|c| c.constisnull) && !returning_domain;
         let expr = match bh.expr {
             Some(e) if bh.btype != JBT::JSON_BEHAVIOR_ERROR && !shortcut => Some(b.compile(e)?),
@@ -439,7 +439,7 @@ fn coerce(st: &mut St<'_>, c: &Coercion, v: NullableDatum, esc: Option<&mut Erro
         let cache_mcx: Mcx<'static> = unsafe { core::mem::transmute::<Mcx<'_>, Mcx<'static>>(slot.cx.mcx()) };
         let mut isnull = cur.isnull;
         // SAFETY: a non-null value is a live jsonb image (the path result or the `jsonb_in` above).
-        let value = unsafe { adt_jsonb::populate::json_populate_type(cur.value, JSONBOID, c.typ, c.typmod, &mut slot.cache, cache_mcx, mcx, &mut isnull, c.omit_quotes, esc.as_deref_mut())? };
+        let value = unsafe { adt_jsonb::populate::json_populate_type(cur.value, JSONBOID, c.typ, c.typmod, &mut slot.cache, cache_mcx, mcx, &mut isnull, c.omit_quotes, esc)? };
         if isnull {
             return Ok(NullableDatum::null());
         }

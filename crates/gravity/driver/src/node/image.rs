@@ -228,7 +228,7 @@ pub(crate) fn build_image(a: ArenaRef, program: &Program, derive: &mut dyn Deriv
     for l in program.locks.iter().filter(|_| leader) {
         lockers.push(LockSlot { rel: Some(l.relid), host: derive.derive_locker(&l.plan(), a) });
     }
-    let mut inner = ArenaBox::new_in(
+    let inner = ArenaBox::new_in(
         Inner {
             ctx,
             descs,

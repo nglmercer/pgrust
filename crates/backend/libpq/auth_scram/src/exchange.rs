@@ -472,7 +472,7 @@ fn read_client_first_message(
             .finish(loc("read_client_first_message"))?;
     }
 
-    state.client_username = ::mcx::std_vec_from_slice("auth_scram", &read_attr_value(input, &mut pos, b'n')?)?;
+    state.client_username = ::mcx::std_vec_from_slice("auth_scram", read_attr_value(input, &mut pos, b'n')?)?;
 
     let client_nonce = read_attr_value(input, &mut pos, b'r')?;
     if !is_scram_printable(client_nonce) {
@@ -481,7 +481,7 @@ fn read_client_first_message(
             .errmsg("non-printable characters in SCRAM nonce")
             .finish(loc("read_client_first_message"))?;
     }
-    state.client_nonce = ::mcx::std_vec_from_slice("auth_scram", &client_nonce)?;
+    state.client_nonce = ::mcx::std_vec_from_slice("auth_scram", client_nonce)?;
 
     while at(input, pos) != 0 {
         read_any_attr(input, &mut pos)?;
@@ -570,7 +570,7 @@ fn read_client_final_message(state: &mut ScramState, input: &[u8]) -> PgResult<(
         }
     }
 
-    state.client_final_nonce = ::mcx::std_vec_from_slice("auth_scram", &read_attr_value(input, &mut pos, b'r')?)?;
+    state.client_final_nonce = ::mcx::std_vec_from_slice("auth_scram", read_attr_value(input, &mut pos, b'r')?)?;
 
     // Ignore optional extensions: scan until the "p" attribute.
     let mut proof_pos;

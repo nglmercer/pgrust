@@ -16,9 +16,9 @@ fn aggregate_gate_names_the_aggregate() {
         n.namestrcpy("p562_agg");
         Ok(Some(n))
     });
-    let agg = aggregate_gate(DENIED).err().expect("denied");
+    let agg = aggregate_gate(DENIED).expect_err("denied");
     assert_eq!((agg.message(), agg.sqlstate()), ("permission denied for aggregate p562_agg", ERRCODE_INSUFFICIENT_PRIVILEGE));
-    let func = execute_gate(DENIED).err().expect("denied");
+    let func = execute_gate(DENIED).expect_err("denied");
     assert_eq!((func.message(), func.sqlstate()), ("permission denied for function p562_agg", ERRCODE_INSUFFICIENT_PRIVILEGE));
     assert!(aggregate_gate(GRANTED).is_ok());
     assert!(execute_gate(GRANTED).is_ok());

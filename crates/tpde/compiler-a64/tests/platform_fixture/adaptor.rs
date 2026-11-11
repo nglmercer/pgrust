@@ -9,7 +9,7 @@ pub const MAX_STATIC_ALLOCA_SIZE: u32 = 256;
 
 impl tpde_compiler::compiler_base::CompilerAdaptor for Adaptor<'_, '_> {
     fn compiler_insts(&self, block: Self::BlockRef) -> impl Iterator<Item = Self::InstRef> + Clone {
-        self.block_insts(block).into_iter()
+        self.block_insts(block)
     }
 }
 

@@ -861,7 +861,7 @@ fn lifecycle_semantics() {
     participant.complete().expect("drained participant completes");
 
     // Drain retires the generation and surfaces the FIRST recorded error.
-    let err = task.close_and_wait().err().expect("abort error must surface");
+    let err = task.close_and_wait().expect_err("abort error must surface");
     assert_eq!(err.message(), "test abort");
     assert!(handle.lifecycle().retired());
 
@@ -4002,7 +4002,7 @@ mod ledger_tests {
             .drive_with_duty(&rt, &h, &mut || {
                 Err(PgError::new(ERROR, "duty interrupt").into())
             })
-            .err().expect("failing duty must surface");
+            .expect_err("failing duty must surface");
         assert_eq!(err.message(), "duty interrupt");
         assert_eq!(waiter.try_wait(), Some(RgOutcome::Aborted), "drained before returning");
         assert_eq!(work.finalizes.load(Ordering::SeqCst), 0, "aborted RGs skip finalize");
@@ -4137,7 +4137,7 @@ mod caller_c2_tests {
                 &mut || true,
                 &mut || Err(PgError::new(ERROR, "latch cancel").into()),
             )
-            .err().expect("failing park must surface");
+            .expect_err("failing park must surface");
         assert_eq!(err.message(), "latch cancel");
         assert_eq!(waiter.try_wait(), Some(RgOutcome::Aborted), "drained before returning");
         assert_eq!(work.finalizes.load(Ordering::SeqCst), 0, "aborted RGs skip finalize");
@@ -4281,7 +4281,7 @@ mod caller_c2_tests {
                 &mut || true,
                 &mut || Err(PgError::new(ERROR, "latch cancel").into()),
             )
-            .err().expect("failing park must surface");
+            .expect_err("failing park must surface");
         assert_eq!(err.message(), "latch cancel");
         assert_eq!(waiter.try_wait(), Some(RgOutcome::Aborted), "drained before returning");
         assert_eq!(work.finalizes.load(Ordering::SeqCst), 0, "aborted RGs skip finalize");
@@ -4645,7 +4645,7 @@ mod bound_gate {
         // caught the pre-join read at 0).
         pool.shutdown();
         let serves = payload.serves.load(Ordering::SeqCst);
-        assert!(serves >= 1 && serves <= 2, "cap-bounded serves, got {serves}");
+        assert!((1..=2).contains(&serves), "cap-bounded serves, got {serves}");
         assert!(rt.stats().bound_serves >= 1, "serve dispatched through the gate");
         assert_eq!(
             rt.execution_permits().available(),

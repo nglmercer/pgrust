@@ -103,7 +103,7 @@ impl<'a, 'mcx> LockViewRecurseCtx<'a, 'mcx> {
             {
                 continue;
             }
-            if self.ancestor_views.iter().any(|&v| v == relid) {
+            if self.ancestor_views.contains(&relid) {
                 continue;
             }
             let relname = lsyscache::get_rel_name(self.mcx, relid)?

@@ -578,7 +578,7 @@ mod tests {
             assert_eq!(err.sqlstate(), ERRCODE_DATA_CORRUPTED);
         }
         // Exactly the required length is accepted.
-        require_dbase_len(&vec![0u8; 16], 16, "XLOG_DBASE_CREATE_FILE_COPY").unwrap();
+        require_dbase_len(&[0u8; 16], 16, "XLOG_DBASE_CREATE_FILE_COPY").unwrap();
     }
 
     /// dbcommands.c:3300: a pg_mkdir_p failure while re-creating a missing
@@ -592,7 +592,7 @@ mod tests {
         }
         // A path under a non-directory can never be created (ENOTDIR).
         let path = "/dev/null/b097_missing/16384";
-        let err = recovery_create_dbdir(path, false).err().expect("mkdir under /dev/null must fail");
+        let err = recovery_create_dbdir(path, false).expect_err("mkdir under /dev/null must fail");
         assert_eq!(err.level(), PANIC);
         assert!(
             err.message().starts_with("could not create missing directory \"/dev/null/b097_missing/16384\": "),

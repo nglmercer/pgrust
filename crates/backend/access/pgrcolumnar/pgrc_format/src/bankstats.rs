@@ -279,7 +279,7 @@ fn build_image_in(
     // Payloads at their promised (8-aligned) offsets.
     for pl in &payloads {
         let out = buf.vec();
-        while out.len() % 8 != 0 {
+        while !out.len().is_multiple_of(8) {
             out.push(0); // alloc: Node charged buf.owner()
         }
         out.extend_from_slice(pl); // alloc: Node charged buf.owner()

@@ -1439,7 +1439,7 @@ fn AfterTriggerExecute<'mcx>(
     };
     restore_role(restore);
     // trigger.c:4599-4600
-    if let Some(s) = instr.as_deref_mut() {
+    if let Some(s) = instr {
         s.stop(relid, tgindx);
     }
     if let Some((s, d)) = cp_rels {

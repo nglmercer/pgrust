@@ -79,7 +79,7 @@ fn table(cursor: &mut usize, bytes: usize) -> usize {
 
 pub(crate) fn reserve(cfg: &Config) -> Option<&'static Zones> {
     let page = os::page_size();
-    if page > RUN || cfg.chunk < SUPER || cfg.chunk % SUPER != 0 || cfg.va < cfg.chunk || cfg.purge_batch < SUPER {
+    if page > RUN || cfg.chunk < SUPER || !cfg.chunk.is_multiple_of(SUPER) || cfg.va < cfg.chunk || cfg.purge_batch < SUPER {
         return None;
     }
     let chunks = cfg.va.div_ceil(cfg.chunk);

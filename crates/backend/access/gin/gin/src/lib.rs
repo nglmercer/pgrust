@@ -256,7 +256,7 @@ pub(crate) fn vec_append<'mcx, T: Copy>(
     if n == 0 {
         return Ok(());
     }
-    v.try_reserve(n).map_err(|_| oom(n * core::mem::size_of::<T>()))?;
+    v.try_reserve(n).map_err(|_| oom(std::mem::size_of_val(src)))?;
     let old = v.len();
     // SAFETY: capacity reserved; src/dst disjoint; set_len covers n items.
     unsafe {

@@ -227,7 +227,7 @@ impl SidecarFileHeader {
     /// Validate a whole sidecar file image (header + payload + trailing crc).
     /// Returns the payload slice. Any mismatch is a typed refusal — the
     /// refuse-and-rebuild law for derived kinds.
-    pub fn validate_file<'a>(bytes: &'a [u8]) -> FormatResult<(SidecarFileHeader, &'a [u8])> {
+    pub fn validate_file(bytes: &[u8]) -> FormatResult<(SidecarFileHeader, &[u8])> {
         if bytes.len() < SIDECAR_FILE_HEADER_LEN + 4 {
             return Err(FormatError::Truncated { at: "sidecar file" });
         }

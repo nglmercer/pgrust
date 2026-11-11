@@ -696,16 +696,12 @@ fn walk_default_arm_children<'mcx>(
         NodeTag::T_SubscriptingRef => {
             let s = node.as_subscripting_ref().unwrap();
             let mut upper = AssignCollationsCtx::new(mcx, pstate);
-            for e in &s.refupperindexpr {
-                if let Some(e) = e {
-                    assign_collations_walker(e, &mut upper)?;
-                }
+            for e in (&s.refupperindexpr).into_iter().flatten() {
+                assign_collations_walker(e, &mut upper)?;
             }
             let mut lower = AssignCollationsCtx::new(mcx, pstate);
-            for e in &s.reflowerindexpr {
-                if let Some(e) = e {
-                    assign_collations_walker(e, &mut lower)?;
-                }
+            for e in (&s.reflowerindexpr).into_iter().flatten() {
+                assign_collations_walker(e, &mut lower)?;
             }
             if let Some(e) = s.refexpr {
                 assign_collations_walker(e, loccontext)?;

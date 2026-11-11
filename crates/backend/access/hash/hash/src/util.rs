@@ -334,7 +334,7 @@ pub(crate) fn _hash_binsearch_last(page: &PageRef<'_>, hash_value: u32) -> ::typ
     let mut upper = page.max_offset_number();
     let mut lower = 0;
     while upper > lower {
-        let off = (upper + lower + 1) / 2;
+        let off = (upper + lower).div_ceil(2);
         // SAFETY: 1 <= off <= max_offset_number as above.
         let hashkey = unsafe {
             let id = page.item_id(off);

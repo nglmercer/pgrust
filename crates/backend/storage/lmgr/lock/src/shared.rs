@@ -376,6 +376,8 @@ pub(crate) unsafe fn grant_lock_raw(lock: *mut LOCK, proclock: *mut PROCLOCK, lo
     debug_assert!((*lock).nGranted <= (*lock).nRequested);
 }
 
+// Kept safe on purpose: C's GrantLock contract (lock and proclock are live shared-memory entries under the partition lock).
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn GrantLock(lock: *mut LOCK, proclock: *mut PROCLOCK, lockmode: LOCKMODE) {
     // SAFETY: caller holds the partition lock (C contract).
     unsafe { grant_lock_raw(lock, proclock, lockmode) }
@@ -523,6 +525,8 @@ pub(crate) unsafe fn lock_check_conflicts_raw(
     conflict
 }
 
+// Kept safe on purpose: C's LockCheckConflicts contract (lock and proclock are live shared-memory entries).
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn LockCheckConflicts(
     lockMethodTable: LockMethod,
     lockmode: LOCKMODE,

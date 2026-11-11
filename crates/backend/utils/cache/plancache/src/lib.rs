@@ -473,7 +473,7 @@ fn create_cached_plan_flags(
     };
     let analyzed_parse_tree = match analyzed_parse_tree {
         Some(q) => match copyfuncs::copy_query(mcx, q).and_then(|c| mcx::alloc_leak_in(mcx, c)) {
-            Ok(q) => Some(&*q),
+            Ok(q) => Some(q),
             Err(e) => return Err(bail(e)),
         },
         None => None,
@@ -1726,12 +1726,11 @@ fn extract_query_deps(
                 )?;
             }
             // A transition-table RTE carries the base relation's OID so ALTERing that table invalidates dependent plans.
-            RTEKind::RTE_NAMEDTUPLESTORE => {
-                if rte.relid != InvalidOid {
+            RTEKind::RTE_NAMEDTUPLESTORE
+                if rte.relid != InvalidOid => {
                     out.try_reserve(1).map_err(|_| mcx_oom(out))?;
                     out.push(rte.relid);
                 }
-            }
             _ => {}
         }
     }

@@ -40,7 +40,7 @@ struct Machine {
 
 impl Machine {
     fn new() -> Self {
-        let mut registers = RegisterFile::new();
+        let registers = RegisterFile::new();
         registers.allocatable.set(u64::MAX);
         registers.clocks[0].set(13);
         registers.clocks[1].set(29);
@@ -74,7 +74,7 @@ impl Machine {
 
     fn install(&self, id: u64, locks: u8) -> Reg {
         let reg = Reg::new(id);
-        let mut registers = self.registers.borrow_mut();
+        let registers = self.registers.borrow_mut();
         registers.mark_used(reg, ValLocalIdx::new(91 + id as u32), 0xf123_4567);
         registers.lock_counts[id as usize / 32][id as usize % 32].set(locks);
         self.values.borrow_mut()[id as usize] = 0xa1b2_c3d4_5678_0000 | id;
@@ -116,7 +116,7 @@ impl GuardMachine<2> for Machine {
 
     fn with_registers<R>(&self, operation: impl FnOnce(&RegisterFile<2, 32>) -> R) -> R {
         self.register_accesses.set(self.register_accesses.get() + 1);
-        operation(&*self.registers.borrow_mut())
+        operation(&self.registers.borrow_mut())
     }
     fn with_assignment<R>(
         &self,

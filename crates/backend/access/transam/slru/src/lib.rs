@@ -269,7 +269,7 @@ pub fn SimpleLruInit(
 
     let shmem_size = SimpleLruShmemSize(nslots, nlsns);
     let (base, found) = shmem_seams::shmem_init_struct::call(name, shmem_size)?;
-    assert!(base as usize % LWLOCK_PADDED_SIZE == 0);
+    assert!((base as usize).is_multiple_of(LWLOCK_PADDED_SIZE));
 
     // C casts 8-aligned offsets to LWLockPadded*; Rust's align(128) slices
     // reject that, so the lock arrays lead the image from the 128-aligned
@@ -1378,8 +1378,8 @@ fn SlruPagePrecedesTestOffset(ctl: &SlruCtlData, per_page: i32, offset: u32) {
     debug_assert!(!precedes(page(lhs.wrapping_sub(pp)), page(rhs)));
     debug_assert!(precedes(page(rhs), page(lhs.wrapping_sub(3u32.wrapping_mul(pp)))));
     debug_assert!(precedes(page(rhs), page(lhs.wrapping_sub(2u32.wrapping_mul(pp)))));
-    debug_assert!(precedes(page(rhs), page(lhs.wrapping_sub(pp))) || (1u32 << 31) % pp != 0);
-    debug_assert!(precedes(page(lhs.wrapping_add(pp)), page(rhs)) || (1u32 << 31) % pp != 0);
+    debug_assert!(precedes(page(rhs), page(lhs.wrapping_sub(pp))) || !(1u32 << 31).is_multiple_of(pp));
+    debug_assert!(precedes(page(lhs.wrapping_add(pp)), page(rhs)) || !(1u32 << 31).is_multiple_of(pp));
     debug_assert!(precedes(page(lhs.wrapping_add(2u32.wrapping_mul(pp))), page(rhs)));
     debug_assert!(precedes(page(lhs.wrapping_add(3u32.wrapping_mul(pp))), page(rhs)));
     debug_assert!(!precedes(page(rhs), page(lhs.wrapping_add(pp))));

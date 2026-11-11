@@ -307,7 +307,7 @@ fn text_mcv<'mcx>(
         offs.push(image.len());
         mcx::vec_append_bytes(&mut image, &datum::set_varsize_4b(v.len() + datum::VARHDRSZ))?;
         mcx::vec_append_bytes(&mut image, v)?;
-        while image.len() % 8 != 0 {
+        while !image.len().is_multiple_of(8) {
             mcx::vec_append_bytes(&mut image, &[0u8])?;
         }
         numbers.push((cnt as f64 * per_doc) as f32);
@@ -372,7 +372,7 @@ impl Converter {
         let bytes = unsafe { core::slice::from_raw_parts(p, len) };
         let off = image.len();
         mcx::vec_append_bytes(image, bytes)?;
-        while image.len() % 8 != 0 {
+        while !image.len().is_multiple_of(8) {
             mcx::vec_append_bytes(image, &[0u8])?;
         }
         Ok(Some(Datum::from_usize(off)))

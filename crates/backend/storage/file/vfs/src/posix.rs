@@ -72,7 +72,7 @@ impl PosixVfs {
         let getrlimit_errno = if getrlimit_status != 0 { get_errno() } else { 0 };
 
         loop {
-            if getrlimit_status == 0 && highestfd as u64 >= (rlim.rlim_cur as u64).wrapping_sub(1)
+            if getrlimit_status == 0 && highestfd as u64 >= rlim.rlim_cur.wrapping_sub(1)
             {
                 break;
             }
@@ -534,21 +534,21 @@ impl Vfs for PosixVfs {
 #[inline]
 fn file_info_from_stat(st: &libc::stat) -> FileInfo {
     #[cfg(not(target_family = "wasm"))]
-    let (mtime_sec, mtime_nsec) = (st.st_mtime as i64, st.st_mtime_nsec as i64);
+    let (mtime_sec, mtime_nsec) = (st.st_mtime, st.st_mtime_nsec);
     // wasm32: wasi-libc's stat spells it st_mtim (timespec); the libc crate
     // exposes no st_mtime/st_mtime_nsec alias fields (basebackup precedent).
     #[cfg(target_family = "wasm")]
     let (mtime_sec, mtime_nsec) = (st.st_mtim.tv_sec as i64, st.st_mtim.tv_nsec as i64);
     FileInfo {
-        size: st.st_size as i64,
-        mode: st.st_mode as u32,
-        nlink: st.st_nlink as u64,
+        size: st.st_size,
+        mode: st.st_mode,
+        nlink: st.st_nlink,
         mtime_sec,
         mtime_nsec,
-        dev: st.st_dev as u64,
-        ino: st.st_ino as u64,
-        uid: st.st_uid as u32,
-        gid: st.st_gid as u32,
-        blksize: st.st_blksize as i64,
+        dev: st.st_dev,
+        ino: st.st_ino,
+        uid: st.st_uid,
+        gid: st.st_gid,
+        blksize: st.st_blksize,
     }
 }

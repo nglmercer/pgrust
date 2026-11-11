@@ -351,7 +351,7 @@ fn with_scan_parts<R>(
         ..
     } = vr;
     let env = ScanEnv {
-        rel: *rel,
+        rel: rel,
         cutoffs: &*cutoffs,
         vistest: *vistest,
         aggressive: *aggressive,
@@ -926,16 +926,16 @@ fn bypass_threshold_truncates_like_c() {
     // The RB-3 repro shape: 271 pages, 5 lpdead pages. C: 5 < trunc(5.42)=5
     // is false -> index vacuuming runs. Any float compare says 5 < 5.42.
     assert_eq!(bypass_threshold_pages(271), 5);
-    assert!(!((5 as BlockNumber) < bypass_threshold_pages(271)));
+    assert!(((5 as BlockNumber) >= bypass_threshold_pages(271)));
     // One page fewer of lpdead items does bypass.
     assert!((4 as BlockNumber) < bypass_threshold_pages(271));
     // Exact multiples: 300 * 0.02 = 6.0; 5 bypasses, 6 does not.
     assert_eq!(bypass_threshold_pages(300), 6);
     assert!((5 as BlockNumber) < bypass_threshold_pages(300));
-    assert!(!((6 as BlockNumber) < bypass_threshold_pages(300)));
+    assert!(((6 as BlockNumber) >= bypass_threshold_pages(300)));
     // Tiny relations: threshold truncates to 0 -> never bypass.
     assert_eq!(bypass_threshold_pages(49), 0);
-    assert!(!((0 as BlockNumber) < bypass_threshold_pages(49)));
+    assert!(((0 as BlockNumber) >= bypass_threshold_pages(49)));
 }
 
 // --- audit-18.6 remediation batch b008: critical-section witnesses ---

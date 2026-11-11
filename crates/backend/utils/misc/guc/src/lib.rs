@@ -777,9 +777,9 @@ pub fn init_seams() {
     s::new_guc_nest_level::set(NewGUCNestLevel);
     s::get_config_option_missing_ok::set(|name| GetConfigOption(name, true, false));
     s::knob_read::set(knob::knob_read);
-    s::guc_check_errdetail::set(|detail| GUC_check_errdetail(detail));
+    s::guc_check_errdetail::set(GUC_check_errdetail);
     s::guc_check_errcode::set(GUC_check_errcode);
-    s::guc_check_errhint::set(|hint| GUC_check_errhint(hint));
+    s::guc_check_errhint::set(GUC_check_errhint);
     s::at_eoxact_guc::set(|is_commit, nest_level| {
         AtEOXact_GUC(is_commit, nest_level);
         Ok(())

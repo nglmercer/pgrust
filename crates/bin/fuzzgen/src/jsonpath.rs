@@ -255,9 +255,7 @@ fn gen_match(g: &mut Gen) -> String {
                 d, base, vars, silent
             )
         }
-        _ => format!(
-            "SELECT jsonb_path_match_tz(jsonb '[\"2024-02-29\"]', 'exists($[*] ? (@.date() == \"2024-02-29\".date()))');"
-        ),
+        _ => "SELECT jsonb_path_match_tz(jsonb '[\"2024-02-29\"]', 'exists($[*] ? (@.date() == \"2024-02-29\".date()))');".to_string(),
     }
 }
 
@@ -298,9 +296,7 @@ fn gen_vars(g: &mut Gen) -> String {
             )
         }
         // JSON_QUERY PASSING model with a variable in the filter.
-        _ => format!(
-            "SELECT JSON_QUERY(jsonb '{{\"c\": [1, 2, 3, 4]}}', '$.c[*] ? (@ > $lo && @ <= $hi)' PASSING 1 AS lo, 3 AS hi WITH ARRAY WRAPPER)::text;"
-        ),
+        _ => "SELECT JSON_QUERY(jsonb '{\"c\": [1, 2, 3, 4]}', '$.c[*] ? (@ > $lo && @ <= $hi)' PASSING 1 AS lo, 3 AS hi WITH ARRAY WRAPPER)::text;".to_string(),
     }
 }
 
@@ -425,9 +421,7 @@ fn gen_startswith(g: &mut Gen) -> String {
             ]);
             format!("SELECT jsonb_path_query_array(jsonb '{}', '{}');", d, p)
         }
-        _ => format!(
-            "SELECT jsonb_path_query_array(jsonb '[\"apple\", \"apricot\", \"banana\"]', '$[*] ? (@ starts with $pref)', '{{\"pref\": \"ap\"}}');"
-        ),
+        _ => "SELECT jsonb_path_query_array(jsonb '[\"apple\", \"apricot\", \"banana\"]', '$[*] ? (@ starts with $pref)', '{\"pref\": \"ap\"}');".to_string(),
     }
 }
 

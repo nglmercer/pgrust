@@ -567,7 +567,7 @@ pub fn XLogReadDetermineTimeline(
     let ws_segsize = state.segcxt.ws_segsize as u64;
     let lastReadPage: XLogRecPtr = state.seg.ws_segno * ws_segsize + state.segoff as u64;
 
-    debug_assert!(wantPage != InvalidXLogRecPtr && wantPage % XLOG_BLCKSZ as u64 == 0);
+    debug_assert!(wantPage != InvalidXLogRecPtr && wantPage.is_multiple_of(XLOG_BLCKSZ as u64));
     debug_assert!(wantLength as usize <= XLOG_BLCKSZ);
     debug_assert!(state.readLen == 0 || state.readLen as usize <= XLOG_BLCKSZ);
     debug_assert!(currTLI != 0);

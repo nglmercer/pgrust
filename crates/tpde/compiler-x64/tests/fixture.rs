@@ -930,7 +930,7 @@ pub fn failure_reuse() {
                 let result = compiler.compile();
                 compiler.adaptor.end_compile();
                 if failure == "cancel" {
-                    assert_eq!(result.unwrap(), false)
+                    assert!(!result.unwrap())
                 } else {
                     assert!(result.is_err());
                 }

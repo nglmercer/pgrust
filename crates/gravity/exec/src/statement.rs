@@ -387,7 +387,7 @@ fn memo_key(cx: &Prepare<'_>, pipeline: usize) -> PgResult<u64> {
         }
     };
     if let Some(g) = cx.admitted.graph.as_ref() {
-        for (i, w) in g.words.iter().enumerate().filter(|(_, w)| matches!(w, crate::admit::GraphWord::Const { .. } | crate::admit::GraphWord::Extern(_) | crate::admit::GraphWord::Expr(_) | crate::admit::GraphWord::Deferred)) {
+        for (i, _w) in g.words.iter().enumerate().filter(|(_, w)| matches!(w, crate::admit::GraphWord::Const { .. } | crate::admit::GraphWord::Extern(_) | crate::admit::GraphWord::Expr(_) | crate::admit::GraphWord::Deferred)) {
             let (v, n) = (cx.words.get(i).copied().unwrap_or(0), cx.nulls.get(i).copied().unwrap_or(1));
             fold(&(i as u64).to_le_bytes());
             fold(&v.to_le_bytes());

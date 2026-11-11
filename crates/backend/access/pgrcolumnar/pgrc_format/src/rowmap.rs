@@ -366,7 +366,7 @@ pub fn encode_runs(runs: &[(u64, u32)], opts: Opts) -> FormatResult<Vec<u8>> {
             let ord = n + u64::from(at);
             let id = lo + u64::from(at);
             let room = (u64::from(GRANULE) - ord % u64::from(GRANULE)).min(u64::from(len - at)) as u32;
-            let cut = ord % u64::from(GRANULE) == 0 || last.is_none_or(|l| id <= l || id - l > JUMP);
+            let cut = ord.is_multiple_of(u64::from(GRANULE)) || last.is_none_or(|l| id <= l || id - l > JUMP);
             match frags.last_mut() {
                 Some(f) if !cut => f.max = id + u64::from(room) - 1,
                 _ => frags.push(Frag { min: id, max: id + u64::from(room) - 1, ord: ord as u32 }),
@@ -745,7 +745,7 @@ pub fn try_radix_sort(keys: &mut Vec<u64>, bits: u32) -> FormatResult<()> {
         for &k in keys.iter() {
             count[(k >> shift & mask(D)) as usize] += 1;
         }
-        if count.iter().any(|&c| c == n) {
+        if count.contains(&n) {
             shift += D;
             continue;
         }
@@ -966,7 +966,7 @@ fn encode_perm(ids: &[u64], force: Option<RevForm>) -> FormatResult<Vec<u8>> {
     let granule_cuts: Vec<usize> = (1..n.div_ceil(GRANULE as usize)).map(|g| g * GRANULE as usize).collect();
     // the small frames are every 2^LOG_SMALL rows (a granule end is one of their ends): written only for the form
     // that takes them, FENCES or FRAMEIX
-    const { assert!(GRANULE % (1 << LOG_SMALL) == 0) };
+    const { assert!(GRANULE.is_multiple_of(1 << LOG_SMALL)) };
     let fs = 1usize << LOG_SMALL;
     // FENCES: average frames whose fence holds an ID (ranks are monotone in ID: a fence's ID span is its rank span)
     let over: u64 = rank

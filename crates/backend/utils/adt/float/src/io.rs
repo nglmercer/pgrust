@@ -786,7 +786,7 @@ pub fn float8in_internal(
         *slot = end;
     } else if end != bytes.len() {
         return ereturn(
-            escontext.as_deref_mut(),
+            escontext,
             0.0,
             invalid_input(type_name, orig_string),
         );
@@ -856,7 +856,7 @@ pub fn float4in_internal(
         *slot = end;
     } else if end != bytes.len() {
         return ereturn(
-            escontext.as_deref_mut(),
+            escontext,
             0.0,
             invalid_input(type_name, orig_string),
         );

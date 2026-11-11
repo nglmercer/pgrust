@@ -403,7 +403,7 @@ fn a_rebuilt_image_is_adopted_and_a_canceled_copy_stops_within_a_piece() {
     let (base, want) = (v.as_ptr(), v.clone());
     let img = SegBuf::adopt(v).expect("adopt");
     assert_eq!(img.bytes(), &want[..]);
-    assert_eq!(img.bytes().as_ptr() == base, base as usize % 8 == 0, "an aligned rebuild is the image itself");
+    assert_eq!(img.bytes().as_ptr() == base, (base as usize).is_multiple_of(8), "an aligned rebuild is the image itself");
     assert_eq!(img.bytes().as_ptr() as usize % 8, 0, "8-aligned either way");
     assert_eq!(SegBuf::try_from_bytes(&want).expect("no call: no stop").bytes(), &want[..]);
     let byte = std::sync::atomic::AtomicU8::new(cancelpoll::ABORT_BIT);

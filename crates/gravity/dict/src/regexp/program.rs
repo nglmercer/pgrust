@@ -657,7 +657,7 @@ impl Program {
 
     /// The leftmost match at or past `from`, `take` reading it off the run.
     #[inline(always)]
-    #[inline(always)]
+    
     fn search<F>(&self, hay: &[u8], from: usize, linear: bool, take: impl Fn(&Run<'_>, usize) -> F) -> Outcome<F> {
         match self.fold {
             true => self.search_in::<true, F>(hay, from, linear, take),

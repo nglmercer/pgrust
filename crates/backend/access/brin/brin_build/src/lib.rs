@@ -237,7 +237,7 @@ fn form_and_insert_tuple(state: &mut BrinBuildState<'_, '_>) -> PgResult<()> {
     brin_doinsert(
         state.bs_irel,
         state.bs_pagesPerRange,
-        &state.bs_rmAccess,
+        state.bs_rmAccess,
         &mut state.bs_currentInsertBuf,
         state.bs_currRangeStart,
         &tup,
@@ -319,7 +319,7 @@ fn summarize_range<'mcx>(
         &phtup,
     )?;
 
-    debug_assert!(heapBlk % state.bs_pagesPerRange == 0);
+    debug_assert!(heapBlk.is_multiple_of(state.bs_pagesPerRange));
     let scanNumBlks = if heapBlk + state.bs_pagesPerRange > heapNumBlks {
         // Possibly-partial final range: recompute the table size after the
         // placeholder insert (later extenders update the placeholder), and

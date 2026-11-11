@@ -356,7 +356,7 @@ impl SegBuf {
     /// build and the copy into the shared buffer that followed a rebuild's last poll were two more passes over the whole
     /// image. An image whose base is not 8-aligned (the allocator's choice) is copied, polled, as [`Self::try_from_bytes`].
     pub fn adopt(v: Vec<u8>) -> ReadResult<SegBuf> {
-        if v.as_ptr() as usize % 8 != 0 {
+        if !(v.as_ptr() as usize).is_multiple_of(8) {
             return SegBuf::try_from_bytes(&v);
         }
         let len = v.len();
@@ -379,7 +379,7 @@ impl SegBuf {
     /// copied instead (its base not 8-aligned) drops `taken` first: the rebuild's bytes go back to this thread, where
     /// `v` is freed, and the copy takes its own (`build_held`).
     fn adopt_held(v: Vec<u8>, taken: Option<memledger::Charge>) -> ReadResult<SegBuf> {
-        if v.as_ptr() as usize % 8 != 0 {
+        if !(v.as_ptr() as usize).is_multiple_of(8) {
             drop(taken);
             let copy = SegBuf::build_held(v.len(), true, |b| {
                 let mut step = cancelpoll::step("pgrc_read SegBuf::try_from_bytes: an image copied");
@@ -1420,11 +1420,11 @@ impl Drop for OpenPart {
             let st = lock(&self.state);
             let mut held = lock(&self.held);
             // D4834: and its bytes and block go into it before `held` drops
-            let mut owe = |b: &SegBuf| {
+            let owe = |b: &SegBuf| {
                 b.carry_owed(held.split_off(b.len() as u64 + IMG_BLOCK));
                 b.len() as u64
             };
-            [&st.segs, &st.unwrapped, &st.staged].into_iter().flat_map(|m| m.values()).filter(|b| b.owe_if_shared()).map(|b| owe(b)).sum()
+            [&st.segs, &st.unwrapped, &st.staged].into_iter().flat_map(|m| m.values()).filter(|b| b.owe_if_shared()).map(owe).sum()
         };
         crate::partcache::uncount(self.resident.load(Ordering::Relaxed).saturating_sub(owed), &mut lock(&self.gov));
         // D4607: counted after its last strong reference went, so a holder that reads the count and then finds this part's
@@ -2973,7 +2973,7 @@ impl OpenPart {
         let (rebuilt, taken) = charged_for(owner, || rebuild(raw.bytes()));
         let rebuilt = rebuilt?;
         drop(raw);
-        if rebuilt.as_ptr() as usize % 8 != 0 {
+        if !(rebuilt.as_ptr() as usize).is_multiple_of(8) {
             // adopt copies it: the rebuild's bytes go back to this thread, where it frees, and the copy takes its own
             drop(taken);
             return SegBuf::copied_for(owner, &rebuilt);

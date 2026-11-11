@@ -33,14 +33,14 @@ pub mod sim_red {
     }
 }
 
-fn main_data<'a>(record: &'a XLogReaderState) -> &'a [u8] {
+fn main_data(record: &XLogReaderState) -> &[u8] {
     let rec = record.record.as_ref().expect("gin redo with no decoded record");
     // SAFETY: points into the reader's decode buffer, valid for the redo
     // callback's duration.
     unsafe { rec.main_data_bytes() }
 }
 
-fn block_data<'a>(record: &'a XLogReaderState, block_id: u8) -> &'a [u8] {
+fn block_data(record: &XLogReaderState, block_id: u8) -> &[u8] {
     unsafe { record.block(block_id).data_bytes() }
 }
 
@@ -1139,8 +1139,7 @@ mod tests {
             InvalidBlockNumber,
             &rdata,
         )
-        .err()
-        .expect("PageAddItem on a full page fails");
+        .expect_err("PageAddItem on a full page fails");
         assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
         assert_eq!(err.message(), "failed to add item to index page in 1663/5/16391");
     }
@@ -1160,7 +1159,7 @@ mod tests {
 
         // nactions = 1; action stream: segno 0, action 5 (unknown).
         let rdata = [1u8, 0, 0, 5];
-        let err = redo_recompress(9102, &rdata).err().expect("unknown action is an error");
+        let err = redo_recompress(9102, &rdata).expect_err("unknown action is an error");
         assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
         assert_eq!(err.message(), "unexpected GIN leaf action: 5");
     }

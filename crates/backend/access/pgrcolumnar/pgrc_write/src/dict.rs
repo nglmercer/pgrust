@@ -85,10 +85,12 @@ fn hash_arm_on() -> bool {
 /// How `char_len` is derived from an entry's payload bytes (spec §7: entries
 /// carry stored byte- AND char-lengths so `length()` is a table lookup).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum TextSemantics {
     /// UTF-8 character count (text/varchar classes).
     Utf8Chars,
     /// `char_len == byte_len` (bytea and other byte-semantics classes).
+    #[default]
     BytesOnly,
 }
 
@@ -180,11 +182,6 @@ impl Default for DictBuilder {
     }
 }
 
-impl Default for TextSemantics {
-    fn default() -> TextSemantics {
-        TextSemantics::BytesOnly
-    }
-}
 
 /// The built, code-assigned dictionary.
 #[derive(Debug)]
@@ -652,7 +649,7 @@ impl BuiltDict {
                 StreamSectionWriter::begin(&mut payload_section, enc, 0, Wrapper::None)
                     .map_err(WriteError::Format)?;
             for (code, (bytes, _)) in self.entries.iter().enumerate() {
-                if code as u32 % DICT_FRAME_ENTRIES == 0 {
+                if (code as u32).is_multiple_of(DICT_FRAME_ENTRIES) {
                     w.align_payload(8);
                     w.begin_frame();
                 }

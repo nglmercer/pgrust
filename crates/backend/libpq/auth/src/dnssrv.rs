@@ -395,7 +395,7 @@ fn dn_expand(msg: &[u8], pos: usize) -> Result<(String, usize), ()> {
             break;
         }
         if len & 0xc0 == 0xc0 {
-            let target = (((len & 0x3f) << 8) | *msg.get(p + 1).ok_or(())? as usize) as usize;
+            let target = ((len & 0x3f) << 8) | *msg.get(p + 1).ok_or(())? as usize;
             if consumed.is_none() {
                 consumed = Some(p + 2 - pos);
             }
@@ -537,7 +537,7 @@ fn res_send(conf: &ResolvConf, query: &[u8]) -> Option<Vec<u8>> {
     } else {
         0
     };
-    for attempt in 0..conf.retry {
+    for _attempt in 0..conf.retry {
         for k in 0..nscount {
             let ns = conf.nameservers[(start + k) % nscount];
             let seconds = enquiry_seconds(conf.retrans, k, nscount);

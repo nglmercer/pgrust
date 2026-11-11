@@ -105,7 +105,7 @@ fn identical_pages_yield_empty_delta() {
 #[test]
 fn worst_case_delta_fits() {
     let mut cur = make_page(4000, 4200, 0x00, 0x00, 0);
-    let mut tgt = make_page(4000, 4200, 0xFF, 0xEE, 0);
+    let tgt = make_page(4000, 4200, 0xFF, 0xEE, 0);
     cur[0..8].copy_from_slice(&tgt[0..8]);
     cur[12..16].copy_from_slice(&tgt[12..16]);
     let mut delta = [0u8; MAX_DELTA_SIZE];

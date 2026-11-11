@@ -394,7 +394,7 @@ fn fast_path_equals_text_path_exhaustive_7_digits() {
         while m < 10_000_000 {
             for scale in 0..=6 {
                 one(&mut img, &mut text, false, m, scale, scale, t);
-                if m % 7 == 0 {
+                if m.is_multiple_of(7) {
                     one(&mut img, &mut text, true, m, scale, scale, t);
                 }
             }

@@ -24,11 +24,11 @@ where
                 &[registers.used.get(), registers.clobbered.get()],
             );
             for id in registers.used_regs() {
-                let reg = Reg::new(id as u64);
+                let reg = Reg::new(id);
                 record(
                     "register",
                     &[
-                        id as u64,
+                        id,
                         u64::from(registers.reg_local_idx(reg).get()),
                         u64::from(registers.reg_part(reg)),
                         u64::from(registers.lock_counts[id as usize / 32][id as usize % 32].get()),

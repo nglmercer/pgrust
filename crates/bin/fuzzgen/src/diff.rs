@@ -195,7 +195,7 @@ enum GeoTok {
 fn geo_tokens(s: &str) -> Vec<GeoTok> {
     let mut out = Vec::new();
     let mut cur = String::new();
-    let mut flush = |cur: &mut String, out: &mut Vec<GeoTok>| {
+    let flush = |cur: &mut String, out: &mut Vec<GeoTok>| {
         if !cur.is_empty() {
             match parse_pg_float(cur) {
                 Some(f) => out.push(GeoTok::Num(f)),
@@ -2793,7 +2793,7 @@ mod tests {
         assert_eq!(divs.len(), 1);
         assert_eq!((divs[0].plane.as_str(), divs[0].class, divs[0].severity), ("panic", Class::Crash, Severity::Critical));
         // Precedence: a crash outranks everything.
-        assert_eq!(class_rank(Class::Crash) < class_rank(Class::Hang), true);
+        assert!(class_rank(Class::Crash) < class_rank(Class::Hang));
         assert!(class_rank(Class::WrongSqlstate) < class_rank(Class::WrongResult));
         assert!(class_rank(Class::MissingFeature) < class_rank(Class::Cosmetic));
     }

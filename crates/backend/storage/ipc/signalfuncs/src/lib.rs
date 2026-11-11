@@ -112,7 +112,7 @@ pub fn fc_pg_cancel_backend(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo)
         }
         _ => return Ok(Datum::from_bool(r == SIGNAL_BACKEND_SUCCESS)),
     };
-    Err(signal_denied("permission denied to cancel query", detail).into())
+    Err(signal_denied("permission denied to cancel query", detail))
 }
 
 // pg_wait_until_termination: the kill(pid, 0)/ESRCH probe is a procarray
@@ -184,7 +184,7 @@ pub fn fc_pg_terminate_backend(
         _ => None,
     };
     if let Some(detail) = detail {
-        return Err(signal_denied("permission denied to terminate process", detail).into());
+        return Err(signal_denied("permission denied to terminate process", detail));
     }
 
     if r == SIGNAL_BACKEND_SUCCESS && timeout > 0 {

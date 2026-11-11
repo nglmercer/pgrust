@@ -120,6 +120,12 @@ pub struct TaskTable {
     pub tasks: BTreeMap<i64, CronTask>,
 }
 
+impl Default for TaskTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TaskTable {
     pub fn new() -> Self {
         TaskTable { tasks: BTreeMap::new() }

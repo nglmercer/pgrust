@@ -364,7 +364,7 @@ impl RowShape {
     /// The shape, or `None` when the codec cannot read it (a head not in words, a record word or a slot past the head);
     /// the run is then kept as it lies.
     pub fn new(head: u32, var: Option<VarRows>) -> Option<RowShape> {
-        if head == 0 || head % 8 != 0 {
+        if head == 0 || !head.is_multiple_of(8) {
             return None;
         }
         let mut masks = vec![u64::MAX; head as usize / 8]; // alloc: Exec
@@ -1339,7 +1339,7 @@ mod tests {
         let s = RowShape::new(72, Some(VarRows { rec_off: 56, slots: vec![64] })).unwrap(); // alloc: Cold
         let mut raw = Vec::new(); // alloc: Cold
         for id in 0..10_000u64 {
-            let md5: Vec<u8> = (0..32).map(|k| b"0123456789abcdef"[((id * 2_654_435_761 >> (k % 28)) & 15) as usize]).collect(); // alloc: Cold
+            let md5: Vec<u8> = (0..32).map(|k| b"0123456789abcdef"[(((id * 2_654_435_761) >> (k % 28)) & 15) as usize]).collect(); // alloc: Cold
             let image = u64::from_be_bytes(md5[..8].try_into().unwrap());
             for w in [1, image, 1, id ^ 1 << 63, 0, id, 0, 72 + 40, 36 | 8 << 32] {
                 raw.extend_from_slice(&u64::to_le_bytes(w));

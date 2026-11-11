@@ -330,7 +330,7 @@ fn fc_spg_text_picksplit(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRe
     // order of c and C's qsort on equal keys is order-unspecified too. Use a
     // stable sort so tuple->node mapping is deterministic (matches C's
     // practical med3 behavior for the regression corpus).
-    nodes.sort_by(|a, b| a.c.cmp(&b.c));
+    nodes.sort_by_key(|a| a.c);
 
     let mut labels: ::mcx::PgVec<'_, Datum> = ::mcx::vec_with_capacity_in(mcx, n)?;
     let mut map: ::mcx::PgVec<'_, i32> = ::mcx::vec_with_capacity_in(mcx, n)?;

@@ -379,7 +379,7 @@ fn checked_varlena_len(avail: &[u8]) -> PgResult<usize> {
 /// image: the bytes from `p` to the end of the image. Returns a typed
 /// corruption error when the datum points outside the image (a corrupt or
 /// aliased offset), or `None` when no image witness was supplied.
-fn datum_window<'i>(p: *const u8, tuple_image: Option<&'i [u8]>) -> PgResult<Option<&'i [u8]>> {
+fn datum_window(p: *const u8, tuple_image: Option<&[u8]>) -> PgResult<Option<&[u8]>> {
     let Some(img) = tuple_image else {
         return Ok(None);
     };

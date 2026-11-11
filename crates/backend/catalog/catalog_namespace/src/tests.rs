@@ -453,7 +453,7 @@ fn install_proc_candidates() {
     ONCE.call_once(|| {
         syscache_seams::lookup_pg_proc_name_candidates::set(|mcx, proname| {
             let mut v = mcx::PgVec::new_in(mcx);
-            let mut cand = |oid, nsp, args: &[Oid], variadic, ndefaults| {
+            let cand = |oid, nsp, args: &[Oid], variadic, ndefaults| {
                 let mut a = mcx::vec_with_capacity_in(mcx, args.len()).unwrap();
                 for &t in args {
                     a.push(t);
@@ -789,8 +789,7 @@ fn temp_namespace_refused_during_recovery() {
     IN_RECOVERY.with(|c| c.set(true));
     let ctx = MemoryContext::new("t");
     let err = GetTempTableNamespace(ctx.mcx())
-        .err()
-        .expect("InitTempTableNamespace must refuse during recovery");
+        .expect_err("InitTempTableNamespace must refuse during recovery");
     assert_eq!(err.sqlstate(), types_error::ERRCODE_READ_ONLY_SQL_TRANSACTION);
     assert_eq!(err.message(), "cannot create temporary tables during recovery");
     assert_eq!(my_temp_namespace(), InvalidOid);
@@ -805,8 +804,7 @@ fn temp_namespace_refused_in_parallel_worker() {
     PARALLEL_WORKER.with(|c| c.set(true));
     let ctx = MemoryContext::new("t");
     let err = GetTempTableNamespace(ctx.mcx())
-        .err()
-        .expect("InitTempTableNamespace must refuse in a parallel worker");
+        .expect_err("InitTempTableNamespace must refuse in a parallel worker");
     assert_eq!(err.sqlstate(), types_error::ERRCODE_READ_ONLY_SQL_TRANSACTION);
     assert_eq!(
         err.message(),

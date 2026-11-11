@@ -253,7 +253,7 @@ pub fn find_key(hs: &HstoreView, mut lowbound: Option<&mut usize>, key: &[u8]) -
             core::cmp::Ordering::Greater => hi = mid,
         }
     }
-    if let Some(lb) = lowbound.as_deref_mut() {
+    if let Some(lb) = lowbound {
         *lb = lo;
     }
     None

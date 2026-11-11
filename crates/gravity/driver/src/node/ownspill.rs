@@ -42,7 +42,7 @@ impl Node {
     fn own_spillable(&self, s: usize, p: usize) -> bool {
         let slot = s as u8;
         let r = &self.slots[s];
-        if !r.shared || !self.slot_life.is_live(slot) || self.slot_life.is_kept(slot) || self.slot_life.is_pending(slot) || self.slot_life.is_held_as_laid(slot) || r.ptr.is_null() || r.ptr as *const u8 != r.buf.as_ptr() {
+        if !r.shared || !self.slot_life.is_live(slot) || self.slot_life.is_kept(slot) || self.slot_life.is_pending(slot) || self.slot_life.is_held_as_laid(slot) || r.ptr.is_null() || !std::ptr::eq(r.ptr, r.buf.as_ptr()) {
             return false;
         }
         if !r.buf.is_reserved() || r.buf.past_bytes(own_keep(r)) == 0 || !super::raw::sealed_fixed_run(r.ptr, r.buf.len() + r.buf.committed()) {

@@ -795,8 +795,8 @@ mod tests {
             let file = fr.try_clone_file().expect("clone file");
             for c in 0..meta.columns.len() {
                 let schema = &meta.columns[c];
-                let vutf8 = [schema.phys == Phys::ByteArray
-                    && matches!(schema.logical, Logical::String | Logical::Enum | Logical::Json)];
+                let vutf8 = [schema.phys == Phys::ByteArray &&
+                    matches!(schema.logical, Logical::String | Logical::Enum | Logical::Json)];
                 for rg in 0..meta.row_groups.len() {
                     // The batch reader's slots (None = it refuses the row group).
                     let want: Option<Vec<Option<String>>> = (|| {

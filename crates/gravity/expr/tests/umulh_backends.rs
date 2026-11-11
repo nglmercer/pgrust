@@ -77,7 +77,7 @@ fn umulh_is_the_same_word_on_every_backend() {
     // are all of the form ceil(2^s / d); a few of them plus the edges
     let magics: Vec<u64> = [86_400_000_000u64, 3_600_000_000, 60_000_000, 1_000_000, 146_097, 1_461, 153, 7, 10]
         .iter()
-        .map(|&d| (((1u128 << 64) + d as u128 - 1) / d as u128) as u64)
+        .map(|&d| (1u128 << 64).div_ceil(d as u128) as u64)
         .collect();
     let mut words = vec![0u64, 1, 2, u64::MAX, u64::MAX - 1, 1 << 63, (1 << 63) - 1, 0xffff_ffff, 1 << 32, (1 << 32) + 1];
     words.extend((0..64).map(|i| 1u64 << i));

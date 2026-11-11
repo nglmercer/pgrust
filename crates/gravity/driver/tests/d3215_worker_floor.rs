@@ -17,7 +17,7 @@ fn program(rows: u64, groups: u64) -> Program {
     let layout = RecordLayout::new(&[KeyKind::I64, KeyKind::I64], &[SlotKind::SumI128]);
     let mut p = common::p_group_spill(16);
     let b = p.pipelines[0].breaker().expect("the fixture's breaker");
-    let bits = spill_bits(groups, layout.size() as u32);
+    let bits = spill_bits(groups, layout.size());
     p.pipelines[0].ends_in = End::Breaker(Breaker { spill: Spill::Partitioned { bits }, ..b });
     p.pipelines[0].predicted_rows = rows;
     p.pipelines[0].owner = Some(OwnerDesc::generic(layout, 0, 0));

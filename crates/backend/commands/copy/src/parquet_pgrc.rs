@@ -140,7 +140,7 @@ pub(crate) fn lanes_held(lanes: &[Lane]) -> u64 {
             Lane::Blobs { arena, spans, nulls } => (arena.capacity() + spans.capacity() * 8 + nulls.capacity()) as u64,
         })
         .sum::<u64>()
-        + (lanes.len() * core::mem::size_of::<Lane>()) as u64
+        + std::mem::size_of_val(lanes) as u64
 }
 
 impl Fragment {

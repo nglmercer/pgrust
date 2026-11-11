@@ -18,7 +18,7 @@ fn v1_images(entries: &[Vec<u8>]) -> (Vec<u8>, Vec<u8>, Vec<u32>) {
     let mut index = Vec::new();
     let mut frames = Vec::new();
     for (code, e) in entries.iter().enumerate() {
-        if code as u32 % DICT_FRAME_ENTRIES == 0 {
+        if (code as u32).is_multiple_of(DICT_FRAME_ENTRIES) {
             pad_to(&mut payload, 8);
             frames.push(payload.len() as u32);
         }

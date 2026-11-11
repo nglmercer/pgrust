@@ -695,7 +695,7 @@ fn oid_output_function_call(mcx: Mcx<'_>, typoutput: Oid, val: Datum) -> PgResul
     // SAFETY: output functions return a NUL-terminated cstring datum.
     let bytes =
         unsafe { core::ffi::CStr::from_ptr((d.as_usize() as *const u8).cast()) }.to_bytes();
-    Ok(::mcx::std_vec_from_slice("replication", &bytes)?)
+    ::mcx::std_vec_from_slice("replication", bytes)
 }
 
 // OidSendFunctionCall: returns the bytea payload (without header).
@@ -712,7 +712,7 @@ fn oid_send_function_call(mcx: Mcx<'_>, typsend: Oid, val: Datum) -> PgResult<Ve
             (varatt::VARHDRSZ, varatt::varsize_4b(p))
         };
         let raw = core::slice::from_raw_parts(p, total);
-        Ok(::mcx::std_vec_from_slice("replication", &raw[off..])?)
+        ::mcx::std_vec_from_slice("replication", &raw[off..])
     }
 }
 

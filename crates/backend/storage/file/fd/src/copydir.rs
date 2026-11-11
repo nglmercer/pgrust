@@ -398,15 +398,14 @@ pub fn rmtree(path: &str, rmtopdir: bool) -> PgResult<bool> {
             result = false;
         }
     }
-    if rmtopdir {
-        if vfs::rmdir(&cpath(path)) != 0 {
+    if rmtopdir
+        && vfs::rmdir(&cpath(path)) != 0 {
             ereport(WARNING)
                 .with_saved_errno(get_errno())
                 .errmsg(format!("could not remove directory \"{path}\": {PCT_M}"))
                 .finish(loc("rmtree"))?;
             result = false;
         }
-    }
     Ok(result)
 }
 
@@ -428,7 +427,7 @@ pub fn directory_is_empty(path: &str) -> PgResult<bool> {
 // pg_dir_create_mode (DirBuilder-recursive semantics: existing dirs at any
 // level are fine, existing non-dir surfaces the mkdir errno).
 pub fn pg_mkdir_p(path: &str) -> PgResult<()> {
-    fn mkdir_p_inner<'a>(path: &'a str, mode: u32) -> Result<(), (i32, &'a str)> {
+    fn mkdir_p_inner(path: &str, mode: u32) -> Result<(), (i32, &str)> {
         let cp = cpath(path);
         if vfs::mkdir(&cp, mode as libc::mode_t) == 0 {
             return Ok(());
