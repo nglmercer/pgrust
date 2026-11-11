@@ -303,12 +303,14 @@ cargo build --release --locked -p main_main -p initdb --features main_main/full
 
 `main_main/full` is the shipped feature set: the East-Asian encoding conversions (`cjk-encodings`), the `pgcrypto`
 extension, the Snappy and Brotli Parquet codecs (`parquet-codecs`), every Snowball stemmer language
-(`snowball-languages`) and the pool allocator (`pagepool-global`). A plain `cargo build -p main_main` skips the first
-four so development builds compile less (the Snowball stemmers alone are about 218k lines): the server then answers
+(`snowball-languages`), 46 other contrib extensions (`contrib`: hstore, ltree, postgres_fdw, pg_trgm, amcheck,
+pageinspect, ...) and the pool allocator (`pagepool-global`). A plain `cargo build -p main_main` skips the first
+five so development builds compile less (the Snowball stemmers alone are about 218k lines): the server then answers
 `CREATE EXTENSION pgcrypto` and the CJK conversions as a C install without those modules, a Parquet page that uses
 Snappy or Brotli is refused with an error, and text search dictionaries only have the English stemmer
 (`no Snowball stemmer available for language "..."` for the rest). Add `--features main_main/pgcrypto`,
-`main_main/cjk-encodings`, `main_main/parquet-codecs` or `main_main/snowball-languages` to turn one back on. To keep
+`main_main/cjk-encodings`, `main_main/parquet-codecs`, `main_main/snowball-languages` or `main_main/contrib` to turn
+one back on; a single contrib extension is `--features seams_init/hstore` (the names are in `seams_init/Cargo.toml`). To keep
 only some stemmers, depend on `dict_snowball` with `default-features = false` and its `lang-<name>` features.
 
 `select version()` names the build: a build in a git checkout prints its short

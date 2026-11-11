@@ -25,7 +25,10 @@ cjk-encodings = ["conv/cjk-encodings"]
 pgcrypto = ["seams_init/pgcrypto"]
 parquet-codecs = ["parquet_read/snappy", "parquet_read/brotli"]
 snowball-languages = ["dict_snowball/all-languages"]
-full = ["cjk-encodings", "pagepool-global", "pgcrypto", "parquet-codecs", "snowball-languages"]
+# Every other contrib extension (hstore, ltree, postgres_fdw, pg_trgm, ...; the list is seams_init's features). One extension:
+# `--features seams_init/hstore`.
+contrib = ["seams_init/contrib"]
+full = ["cjk-encodings", "pagepool-global", "pgcrypto", "parquet-codecs", "snowball-languages", "contrib"]
 # Antithesis harness builds only (antithesis/ directory): SDK assertions +
 # sancov coverage instrumentation. OFF by default — product builds compile
 # none of it. The harness image build (root Dockerfile, ARG ANTITHESIS=1)
