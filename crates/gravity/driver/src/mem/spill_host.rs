@@ -198,7 +198,7 @@ unsafe fn spill_op(n: &mut Inner, op: u32, arg: u64) -> Result<i64> {
                 return Err(Error::host(format!("gravity: spill: a slice of run {token:#x} of slot {slot}, put without fences"))); // alloc: Cold
             };
             let open = |f: usize| t.run_records(slot, token, Some(f))?.ok_or_else(|| Error::host("gravity: spill: a fenced run without its records"));
-            let reader = crate::mem::fence::slice_of(fences, &open, lo, hi)?.map(|r|Box::new(r) as Box<dyn crate::mem::spill::RunReader>);
+            let reader = crate::mem::fence::slice_of(fences, &open, lo, hi)?.map(|r| Box::new(r) as Box<dyn crate::mem::spill::RunReader>); // alloc: Exec
             let handle = n.readers.iter().position(Option::is_none).unwrap_or_else(|| {
                 n.readers.push(None); // alloc: Exec
                 n.readers.len() - 1
