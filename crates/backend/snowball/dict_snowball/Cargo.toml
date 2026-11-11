@@ -4,6 +4,42 @@ version = "0.1.0"
 edition.workspace = true
 publish.workspace = true
 
+[features]
+# One feature per Snowball language. The stemmers are generated code (about 215k lines of the
+# server); a build that only needs English enables `lang-english`. `all-languages` is what ships.
+default = ["all-languages"]
+all-languages = ["lang-arabic", "lang-armenian", "lang-basque", "lang-catalan", "lang-danish", "lang-dutch", "lang-english", "lang-estonian", "lang-finnish", "lang-french", "lang-german", "lang-greek", "lang-hindi", "lang-hungarian", "lang-indonesian", "lang-irish", "lang-italian", "lang-lithuanian", "lang-nepali", "lang-norwegian", "lang-porter", "lang-portuguese", "lang-romanian", "lang-russian", "lang-serbian", "lang-spanish", "lang-swedish", "lang-tamil", "lang-turkish", "lang-yiddish"]
+lang-arabic = []
+lang-armenian = []
+lang-basque = []
+lang-catalan = []
+lang-danish = []
+lang-dutch = []
+lang-english = []
+lang-estonian = []
+lang-finnish = []
+lang-french = []
+lang-german = []
+lang-greek = []
+lang-hindi = []
+lang-hungarian = []
+lang-indonesian = []
+lang-irish = []
+lang-italian = []
+lang-lithuanian = []
+lang-nepali = []
+lang-norwegian = []
+lang-porter = []
+lang-portuguese = []
+lang-romanian = []
+lang-russian = []
+lang-serbian = []
+lang-spanish = []
+lang-swedish = []
+lang-tamil = []
+lang-turkish = []
+lang-yiddish = []
+
 [dependencies]
 types_fmgr = { path = "../../../_support/types/fmgr" }
 datum = { path = "../../../_support/types/datum" }

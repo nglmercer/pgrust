@@ -263,66 +263,112 @@ pub fn init_all_with_transport(transport: Transport) {
     logical::init_seams();
     origin::init_seams();
     logicalworker::init_seams();
+    #[cfg(feature = "test_decoding")]
     test_decoding::init_seams();
     pgoutput::init_seams();
     adt_formatting::init_seams();
+    #[cfg(feature = "citext")]
     citext::init_seams();
+    #[cfg(feature = "isn")]
     isn::init_seams();
+    #[cfg(feature = "pg_surgery")]
     pg_surgery::init_seams();
+    #[cfg(feature = "uuid_ossp")]
     uuid_ossp::init_seams();
+    #[cfg(feature = "dblink")]
     dblink::init_seams();
+    #[cfg(feature = "pg_prewarm")]
     pg_prewarm::init_seams();
+    #[cfg(feature = "file_fdw")]
     file_fdw::init_seams();
+    #[cfg(feature = "postgres_fdw")]
     postgres_fdw::init_seams();
+    #[cfg(feature = "ltree")]
     ltree::init_seams();
+    #[cfg(feature = "intarray")]
     intarray::init_seams();
     #[cfg(feature = "pgcrypto")]
     pgcrypto::init_seams();
+    #[cfg(feature = "pg_stat_statements")]
     pg_stat_statements::init_seams();
+    #[cfg(feature = "pg_buffercache")]
     pg_buffercache::init_seams();
+    #[cfg(feature = "auto_explain")]
     auto_explain::init_seams();
+    #[cfg(feature = "pg_cron")]
     pg_cron::init_seams();
+    #[cfg(feature = "passwordcheck")]
     passwordcheck::init_seams();
+    #[cfg(feature = "test_oat_hooks")]
     test_oat_hooks::init_seams();
     pgvector::init_seams();
     pgvector_hnsw::init_seams();
     bloom::init_seams();
+    #[cfg(feature = "hstore")]
     hstore::init_seams();
     adt_expandedrecord::init_seams();
+    #[cfg(feature = "pg_trgm")]
     pg_trgm::init_seams();
+    #[cfg(feature = "btree_gist")]
     btree_gist::init_seams();
+    #[cfg(feature = "btree_gin")]
     btree_gin::init_seams();
+    #[cfg(feature = "cube")]
     contrib_cube::init_seams();
+    #[cfg(feature = "earthdistance")]
     contrib_earthdistance::init_seams();
+    #[cfg(feature = "seg")]
     contrib_seg::init_seams();
+    #[cfg(feature = "unaccent")]
     unaccent::init_seams();
+    #[cfg(feature = "pg_walinspect")]
     pg_walinspect::init_seams();
     // C releases ship no src/test/modules libraries; test builds opt in.
     if TEST_MODULES {
         injection_points::init_seams();
         test_custom_types::init_seams();
     }
+    #[cfg(feature = "sslinfo")]
     sslinfo::init_seams();
+    #[cfg(feature = "fuzzystrmatch")]
     fuzzystrmatch::init_seams();
+    #[cfg(feature = "tablefunc")]
     tablefunc::init_seams();
+    #[cfg(feature = "lo")]
     contrib_lo::init_seams();
+    #[cfg(feature = "tcn")]
     tcn::init_seams();
+    #[cfg(feature = "autoinc")]
     autoinc::init_seams();
+    #[cfg(feature = "insert_username")]
     insert_username::init_seams();
+    #[cfg(feature = "moddatetime")]
     moddatetime::init_seams();
+    #[cfg(feature = "refint")]
     refint::init_seams();
+    #[cfg(feature = "dict_int")]
     dict_int::init_seams();
+    #[cfg(feature = "dict_xsyn")]
     dict_xsyn::init_seams();
+    #[cfg(feature = "xml2")]
     xml2::init_seams();
+    #[cfg(feature = "pageinspect")]
     pageinspect::init_seams();
+    #[cfg(feature = "pgstattuple")]
     pgstattuple::init_seams();
+    #[cfg(feature = "pg_freespacemap")]
     pg_freespacemap::init_seams();
+    #[cfg(feature = "amcheck")]
     amcheck::init_seams();
     tsm_system_rows::init_seams();
     tsm_system_time::init_seams();
+    #[cfg(feature = "pg_visibility")]
     pg_visibility::init_seams();
+    #[cfg(feature = "pgrowlocks")]
     pgrowlocks::init_seams();
+    #[cfg(feature = "pg_logicalinspect")]
     pg_logicalinspect::init_seams();
+    #[cfg(feature = "pg_overexplain")]
     pg_overexplain::init_seams();
     session::init_seams();
     relpath::init_seams();

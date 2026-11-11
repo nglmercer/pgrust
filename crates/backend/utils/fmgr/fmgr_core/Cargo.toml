@@ -53,7 +53,7 @@ ts_parse = { path = "../../../tsearch/ts_parse" }
 tsearch_dict = { path = "../../../tsearch/dict" }
 tsearch_spell = { path = "../../../tsearch/spell" }
 to_tsany = { path = "../../../tsearch/to_tsany" }
-dict_snowball = { path = "../../../snowball/dict_snowball" }
+dict_snowball = { path = "../../../snowball/dict_snowball", default-features = false, features = ["lang-english"] }
 ts_cache = { path = "../../cache/ts_cache" }
 adt_varbit = { path = "../../adt/varbit" }
 adt_network = { path = "../../adt/network" }

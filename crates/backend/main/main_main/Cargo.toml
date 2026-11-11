@@ -24,7 +24,11 @@ cjk-encodings = ["conv/cjk-encodings"]
 # the crates only they use. `full` is the shipped set; release builds use it: `--features main_main/full`.
 pgcrypto = ["seams_init/pgcrypto"]
 parquet-codecs = ["parquet_read/snappy", "parquet_read/brotli"]
-full = ["cjk-encodings", "pagepool-global", "pgcrypto", "parquet-codecs"]
+snowball-languages = ["dict_snowball/all-languages"]
+# Every other contrib extension (hstore, ltree, postgres_fdw, pg_trgm, ...; the list is seams_init's features). One extension:
+# `--features seams_init/hstore`.
+contrib = ["seams_init/contrib"]
+full = ["cjk-encodings", "pagepool-global", "pgcrypto", "parquet-codecs", "snowball-languages", "contrib"]
 # Antithesis harness builds only (antithesis/ directory): SDK assertions +
 # sancov coverage instrumentation. OFF by default — product builds compile
 # none of it. The harness image build (root Dockerfile, ARG ANTITHESIS=1)
@@ -67,6 +71,8 @@ guc_tables = { path = "../../utils/misc/guc_tables" }
 conv = { path = "../../utils/mb/conv", default-features = false }
 # Feature carrier for parquet-codecs (in the graph transitively via pgrc_write and copy).
 parquet_read = { path = "../../access/parquet_read", default-features = false }
+# Feature carrier for snowball-languages (in the graph transitively via seams_init and fmgr_core).
+dict_snowball = { path = "../../snowball/dict_snowball", default-features = false }
 # Antithesis SDK (assertions/lifecycle); portable, but only compiled under
 # the `antithesis` feature.
 antithesis_sdk = { version = "0.2.9", optional = true }

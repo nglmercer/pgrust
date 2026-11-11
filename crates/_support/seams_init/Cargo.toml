@@ -12,6 +12,103 @@ path = "src/lib.rs"
 # `full` features turn it on; a server built without it answers CREATE EXTENSION pgcrypto as a C install without the module.
 [features]
 pgcrypto = ["dep:pgcrypto"]
+# One feature per optional contrib extension (named like the extension); `contrib` turns all of them on.
+postgres_fdw = ["dep:postgres_fdw"]
+amcheck = ["dep:amcheck"]
+ltree = ["dep:ltree"]
+pageinspect = ["dep:pageinspect"]
+hstore = ["dep:hstore"]
+pg_trgm = ["dep:pg_trgm"]
+dblink = ["dep:dblink"]
+pg_cron = ["dep:pg_cron"]
+intarray = ["dep:intarray"]
+btree_gist = ["dep:btree_gist"]
+isn = ["dep:isn"]
+cube = ["dep:contrib_cube"]
+pg_stat_statements = ["dep:pg_stat_statements"]
+fuzzystrmatch = ["dep:fuzzystrmatch"]
+seg = ["dep:contrib_seg"]
+pg_prewarm = ["dep:pg_prewarm"]
+pgstattuple = ["dep:pgstattuple"]
+file_fdw = ["dep:file_fdw"]
+tablefunc = ["dep:tablefunc"]
+test_decoding = ["dep:test_decoding"]
+pg_visibility = ["dep:pg_visibility"]
+pg_walinspect = ["dep:pg_walinspect"]
+btree_gin = ["dep:btree_gin"]
+xml2 = ["dep:xml2"]
+pg_overexplain = ["dep:pg_overexplain"]
+unaccent = ["dep:unaccent"]
+test_oat_hooks = ["dep:test_oat_hooks"]
+auto_explain = ["dep:auto_explain"]
+refint = ["dep:refint"]
+pg_surgery = ["dep:pg_surgery"]
+uuid_ossp = ["dep:uuid_ossp"]
+sslinfo = ["dep:sslinfo"]
+pg_buffercache = ["dep:pg_buffercache"]
+pgrowlocks = ["dep:pgrowlocks"]
+citext = ["dep:citext"]
+dict_xsyn = ["dep:dict_xsyn"]
+pg_logicalinspect = ["dep:pg_logicalinspect"]
+dict_int = ["dep:dict_int"]
+passwordcheck = ["dep:passwordcheck"]
+autoinc = ["dep:autoinc"]
+tcn = ["dep:tcn"]
+lo = ["dep:contrib_lo"]
+moddatetime = ["dep:moddatetime"]
+insert_username = ["dep:insert_username"]
+earthdistance = ["dep:contrib_earthdistance"]
+pg_freespacemap = ["dep:pg_freespacemap"]
+contrib = [
+    "postgres_fdw",
+    "amcheck",
+    "ltree",
+    "pageinspect",
+    "hstore",
+    "pg_trgm",
+    "dblink",
+    "pg_cron",
+    "intarray",
+    "btree_gist",
+    "isn",
+    "cube",
+    "pg_stat_statements",
+    "fuzzystrmatch",
+    "seg",
+    "pg_prewarm",
+    "pgstattuple",
+    "file_fdw",
+    "tablefunc",
+    "test_decoding",
+    "pg_visibility",
+    "pg_walinspect",
+    "btree_gin",
+    "xml2",
+    "pg_overexplain",
+    "unaccent",
+    "test_oat_hooks",
+    "auto_explain",
+    "refint",
+    "pg_surgery",
+    "uuid_ossp",
+    "sslinfo",
+    "pg_buffercache",
+    "pgrowlocks",
+    "citext",
+    "dict_xsyn",
+    "pg_logicalinspect",
+    "dict_int",
+    "passwordcheck",
+    "autoinc",
+    "tcn",
+    "lo",
+    "moddatetime",
+    "insert_username",
+    "earthdistance",
+    "pg_freespacemap",
+]
+# Snowball stemmers for every language (English is always built).
+snowball-languages = ["dict_snowball/all-languages"]
 
 [dependencies]
 pgrc_companion = { path = "../../backend/catalog/pgrc_companion" }
@@ -24,7 +121,7 @@ sequence = { path = "../../backend/commands/sequence" }
 pg_constraint = { path = "../../backend/catalog/pg_constraint" }
 extension = { path = "../../backend/commands/extension" }
 detoast = { path = "../../backend/access/common/detoast" }
-dict_snowball = { path = "../../backend/snowball/dict_snowball" }
+dict_snowball = { path = "../../backend/snowball/dict_snowball", default-features = false, features = ["lang-english"] }
 heaptoast = { path = "../../backend/access/heap/heaptoast" }
 printtup = { path = "../../backend/access/common/printtup" }
 relation = { path = "../../backend/access/common/relation" }
@@ -297,61 +394,61 @@ slotfuncs = { path = "../../backend/replication/slotfuncs" }
 slotsync = { path = "../../backend/replication/slotsync" }
 logicalfuncs = { path = "../../backend/replication/logical/logicalfuncs" }
 pgoutput = { path = "../../contrib/pgoutput" }
-test_decoding = { path = "../../contrib/test_decoding" }
-citext = { path = "../../contrib/citext" }
-isn = { path = "../../contrib/isn" }
-pg_surgery = { path = "../../contrib/pg_surgery" }
-uuid_ossp = { path = "../../contrib/uuid_ossp" }
-dblink = { path = "../../contrib/dblink" }
-pg_prewarm = { path = "../../contrib/pg_prewarm" }
-file_fdw = { path = "../../contrib/file_fdw" }
-postgres_fdw = { path = "../../contrib/postgres_fdw" }
-ltree = { path = "../../contrib/ltree" }
-intarray = { path = "../../contrib/intarray" }
+test_decoding = { path = "../../contrib/test_decoding", optional = true }
+citext = { path = "../../contrib/citext", optional = true }
+isn = { path = "../../contrib/isn", optional = true }
+pg_surgery = { path = "../../contrib/pg_surgery", optional = true }
+uuid_ossp = { path = "../../contrib/uuid_ossp", optional = true }
+dblink = { path = "../../contrib/dblink", optional = true }
+pg_prewarm = { path = "../../contrib/pg_prewarm", optional = true }
+file_fdw = { path = "../../contrib/file_fdw", optional = true }
+postgres_fdw = { path = "../../contrib/postgres_fdw", optional = true }
+ltree = { path = "../../contrib/ltree", optional = true }
+intarray = { path = "../../contrib/intarray", optional = true }
 pgcrypto = { path = "../../contrib/pgcrypto", optional = true }
-pg_stat_statements = { path = "../../contrib/pg_stat_statements" }
-pg_buffercache = { path = "../../contrib/pg_buffercache" }
-auto_explain = { path = "../../contrib/auto_explain" }
-pg_cron = { path = "../../contrib/pg_cron" }
-passwordcheck = { path = "../../contrib/passwordcheck" }
-test_oat_hooks = { path = "../../contrib/test_oat_hooks" }
+pg_stat_statements = { path = "../../contrib/pg_stat_statements", optional = true }
+pg_buffercache = { path = "../../contrib/pg_buffercache", optional = true }
+auto_explain = { path = "../../contrib/auto_explain", optional = true }
+pg_cron = { path = "../../contrib/pg_cron", optional = true }
+passwordcheck = { path = "../../contrib/passwordcheck", optional = true }
+test_oat_hooks = { path = "../../contrib/test_oat_hooks", optional = true }
 pgvector = { path = "../../contrib/pgvector" }
 pgvector_hnsw = { path = "../../contrib/pgvector_hnsw" }
 bloom = { path = "../../contrib/bloom" }
-hstore = { path = "../../contrib/hstore" }
+hstore = { path = "../../contrib/hstore", optional = true }
 adt_expandedrecord = { path = "../../backend/utils/adt/expandedrecord" }
-pg_trgm = { path = "../../contrib/pg_trgm" }
-btree_gist = { path = "../../contrib/btree_gist" }
-btree_gin = { path = "../../contrib/btree_gin" }
-contrib_cube = { path = "../../contrib/cube" }
-contrib_earthdistance = { path = "../../contrib/earthdistance" }
-contrib_seg = { path = "../../contrib/seg" }
-unaccent = { path = "../../contrib/unaccent" }
-pg_walinspect = { path = "../../contrib/pg_walinspect" }
+pg_trgm = { path = "../../contrib/pg_trgm", optional = true }
+btree_gist = { path = "../../contrib/btree_gist", optional = true }
+btree_gin = { path = "../../contrib/btree_gin", optional = true }
+contrib_cube = { path = "../../contrib/cube", optional = true }
+contrib_earthdistance = { path = "../../contrib/earthdistance", optional = true }
+contrib_seg = { path = "../../contrib/seg", optional = true }
+unaccent = { path = "../../contrib/unaccent", optional = true }
+pg_walinspect = { path = "../../contrib/pg_walinspect", optional = true }
 injection_points = { path = "../../contrib/injection_points" }
 test_custom_types = { path = "../../contrib/test_custom_types" }
-sslinfo = { path = "../../contrib/sslinfo" }
-fuzzystrmatch = { path = "../../contrib/fuzzystrmatch" }
-tablefunc = { path = "../../contrib/tablefunc" }
-contrib_lo = { path = "../../contrib/lo" }
-tcn = { path = "../../contrib/tcn" }
-autoinc = { path = "../../contrib/autoinc" }
-insert_username = { path = "../../contrib/insert_username" }
-moddatetime = { path = "../../contrib/moddatetime" }
-refint = { path = "../../contrib/refint" }
-dict_int = { path = "../../contrib/dict_int" }
-dict_xsyn = { path = "../../contrib/dict_xsyn" }
-xml2 = { path = "../../contrib/xml2" }
-pageinspect = { path = "../../contrib/pageinspect" }
-pgstattuple = { path = "../../contrib/pgstattuple" }
-pg_freespacemap = { path = "../../contrib/pg_freespacemap" }
-amcheck = { path = "../../contrib/amcheck" }
+sslinfo = { path = "../../contrib/sslinfo", optional = true }
+fuzzystrmatch = { path = "../../contrib/fuzzystrmatch", optional = true }
+tablefunc = { path = "../../contrib/tablefunc", optional = true }
+contrib_lo = { path = "../../contrib/lo", optional = true }
+tcn = { path = "../../contrib/tcn", optional = true }
+autoinc = { path = "../../contrib/autoinc", optional = true }
+insert_username = { path = "../../contrib/insert_username", optional = true }
+moddatetime = { path = "../../contrib/moddatetime", optional = true }
+refint = { path = "../../contrib/refint", optional = true }
+dict_int = { path = "../../contrib/dict_int", optional = true }
+dict_xsyn = { path = "../../contrib/dict_xsyn", optional = true }
+xml2 = { path = "../../contrib/xml2", optional = true }
+pageinspect = { path = "../../contrib/pageinspect", optional = true }
+pgstattuple = { path = "../../contrib/pgstattuple", optional = true }
+pg_freespacemap = { path = "../../contrib/pg_freespacemap", optional = true }
+amcheck = { path = "../../contrib/amcheck", optional = true }
 tsm_system_rows = { path = "../../contrib/tsm_system_rows" }
 tsm_system_time = { path = "../../contrib/tsm_system_time" }
-pg_visibility = { path = "../../contrib/pg_visibility" }
-pgrowlocks = { path = "../../contrib/pgrowlocks" }
-pg_logicalinspect = { path = "../../contrib/pg_logicalinspect" }
-pg_overexplain = { path = "../../contrib/pg_overexplain" }
+pg_visibility = { path = "../../contrib/pg_visibility", optional = true }
+pgrowlocks = { path = "../../contrib/pgrowlocks", optional = true }
+pg_logicalinspect = { path = "../../contrib/pg_logicalinspect", optional = true }
+pg_overexplain = { path = "../../contrib/pg_overexplain", optional = true }
 adt_formatting = { path = "../../backend/utils/adt/formatting" }
 session = { path = "../../backend/access/session" }
 relpath = { path = "../../common/relpath" }
