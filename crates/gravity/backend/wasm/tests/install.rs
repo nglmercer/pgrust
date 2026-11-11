@@ -81,6 +81,7 @@ fn an_entry_that_is_not_ptr_to_i64_is_refused() {
     let mut b = pb.define(f);
     let x = b.params()[0];
     b.ret(&[x]);
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     let p = pb.finish();
     assert!(matches!(compile_entries(&p, &[f], Options::default()), Err(gravity_wasm::Refusal::Unsupported { .. })));
@@ -161,6 +162,7 @@ fn host_entry() -> (Program, Func) {
     let y = b.load(Type::I64, at, 0);
     let r = b.call_host(h, &[y], Some(Type::I64)).unwrap();
     b.ret(&[r]);
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     (pb.finish(), e)
 }

@@ -1,3 +1,4 @@
+#![allow(clippy::duplicate_mod)]
 //! The wasmtime rig: one store with a linear memory, a function table and
 //! the shadow stack pointer; a program's hosts are bound by rewriting each
 //! `HostFnDecl::addr` to a table slot holding a host closure over the

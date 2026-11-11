@@ -35,6 +35,7 @@ static RETURNING: AtomicBool = AtomicBool::new(false);
 /// next slice. 0: a free slot.
 static SPLIT_ASKS: [AtomicUsize; SPLIT_SLOTS] = [const { AtomicUsize::new(0) }; SPLIT_SLOTS];
 const SPLIT_SLOTS: usize = 64;
+#[allow(dead_code)]
 static SPLIT_ASKED: AtomicU64 = AtomicU64::new(0);
 static SPLIT_DONE: AtomicU64 = AtomicU64::new(0);
 
@@ -1273,6 +1274,7 @@ fn spawn() -> bool {
 
 /// pppress card 10: ask the purger to split the huge folio holding `at` (a page of a dead range its caller gives back
 /// later). False when no purger runs or every slot is taken: the caller splits it itself.
+#[allow(dead_code)]
 pub(crate) fn ask_split(at: usize) -> bool {
     if THREAD.load(Acquire).is_null() {
         return false;
@@ -1293,6 +1295,7 @@ pub(crate) fn ask_split(at: usize) -> bool {
 }
 
 /// pppress card 10: (splits asked, splits the purger made).
+#[allow(dead_code)]
 pub(crate) fn split_counts() -> (u64, u64) {
     (SPLIT_ASKED.load(Relaxed), SPLIT_DONE.load(Relaxed))
 }

@@ -273,6 +273,7 @@ fn vector_loop_carried_parameters() {
     b.ret(&[r]);
     let p = pb.finish();
     let (inst, _) = rig.instantiate(&p, Func(0));
+    #[allow(unused_parens)]
     let data: Vec<i32> = (0..64).map(|k| (k * 7919 - 1000)).collect();
     let bytes: Vec<u8> = data.iter().flat_map(|x| x.to_le_bytes()).collect();
     rig.write(DATA, &bytes);
