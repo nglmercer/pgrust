@@ -250,7 +250,7 @@ impl<'mcx> DrPrinttup<'mcx> {
             Some(v) => &mut v[..],
             None => &mut [],
         };
-        let mut send_ctx = self.send_ctx.as_mut();
+        let send_ctx = self.send_ctx.as_mut();
         let natts = self.nattrs as usize;
 
         pq_beginmessage_reuse(buf, PQMSG_DATA_ROW);

@@ -298,8 +298,15 @@ automatically) and the RE2 regex library:
 - macOS: `brew install re2 pkg-config`
 
 ```bash
-cargo build --release --locked -p main_main -p initdb
+cargo build --release --locked -p main_main -p initdb --features main_main/full
 ```
+
+`main_main/full` is the shipped feature set: the East-Asian encoding conversions (`cjk-encodings`), the `pgcrypto`
+extension, the Snappy and Brotli Parquet codecs (`parquet-codecs`) and the pool allocator (`pagepool-global`). A plain
+`cargo build -p main_main` skips the first three so development builds compile less; the server then answers
+`CREATE EXTENSION pgcrypto` and the CJK conversions as a C install without those modules, and a Parquet page that uses
+Snappy or Brotli is refused with an error. Add `--features main_main/pgcrypto`, `main_main/cjk-encodings` or
+`main_main/parquet-codecs` to turn one back on.
 
 `select version()` names the build: a build in a git checkout prints its short
 commit (`PostgreSQL 18.6 (pgrust 0.4-beta, build 1a2b3c4) on ...`); set

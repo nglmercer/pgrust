@@ -158,7 +158,7 @@ mod tests {
         // SAFETY: the header is the set's own, live here.
         assert_eq!(unsafe { lookup(s.word() as *const KeyTable, 5, 4) }, (false, false, false));
         for i in 0..1000u64 {
-            s.insert(i * 7 | 0xdead_0000_0000_0000, false).unwrap();
+            s.insert((i * 7) | 0xdead_0000_0000_0000, false).unwrap();
             s.insert(i * 7, false).unwrap();
         }
         assert_eq!(s.len(), 1000);

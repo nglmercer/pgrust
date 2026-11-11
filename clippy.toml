@@ -1,0 +1,5 @@
+# Thresholds for size lints. pgrust mirrors C signatures (long argument lists) and wide error/type shapes on purpose;
+# the limits are set above the largest values in the tree so the lints still catch a new outlier.
+too-many-arguments-threshold = 24
+type-complexity-threshold = 5000
+large-error-threshold = 16384

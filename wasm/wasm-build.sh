@@ -111,7 +111,7 @@ case "$PROFILE" in
     *)   PROFILE_DIR="$PROFILE" ;;
 esac
 if [ "${PGRUST_WASM_SKIP_LINK:-0}" != "1" ]; then
-    cargo +"${TOOLCHAIN}" build --target "$TARGET" -Zbuild-std=std,panic_unwind -p main_main --bin postgres --profile "$PROFILE"
+    cargo +"${TOOLCHAIN}" build --target "$TARGET" -Zbuild-std=std,panic_unwind -p main_main --bin postgres --features main_main/full --profile "$PROFILE"
     BIN_WASM="$(target_dir_of "$ROOT")/${TARGET}/${PROFILE_DIR}/postgres.wasm"
     [ -f "$BIN_WASM" ] || { echo "wasm-build: FAIL — postgres.wasm not produced" >&2; exit 1; }
     echo "wasm-build: postgres.wasm linked ($(du -h "$BIN_WASM" | cut -f1), profile $PROFILE)"

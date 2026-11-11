@@ -2078,7 +2078,7 @@ mod tests {
             let this: *mut Entry = e;
             cell.set(Some(Current { entry: this, exec: outer, binding: b }));
             let exec_now = || cell.get().map(|c| c.exec);
-            assert_eq!(unsafe { Entry::publish_current(this, inner, b, &exec_now) }, Some(inner), "the call's own");
+            assert_eq!(unsafe { Entry::publish_current(this, inner, b, exec_now) }, Some(inner), "the call's own");
             assert_eq!(exec_now(), Some(outer), "the one before, back after a return");
             let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
                 Entry::publish_current(this, inner, b, || {

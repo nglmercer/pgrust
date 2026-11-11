@@ -355,7 +355,7 @@ mod tests {
         skip.decide(&valid, a);
         let alive: Vec<usize> = (0..5000).filter(|&i| !skip.skipped(i)).collect();
         assert_eq!(alive, [0, 256, 299, 4999], "subplans 1, 257, 300, 5000 are arms 0, 256, 299, 4999");
-        assert_eq!(skip.word(78), !0u64 & !(1 << (4999 % 64)) & ((1 << (5000 % 64)) - 1), "the last word: arm 4999 alone kept of its 8");
+        assert_eq!(skip.word(78), !(1 << (4999 % 64)) & ((1 << (5000 % 64)) - 1), "the last word: arm 4999 alone kept of its 8");
         assert!(prune::member(&prune::ALL, 70_000) && !prune::member(&prune::ArmSet::Of(Box::new([])), 3)); // alloc: Cold
     }
 

@@ -138,15 +138,15 @@ mod tests {
     /// The count of a plain and a short image of `{7,8,9}` (int4), of an empty array and of a two-dimensional one.
     #[test]
     fn list_len_reads_the_dimensions() {
-        let plain: [i32; 9] = [((36 << 2)), 1, 0, 23, 3, 1, 7, 8, 9];
+        let plain: [i32; 9] = [(36 << 2), 1, 0, 23, 3, 1, 7, 8, 9];
         let img: Vec<u8> = plain.iter().flat_map(|x| x.to_le_bytes()).collect(); // alloc: Cold
         assert_eq!(unsafe { super::list_len(img.as_ptr() as usize) }, Some(3));
         let mut short = vec![((33u8) << 1) | 1]; // alloc: Cold
         short.extend_from_slice(&img[4..]);
         assert_eq!(unsafe { super::list_len(short.as_ptr() as usize) }, Some(3));
-        let empty: Vec<u8> = [{ (16 << 2) }, 0, 0, 23].iter().flat_map(|x: &i32| x.to_le_bytes()).collect(); // alloc: Cold
+        let empty: Vec<u8> = [{ 16 << 2 }, 0, 0, 23].iter().flat_map(|x: &i32| x.to_le_bytes()).collect(); // alloc: Cold
         assert_eq!(unsafe { super::list_len(empty.as_ptr() as usize) }, Some(0));
-        let two: Vec<u8> = [{ (40 << 2) }, 2, 0, 23, 2, 3, 1, 1].iter().flat_map(|x: &i32| x.to_le_bytes()).collect(); // alloc: Cold
+        let two: Vec<u8> = [{ 40 << 2 }, 2, 0, 23, 2, 3, 1, 1].iter().flat_map(|x: &i32| x.to_le_bytes()).collect(); // alloc: Cold
         assert_eq!(unsafe { super::list_len(two.as_ptr() as usize) }, Some(6));
         let compressed = [0x02u8, 0, 0, 0];
         assert_eq!(unsafe { super::list_len(compressed.as_ptr() as usize) }, None);

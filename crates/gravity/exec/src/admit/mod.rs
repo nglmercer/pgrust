@@ -2919,7 +2919,7 @@ mod tests {
         plan.key(other);
         plan.key(shared);
         let mut root = mcx::SendRoot::new("template test");
-        let tpl = template(&plan, &[shared, other, shared], super::raw::tpl_list(&mut root)).ok().expect("located");
+        let tpl = template(&plan, &[shared, other, shared], super::raw::tpl_list(&mut root)).expect("located");
         assert_eq!(&*tpl, &[WordTpl::Const(0), WordTpl::Const(1), WordTpl::Const(2)]);
         // a word whose node has no unclaimed occurrence left is outside the traversal
         assert!(template(&plan, &[shared, other], super::raw::tpl_list(&mut root)).is_err());
@@ -2938,7 +2938,7 @@ mod tests {
         plan.key(null);
         plan.key(one);
         let mut root = mcx::SendRoot::new("template test");
-        let tpl = template(&plan, &[one], super::raw::tpl_list(&mut root)).ok().expect("located");
+        let tpl = template(&plan, &[one], super::raw::tpl_list(&mut root)).expect("located");
         assert_eq!(&*tpl, &[WordTpl::Null, WordTpl::Const(0)]);
         assert_eq!(word_reads(&tpl), [0u32]);
     }

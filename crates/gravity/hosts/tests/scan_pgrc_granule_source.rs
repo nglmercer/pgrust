@@ -2094,7 +2094,7 @@ fn a_text_filter_selects_the_rows_the_other_lanes_decode_and_skips_the_empty_gra
         src.zone(&[z], &[0], &[0]);
         src.bind(&binding_ref(&resolved)).unwrap();
         let c = c.to_vec(); // alloc: Cold
-        let walk = walk_selected(&mut src, total, 1, |w, i| w.sel.is_null() || text_int_value({ unsafe { w.lanes()[1].datum(i) } }) != c);
+        let walk = walk_selected(&mut src, total, 1, |w, i| w.sel.is_null() || text_int_value(unsafe { w.lanes()[1].datum(i) }) != c);
         let counts = (src.granules_selected(), src.granules_decoded(), src.granules_skipped());
         src.unbind();
         (walk, counts)
@@ -2127,7 +2127,7 @@ fn the_part_verdict_memo_decides_each_granule_as_asking_at_each_granule_does() {
         src.set_part_decides_memo(memo);
         src.zone(&[z], &[0], &[0]);
         src.bind(&binding_ref(&resolved)).unwrap();
-        let walk = walk_selected(&mut src, total, 1, |w, i| !text_int_value({ unsafe { w.lanes()[1].datum(i) } }).is_empty());
+        let walk = walk_selected(&mut src, total, 1, |w, i| !text_int_value(unsafe { w.lanes()[1].datum(i) }).is_empty());
         let counts = (src.granules_selected(), src.granules_decoded(), src.granules_skipped());
         src.unbind();
         (walk, counts)

@@ -48,7 +48,7 @@ pub(crate) fn sample(runs: &[Run<'_>], parts: usize, cmp: Cmp<'_>) -> Vec<usize>
         return Vec::new(); // alloc: Exec
     }
     let mut s = Vec::with_capacity(runs.len() * (parts - 1)); // alloc: Exec
-    s.extend(core::iter::repeat(0usize).take(runs.len() * (parts - 1)));
+    s.extend(std::iter::repeat_n(0usize, runs.len() * (parts - 1)));
     let n = draw(runs, parts, &mut s);
     let k = pick(&mut s[..n], parts, cmp);
     s.truncate(k);
@@ -106,7 +106,7 @@ fn pick(s: &mut [usize], parts: usize, cmp: Cmp<'_>) -> usize {
 #[cfg(test)]
 pub(crate) fn cut(run: &Run<'_>, splitters: &[usize], cmp: Cmp<'_>) -> Result<Vec<u64>> {
     let mut at = Vec::with_capacity(splitters.len() + 2); // alloc: Exec
-    at.extend(core::iter::repeat(0u64).take(splitters.len() + 2));
+    at.extend(std::iter::repeat_n(0u64, splitters.len() + 2));
     cut_into(run, splitters, cmp, &mut at)?;
     Ok(at)
 }

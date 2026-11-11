@@ -456,7 +456,7 @@ mod tests {
     #[test]
     fn a_verdict_masks_its_codes() {
         let codes: Vec<u32> = (0..1000u32).map(|i| (i * 7919) % 97).collect(); // alloc: Cold
-        let pass = |c: u32| c % 3 == 0 || c == 5;
+        let pass = |c: u32| c.is_multiple_of(3) || c == 5;
         let (mut bits, zero, mut faults) = ([0u64; 2], [0u64; 2], [0u64; 2]);
         (0..97u32).filter(|&c| pass(c)).for_each(|c| bits[(c >> 6) as usize] |= 1 << (c & 63));
         faults[1] = 1 << 3;
@@ -559,7 +559,7 @@ mod tests {
     fn verdicts_and_per_code() {
         let codes: Vec<u32> = (0..1000u32).map(|i| (i * 7919) % 97).collect(); // alloc: Cold
         let one = 6u32;
-        let (p1, p2) = (|c: u32| c % 3 == 0, |c: u32| c % 2 == 0);
+        let (p1, p2) = (|c: u32| c.is_multiple_of(3), |c: u32| c.is_multiple_of(2));
         let (mut b1, mut b2, zero, mut faults) = ([0u64; 2], [0u64; 2], [0u64; 2], [0u64; 2]);
         (0..97u32).filter(|&c| p1(c)).for_each(|c| b1[(c >> 6) as usize] |= 1 << (c & 63));
         (0..97u32).filter(|&c| p2(c)).for_each(|c| b2[(c >> 6) as usize] |= 1 << (c & 63));

@@ -369,7 +369,7 @@ mod tests {
         let client = |e: &PgError| (e.level, e.sqlstate, e.message.clone(), e.message_raw.clone(), e.detail.clone(), e.detail_raw.clone(), e.hint.clone(), e.context.clone(), e.location.clone(), e.cursor_position, e.internal_position, e.internal_query.clone()); // alloc: Cold
         let plain = pg_error(oom(None));
         let mut named = pg_error(oom(Some(NoSpill::BuildNestInner)));
-        assert_eq!(client(&*named), client(&*plain), "the client reads the same 53200");
+        assert_eq!(client(&named), client(&plain), "the client reads the same 53200");
         assert_eq!(plain.detail_log(), None);
         let line = format!("gravity: memory: SPILL-DEBT BuildNestInner: {}", NoSpill::BuildNestInner.limitation()); // alloc: Cold
         assert_eq!(named.detail_log(), Some(format!("{}\n{line}", plain.detail().unwrap()).as_str()), "the line rides last in the log-only detail"); // alloc: Cold
@@ -400,7 +400,7 @@ mod tests {
         gravity_fn::stash_error(oom());
         let mut named = pg_error(host());
         assert_eq!(gravity_driver::take_pin_debt(), None, "taken by the error");
-        assert_eq!(client(&*named), client(&*plain), "the client reads the same 53200");
+        assert_eq!(client(&named), client(&plain), "the client reads the same 53200");
         assert_eq!(plain.detail_log(), None);
         let line = format!("gravity: memory: SPILL-DEBT KeyCopies: {}", NoSpill::KeyCopies.limitation()); // alloc: Cold
         assert_eq!(named.detail_log(), Some(format!("{}\n{line}", plain.detail().unwrap()).as_str()), "the line rides last in the log-only detail"); // alloc: Cold

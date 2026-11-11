@@ -13,13 +13,18 @@ name = "postgres"
 path = "src/bin/postgres.rs"
 
 [features]
-default = ["cjk-encodings", "pagepool-global"]
+default = ["pagepool-global"]
 # The East-Asian conversion libraries (conv's `cjk-encodings`: C's utf8_and_{big5, euc_cn, euc_jp, euc_kr, euc_tw,
 # gb18030, gbk, johab, sjis, uhc, euc2004, sjis2004}, euc_cn_and_mic, euc_jp_and_sjis, euc_kr_and_mic, euc_tw_and_big5,
 # euc2004_sjis2004; ~1.84 MB of maps). ON by default: every build has them. A server built without it answers as a C
 # install with those modules missing (could not access file "utf8_and_sjis": No such file or directory, 58P01).
 # conv's every other edge is default-features = false, so this row decides it for the whole graph.
 cjk-encodings = ["conv/cjk-encodings"]
+# pgcrypto (contrib extension) and the Snappy/Brotli parquet codecs: OFF by default, like cjk-encodings, so a dev build skips
+# the crates only they use. `full` is the shipped set; release builds use it: `--features main_main/full`.
+pgcrypto = ["seams_init/pgcrypto"]
+parquet-codecs = ["parquet_read/snappy", "parquet_read/brotli"]
+full = ["cjk-encodings", "pagepool-global", "pgcrypto", "parquet-codecs"]
 # Antithesis harness builds only (antithesis/ directory): SDK assertions +
 # sancov coverage instrumentation. OFF by default — product builds compile
 # none of it. The harness image build (root Dockerfile, ARG ANTITHESIS=1)
@@ -60,6 +65,8 @@ oauth_validators = { path = "../../libpq/oauth_validators" }
 guc_tables = { path = "../../utils/misc/guc_tables" }
 # Feature carrier for cjk-encodings (in the graph transitively via fmgr_core).
 conv = { path = "../../utils/mb/conv", default-features = false }
+# Feature carrier for parquet-codecs (in the graph transitively via pgrc_write and copy).
+parquet_read = { path = "../../access/parquet_read", default-features = false }
 # Antithesis SDK (assertions/lifecycle); portable, but only compiled under
 # the `antithesis` feature.
 antithesis_sdk = { version = "0.2.9", optional = true }

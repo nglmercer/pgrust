@@ -845,6 +845,18 @@ pub fn init_seams() {
     gravity_hosts::dict::text_hosts::fp_seed_boot();
 }
 
+/// A2 entry 2: hosts' parallel btree leaf walk (bitmap_image.rs `getbitmap_wide`) over the installed pool, one claim per
+/// thread (each job walks the shared scan until it is done); the caller parks until every claim ran. `Ok(false)`: no pool.
+fn leaf_fan_out(width: u16, job: &gravity_hosts::ops::scan::bitmap_image::LeafJob<'_>) -> types_error::PgResult<bool> {
+    let Some(pool) = gravity_parallel::installed_pool() else { return Ok(false) };
+    let claims = gravity_parallel::PartitionRange::new(width as u64, 1);
+    let failed = |_: Box<types_error::PgError>| gravity_driver::Error::Host(std::borrow::Cow::Borrowed("a parallel index leaf walk failed"));
+    match pool.run(width, &claims, &|ord, _| job(ord).map_err(failed)) {
+        Ok(()) => Ok(true),
+        Err(f) => Err(crate::glue::pg_error(f.error)),
+    }
+}
+
 /// D1789: the plan memo's slot owners (a checked-out plan's slot is never given to another key).
 #[cfg(test)]
 #[allow(unsafe_code)]
@@ -1103,17 +1115,5 @@ mod d1789_slot_owners {
             assert!(b.entry.park().is_empty(), "{path}: no Node left parked under the key");
             assert_eq!(Arc::strong_count(&p), 1, "{path}: the admission dropped");
         }
-    }
-}
-
-/// A2 entry 2: hosts' parallel btree leaf walk (bitmap_image.rs `getbitmap_wide`) over the installed pool, one claim per
-/// thread (each job walks the shared scan until it is done); the caller parks until every claim ran. `Ok(false)`: no pool.
-fn leaf_fan_out(width: u16, job: &gravity_hosts::ops::scan::bitmap_image::LeafJob<'_>) -> types_error::PgResult<bool> {
-    let Some(pool) = gravity_parallel::installed_pool() else { return Ok(false) };
-    let claims = gravity_parallel::PartitionRange::new(width as u64, 1);
-    let failed = |_: Box<types_error::PgError>| gravity_driver::Error::Host(std::borrow::Cow::Borrowed("a parallel index leaf walk failed"));
-    match pool.run(width, &claims, &|ord, _| job(ord).map_err(failed)) {
-        Ok(()) => Ok(true),
-        Err(f) => Err(crate::glue::pg_error(f.error)),
     }
 }

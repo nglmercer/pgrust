@@ -344,7 +344,7 @@ mod tests {
             assert_eq!(abi::m8_subhash_reset(core::ptr::null_mut(), h(&o.head)), 0);
             for k in 0..1000u64 {
                 assert_eq!(insert(&o, k * 3, false), 0);
-                assert_eq!(insert(&o, k * 3 | 0xdead_0000_0000_0000, false), 0, "past the width: the same key");
+                assert_eq!(insert(&o, (k * 3) | 0xdead_0000_0000_0000, false), 0, "past the width: the same key");
             }
             let t = seal(&o);
             assert_eq!(seal(&o), t, "a second seal is the same header");

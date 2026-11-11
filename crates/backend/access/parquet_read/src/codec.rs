@@ -57,6 +57,7 @@ pub(crate) fn decompress_page(
             dst[..src.len()].copy_from_slice(src);
             src.len()
         }
+        #[cfg(feature = "snappy")]
         CodecId::Snappy => {
             let n = snap::raw::decompress_len(src)
                 .map_err(|e| decompress_failed("SNAPPY", e.to_string()))?; // alloc: Cold
@@ -70,12 +71,17 @@ pub(crate) fn decompress_page(
                 .decompress(src, dst)
                 .map_err(|e| decompress_failed("SNAPPY", e.to_string()))? // alloc: Cold
         }
+        #[cfg(not(feature = "snappy"))]
+        CodecId::Snappy => return Err(unsupported("compression codec SNAPPY (built without the `snappy` feature)".to_string())), // alloc: Cold
         CodecId::Zstd => zstd_decompress(src, dst)?,
         CodecId::Lz4Raw => lz4_flex::block::decompress_into(src, dst)
             .map_err(|e| decompress_failed("LZ4_RAW", e.to_string()))?, // alloc: Cold
         CodecId::Lz4Framed => lz4_hadoop(src, dst)?,
         CodecId::Gzip => gzip_members(src, dst)?,
+        #[cfg(feature = "brotli")]
         CodecId::Brotli => brotli(src, dst)?,
+        #[cfg(not(feature = "brotli"))]
+        CodecId::Brotli => return Err(unsupported("compression codec BROTLI (built without the `brotli` feature)".to_string())), // alloc: Cold
         CodecId::Lzo => return Err(unsupported("compression codec LZO".to_string())), // alloc: Cold
     };
     if written != uncompressed {
@@ -225,11 +231,13 @@ fn gzip_members(src: &[u8], dst: &mut [u8]) -> PgResult<usize> {
 
 /// Bounded sink for the brotli decoder: never grows past the declared
 /// page size.
+#[cfg(feature = "brotli")]
 struct Sink<'a> {
     dst: &'a mut [u8],
     pos: usize,
 }
 
+#[cfg(feature = "brotli")]
 impl std::io::Write for Sink<'_> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         if self.pos + buf.len() > self.dst.len() {
@@ -244,6 +252,7 @@ impl std::io::Write for Sink<'_> {
     }
 }
 
+#[cfg(feature = "brotli")]
 fn brotli(src: &[u8], dst: &mut [u8]) -> PgResult<usize> {
     let mut sink = Sink { dst, pos: 0 };
     let mut reader = src;
