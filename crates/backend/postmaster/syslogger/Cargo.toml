@@ -8,6 +8,11 @@ publish.workspace = true
 name = "syslogger"
 path = "src/lib.rs"
 
+[features]
+default = ["native-code"]
+# Native code (gravity_backend's TPDE compiler): on by default; off, programs run in tier 0's interpreter.
+native-code = ["launch_backend/native-code"]
+
 [dependencies]
 types_core = { path = "../../../_support/types/types_core" }
 types_dest = { path = "../../../_support/types/types_dest" }
@@ -23,7 +28,7 @@ guc_tables = { path = "../../utils/misc/guc_tables" }
 init_small = { path = "../../utils/init/init_small" }
 ipc = { path = "../../storage/ipc/ipc" }
 latch = { path = "../../storage/ipc/latch" }
-launch_backend = { path = "../launch_backend" }
+launch_backend = { path = "../launch_backend", default-features = false }
 localtime = { path = "../../timezone/localtime" }
 miscinit = { path = "../../utils/init/miscinit" }
 pgtz = { path = "../../timezone/pgtz" }

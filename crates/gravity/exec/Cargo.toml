@@ -9,6 +9,11 @@ autotests = false
 name = "gravity_exec"
 path = "src/lib.rs"
 
+[features]
+default = ["native-code"]
+# Native code (gravity_backend's TPDE compiler): on by default; off, programs run in tier 0's interpreter.
+native-code = ["gravity_backend/native-code", "gravity_lower/native-code", "gravity_lowerv4/native-code"]
+
 [dependencies]
 # C7 runtime half: its leader-class thread-locals are declared through leader_tls!
 leader_tls = { path = "../../_support/leader_tls" }
@@ -27,13 +32,13 @@ gravity_fn = { path = "../fn" }
 gravity_kernels = { path = "../kernels" }
 gravity_program = { path = "../program" }
 gravity_wire = { path = "../wire" }
-gravity_lower = { path = "../lower" }
-gravity_lowerv4 = { path = "../lowerv4" }
+gravity_lower = { path = "../lower", default-features = false }
+gravity_lowerv4 = { path = "../lowerv4", default-features = false }
 # D3887: the abort poll of host loops and the poll-gap probe.
 cancelpoll = { path = "../../_support/cancelpoll" }
 fires = { path = "../../_support/fires" }
 gravity_decompose = { path = "../decompose" }
-gravity_backend = { path = "../backend" }
+gravity_backend = { path = "../backend", default-features = false }
 gravity_expr = { path = "../expr" }
 guc_seams = { path = "../../backend/utils/misc/guc_seams" }
 combocid_seams = { path = "../../backend/utils/time/combocid_seams" }

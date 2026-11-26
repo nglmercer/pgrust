@@ -13,6 +13,11 @@ autotests = false
 name = "gravity_lowerv4"
 path = "src/lib.rs"
 
+[features]
+default = ["native-code"]
+# Native code (gravity_backend's TPDE compiler): on by default; off, programs run in tier 0's interpreter.
+native-code = ["gravity_lower/native-code"]
+
 [dependencies]
 # C7 runtime half: its leader-class thread-locals are declared through leader_tls!
 leader_tls = { path = "../../_support/leader_tls" }
@@ -26,7 +31,7 @@ gravity_expr = { path = "../expr" }
 gravity_fn = { path = "../fn" }
 gravity_ir = { path = "../ir" }
 gravity_kernels = { path = "../kernels" }
-gravity_lower = { path = "../lower" }
+gravity_lower = { path = "../lower", default-features = false }
 gravity_program = { path = "../program" }
 guc_seams = { path = "../../backend/utils/misc/guc_seams" }
 # planprod P4: the hosted owner's product root is owned by construction (set_owner / set_owner_tree: mcx's std API, on in

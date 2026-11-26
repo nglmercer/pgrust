@@ -917,6 +917,7 @@ members = [
     "crates/gravity/backend",
     "crates/gravity/backend/interp",
     "crates/gravity/backend/tpde",
+    "crates/gravity/backend/tpde_off",
     "crates/gravity/backend/wasm",
     "crates/gravity/expr",
     "crates/gravity/decompose",

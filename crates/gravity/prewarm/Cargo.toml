@@ -8,11 +8,16 @@ publish.workspace = true
 name = "gravity_prewarm"
 path = "src/lib.rs"
 
+[features]
+default = ["native-code"]
+# Native code (gravity_backend's TPDE compiler): on by default; off, programs run in tier 0's interpreter.
+native-code = ["gravity_backend/native-code", "gravity_exec/native-code"]
+
 [dependencies]
 pgrc_am = { path = "../../backend/access/pgrcolumnar/pgrc_am" }
 gravity_hosts = { path = "../hosts" }
-gravity_backend = { path = "../backend" }
-gravity_exec = { path = "../exec" }
+gravity_backend = { path = "../backend", default-features = false }
+gravity_exec = { path = "../exec", default-features = false }
 bgworker = { path = "../../backend/postmaster/bgworker" }
 datum = { path = "../../_support/types/datum" }
 ipc = { path = "../../backend/storage/ipc/ipc" }

@@ -7,6 +7,7 @@
 //! on the backend's keeper list as the program caches': the backend took it for its own contexts and freed it on its own
 //! account, and the program caches never got its bytes back. Door 1 counts every block on the calling thread here, as the
 //! server's allocator does.
+#![cfg(feature = "native-code")]
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicI64, Ordering};
 

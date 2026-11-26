@@ -2,6 +2,7 @@
 //! `START SIZE gravity:<key8>:<func>` line per function to `/tmp/perf-<pid>.map`, each the function's mapped range (its
 //! entry, its symbol's size, inside the module's mapping, none overlapping) and a sidecar line naming the statement; a
 //! note names the function's plan node; with the map off a miss writes nothing. The program is TH14-pgrc's fold.
+#![cfg(feature = "native-code")]
 #![cfg(all(unix, any(target_arch = "aarch64", target_arch = "x86_64")))]
 
 use gravity_backend::perfmap;

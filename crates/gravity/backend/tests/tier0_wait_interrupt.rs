@@ -4,6 +4,7 @@
 //! 57014) as an ereport is, and its code is not failed: the next promotion takes the module (lib.rs `promoted`). Found by
 //! the Hibernate sweep: a backend waiting on the compile pool's 840 s compile answered neither pg_cancel_backend,
 //! pg_terminate_backend nor a fast shutdown. Its own test binary: `PGRUST_GRAVITY_TIER0` is read once per process.
+#![cfg(feature = "native-code")]
 
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
