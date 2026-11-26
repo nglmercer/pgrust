@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![allow(clippy::duplicate_mod,dead_code)]
 
 use pgrc_write::format::sortkey::{NullsOrder, SortDir};
 use pgrc_write::structural::ClusterKeyDecl;
