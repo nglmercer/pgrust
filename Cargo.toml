@@ -967,7 +967,7 @@ openssl-src = { version = "300.6", features = ["no-dso"] }
 foreign-types = "0.3"
 miniz_oxide = "0.8"
 simdutf8 = "0.1"
-wasm-encoder = "0.259"
+wasm-encoder = "0.254"
 wasmtime = { version = "48", default-features = false, features = ["cranelift", "runtime", "std"] }
 zstd = { version = "0.13", default-features = false }
 aes = "0.8"

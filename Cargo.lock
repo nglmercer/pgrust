@@ -9113,7 +9113,7 @@ dependencies = [
  "types_nodes",
  "types_portal",
  "types_tuple",
- "wasm-encoder 0.259.0",
+ "wasm-encoder",
  "wasmtime",
 ]
 
@@ -24062,17 +24062,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09480d646178e5fdd12bb06e812d0af9a3a191dbc9cd697fdc86687beade7393"
 dependencies = [
  "leb128fmt",
- "wasmparser 0.254.0",
-]
-
-[[package]]
-name = "wasm-encoder"
-version = "0.259.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1d0246511d901aacf25d2dc9111f0054947de5e093fe662099e709ff7530dc3"
-dependencies = [
- "leb128fmt",
- "wasmparser 0.259.0",
+ "wasmparser",
 ]
 
 [[package]]
@@ -24089,17 +24079,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wasmparser"
-version = "0.259.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f7c12eac7bb587801590f6a67ff0bc84d0748513864b71108e4b311cc3df694"
-dependencies = [
- "bitflags",
- "indexmap",
- "semver",
-]
-
-[[package]]
 name = "wasmprinter"
 version = "0.254.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -24107,7 +24086,7 @@ checksum = "64e3ba11e024f504698f87b629b2b66c22a1231758de7607754963f7d198be39"
 dependencies = [
  "anyhow",
  "termcolor",
- "wasmparser 0.254.0",
+ "wasmparser",
 ]
 
 [[package]]
@@ -24135,7 +24114,7 @@ dependencies = [
  "serde_derive",
  "smallvec",
  "target-lexicon",
- "wasmparser 0.254.0",
+ "wasmparser",
  "wasmtime-environ",
  "wasmtime-internal-core",
  "wasmtime-internal-cranelift",
@@ -24171,8 +24150,8 @@ dependencies = [
  "sha2",
  "smallvec",
  "target-lexicon",
- "wasm-encoder 0.254.0",
- "wasmparser 0.254.0",
+ "wasm-encoder",
+ "wasmparser",
  "wasmprinter",
  "wasmtime-internal-component-util",
  "wasmtime-internal-core",
@@ -24214,7 +24193,7 @@ dependencies = [
  "smallvec",
  "target-lexicon",
  "thiserror",
- "wasmparser 0.254.0",
+ "wasmparser",
  "wasmtime-environ",
  "wasmtime-internal-core",
  "wasmtime-internal-unwinder",
