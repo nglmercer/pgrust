@@ -2,13 +2,11 @@
 
 use ::datum::{Datum, Varlena};
 use ::mcx::Mcx;
-use ::types_core::Oid;
 use ::types_error::{
     PgError, PgResult, ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_UNDEFINED_OBJECT,
 };
 use ::types_fmgr::{
-    varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction,
-};
+    varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, };
 use ::wchar::{pg_enc, pg_valid_encoding, PG_LATIN1, PG_LATIN2, PG_LATIN9, PG_WIN1250};
 
 const RANGE_128: u8 = 128;
@@ -137,9 +135,7 @@ fn invalid_encoding_code(enc: i32) -> Box<PgError> {
     )
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const ASCII_BUILTINS: &[FmgrBuiltin] = &[
     b(1845, "to_ascii_default", 1, fc_to_ascii_default),

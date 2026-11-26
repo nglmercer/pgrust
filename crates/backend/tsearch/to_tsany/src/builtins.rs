@@ -6,8 +6,7 @@ use ::types_core::Oid;
 use ::types_error::PgResult;
 use ::types_fmgr::{
     function_call2_coll_in, varlena_result, FmgrBuiltin, FmgrInfo,
-    FunctionCallInfoBaseData as Fcinfo, PGFunction,
-};
+    FunctionCallInfoBaseData as Fcinfo, };
 
 use crate::cache_bind;
 use crate::env::CacheEnv;
@@ -246,9 +245,7 @@ pub fn fc_ts_headline(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResul
     ts_headline_common(fcinfo, None, false)
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const TO_TSANY_BUILTINS: &[FmgrBuiltin] = &[
     b(3745, "to_tsvector_byid", 2, fc_to_tsvector_byid),

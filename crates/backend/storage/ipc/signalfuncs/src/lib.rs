@@ -9,7 +9,7 @@ use ::types_core::{BackendType, InvalidOid, Oid};
 use ::types_error::{
     PgResult, ERRCODE_INSUFFICIENT_PRIVILEGE, ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE, WARNING,
 };
-use ::types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};
+use ::types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 use ::types_storage::waiteventset::{WL_EXIT_ON_PM_DEATH, WL_LATCH_SET, WL_TIMEOUT};
 
 #[cfg(test)]
@@ -217,9 +217,7 @@ pub fn fc_pg_rotate_logfile(
     Ok(Datum::from_bool(true))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const SIGNALFUNCS_BUILTINS: &[FmgrBuiltin] = &[
     b(2096, "pg_terminate_backend", 2, fc_pg_terminate_backend),

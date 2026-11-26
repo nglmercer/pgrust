@@ -9,7 +9,6 @@ use types_error::{
 use types_tuple::TupleDescData;
 use types_fmgr::{
     byref_result, cstring_result, varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
-    PGFunction,
 };
 use elog::PCT_M;
 
@@ -1098,16 +1097,7 @@ pub fn fc_pg_trigger_depth(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> Pg
     Ok(Datum::from_i32(trigger_seams::my_trigger_depth::call()))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: false,
-        func,
-    }
-}
+use ::types_fmgr::builtin_strict as b;
 
 // varchar.c typmodout slice hosted here until the varchar unit lands.
 fn typmod_paren(fcinfo: &mut Fcinfo, s: String) -> PgResult<Datum> {

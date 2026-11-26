@@ -5,11 +5,9 @@
 
 use ::datum::{Datum, Varlena};
 use ::mcx::Mcx;
-use ::types_core::Oid;
 use ::types_error::PgResult;
 use ::types_fmgr::{
     byref_result, varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
-    PGFunction,
 };
 
 use crate::{InetRef, InetValue, INET_OUT_BUFLEN};
@@ -400,27 +398,9 @@ pub fn fc_inet_server_port(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) 
     session_port(fcinfo, true)
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: false,
-        func,
-    }
-}
+use ::types_fmgr::builtin_strict as b;
 
-const fn nb(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: false,
-        retset: false,
-        func,
-    }
-}
+use ::types_fmgr::builtin_nonstrict as nb;
 
 // pg_proc.dat rows (all proisstrict, none retset), OID-ascending.
 pub const NETWORK_BUILTINS: &[FmgrBuiltin] = &[

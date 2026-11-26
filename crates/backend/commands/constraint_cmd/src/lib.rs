@@ -3,9 +3,9 @@
 #![allow(non_snake_case)]
 
 use datum::Datum;
-use types_core::{Oid, INDEX_MAX_KEYS};
+use types_core::{INDEX_MAX_KEYS};
 use types_error::{PgError, PgResult, ERRCODE_E_R_I_E_TRIGGER_PROTOCOL_VIOLATED, ERROR};
-use types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};
+use types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 use types_trigger::{
     TRIGGER_FIRED_AFTER, TRIGGER_FIRED_BY_INSERT, TRIGGER_FIRED_BY_UPDATE, TRIGGER_FIRED_FOR_ROW,
 };
@@ -127,9 +127,7 @@ pub fn fc_unique_key_recheck(
     Ok(Datum::from_usize(0))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func, }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const CONSTRAINT_BUILTINS: &[FmgrBuiltin] = &[b(1250, "unique_key_recheck", 0, fc_unique_key_recheck)];
 

@@ -10,7 +10,6 @@ use alloc::format;
 use ::datum::Datum;
 use ::mcx::{vec_with_capacity_in, Mcx, PgVec};
 use ::stringinfo::StringInfo;
-use ::types_core::Oid;
 use ::types_error::{
     ereturn, PgError, PgResult, SoftErrorContext, ERRCODE_ARRAY_SUBSCRIPT_ERROR,
     ERRCODE_INVALID_BINARY_REPRESENTATION, ERRCODE_INVALID_PARAMETER_VALUE,
@@ -20,7 +19,6 @@ use ::types_error::{
 };
 use ::types_fmgr::{
     cstring_result, varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
-    PGFunction,
 };
 
 const VARHDRSZ: usize = 4;
@@ -1214,9 +1212,7 @@ pub fn fc_bitgetbit(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRe
     Ok(Datum::from_i32(bitgetbit_core(v.data(), n)?))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const VARBIT_BUILTINS: &[FmgrBuiltin] = &[
     b(1564, "bit_in", 3, fc_bit_in),

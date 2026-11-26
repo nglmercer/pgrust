@@ -6,8 +6,7 @@ use ::types_core::Oid;
 use ::types_error::{PgError, PgResult, ERRCODE_UNDEFINED_FUNCTION};
 use ::types_fmgr::{
     byref_result, cstring_result, varlena_result, FmgrBuiltin, FmgrInfo,
-    FunctionCallInfoBaseData as Fcinfo, PGFunction,
-};
+    FunctionCallInfoBaseData as Fcinfo, };
 
 use crate::foundation::varsize_any;
 use ::mcx::vec_with_capacity_in;
@@ -565,9 +564,7 @@ pub fn fc_array_to_text_null(
     array_to_text_common(flinfo, fcinfo, null_string)
 }
 
-const fn srf(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: true, func }
-}
+use ::types_fmgr::builtin_strict_retset as srf;
 
 
 // C array_cat (array_userfuncs.c), hosted with the array machinery it
@@ -707,20 +704,9 @@ fn cat_incompatible(detail: &str) -> Box<PgError> {
     )
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: false,
-        func,
-    }
-}
+use ::types_fmgr::builtin_strict as b;
 
-const fn agg(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: false, retset: false, func }
-}
+use ::types_fmgr::builtin_nonstrict as agg;
 
 // Cached in FmgrInfo.fn_extra by the comparison family: the element type's
 // resolved eq/cmp finfo + physical properties (C caches the typcache entry).
@@ -1007,9 +993,7 @@ pub fn fc_int2vectorsend(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> 
     fc_array_send(flinfo, fcinfo)
 }
 
-const fn nb(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: false, retset: false, func }
-}
+use ::types_fmgr::builtin_nonstrict as nb;
 
 /// SupportRequestModifyInPlace: the target Param at `argno`, if any.
 pub fn modify_in_place_support(fcinfo: &Fcinfo, argno: usize, need_second: bool) -> Datum {

@@ -1,11 +1,10 @@
 //! fmgr wrappers (`fc_*`) + `MAC8_BUILTINS` for fmgr-core.
 
 use ::datum::Datum;
-use ::types_core::Oid;
 use ::types_error::PgResult;
 use ::types_fmgr::{
     byref_result, varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
-    PGFunction, MACADDR8_LEN,
+    MACADDR8_LEN,
 };
 
 use crate::{MacAddr8, MACADDR8_OUT_LEN};
@@ -129,16 +128,7 @@ pub fn fc_macaddr8tomacaddr(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo)
     byref_result(fcinfo.result_mcx(), &r.to_bytes())
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: false,
-        func,
-    }
-}
+use ::types_fmgr::builtin_strict as b;
 
 // pg_proc.dat rows (all proisstrict, none retset), OID-ascending.
 pub const MAC8_BUILTINS: &[FmgrBuiltin] = &[

@@ -7,8 +7,7 @@ use ::mcx::Mcx;
 use ::types_core::{Oid, BTREE_AM_OID, GIN_AM_OID, GIST_AM_OID, HASH_AM_OID, SPGIST_AM_OID};
 use ::types_error::{PgError, PgResult, ERRCODE_FEATURE_NOT_SUPPORTED};
 use ::types_fmgr::{
-    varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction,
-};
+    varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, };
 
 const BRIN_AM_OID: Oid = 3580;
 
@@ -638,9 +637,7 @@ fn gin_phasename(phasenum: i64) -> Option<&'static str> {
     }
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const AMUTILS_BUILTINS: &[FmgrBuiltin] = &[
     // AM handlers (heapam_handler.c, nbtree.c, hash.c — crates unreachable

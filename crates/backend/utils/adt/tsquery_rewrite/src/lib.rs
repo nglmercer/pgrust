@@ -10,8 +10,7 @@ use ::datum::Datum;
 use ::mcx::{vec_with_capacity_in, Mcx, PgVec};
 use ::types_error::{PgError, PgResult, ERRCODE_INVALID_PARAMETER_VALUE};
 use ::types_fmgr::{
-    varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction,
-};
+    varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, };
 
 const TSQUERYOID: ::types_core::Oid = 3615;
 
@@ -347,9 +346,7 @@ pub fn fc_tsquery_rewrite_query(
     finish_tree(mcx, tree)
 }
 
-const fn b(foid: ::types_core::Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const TSQUERY_REWRITE_BUILTINS: &[FmgrBuiltin] = &[
     b(3684, "tsquery_rewrite", 3, fc_tsquery_rewrite),

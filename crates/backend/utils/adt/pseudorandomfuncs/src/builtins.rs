@@ -1,9 +1,7 @@
 use ::datum::Datum;
-use ::types_core::Oid;
 use ::types_error::PgResult;
 use ::types_fmgr::{
-    byref_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction,
-};
+    byref_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, };
 
 pub fn fc_setseed(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     crate::setseed(fcinfo.arg_f64(0))?;
@@ -41,9 +39,7 @@ pub fn fc_numeric_random(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) ->
     byref_result(fcinfo.result_mcx(), img.as_bytes())
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const PSEUDORANDOM_BUILTINS: &[FmgrBuiltin] = &[
     b(1598, "drandom", 0, fc_drandom),

@@ -1,6 +1,5 @@
 use ::datum::Datum;
 use ::fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
-use ::types_core::Oid;
 use ::types_error::{PgError, PgResult, ERRCODE_FEATURE_NOT_SUPPORTED};
 use ::types_storage::bufpage::MaxHeapTuplesPerPage;
 
@@ -345,9 +344,7 @@ fn fc_summary_send(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<D
     varlena::builtins::fc_byteasend(None, fcinfo)
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: ::fmgr::PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func, }
-}
+use ::fmgr::builtin_strict as b;
 
 fn fc_options(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     // SAFETY: index_opclass_options passes &mut LocalRelopts as arg 0 (C

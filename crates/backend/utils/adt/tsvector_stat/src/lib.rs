@@ -280,9 +280,7 @@ pub fn fc_ts_stat2(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResu
     srf_drive(flinfo, fcinfo, "ts_stat2", true)
 }
 
-const fn srf(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: true, func }
-}
+use ::types_fmgr::builtin_strict_retset as srf;
 
 pub const TS_STAT_BUILTINS: &[FmgrBuiltin] = &[
     srf(3689, "ts_stat1", 1, fc_ts_stat1),

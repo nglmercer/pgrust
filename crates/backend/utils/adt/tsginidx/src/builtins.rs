@@ -1,7 +1,6 @@
 use ::datum::Datum;
-use ::types_core::Oid;
 use ::types_error::{PgError, PgResult};
-use ::types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};
+use ::types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
 fn arg_text(fcinfo: & Fcinfo, i: usize) -> PgResult<& [u8]> {
     // SAFETY: strict text arg is a non-null live varlena.
@@ -52,9 +51,7 @@ fn fc_gin_tsquery_consistent_6args(f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo
     compat_nargs_guard(f, fcinfo, 8, "gin_tsquery_consistent requires eight arguments")
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const TSGINIDX_BUILTINS: &[FmgrBuiltin] = &[
     b(2700, "gin_cmp_prefix", 4, fc_gin_cmp_prefix),

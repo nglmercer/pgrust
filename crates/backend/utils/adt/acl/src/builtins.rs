@@ -4,7 +4,7 @@ use types_core::{Oid, BOOLOID, OIDOID, RECORDOID, TEXTOID};
 use types_error::{PgError, PgResult, ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_UNDEFINED_TABLE};
 use types_fmgr::{
     byref_result, varlena_result, FmgrBuiltin, FmgrInfo,
-    FunctionCallInfoBaseData as Fcinfo, PGFunction, ACLITEM_LEN,
+    FunctionCallInfoBaseData as Fcinfo, ACLITEM_LEN,
 };
 
 use crate::ops::{convert_any_priv_string, PrivMapEntry};
@@ -1290,16 +1290,7 @@ fn fc_aclexplode(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult
     Ok(funcapi_srf::srf_return_next(flinfo, fcinfo, d))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: false,
-        func,
-    }
-}
+use ::types_fmgr::builtin_strict as b;
 
 
 pub const ACL_BUILTINS: &[FmgrBuiltin] = &[

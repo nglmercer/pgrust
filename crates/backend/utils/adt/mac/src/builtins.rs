@@ -4,11 +4,10 @@
 //! needs the SortSupport node. Their value cores live in the crate root.
 
 use ::datum::Datum;
-use ::types_core::Oid;
 use ::types_error::PgResult;
 use ::types_fmgr::{
     byref_result, varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
-    PGFunction, MACADDR_LEN,
+    MACADDR_LEN,
 };
 
 use crate::{MacAddr, MACADDR_OUT_LEN};
@@ -117,16 +116,7 @@ fc_mac_bin! {
     fc_macaddr_or: macaddr_or;
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: false,
-        func,
-    }
-}
+use ::types_fmgr::builtin_strict as b;
 
 // pg_proc.dat rows (all proisstrict, none retset), OID-ascending.
 // 3359 macaddr_sortsupport: native comparator resolution; fmgr-lookup parity.

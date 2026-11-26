@@ -3,11 +3,9 @@
 
 use datum::Datum;
 use types_core::catalog::NAMEOID;
-use types_core::Oid;
 use types_error::PgResult;
 use types_fmgr::{
     byref_result, varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
-    PGFunction,
 };
 use types_tuple::NameData;
 
@@ -205,16 +203,7 @@ pub fn fc_namesend(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRes
     Ok(varlena_result(crate::namesend(mcx, &s)?))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: false,
-        func,
-    }
-}
+use ::types_fmgr::builtin_strict as b;
 
 // pg_proc.dat rows (all proisstrict, none retset), OID-ascending.
 pub const NAME_BUILTINS: &[FmgrBuiltin] = &[

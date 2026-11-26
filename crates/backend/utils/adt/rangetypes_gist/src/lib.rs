@@ -1189,14 +1189,7 @@ fn double_sorting_split<'m>(
     Ok(())
 }
 
-const fn b(
-    foid: Oid,
-    name: &'static str,
-    nargs: i16,
-    func: ::types_fmgr::PGFunction,
-) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const RANGETYPES_GIST_BUILTINS: &[FmgrBuiltin] = &[
     b(3875, "range_gist_consistent", 5, fc_range_gist_consistent),

@@ -8,11 +8,10 @@
 //! 16/12-byte images via byref_result.
 
 use ::datum::Datum;
-use ::types_core::Oid;
 use ::types_error::PgResult;
 use ::types_fmgr::{
     byref_result, overlaps_common, varlena_result, FmgrBuiltin, FmgrInfo,
-    FunctionCallInfoBaseData as Fcinfo, OutInto, PGFunction, OUT_CHARS_DATETIME,
+    FunctionCallInfoBaseData as Fcinfo, OutInto, OUT_CHARS_DATETIME,
 };
 
 use crate::{DateADT, TimeTzADT};
@@ -1126,13 +1125,9 @@ pub fn fc_time_support(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> P
     Ok(Datum::from_usize(0))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
-const fn bn(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: false, retset: false, func }
-}
+use ::types_fmgr::builtin_nonstrict as bn;
 
 // pg_proc.dat rows for date.c; alias OIDs over the same prosrc each get
 // their row, as in C's fmgr_builtins[].

@@ -3,11 +3,9 @@
 
 use ::datum::Datum;
 use ::mcx::{Mcx, PgVec};
-use ::types_core::Oid;
 use ::types_error::PgResult;
 use ::types_fmgr::{
     cstring_result, varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
-    PGFunction,
 };
 use ::varlena::VarPayload;
 
@@ -86,9 +84,7 @@ pub fn fc_jsonpath_send(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> 
     Ok(varlena_result(crate::path::jsonpath_send(mcx, full_image(&jp))?))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const JSONPATH_BUILTINS: &[FmgrBuiltin] = &[
     b(4001, "jsonpath_in", 1, fc_jsonpath_in),

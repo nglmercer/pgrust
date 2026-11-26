@@ -7,11 +7,10 @@ use datum::Datum;
 use mcx::{Mcx, PgVec};
 use stringinfo::StringInfo;
 use types_core::catalog::TEXTOID;
-use types_core::Oid;
 use types_error::PgResult;
 use types_fmgr::{
     cstring_result, varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
-    PGFunction, PackedVarlena,
+    PackedVarlena,
 };
 
 pub fn fc_json_in(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -376,38 +375,11 @@ pub fn fc_json_array_elements_text(
     crate::srfs::elements_worker(flinfo, fcinfo, "json_array_elements_text", true)
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: false,
-        func,
-    }
-}
+use ::types_fmgr::builtin_strict as b;
 
-const fn b_lax(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: false,
-        retset: false,
-        func,
-    }
-}
+use ::types_fmgr::builtin_nonstrict as b_lax;
 
-const fn srf(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: true,
-        func,
-    }
-}
+use ::types_fmgr::builtin_strict_retset as srf;
 
 // pg_proc.dat: strictness per proisstrict; retset SRFs per proretset.
 pub const JSON_BUILTINS: &[FmgrBuiltin] = &[

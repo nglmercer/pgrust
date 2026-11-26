@@ -60,7 +60,7 @@ seam_core::seam!(
 
 pub mod builtins {
     use super::*;
-    use types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};
+    use types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
     fn fc_pg_options_to_table(
         flinfo: Option<&mut FmgrInfo>,
@@ -78,13 +78,9 @@ pub mod builtins {
         Ok(Datum::from_bool(r))
     }
 
-    const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-        FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func, }
-    }
+    use ::types_fmgr::builtin_strict as b;
 
-    const fn srf(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-        FmgrBuiltin { foid, name, nargs, strict: true, retset: true, func, }
-    }
+    use ::types_fmgr::builtin_strict_retset as srf;
 
     pub const FOREIGN_BUILTINS: &[FmgrBuiltin] = &[
         b(2316, "postgresql_fdw_validator", 2, fc_postgresql_fdw_validator,),

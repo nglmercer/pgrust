@@ -2,11 +2,9 @@
 //! the crate root.
 
 use ::datum::Datum;
-use ::types_core::Oid;
 use ::types_error::PgResult;
 use ::types_fmgr::{
     byref_result, varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
-    PGFunction,
 };
 
 use crate::{PgUuid, UUID_OUT_LEN};
@@ -125,9 +123,7 @@ pub fn fc_uuidv7_interval(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -
     byref_result(fcinfo.result_mcx(), &uuid)
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
 // pg_proc.dat rows for uuid.c (all proisstrict, none retset), OID-ascending.
 // 3300 uuid_sortsupport / 6410 uuid_skipsupport unregistered (node frame absent).

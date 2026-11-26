@@ -148,14 +148,7 @@ pub fn fc_thesaurus_lexize(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) 
 pub mod builtins {
     use super::*;
 
-    const fn b(
-        foid: ::types_core::Oid,
-        name: &'static str,
-        nargs: i16,
-        func: ::types_fmgr::PGFunction,
-    ) -> FmgrBuiltin {
-        FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-    }
+    use ::types_fmgr::builtin_strict as b;
 
     pub const DICT_BUILTINS: &[FmgrBuiltin] = &[
         b(3723, "ts_lexize", 2, fc_ts_lexize),

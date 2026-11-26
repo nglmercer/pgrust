@@ -1,7 +1,6 @@
 use datum::Datum;
-use types_core::Oid;
 use types_error::PgResult;
-use types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};
+use types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
 use crate::visibility::{
     CollationIsVisibleExt, ConversionIsVisibleExt, FunctionIsVisibleExt, OpclassIsVisibleExt,
@@ -38,16 +37,7 @@ fc_is_visible! {
     fc_pg_ts_config_is_visible: TSConfigIsVisibleExt;
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: false,
-        func,
-    }
-}
+use ::types_fmgr::builtin_strict as b;
 
 // pg_proc.dat rows (all proisstrict, none retset), OID-ascending.
 pub const NAMESPACE_BUILTINS: &[FmgrBuiltin] = &[

@@ -10,7 +10,6 @@ use types_core::Oid;
 use types_error::{PgError, PgResult};
 use types_fmgr::{
     cstring_result, varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
-    PGFunction,
 };
 
 #[cold]
@@ -960,38 +959,11 @@ pub fn fc_pg_column_toast_chunk_id(
     Ok(Datum::from_oid(tp.va_valueid))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: false,
-        func,
-    }
-}
+use ::types_fmgr::builtin_strict as b;
 
-const fn n(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: false,
-        retset: false,
-        func,
-    }
-}
+use ::types_fmgr::builtin_nonstrict as n;
 
-const fn srf(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: false,
-        retset: true,
-        func,
-    }
-}
+use ::types_fmgr::builtin_nonstrict_retset as srf;
 
 // pg_proc.dat rows (none retset; the string_agg trans/final/combine rows are
 // proisstrict 'f'); 1317/1369/1381 = textlen aliases, 936/937 = substr aliases.

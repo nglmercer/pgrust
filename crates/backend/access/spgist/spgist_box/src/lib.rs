@@ -598,9 +598,7 @@ fn fc_spg_poly_quad_compress(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> 
     form_box_datum(fcinfo.result_mcx(), &boundbox)
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: ::types_fmgr::PGFunction,) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func, }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const SPGIST_BOX_BUILTINS: &[FmgrBuiltin] = &[
     b(5010, "spg_bbox_quad_config", 2, fc_spg_bbox_quad_config),

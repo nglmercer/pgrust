@@ -99,6 +99,31 @@ pub fn register_builtin_library(entry: BuiltinLibraryEntry) {
     }
 }
 
+/// A builtin library crate's init_seams is the same registration everywhere:
+/// the crate-local LIBRARY name and lookup table, plus a _PG_init when the
+/// extension has one. Generating it keeps the entry shape in one place.
+#[macro_export]
+macro_rules! builtin_library_seams {
+    () => {
+        pub fn init_seams() {
+            $crate::register_builtin_library($crate::BuiltinLibraryEntry {
+                name: LIBRARY,
+                lookup,
+                pg_init: None,
+            });
+        }
+    };
+    ($pg_init:expr) => {
+        pub fn init_seams() {
+            $crate::register_builtin_library($crate::BuiltinLibraryEntry {
+                name: LIBRARY,
+                lookup,
+                pg_init: Some($pg_init),
+            });
+        }
+    };
+}
+
 pub fn is_builtin_library(name: &str) -> bool {
     registered(name).is_some()
 }

@@ -630,13 +630,9 @@ const fn b(foid: Oid, name: &'static str, func: PGFunction) -> FmgrBuiltin {
     FmgrBuiltin { foid, name, nargs: 2, strict: true, retset: false, func }
 }
 
-const fn bn(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as bn;
 
-const fn srf(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: true, func }
-}
+use ::types_fmgr::builtin_strict_retset as srf;
 
 // pg_proc.dat rows; 1656-1659 are the bpchar rows sharing the text prosrc,
 // 1623 similar_escape is the lone non-strict row.

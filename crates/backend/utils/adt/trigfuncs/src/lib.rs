@@ -8,7 +8,7 @@ use alloc::format;
 
 use datum::Datum;
 use types_error::{PgError, PgResult, ERRCODE_E_R_I_E_TRIGGER_PROTOCOL_VIOLATED, ERROR};
-use types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};
+use types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 use types_trigger::{
     TRIGGER_FIRED_BY_UPDATE, TRIGGER_FIRED_FOR_ROW, TRIGGER_EVENT_BEFORE, TRIGGER_EVENT_TIMINGMASK,
 };
@@ -75,9 +75,7 @@ pub fn fc_suppress_redundant_updates_trigger(
     }
 }
 
-const fn b(foid: types_core::Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const TRIGFUNCS_BUILTINS: &[FmgrBuiltin] =
     &[b(1291, "suppress_redundant_updates_trigger", 0, fc_suppress_redundant_updates_trigger)];

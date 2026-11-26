@@ -15,8 +15,7 @@ use ::types_core::Oid;
 use ::types_error::{PgError, PgResult, ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE};
 use ::types_fmgr::{
     byref_result, function_call2_coll_in, FmgrBuiltin, FmgrInfo,
-    FunctionCallInfoBaseData as Fcinfo, PGFunction,
-};
+    FunctionCallInfoBaseData as Fcinfo, };
 use ::types_nodes::primnodes::{Aggref, AGGKIND_HYPOTHETICAL, AGGKIND_NORMAL};
 use ::types_slot::{SlotData, TupleSlotKind};
 use ::types_tuple::TupleDescData;
@@ -79,9 +78,7 @@ const INT4OID: Oid = 23;
 const INT4_LESS_OPERATOR: Oid = 97;
 const INT4_EQUAL_OPERATOR: Oid = 96;
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: false, retset: false, func }
-}
+use ::types_fmgr::builtin_nonstrict as b;
 
 pub const ORDEREDSETAGGS_BUILTINS: &[FmgrBuiltin] = &[
     b(3970, "ordered_set_transition", 2, fc_ordered_set_transition),

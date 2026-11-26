@@ -2,7 +2,6 @@
 
 use ::datum::Datum;
 use ::types_core::geo::{Point, BOX, CIRCLE, LINE, LSEG};
-use ::types_core::Oid;
 use ::types_error::{PgResult, SoftErrorContext};
 use ::types_fmgr::{
     byref_result, varlena_result, FmgrBuiltin, FmgrInfo,
@@ -944,16 +943,7 @@ fn fc_dist_polyp(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Dat
     Ok(Datum::from_f64(crate::proximity::dist_polyp(&p, &pt)?))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: ::types_fmgr::PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: false,
-        func,
-    }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const GEO_BUILTINS: &[FmgrBuiltin] = &[
     b(117, "point_in", 1, fc_point_in),

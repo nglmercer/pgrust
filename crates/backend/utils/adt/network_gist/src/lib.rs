@@ -4,11 +4,9 @@
 
 use ::adt_network::{bitncmp, bitncommon, InetRef, InetValue, PGSQL_AF_INET6};
 use ::datum::Datum;
-use ::types_core::Oid;
 use ::types_error::{PgError, PgResult, ERRCODE_DATA_CORRUPTED};
 use ::types_fmgr::{
-    byref_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction,
-};
+    byref_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, };
 use ::types_gist::{GistEntryVector, GistSplitVec, GISTENTRY};
 
 const INETSTRAT_OVERLAPS: u16 = 3;
@@ -585,16 +583,7 @@ fn fc_inet_gist_same(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult
     Ok(fcinfo.arg(2))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: false,
-        func,
-    }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const NETWORK_GIST_BUILTINS: &[FmgrBuiltin] = &[
     b(3553, "inet_gist_consistent", 5, fc_inet_gist_consistent),

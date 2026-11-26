@@ -4,7 +4,7 @@ use ::datum::Datum;
 use ::types_core::Oid;
 use ::types_error::PgResult;
 use std::path::Path;
-use ::types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};
+use ::types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 use ::elog::PCT_M;
 
 pub fn fc_pg_size_bytes(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -13,9 +13,7 @@ pub fn fc_pg_size_bytes(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> 
     Ok(Datum::from_i64(crate::pg_size_bytes(a.data())?))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
 // calculate_relation_size (dbsize.c): stat every consecutive segment file;
 // the first ENOENT ends the run, any other failure is an error.

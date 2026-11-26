@@ -17,8 +17,7 @@ use ::types_error::PgResult;
 use ::types_fmgr::{
     cstring_result, function_call1_coll_in, function_call1_coll_in_nullok,
     function_call2_coll_in_nullok, FmgrBuiltin, FmgrInfo,
-    FunctionCallInfoBaseData as Fcinfo, PGFunction,
-};
+    FunctionCallInfoBaseData as Fcinfo, };
 use ::types_tuple::{
     HeapTupleData, HeapTupleHeaderData, ItemPointerData, SizeofHeapTupleHeader,
 };
@@ -361,9 +360,7 @@ pub fn fc_hash_record_extended(
     Ok(Datum::from_u64(h))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const ROWTYPES_BUILTINS: &[FmgrBuiltin] = &[
     b(2290, "record_in", 3, fc_record_in),

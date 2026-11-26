@@ -4,7 +4,7 @@ use datum::{Datum, Varlena};
 use mcx::Mcx;
 use types_core::Oid;
 use types_error::PgResult;
-use types_fmgr::{varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};
+use types_fmgr::{varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
 fn arg_str(fcinfo: & Fcinfo, i: usize) -> PgResult<& str> {
     // SAFETY: catalog arg i is a non-null text/refcursor varlena (strict fn).
@@ -151,9 +151,7 @@ pub fn fc_database_to_xml_and_xmlschema(
     db_fam(fcinfo, crate::database_to_xml_and_xmlschema)
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
 // pg_proc.dat rows for xml.c's SQL/XML mapping section.
 pub const XMLMAP_BUILTINS: &[FmgrBuiltin] = &[

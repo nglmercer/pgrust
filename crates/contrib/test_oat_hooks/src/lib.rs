@@ -349,13 +349,7 @@ fn pg_init() -> PgResult<()> {
     Ok(())
 }
 
-pub fn init_seams() {
-    dfmgr::register_builtin_library(dfmgr::BuiltinLibraryEntry {
-        name: LIBRARY,
-        lookup,
-        pg_init: Some(pg_init),
-    });
-}
+dfmgr::builtin_library_seams!(pg_init);
 
 #[cfg(test)]
 mod tests;

@@ -7,8 +7,7 @@ use ::datum::Datum;
 use ::types_core::Oid;
 use ::types_error::PgResult;
 use ::types_fmgr::{
-    byref_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction,
-};
+    byref_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, };
 use ::types_scan::scankey::ScanKeyData;
 use ::types_spgist::state::{
     spgChooseIn, spgChooseOut, spgInnerConsistentIn, spgInnerConsistentOut, spgLeafConsistentIn,
@@ -502,16 +501,7 @@ fn inet_spg_consistent_bitmap(prefix: InetRef<'_>, scankeys: &[ScanKeyData], lea
     bitmap
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: false,
-        func,
-    }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const NETWORK_SPGIST_BUILTINS: &[FmgrBuiltin] = &[
     b(3795, "inet_spg_config", 2, fc_inet_spg_config),

@@ -1,11 +1,9 @@
 //! fmgr wrappers (`fc_*`) + `PG_LSN_BUILTINS` for fmgr-core.
 
 use ::datum::Datum;
-use ::types_core::Oid;
 use ::types_error::PgResult;
 use ::types_fmgr::{
-    varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction,
-};
+    varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, };
 
 use crate::{XLogRecPtr, MAXPG_LSNLEN};
 use adt_numeric::Num;
@@ -133,9 +131,7 @@ pub fn fc_numeric_pg_lsn(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) ->
     Ok(Datum::from_i64(crate::numeric_pg_lsn(num)? as i64))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
 // pg_proc.dat rows for pg_lsn.c (+ numeric.c's numeric_pg_lsn 6103).
 pub const PG_LSN_BUILTINS: &[FmgrBuiltin] = &[

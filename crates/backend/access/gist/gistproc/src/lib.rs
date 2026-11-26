@@ -11,7 +11,6 @@ use ::adt_float::{
 use ::adt_geo::{adjust_box, box_contain_box, box_ov, point_eq_point, rt_box_union, FPeq, FPge, FPgt, FPle, FPlt, PolyRef,};
 use ::datum::Datum;
 use ::types_core::geo::{Point, BOX, CIRCLE};
-use ::types_core::Oid;
 use ::types_error::{PgError, PgResult};
 use ::types_fmgr::{byref_result, datum_varlena_packed, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,};
 use ::types_gist::{GistEntryVector, GistSortSupportShim, GistSplitVec, GISTENTRY};
@@ -929,16 +928,7 @@ fn fc_gist_translate_cmptype_common(
     )))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: ::types_fmgr::PGFunction,) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: false,
-        func,
-    }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const GISTPROC_BUILTINS: &[FmgrBuiltin] = &[
     b(332, "gisthandler", 1, ::types_fmgr::fc_am_handler_stub),

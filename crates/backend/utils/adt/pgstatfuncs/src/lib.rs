@@ -1,9 +1,8 @@
 #![allow(non_snake_case)]
 
 use ::datum::Datum;
-use ::types_core::Oid;
 use ::types_error::{PgError, PgResult};
-use ::types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};
+use ::types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
 use pgstat::pending::{
     PGSTAT_KIND_ARCHIVER, PGSTAT_KIND_BGWRITER, PGSTAT_KIND_CHECKPOINTER, PGSTAT_KIND_FUNCTION,
@@ -533,21 +532,13 @@ pub fn fc_pg_stat_reset_subscription_stats(
     Ok(Datum::from_usize(0))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
-const fn srf_nonstrict(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: false, retset: true, func }
-}
+use ::types_fmgr::builtin_nonstrict_retset as srf_nonstrict;
 
-const fn srf(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: true, func }
-}
+use ::types_fmgr::builtin_strict_retset as srf;
 
-const fn nonstrict(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: false, retset: false, func }
-}
+use ::types_fmgr::builtin_nonstrict as nonstrict;
 
 pub const PGSTATFUNCS_BUILTINS: &[FmgrBuiltin] = &[
     b(1928, "pg_stat_get_numscans", 1, fc_pg_stat_get_numscans),

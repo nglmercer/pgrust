@@ -3,9 +3,8 @@
 use core::sync::atomic::Ordering::Relaxed;
 
 use ::datum::Datum;
-use ::types_core::Oid;
 use ::types_error::{PgError, PgResult, ERRCODE_INTERNAL_ERROR};
-use ::types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};
+use ::types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
 pub fn fc_pg_isolation_test_session_is_blocked(
     _flinfo: Option<&mut FmgrInfo>,
@@ -100,9 +99,7 @@ fn bitmap_contains_nulls(payload: &[u8], ndim: usize, nelems: usize) -> bool {
     false
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const WAITFUNCS_BUILTINS: &[FmgrBuiltin] = &[
     b(3378, "pg_isolation_test_session_is_blocked", 2, fc_pg_isolation_test_session_is_blocked),

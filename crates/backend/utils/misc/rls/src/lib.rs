@@ -6,7 +6,7 @@ use datum::Datum;
 use types_core::catalog::FirstNormalObjectId;
 use types_core::{InvalidOid, Oid};
 use types_error::{PgResult, ERRCODE_INSUFFICIENT_PRIVILEGE, ERROR};
-use types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};
+use types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
 pub use rls_seams::CheckEnableRls;
 use rls_seams::CheckEnableRls::{RlsEnabled, RlsNone, RlsNoneEnv};
@@ -80,9 +80,7 @@ fn fc_row_security_active_name(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -
     Ok(Datum::from_bool(status == RlsEnabled))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const RLS_BUILTINS: &[FmgrBuiltin] = &[
     b(3298, "row_security_active", 1, fc_row_security_active),

@@ -19,7 +19,7 @@ use ::types_error::{
 };
 use ::types_fmgr::{
     byref_result, overlaps_common, varlena_result, FmgrBuiltin, FmgrInfo,
-    FunctionCallInfoBaseData as Fcinfo, OutInto, PGFunction, OUT_CHARS_DATETIME,
+    FunctionCallInfoBaseData as Fcinfo, OutInto, OUT_CHARS_DATETIME,
 };
 
 use adt_datetime::{Interval, MAXDATELEN};
@@ -1423,17 +1423,11 @@ pub fn fc_pg_timezone_abbrevs_abbrevs(
     Ok(funcapi::srf_return_next(flinfo, fcinfo, d))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
-const fn srf(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: true, func }
-}
+use ::types_fmgr::builtin_strict_retset as srf;
 
-const fn bn(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: false, retset: false, func }
-}
+use ::types_fmgr::builtin_nonstrict as bn;
 
 // pg_proc.dat rows for timestamp.c; alias OIDs over the same prosrc each get
 // their row, as in C's fmgr_builtins[] (the 1152-1157/1195-1196/1314/1389

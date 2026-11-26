@@ -638,14 +638,7 @@ pub fn fc_get_current_ts_config(
 pub mod builtins {
     use super::*;
 
-    const fn b(
-        foid: Oid,
-        name: &'static str,
-        nargs: i16,
-        func: types_fmgr::PGFunction,
-    ) -> FmgrBuiltin {
-        FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-    }
+    use ::types_fmgr::builtin_strict as b;
 
     pub const TS_CACHE_BUILTINS: &[FmgrBuiltin] =
         &[b(3759, "get_current_ts_config", 0, fc_get_current_ts_config)];

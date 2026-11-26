@@ -7,11 +7,10 @@ use alloc::borrow::Cow;
 use alloc::string::String;
 
 use ::datum::Datum;
-use ::types_core::Oid;
 use ::types_error::PgResult;
 use ::types_fmgr::{
     byref_result, varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
-    OutInto, PGFunction, OUT_CHARS_FLOAT,
+    OutInto, OUT_CHARS_FLOAT,
 };
 
 // C float{4,8}recv/send bodies: pq_getmsgfloat{4,8} (advances the buffer
@@ -453,16 +452,7 @@ fc_float_final! {
     fc_float8_corr: float8_corr, 6, "float8_corr";
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: false,
-        func,
-    }
-}
+use ::types_fmgr::builtin_strict as b;
 
 // pg_proc.dat rows for float.c (all proisstrict, none retset); alias OIDs
 // (log/ln/round/... over the same prosrc) each get their row, as in C's

@@ -1,9 +1,7 @@
 use ::datum::{Datum, Varlena};
-use ::types_core::Oid;
 use ::types_error::PgResult;
 use ::types_fmgr::{
     cstring_result, varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
-    PGFunction,
 };
 
 use crate::SnapView;
@@ -138,13 +136,9 @@ pub fn fc_pg_xact_status(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) ->
     }
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
-const fn srf(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: true, func }
-}
+use ::types_fmgr::builtin_strict_retset as srf;
 
 pub fn fc_pg_export_snapshot(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let name = snapmgr::ExportSnapshot(&snapmgr::GetActiveSnapshot())?;

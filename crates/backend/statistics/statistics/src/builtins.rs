@@ -7,7 +7,7 @@ use datum::Datum;
 use mcx::{Mcx, MemoryContext};
 use types_core::{InvalidOid, Oid, BOOLOID, TEXTOID};
 use types_error::{PgError, PgResult, ERRCODE_FEATURE_NOT_SUPPORTED, ERROR};
-use types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};
+use types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
 #[cold]
 #[inline(never)]
@@ -206,13 +206,9 @@ fn fc_pg_mcv_list_items(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> P
     Ok(srf.finish(fcinfo))
 }
 
-const fn b(foid: types_core::Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
-const fn bs(foid: types_core::Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: true, func }
-}
+use ::types_fmgr::builtin_strict_retset as bs;
 
 pub const STATISTICS_BUILTINS: &[FmgrBuiltin] = &[
     b(3355, "pg_ndistinct_in", 1, fc_pg_ndistinct_in),

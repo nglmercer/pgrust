@@ -154,16 +154,7 @@ pub fn fc_lo_put(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Dat
     Ok(Datum::null())
 }
 
-const fn b(foid: types_core::Oid, name: &'static str, nargs: i16, func: types_fmgr::PGFunction,) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: false,
-        func,
-    }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const FSSTUBS_BUILTINS: &[FmgrBuiltin] = &[
     b(715, "be_lo_create", 1, fc_lo_create),

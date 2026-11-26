@@ -45,10 +45,4 @@ fn lookup(function: &str) -> Option<PGFunction> {
     })
 }
 
-pub fn init_seams() {
-    dfmgr::register_builtin_library(dfmgr::BuiltinLibraryEntry {
-        name: LIBRARY,
-        lookup,
-        pg_init: None,
-    });
-}
+dfmgr::builtin_library_seams!();

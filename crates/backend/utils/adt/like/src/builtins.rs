@@ -3,9 +3,8 @@
 
 use datum::varlena::VARHDRSZ;
 use datum::Datum;
-use types_core::Oid;
 use types_error::PgResult;
-use types_fmgr::{varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};
+use types_fmgr::{varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
 use crate::IcScratch;
 
@@ -171,16 +170,7 @@ fc_like_support! {
     fc_text_starts_with_support: "text_starts_with_support";
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: false,
-        func,
-    }
-}
+use ::types_fmgr::builtin_strict as b;
 
 // pg_proc.dat rows (all proisstrict, none retset); 1569-1572/2007-2009 are the
 // like()/notlike() aliases, 1631/1632/1660/1661 the bpchar rows.

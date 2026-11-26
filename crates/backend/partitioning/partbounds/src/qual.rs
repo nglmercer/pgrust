@@ -10,7 +10,7 @@ use types_core::{
 use types_error::{
     PgError, PgResult, DEBUG1, ERRCODE_CHECK_VIOLATION, ERRCODE_INVALID_PARAMETER_VALUE, ERROR,
 };
-use types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData, LocalFcinfo, PGFunction};
+use types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData, LocalFcinfo};
 use types_nodes::primnodes::{
     ArrayExpr, BoolExpr, BoolExprType, Const, FuncExpr, NullTest, NullTestType, OpExpr,
     RelabelType, ScalarArrayOpExpr, Var,
@@ -1442,9 +1442,7 @@ fn hash_param_error_owned(msg: String) -> Box<PgError> {
     Box::new(PgError::new(ERROR, msg).with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: false, retset: false, func }
-}
+use ::types_fmgr::builtin_nonstrict as b;
 
 pub const PARTBOUNDS_BUILTINS: &[FmgrBuiltin] =
     &[b(F_SATISFIES_HASH_PARTITION, "satisfies_hash_partition", 4, fc_satisfies_hash_partition)];

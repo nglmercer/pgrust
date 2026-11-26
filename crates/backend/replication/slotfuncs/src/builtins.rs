@@ -7,7 +7,6 @@ use ::types_error::{
 };
 use ::types_fmgr::{
     byref_result, varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
-    PGFunction,
 };
 use ::types_tuple::{NameData, TupleDescData};
 
@@ -559,9 +558,7 @@ pub fn fc_pg_sync_replication_slots(
     Ok(Datum::from_usize(0))
 }
 
-const fn b(foid: ::types_core::Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const SLOTFUNCS_BUILTINS: &[FmgrBuiltin] = &[
     b(3779, "pg_create_physical_replication_slot", 3, fc_pg_create_physical_replication_slot),

@@ -1,12 +1,11 @@
 use ::adt_tsvector_core::builtins::{arg_tsquery, arg_tsvector};
 use ::datum::Datum;
 use ::mcx::{vec_with_capacity_in, Mcx};
-use ::types_core::Oid;
 use ::types_error::{
     PgError, PgResult, ERRCODE_ARRAY_SUBSCRIPT_ERROR, ERRCODE_INVALID_PARAMETER_VALUE,
     ERRCODE_NULL_VALUE_NOT_ALLOWED,
 };
-use ::types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};
+use ::types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
 use crate::rank::{calc_rank, DEFAULT_WEIGHTS, DEF_NORM_METHOD, NUM_WEIGHTS};
 use crate::rank_cd::calc_rank_cd;
@@ -131,9 +130,7 @@ pub fn fc_ts_rankcd_tt(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> P
     Ok(Datum::from_f32(calc_rank_cd(mcx, &DEFAULT_WEIGHTS, txt, query, DEF_NORM_METHOD)?))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const TSRANK_BUILTINS: &[FmgrBuiltin] = &[
     b(3703, "ts_rank_wttf", 4, fc_ts_rank_wttf),

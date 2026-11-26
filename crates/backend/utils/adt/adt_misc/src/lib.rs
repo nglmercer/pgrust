@@ -19,8 +19,7 @@ use ::types_core::{InvalidOid, Oid};
 use ::types_error::{unpack_sqlstate, PgError, PgResult};
 use ::types_fmgr::{
     input_function_call_safe, ErrorSaveNode, FmgrBuiltin, FmgrInfo,
-    FunctionCallInfoBaseData as Fcinfo, PGFunction,
-};
+    FunctionCallInfoBaseData as Fcinfo, };
 
 // ValidIOData (misc.c:786-810): the typname is parsed on the first call and,
 // unless get_fn_expr_arg_stable says the argument is constant, on every call
@@ -358,13 +357,9 @@ pub fn fc_pg_collation_for(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -
     text_datum(mcx, name.as_bytes())
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
-const fn bn(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: false, retset: false, func }
-}
+use ::types_fmgr::builtin_nonstrict as bn;
 
 pub const MISC_BUILTINS: &[FmgrBuiltin] = &[
     bn(438, "pg_num_nulls", 1, fc_pg_num_nulls),

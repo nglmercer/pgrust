@@ -2,11 +2,9 @@
 
 use ::datum::{Datum, Varlena};
 use ::mcx::Mcx;
-use ::types_core::Oid;
 use ::types_error::PgResult;
 use ::types_fmgr::{
     varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
-    PGFunction,
 };
 
 use crate::XmlStandaloneType;
@@ -193,9 +191,7 @@ pub fn standalone_from_int(v: i32) -> XmlStandaloneType {
     }
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
 // pg_proc.dat rows for xml.c (schema-mapping family lives in the xmlmap crate).
 pub const XML_BUILTINS: &[FmgrBuiltin] = &[

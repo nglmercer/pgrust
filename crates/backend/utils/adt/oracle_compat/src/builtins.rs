@@ -2,11 +2,9 @@
 //! results follow the result-mcx convention (notes/fc-result-convention.md).
 
 use datum::Datum;
-use types_core::Oid;
 use types_error::PgResult;
 use types_fmgr::{
-    varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction,
-};
+    varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, };
 
 pub fn fc_ascii(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     // SAFETY: catalog arg 0 of ascii is a non-null text varlena (strict fn).
@@ -182,16 +180,7 @@ pub fn fc_repeat(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResul
     Ok(varlena_result(crate::repeat(mcx, s, fcinfo.arg_i32(1))?))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: false,
-        func,
-    }
-}
+use ::types_fmgr::builtin_strict as b;
 
 // pg_proc.dat prosrc rows (all proisstrict, none retset); 401 = text(bpchar).
 pub const ORACLE_COMPAT_BUILTINS: &[FmgrBuiltin] = &[

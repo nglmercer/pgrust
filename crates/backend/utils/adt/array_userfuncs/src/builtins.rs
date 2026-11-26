@@ -8,8 +8,7 @@ use ::types_error::{
     ERRCODE_UNDEFINED_OBJECT,
 };
 use ::types_fmgr::{
-    byref_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction,
-};
+    byref_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, };
 
 use crate::{
     accum_array_result_arr, array_append_internal, array_cat_internal, array_position_internal,
@@ -698,13 +697,9 @@ pub fn fc_array_sort_order_nulls_first(
     sort_common(flinfo, fcinfo, descending, nulls_first)
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
-const fn ns(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: false, retset: false, func }
-}
+use ::types_fmgr::builtin_nonstrict as ns;
 
 pub const ARRAY_USERFUNCS_BUILTINS: &[FmgrBuiltin] = &[
     ns(378, "array_append", 2, fc_array_append),

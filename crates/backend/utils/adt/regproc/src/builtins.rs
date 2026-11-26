@@ -5,11 +5,9 @@
 use std::borrow::Cow;
 
 use ::datum::Datum;
-use ::types_core::Oid;
 use ::types_error::{PgResult, SoftErrorContext};
 use ::types_fmgr::{
     varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
-    PGFunction,
 };
 
 fn in_arg<'a>(fcinfo: &'a Fcinfo) -> Cow<'a, str> {
@@ -165,9 +163,7 @@ pub fn fc_reg_send(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRes
     Ok(varlena_result(pqformat::pq_endtypsend(b)))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const REGPROC_BUILTINS: &[FmgrBuiltin] = &[
     b(44, "regprocin", 1, fc_regprocin),

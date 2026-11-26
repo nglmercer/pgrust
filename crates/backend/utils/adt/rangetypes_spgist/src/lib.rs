@@ -18,7 +18,7 @@ use ::rangetypes_gist::{
     RANGESTRAT_CONTAINED_BY, RANGESTRAT_CONTAINS, RANGESTRAT_CONTAINS_ELEM, RANGESTRAT_EQ,
     RANGESTRAT_OVERLAPS, RANGESTRAT_OVERLEFT, RANGESTRAT_OVERRIGHT,
 };
-use ::types_core::{Oid, ANYRANGEOID, VOIDOID};
+use ::types_core::{ANYRANGEOID, VOIDOID};
 use ::types_error::{PgError, PgResult};
 use ::types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 use ::types_spgist::state::{
@@ -590,14 +590,7 @@ fn fc_spg_range_quad_leaf_consistent(
     Ok(Datum::from_bool(res))
 }
 
-const fn b(
-    foid: Oid,
-    name: &'static str,
-    nargs: i16,
-    func: ::types_fmgr::PGFunction,
-) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const RANGETYPES_SPGIST_BUILTINS: &[FmgrBuiltin] = &[
     b(3469, "spg_range_quad_config", 2, fc_spg_range_quad_config),

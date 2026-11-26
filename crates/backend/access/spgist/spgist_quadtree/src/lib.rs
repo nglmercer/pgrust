@@ -413,9 +413,7 @@ fn fc_spg_quad_leaf_consistent(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -
     Ok(Datum::from_bool(res))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: ::types_fmgr::PGFunction,) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func, }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const SPGIST_QUAD_BUILTINS: &[FmgrBuiltin] = &[
     b(4018, "spg_quad_config", 2, fc_spg_quad_config),

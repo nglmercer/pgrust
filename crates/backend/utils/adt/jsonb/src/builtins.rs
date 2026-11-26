@@ -8,11 +8,11 @@ use crate::container::{container_size, JsonbItem};
 use crate::getfield::PathResult;
 use datum::Datum;
 use mcx::{Mcx, PgVec};
-use types_core::{Oid, TEXTOID};
+use types_core::{TEXTOID};
 use types_error::PgResult;
 use types_fmgr::{
     cstring_result, varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
-    PGFunction, PackedVarlena,
+    PackedVarlena,
 };
 use varlena::VarPayload;
 
@@ -876,49 +876,13 @@ pub fn fc_jsonb_build_array_noargs(
     Ok(d)
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: false,
-        func,
-    }
-}
+use ::types_fmgr::builtin_strict as b;
 
-const fn srf(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: true,
-        func,
-    }
-}
+use ::types_fmgr::builtin_strict_retset as srf;
 
-const fn b_lax(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: false,
-        retset: false,
-        func,
-    }
-}
+use ::types_fmgr::builtin_nonstrict as b_lax;
 
-const fn srf_lax(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: false,
-        retset: true,
-        func,
-    }
-}
+use ::types_fmgr::builtin_nonstrict_retset as srf_lax;
 
 pub fn fc_jsonb_array_length(
     _flinfo: Option<&mut FmgrInfo>,

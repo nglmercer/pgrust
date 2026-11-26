@@ -2,7 +2,7 @@ use datum::Datum;
 use mcx::MemoryContext;
 use types_core::Oid;
 use types_error::PgResult;
-use types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};
+use types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
 use crate::{get_pretty_flags, PRETTYFLAG_INDENT};
 
@@ -413,9 +413,7 @@ pub fn fc_pg_get_statisticsobjdef_expressions(
     Ok(Datum::from_usize(buf.as_ptr() as usize))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
 // pg_proc.dat rows (all proisstrict, none retset), OID-ascending.
 pub const RULEUTILS_BUILTINS: &[FmgrBuiltin] = &[

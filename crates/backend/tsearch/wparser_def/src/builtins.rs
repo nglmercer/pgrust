@@ -10,7 +10,6 @@ use ::types_error::{
 };
 use ::types_fmgr::{
     byref_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
-    PGFunction,
 };
 
 use ::std::ffi::CString;
@@ -513,13 +512,9 @@ pub fn fc_ts_parse_byname(
     })
 }
 
-const fn b(foid: ::types_core::Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
-const fn srf(foid: ::types_core::Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: true, func }
-}
+use ::types_fmgr::builtin_strict_retset as srf;
 
 pub const WPARSER_BUILTINS: &[FmgrBuiltin] = &[
     srf(3713, "ts_token_type_byid", 1, fc_ts_token_type_byid),

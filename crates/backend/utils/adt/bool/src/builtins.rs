@@ -4,11 +4,9 @@
 
 
 use ::datum::Datum;
-use ::types_core::Oid;
 use ::types_error::PgResult;
 use ::types_fmgr::{
-    varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, OutInto, PGFunction,
-    OUT_CHARS_BOOL,
+    varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, OutInto, OUT_CHARS_BOOL,
 };
 
 pub fn fc_boolrecv(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -84,27 +82,9 @@ pub fn fc_hashboolextended(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) 
     )))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: false,
-        func,
-    }
-}
+use ::types_fmgr::builtin_strict as b;
 
-const fn bn(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: false,
-        retset: false,
-        func,
-    }
-}
+use ::types_fmgr::builtin_nonstrict as bn;
 
 // pg_proc.dat rows (all proisstrict, none retset), OID-ascending.
 #[cold]

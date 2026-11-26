@@ -1,11 +1,9 @@
 //! fmgr wrappers (`fc_*`) + the `VARCHAR_BUILTINS` table for fmgr-core.
 
 use datum::Datum;
-use types_core::Oid;
 use types_error::PgResult;
 use types_fmgr::{
     byref_result, varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
-    PGFunction,
 };
 
 use crate::VARHDRSZ;
@@ -369,16 +367,7 @@ fc_unported! {
     fc_btbpchar_pattern_sortsupport: "btbpchar_pattern_sortsupport" => "SortSupport substrate, varlena bttextsortsupport lane";
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: false,
-        func,
-    }
-}
+use ::types_fmgr::builtin_strict as b;
 
 // pg_proc.dat rows (all proisstrict, none retset), OID-ascending;
 // 1318/1367/1372 = bpcharlen aliases (length/character_length/char_length).

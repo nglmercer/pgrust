@@ -438,27 +438,9 @@ pub fn fc_generate_series_int4_support(
     }
 }
 
-const fn srf(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: true,
-        func,
-    }
-}
+use ::types_fmgr::builtin_strict_retset as srf;
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: false,
-        func,
-    }
-}
+use ::types_fmgr::builtin_strict as b;
 
 // pg_proc.dat rows for int.c. Not present: int2vectorrecv/send (2410/2411)
 // live with the oidvector pair in arrayfuncs::builtins (array_recv/array_send

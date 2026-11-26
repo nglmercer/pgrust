@@ -8,12 +8,10 @@ use ::adt_tsvector_core::layout::TsVec;
 use ::adt_tsvector_core::query::{Operand, TsQueryRef};
 use ::datum::Datum;
 use ::mcx::{Mcx, PgVec};
-use ::types_core::Oid;
 use ::types_error::{PgError, PgResult, ERRCODE_FEATURE_NOT_SUPPORTED};
 use ::types_fmgr::{
     byref_result, cstring_result, varlena_result, FmgrBuiltin, FmgrInfo,
-    FunctionCallInfoBaseData as Fcinfo, PGFunction,
-};
+    FunctionCallInfoBaseData as Fcinfo, };
 use ::types_gist::{GistEntryVector, GistSplitVec, GISTENTRY};
 use ::types_scan::scankey::{RTContainedByStrategyNumber, RTContainsStrategyNumber};
 use ::types_tuple::varatt;
@@ -916,9 +914,7 @@ pub(crate) fn gtsquery_picksplit_core(
     Ok(())
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const TSGISTIDX_BUILTINS: &[FmgrBuiltin] = &[
     b(3434, "gtsvector_options", 1, fc_gtsvector_options),

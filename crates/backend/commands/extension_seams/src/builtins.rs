@@ -2,7 +2,7 @@
 //! fmgr_core cannot depend on the DDL stack (one extra seam-slot load).
 use datum::Datum;
 use types_error::PgResult;
-use types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};
+use types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
 fn fc_pg_available_extensions(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo,) -> PgResult<Datum> {
     crate::pg_available_extensions::call(flinfo, fcinfo)
@@ -33,9 +33,7 @@ fn fc_pg_get_loaded_modules(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) 
     crate::pg_get_loaded_modules::call(flinfo, fcinfo)
 }
 
-const fn srf(foid: types_core::Oid, name: &'static str, nargs: i16, func: PGFunction,) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: true, func, }
-}
+use ::types_fmgr::builtin_strict_retset as srf;
 
 pub const EXTENSION_BUILTINS: &[FmgrBuiltin] = &[
     srf(3082, "pg_available_extensions", 0, fc_pg_available_extensions,),

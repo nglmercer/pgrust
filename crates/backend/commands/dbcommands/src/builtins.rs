@@ -1,6 +1,6 @@
 use datum::Datum;
 use types_error::PgResult;
-use types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};
+use types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 use types_tuple::NameData;
 
 std::thread_local! {
@@ -57,9 +57,7 @@ pub fn fc_pg_database_collation_actual_version(
     }
 }
 
-const fn b(foid: types_core::Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func, }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const DBCOMMANDS_BUILTINS: &[FmgrBuiltin] = &[
     b(861, "current_database", 0, fc_current_database),

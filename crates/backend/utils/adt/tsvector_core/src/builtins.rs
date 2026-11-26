@@ -2,7 +2,6 @@ use ::datum::Datum;
 use ::mcx::{vec_with_capacity_in, Mcx, PgVec};
 use ::types_core::{
     catalog::{CHAROID, INT2ARRAYOID, INT2OID, RECORDOID, TEXTARRAYOID, TEXTOID},
-    Oid,
 };
 use ::types_error::{
     PgError, PgResult, ERRCODE_NULL_VALUE_NOT_ALLOWED, ERRCODE_PROGRAM_LIMIT_EXCEEDED,
@@ -10,8 +9,7 @@ use ::types_error::{
 };
 use ::types_fmgr::{
     byref_result, cstring_result, varlena_result, FmgrBuiltin, FmgrInfo,
-    FunctionCallInfoBaseData as Fcinfo, PGFunction,
-};
+    FunctionCallInfoBaseData as Fcinfo, };
 
 use crate::io::{tsvector_in_core, tsvector_out_core, tsvector_recv_core, tsvector_send_core};
 use crate::layout::{wep_getpos, wep_getweight, TsVec, MAXSTRLEN, MAXSTRPOS};
@@ -435,13 +433,9 @@ fn unnest_collect(fcinfo: &mut Fcinfo) -> PgResult<Vec<Vec<u8>>> {
     Ok(rows)
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
-const fn srf(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: true, func }
-}
+use ::types_fmgr::builtin_strict_retset as srf;
 
 pub const TSVECTOR_BUILTINS: &[FmgrBuiltin] = &[
     // ts_typanalyze.c hook (no crate of its own): ANALYZE dispatches

@@ -3,11 +3,9 @@ use ::adt_tsvector_core::layout::MAXENTRYPOS;
 use ::adt_tsvector_core::query::*;
 use ::datum::Datum;
 use ::mcx::{vec_with_capacity_in, Mcx, PgVec};
-use ::types_core::Oid;
 use ::types_error::{PgError, PgResult, ERRCODE_INVALID_PARAMETER_VALUE};
 use ::types_fmgr::{
     cstring_result, varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
-    PGFunction,
 };
 
 use crate::io::*;
@@ -197,9 +195,7 @@ pub fn fc_tsq_mcontained(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) ->
     Ok(Datum::from_bool(tsq_mcontains_core(mcx, query, ex)?))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const TSQUERY_BUILTINS: &[FmgrBuiltin] = &[
     b(3612, "tsqueryin", 1, fc_tsqueryin),

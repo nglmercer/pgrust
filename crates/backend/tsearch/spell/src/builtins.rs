@@ -2,7 +2,7 @@ use ::datum::Datum;
 use ::mcx::alloc_in;
 use ::ts_locale::dict_api::DictInitData;
 use ::types_error::PgResult;
-use ::types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};
+use ::types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
 use crate::dict_ispell::{dispell_init, dispell_lexize, DictISpell};
 
@@ -32,9 +32,7 @@ pub fn fc_dispell_lexize(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) ->
     }
 }
 
-const fn b(foid: ::types_core::Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const SPELL_BUILTINS: &[FmgrBuiltin] = &[
     b(3731, "dispell_init", 1, fc_dispell_init),

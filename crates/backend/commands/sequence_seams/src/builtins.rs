@@ -2,7 +2,7 @@
 //! fmgr_core cannot depend on the DDL stack (one extra seam-slot load).
 use datum::Datum;
 use types_error::PgResult;
-use types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};
+use types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
 fn fc_nextval_oid(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let [a] = fcinfo.args_n::<1>();
@@ -30,9 +30,7 @@ fn fc_setval3_oid(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResu
     Ok(b.value)
 }
 
-const fn b(foid: types_core::Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func, }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const SEQUENCE_BUILTINS: &[FmgrBuiltin] = &[
     b(1574, "nextval_oid", 1, fc_nextval_oid),

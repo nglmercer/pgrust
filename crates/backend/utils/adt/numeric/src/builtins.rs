@@ -1413,21 +1413,7 @@ const fn b(
     }
 }
 
-const fn srf(
-    foid: ::types_core::Oid,
-    name: &'static str,
-    nargs: i16,
-    func: PGFunction,
-) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: true,
-        func,
-    }
-}
+use ::types_fmgr::builtin_strict_retset as srf;
 
 // pg_proc.dat rows, OID-ascending (1840/1841 proisstrict 'f', rest 't').
 pub const NUMERIC_BUILTINS: &[FmgrBuiltin] = &[

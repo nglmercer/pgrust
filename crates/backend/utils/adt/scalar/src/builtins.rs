@@ -1,7 +1,7 @@
 use ::datum::Datum;
 use ::types_core::Oid;
 use ::types_error::PgResult;
-use ::types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, OutInto, PGFunction, OUT_CHARS_INT};
+use ::types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, OutInto, OUT_CHARS_INT};
 
 macro_rules! fc_oid2 {
     ($($fc:ident: $core:ident;)*) => {$(
@@ -552,16 +552,7 @@ fc_oidvector_cmp! {
     fc_oidvectorgt: >;
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: false,
-        func,
-    }
-}
+use ::types_fmgr::builtin_strict as b;
 
 // pg_proc.dat rows (all proisstrict, none retset), OID-ascending.
 pub const SCALAR_BUILTINS: &[FmgrBuiltin] = &[

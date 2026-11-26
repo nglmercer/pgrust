@@ -1,9 +1,8 @@
 use datum::Datum;
-use types_core::{Oid, BOOLOID, INT8OID, RECORDOID, TIMESTAMPTZOID};
+use types_core::{BOOLOID, INT8OID, RECORDOID, TIMESTAMPTZOID};
 use types_error::{PgError, PgResult};
 use types_fmgr::{
-    varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction,
-};
+    varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, };
 
 use crate::{
     convert_and_check_filename, io_error_path, log_directory, os_name_bytes, os_path,
@@ -421,13 +420,9 @@ pub fn fc_pg_ls_replslotdir(
     ls_dir_files(flinfo, fcinfo, &dir, false)
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func }
-}
+use ::types_fmgr::builtin_strict as b;
 
-const fn srf(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: true, func }
-}
+use ::types_fmgr::builtin_strict_retset as srf;
 
 // pg_proc.dat rows (all proisstrict), OID-ascending.
 pub const GENFILE_BUILTINS: &[FmgrBuiltin] = &[

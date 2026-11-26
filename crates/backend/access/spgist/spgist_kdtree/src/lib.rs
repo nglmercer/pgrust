@@ -332,9 +332,7 @@ fn fc_spg_kd_inner_consistent(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) ->
     Ok(Datum::null())
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, func: ::types_fmgr::PGFunction,) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func, }
-}
+use ::types_fmgr::builtin_strict as b;
 
 pub const SPGIST_KD_BUILTINS: &[FmgrBuiltin] = &[
     b(4023, "spg_kd_config", 2, fc_spg_kd_config),

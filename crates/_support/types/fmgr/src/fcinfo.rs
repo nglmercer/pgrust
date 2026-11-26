@@ -877,3 +877,51 @@ pub struct FmgrBuiltin {
     pub retset: bool,
     pub func: PGFunction,
 }
+
+/// pg_proc.dat row constructors for builtin tables. C spells these as bare
+/// struct initializers next to each table; centralizing them here keeps the
+/// per-module tables to their entries only. `strict` mirrors proisstrict and
+/// `retset` mirrors proretset.
+pub const fn builtin_strict(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
+    FmgrBuiltin {
+        foid,
+        name,
+        nargs,
+        strict: true,
+        retset: false,
+        func,
+    }
+}
+
+pub const fn builtin_nonstrict(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
+    FmgrBuiltin {
+        foid,
+        name,
+        nargs,
+        strict: false,
+        retset: false,
+        func,
+    }
+}
+
+pub const fn builtin_strict_retset(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
+    FmgrBuiltin {
+        foid,
+        name,
+        nargs,
+        strict: true,
+        retset: true,
+        func,
+    }
+}
+
+pub const fn builtin_nonstrict_retset(foid: Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
+    FmgrBuiltin {
+        foid,
+        name,
+        nargs,
+        strict: false,
+        retset: true,
+        func,
+    }
+}
