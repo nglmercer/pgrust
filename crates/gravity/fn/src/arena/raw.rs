@@ -768,7 +768,7 @@ unsafe impl Allocator for ArenaAlloc {
 
 /// A hash map in an arena (hashbrown over `ArenaAlloc`): its entries are ForgetSafe. Insertion is fallible only: a table
 /// growth the arena refuses is `Refused`, never the allocator's abort.
-pub struct AMap<K: ForgetSafe, V: ForgetSafe, S = hashbrown::hash_map::DefaultHashBuilder> {
+pub struct AMap<K: ForgetSafe, V: ForgetSafe, S = hashbrown::DefaultHashBuilder> {
     map: hashbrown::HashMap<K, V, S, ArenaAlloc>,
 }
 

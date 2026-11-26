@@ -9,7 +9,7 @@ name = "pgstat"
 path = "src/lib.rs"
 
 [dependencies]
-hashbrown = { version = "0.14", default-features = false, features = ["allocator-api2", "ahash", "inline-more"] }
+hashbrown = { version = "0.17", default-features = false, features = ["allocator-api2", "inline-more"] }
 rustc-hash = { version = "2", default-features = false }
 mcx = { path = "../../../../_support/mcx" }
 # the shared stats map in its holder's home (memsig c2, D4702)
