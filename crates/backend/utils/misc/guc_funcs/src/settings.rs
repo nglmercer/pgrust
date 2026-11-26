@@ -10,8 +10,9 @@ use tupdesc::{CreateTemplateTupleDesc, TupleDescInitEntry};
 use types_tuple::TupleDescData;
 use types_core::{Oid, BOOLOID, INT4OID, RECORDOID, TEXTARRAYOID, TEXTOID};
 use types_error::PgResult;
+use types_fmgr::builtin;
 use types_fmgr::{
-    byref_result, varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction,
+    byref_result, varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
 };
 use types_guc::{GUC_NO_SHOW_ALL, PGC_S_FILE};
 
@@ -387,22 +388,11 @@ pub fn fc_pg_settings_get_flags(
     types_fmgr::byref_result(mcx, &img)
 }
 
-const fn b(
-    foid: types_core::Oid,
-    name: &'static str,
-    nargs: i16,
-    strict: bool,
-    retset: bool,
-    func: PGFunction,
-) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict, retset, func }
-}
-
 pub const GUC_FUNCS_BUILTINS: &[FmgrBuiltin] = &[
-    b(2084, "show_all_settings", 0, true, true, fc_show_all_settings),
-    b(3329, "show_all_file_settings", 0, true, true, fc_show_all_file_settings),
-    b(2077, "show_config_by_name", 1, true, false, fc_show_config_by_name),
-    b(3294, "show_config_by_name_missing_ok", 2, true, false, fc_show_config_by_name_missing_ok),
-    b(2078, "set_config_by_name", 3, false, false, fc_set_config_by_name),
-    b(6240, "pg_settings_get_flags", 1, true, false, fc_pg_settings_get_flags),
+    builtin(2084, "show_all_settings", 0, true, true, fc_show_all_settings),
+    builtin(3329, "show_all_file_settings", 0, true, true, fc_show_all_file_settings),
+    builtin(2077, "show_config_by_name", 1, true, false, fc_show_config_by_name),
+    builtin(3294, "show_config_by_name_missing_ok", 2, true, false, fc_show_config_by_name_missing_ok),
+    builtin(2078, "set_config_by_name", 3, false, false, fc_set_config_by_name),
+    builtin(6240, "pg_settings_get_flags", 1, true, false, fc_pg_settings_get_flags),
 ];

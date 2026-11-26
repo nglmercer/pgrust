@@ -3,10 +3,10 @@
 use crate::JsonPathVars;
 use datum::Datum;
 use mcx::{Mcx, PgVec};
-use types_core::Oid;
 use types_error::PgResult;
+use types_fmgr::builtin;
 use types_fmgr::{
-    byref_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction,
+    byref_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
 };
 use varlena::VarPayload;
 
@@ -253,21 +253,17 @@ pub fn fc_jsonb_path_query_first_tz(
     query_first_common(fcinfo, true)
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, retset: bool, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset, func }
-}
-
 pub const JSONPATH_EXEC_BUILTINS: &[FmgrBuiltin] = &[
-    b(1177, "jsonb_path_exists_tz", 4, false, fc_jsonb_path_exists_tz),
-    b(1179, "jsonb_path_query_tz", 4, true, fc_jsonb_path_query_tz),
-    b(1180, "jsonb_path_query_array_tz", 4, false, fc_jsonb_path_query_array_tz),
-    b(2023, "jsonb_path_query_first_tz", 4, false, fc_jsonb_path_query_first_tz),
-    b(2030, "jsonb_path_match_tz", 4, false, fc_jsonb_path_match_tz),
-    b(4005, "jsonb_path_exists", 4, false, fc_jsonb_path_exists),
-    b(4006, "jsonb_path_query", 4, true, fc_jsonb_path_query),
-    b(4007, "jsonb_path_query_array", 4, false, fc_jsonb_path_query_array),
-    b(4008, "jsonb_path_query_first", 4, false, fc_jsonb_path_query_first),
-    b(4009, "jsonb_path_match", 4, false, fc_jsonb_path_match),
-    b(4010, "jsonb_path_exists_opr", 2, false, fc_jsonb_path_exists_opr),
-    b(4011, "jsonb_path_match_opr", 2, false, fc_jsonb_path_match_opr),
+    builtin(1177, "jsonb_path_exists_tz", 4, true, false, fc_jsonb_path_exists_tz),
+    builtin(1179, "jsonb_path_query_tz", 4, true, true, fc_jsonb_path_query_tz),
+    builtin(1180, "jsonb_path_query_array_tz", 4, true, false, fc_jsonb_path_query_array_tz),
+    builtin(2023, "jsonb_path_query_first_tz", 4, true, false, fc_jsonb_path_query_first_tz),
+    builtin(2030, "jsonb_path_match_tz", 4, true, false, fc_jsonb_path_match_tz),
+    builtin(4005, "jsonb_path_exists", 4, true, false, fc_jsonb_path_exists),
+    builtin(4006, "jsonb_path_query", 4, true, true, fc_jsonb_path_query),
+    builtin(4007, "jsonb_path_query_array", 4, true, false, fc_jsonb_path_query_array),
+    builtin(4008, "jsonb_path_query_first", 4, true, false, fc_jsonb_path_query_first),
+    builtin(4009, "jsonb_path_match", 4, true, false, fc_jsonb_path_match),
+    builtin(4010, "jsonb_path_exists_opr", 2, true, false, fc_jsonb_path_exists_opr),
+    builtin(4011, "jsonb_path_match_opr", 2, true, false, fc_jsonb_path_match_opr),
 ];

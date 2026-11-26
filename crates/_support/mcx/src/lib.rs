@@ -74,6 +74,9 @@ macro_rules! assert_arena_safe {
 
 pub type PgVec<'mcx, T> = allocator_api2::vec::Vec<T, Mcx<'mcx>>;
 pub type PgBox<'mcx, T> = allocator_api2::boxed::Box<T, Mcx<'mcx>>;
+// Internal lookup-table map. Iteration order is unspecified and, with hashbrown 0.17's
+// per-hasher seed, process-dependent: never expose it without an explicit sort. The
+// audited iterations are cache invalidation/census or unordered work queues.
 pub type PgHashMap<'mcx, K, V> =
     hashbrown::HashMap<K, V, hashbrown::DefaultHashBuilder, Mcx<'mcx>>;
 pub type PgFxHashMap<'mcx, K, V> = hashbrown::HashMap<K, V, rustc_hash::FxBuildHasher, Mcx<'mcx>>;

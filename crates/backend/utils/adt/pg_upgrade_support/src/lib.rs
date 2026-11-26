@@ -6,8 +6,9 @@ use datum::Datum;
 use elog::{elog, ereport};
 use types_core::{InvalidXLogRecPtr, Oid, TEXTOID};
 use types_error::{ErrorLocation, PgResult, ERRCODE_CANT_CHANGE_RUNTIME_PARAM, ERROR};
+use types_fmgr::builtin;
 use types_fmgr::{
-    datum_varlena_packed, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction,
+    datum_varlena_packed, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
 };
 use types_rel::{AccessShareLock, RowExclusiveLock};
 
@@ -358,90 +359,26 @@ pub fn fc_binary_upgrade_create_empty_extension(
     Ok(Datum::from_usize(0))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, strict: bool, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict, retset: false, func }
-}
-
 pub const PG_UPGRADE_SUPPORT_BUILTINS: &[FmgrBuiltin] = &[
-    b(3582, "binary_upgrade_set_next_pg_type_oid", 1, true, fc_binary_upgrade_set_next_pg_type_oid),
-    b(
-        3584,
-        "binary_upgrade_set_next_array_pg_type_oid",
-        1,
-        true,
-        fc_binary_upgrade_set_next_array_pg_type_oid,
-    ),
-    b(
-        3586,
-        "binary_upgrade_set_next_heap_pg_class_oid",
-        1,
-        true,
-        fc_binary_upgrade_set_next_heap_pg_class_oid,
-    ),
-    b(
-        3587,
-        "binary_upgrade_set_next_index_pg_class_oid",
-        1,
-        true,
-        fc_binary_upgrade_set_next_index_pg_class_oid,
-    ),
-    b(
-        3588,
-        "binary_upgrade_set_next_toast_pg_class_oid",
-        1,
-        true,
-        fc_binary_upgrade_set_next_toast_pg_class_oid,
-    ),
-    b(3589, "binary_upgrade_set_next_pg_enum_oid", 1, true, fc_binary_upgrade_set_next_pg_enum_oid),
-    b(3590, "binary_upgrade_set_next_pg_authid_oid", 1, true, fc_binary_upgrade_set_next_pg_authid_oid),
-    b(3591, "binary_upgrade_create_empty_extension", 7, false, fc_binary_upgrade_create_empty_extension),
-    b(4083, "binary_upgrade_set_record_init_privs", 1, true, fc_binary_upgrade_set_record_init_privs),
-    b(4101, "binary_upgrade_set_missing_value", 3, true, fc_binary_upgrade_set_missing_value),
-    b(
-        4390,
-        "binary_upgrade_set_next_multirange_pg_type_oid",
-        1,
-        true,
-        fc_binary_upgrade_set_next_multirange_pg_type_oid,
-    ),
-    b(
-        4391,
-        "binary_upgrade_set_next_multirange_array_pg_type_oid",
-        1,
-        true,
-        fc_binary_upgrade_set_next_multirange_array_pg_type_oid,
-    ),
-    b(4545, "binary_upgrade_set_next_heap_relfilenode", 1, true, fc_binary_upgrade_set_next_heap_relfilenode),
-    b(
-        4546,
-        "binary_upgrade_set_next_index_relfilenode",
-        1,
-        true,
-        fc_binary_upgrade_set_next_index_relfilenode,
-    ),
-    b(
-        4547,
-        "binary_upgrade_set_next_toast_relfilenode",
-        1,
-        true,
-        fc_binary_upgrade_set_next_toast_relfilenode,
-    ),
-    b(
-        4548,
-        "binary_upgrade_set_next_pg_tablespace_oid",
-        1,
-        true,
-        fc_binary_upgrade_set_next_pg_tablespace_oid,
-    ),
-    b(
-        6312,
-        "binary_upgrade_logical_slot_has_caught_up",
-        1,
-        true,
-        fc_binary_upgrade_logical_slot_has_caught_up,
-    ),
-    b(6319, "binary_upgrade_add_sub_rel_state", 4, false, fc_binary_upgrade_add_sub_rel_state),
-    b(6320, "binary_upgrade_replorigin_advance", 2, false, fc_binary_upgrade_replorigin_advance),
+    builtin(3582, "binary_upgrade_set_next_pg_type_oid", 1, true, false, fc_binary_upgrade_set_next_pg_type_oid),
+    builtin(3584, "binary_upgrade_set_next_array_pg_type_oid", 1, true, false, fc_binary_upgrade_set_next_array_pg_type_oid),
+    builtin(3586, "binary_upgrade_set_next_heap_pg_class_oid", 1, true, false, fc_binary_upgrade_set_next_heap_pg_class_oid),
+    builtin(3587, "binary_upgrade_set_next_index_pg_class_oid", 1, true, false, fc_binary_upgrade_set_next_index_pg_class_oid),
+    builtin(3588, "binary_upgrade_set_next_toast_pg_class_oid", 1, true, false, fc_binary_upgrade_set_next_toast_pg_class_oid),
+    builtin(3589, "binary_upgrade_set_next_pg_enum_oid", 1, true, false, fc_binary_upgrade_set_next_pg_enum_oid),
+    builtin(3590, "binary_upgrade_set_next_pg_authid_oid", 1, true, false, fc_binary_upgrade_set_next_pg_authid_oid),
+    builtin(3591, "binary_upgrade_create_empty_extension", 7, false, false, fc_binary_upgrade_create_empty_extension),
+    builtin(4083, "binary_upgrade_set_record_init_privs", 1, true, false, fc_binary_upgrade_set_record_init_privs),
+    builtin(4101, "binary_upgrade_set_missing_value", 3, true, false, fc_binary_upgrade_set_missing_value),
+    builtin(4390, "binary_upgrade_set_next_multirange_pg_type_oid", 1, true, false, fc_binary_upgrade_set_next_multirange_pg_type_oid),
+    builtin(4391, "binary_upgrade_set_next_multirange_array_pg_type_oid", 1, true, false, fc_binary_upgrade_set_next_multirange_array_pg_type_oid),
+    builtin(4545, "binary_upgrade_set_next_heap_relfilenode", 1, true, false, fc_binary_upgrade_set_next_heap_relfilenode),
+    builtin(4546, "binary_upgrade_set_next_index_relfilenode", 1, true, false, fc_binary_upgrade_set_next_index_relfilenode),
+    builtin(4547, "binary_upgrade_set_next_toast_relfilenode", 1, true, false, fc_binary_upgrade_set_next_toast_relfilenode),
+    builtin(4548, "binary_upgrade_set_next_pg_tablespace_oid", 1, true, false, fc_binary_upgrade_set_next_pg_tablespace_oid),
+    builtin(6312, "binary_upgrade_logical_slot_has_caught_up", 1, true, false, fc_binary_upgrade_logical_slot_has_caught_up),
+    builtin(6319, "binary_upgrade_add_sub_rel_state", 4, false, false, fc_binary_upgrade_add_sub_rel_state),
+    builtin(6320, "binary_upgrade_replorigin_advance", 2, false, false, fc_binary_upgrade_replorigin_advance),
 ];
 
 #[cfg(test)]

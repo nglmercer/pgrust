@@ -1,8 +1,9 @@
 use datum::Datum;
 use types_core::Oid;
 use types_error::PgResult;
+use types_fmgr::builtin;
 use types_fmgr::{
-    varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction,
+    varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
 };
 
 // C format_type (not strict): NULL type_oid => NULL; NULL typemod => the
@@ -62,20 +63,9 @@ pub fn fc_oidvectortypes(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) ->
     Ok(varlena_result(datum::Varlena::from_image(image)))
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, strict: bool, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict,
-        retset: false,
-    func,
-    }
-}
-
 // pg_proc.dat rows (OID-ascending): format_type is not strict,
 // oidvectortypes is strict.
 pub const FORMAT_TYPE_BUILTINS: &[FmgrBuiltin] = &[
-    b(1081, "format_type", 2, false, fc_format_type),
-    b(1349, "oidvectortypes", 1, true, fc_oidvectortypes),
+    builtin(1081, "format_type", 2, false, false, fc_format_type),
+    builtin(1349, "oidvectortypes", 1, true, false, fc_oidvectortypes),
 ];

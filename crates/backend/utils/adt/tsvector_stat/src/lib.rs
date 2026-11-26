@@ -12,7 +12,6 @@ use ::types_core::Oid;
 use ::types_error::{PgError, PgResult, ERRCODE_INVALID_PARAMETER_VALUE};
 use ::types_fmgr::{
     byref_result, varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,
-    PGFunction,
 };
 use ::types_tuple::varatt;
 

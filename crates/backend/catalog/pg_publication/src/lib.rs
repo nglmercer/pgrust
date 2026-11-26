@@ -18,7 +18,8 @@ use types_error::{
     PgError, PgResult, ERRCODE_DUPLICATE_OBJECT, ERRCODE_INVALID_COLUMN_REFERENCE,
     ERRCODE_INVALID_PARAMETER_VALUE, ERRCODE_UNDEFINED_COLUMN, ERRCODE_UNDEFINED_OBJECT,
 };
-use types_fmgr::{byref_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction,};
+use types_fmgr::builtin;
+use types_fmgr::{byref_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 use types_nodes::bitmapset::Bitmapset;
 use types_nodes::{Node, NodeList};
 use types_rel::pg_class::{RELKIND_PARTITIONED_TABLE, RELKIND_RELATION};
@@ -33,7 +34,7 @@ use cache_syscache::{
     GetSysCacheOid, ReleaseSysCache, ReleaseSysCacheList, SearchSysCache1, SearchSysCache2,
     SearchSysCacheExists, SearchSysCacheList1, SysCacheGetAttr, SysCacheKey,
 };
-use pg_depend::{recordDependencyOn, recordDependencyOnSingleRelExpr, DependencyType, ObjectAddress,};
+use pg_depend::{recordDependencyOn, recordDependencyOnSingleRelExpr, DependencyType, ObjectAddress};
 
 pub const PublicationRelationId: Oid = 6104;
 pub const PublicationObjectIndexId: Oid = 6110;
@@ -1030,7 +1031,7 @@ fn collect_publication_tables(fcinfo: &Fcinfo) -> PgResult<PubTablesRows> {
     if viaroot {
         filter_partitions(mcx, &mut table_infos)?;
     }
-    Ok(PubTablesRows { table_infos, next: 0, })
+    Ok(PubTablesRows { table_infos, next: 0 })
 }
 
 // pg_publication.c:1279-1368: one table is opened per SRF call, so a caller
@@ -1169,13 +1170,9 @@ fn fc_pg_get_publication_tables(
     }
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, retset: bool, func: PGFunction,) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict: true, retset, func, }
-}
-
 pub const PUBLICATION_BUILTINS: &[FmgrBuiltin] = &[
-    b(6119, "pg_get_publication_tables", 1, true, fc_pg_get_publication_tables,),
-    b(6121, "pg_relation_is_publishable", 1, false, fc_pg_relation_is_publishable,),
+    builtin(6119, "pg_get_publication_tables", 1, true, true, fc_pg_get_publication_tables),
+    builtin(6121, "pg_relation_is_publishable", 1, true, false, fc_pg_relation_is_publishable),
 ];
 
 pub fn init_seams() {

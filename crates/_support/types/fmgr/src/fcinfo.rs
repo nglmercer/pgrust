@@ -878,6 +878,19 @@ pub struct FmgrBuiltin {
     pub func: PGFunction,
 }
 
+/// The general pg_proc.dat row constructor, for tables whose strict/retset bits are dynamic data.
+/// Fixed-shape tables should prefer the narrower constructors below.
+pub const fn builtin(
+    foid: Oid,
+    name: &'static str,
+    nargs: i16,
+    strict: bool,
+    retset: bool,
+    func: PGFunction,
+) -> FmgrBuiltin {
+    FmgrBuiltin { foid, name, nargs, strict, retset, func }
+}
+
 /// pg_proc.dat row constructors for builtin tables. C spells these as bare
 /// struct initializers next to each table; centralizing them here keeps the
 /// per-module tables to their entries only. `strict` mirrors proisstrict and

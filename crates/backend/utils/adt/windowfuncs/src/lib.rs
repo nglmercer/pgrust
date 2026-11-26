@@ -1,7 +1,8 @@
 use datum::Datum;
 use types_core::Oid;
 use types_error::PgResult;
-use types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo, PGFunction};
+use types_fmgr::builtin;
+use types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 use types_nodes::primnodes::{
     SupportRequestOptimizeWindowClause, SupportRequestWFuncMonotonic, MONOTONICFUNC_BOTH,
     MONOTONICFUNC_DECREASING, MONOTONICFUNC_INCREASING, MONOTONICFUNC_NONE,
@@ -103,10 +104,6 @@ pub fn fc_window_dense_rank_support(
     window_support(fcinfo, true)
 }
 
-const fn b(foid: Oid, name: &'static str, nargs: i16, strict: bool, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict, retset: false, func }
-}
-
 // int8inc_support (int8.c) handles only WFuncMonotonic; NULL otherwise.
 pub fn fc_int8inc_support(
     _flinfo: Option<&mut FmgrInfo>,
@@ -141,28 +138,28 @@ pub fn fc_window_ntile_support(
 use types_fmgr::fc_internal_dispatch_only as fc_win_internal;
 
 pub const WINDOWFUNCS_BUILTINS: &[FmgrBuiltin] = &[
-    b(3100, "window_row_number", 0, false, fc_win_internal),
-    b(3101, "window_rank", 0, false, fc_win_internal),
-    b(3102, "window_dense_rank", 0, false, fc_win_internal),
-    b(3103, "window_percent_rank", 0, false, fc_win_internal),
-    b(3104, "window_cume_dist", 0, false, fc_win_internal),
-    b(3105, "window_ntile", 1, true, fc_win_internal),
-    b(3106, "window_lag", 1, true, fc_win_internal),
-    b(3107, "window_lag_with_offset", 2, true, fc_win_internal),
-    b(3108, "window_lag_with_offset_and_default", 3, true, fc_win_internal),
-    b(3109, "window_lead", 1, true, fc_win_internal),
-    b(3110, "window_lead_with_offset", 2, true, fc_win_internal),
-    b(3111, "window_lead_with_offset_and_default", 3, true, fc_win_internal),
-    b(3112, "window_first_value", 1, true, fc_win_internal),
-    b(3113, "window_last_value", 1, true, fc_win_internal),
-    b(3114, "window_nth_value", 2, true, fc_win_internal),
-    b(6233, "window_row_number_support", 1, true, fc_window_row_number_support),
-    b(6234, "window_rank_support", 1, true, fc_window_rank_support),
-    b(6235, "window_dense_rank_support", 1, true, fc_window_dense_rank_support),
-    b(6236, "int8inc_support", 1, true, fc_int8inc_support),
-    b(6306, "window_percent_rank_support", 1, true, fc_window_percent_rank_support),
-    b(6307, "window_cume_dist_support", 1, true, fc_window_cume_dist_support),
-    b(6308, "window_ntile_support", 1, true, fc_window_ntile_support),
+    builtin(3100, "window_row_number", 0, false, false, fc_win_internal),
+    builtin(3101, "window_rank", 0, false, false, fc_win_internal),
+    builtin(3102, "window_dense_rank", 0, false, false, fc_win_internal),
+    builtin(3103, "window_percent_rank", 0, false, false, fc_win_internal),
+    builtin(3104, "window_cume_dist", 0, false, false, fc_win_internal),
+    builtin(3105, "window_ntile", 1, true, false, fc_win_internal),
+    builtin(3106, "window_lag", 1, true, false, fc_win_internal),
+    builtin(3107, "window_lag_with_offset", 2, true, false, fc_win_internal),
+    builtin(3108, "window_lag_with_offset_and_default", 3, true, false, fc_win_internal),
+    builtin(3109, "window_lead", 1, true, false, fc_win_internal),
+    builtin(3110, "window_lead_with_offset", 2, true, false, fc_win_internal),
+    builtin(3111, "window_lead_with_offset_and_default", 3, true, false, fc_win_internal),
+    builtin(3112, "window_first_value", 1, true, false, fc_win_internal),
+    builtin(3113, "window_last_value", 1, true, false, fc_win_internal),
+    builtin(3114, "window_nth_value", 2, true, false, fc_win_internal),
+    builtin(6233, "window_row_number_support", 1, true, false, fc_window_row_number_support),
+    builtin(6234, "window_rank_support", 1, true, false, fc_window_rank_support),
+    builtin(6235, "window_dense_rank_support", 1, true, false, fc_window_dense_rank_support),
+    builtin(6236, "int8inc_support", 1, true, false, fc_int8inc_support),
+    builtin(6306, "window_percent_rank_support", 1, true, false, fc_window_percent_rank_support),
+    builtin(6307, "window_cume_dist_support", 1, true, false, fc_window_cume_dist_support),
+    builtin(6308, "window_ntile_support", 1, true, false, fc_window_ntile_support),
 ];
 
 #[cfg(test)]

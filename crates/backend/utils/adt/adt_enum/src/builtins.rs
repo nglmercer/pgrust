@@ -1,6 +1,7 @@
 use datum::Datum;
 use types_core::InvalidOid;
 use types_error::PgResult;
+use types_fmgr::builtin;
 use types_fmgr::{varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
 pub fn fc_enum_in(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -118,31 +119,27 @@ pub fn fc_enum_range_all(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> 
     crate::enum_range_internal(mcx, enumtypoid, InvalidOid, InvalidOid)
 }
 
-const fn b(foid: types_core::Oid, name: &'static str, nargs: i16, strict: bool, func: types_fmgr::PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin { foid, name, nargs, strict, retset: false, func }
-}
-
 // OIDs verified against pg_proc.dat 18.3.
 pub static ENUM_BUILTINS: &[FmgrBuiltin] = &[
-    b(3506, "enum_in", 2, true, fc_enum_in),
-    b(3507, "enum_out", 1, true, fc_enum_out),
+    builtin(3506, "enum_in", 2, true, false, fc_enum_in),
+    builtin(3507, "enum_out", 1, true, false, fc_enum_out),
     // anyenum_out (pseudotypes.c) is `return enum_out(fcinfo)`.
-    b(3505, "anyenum_out", 1, true, fc_enum_out),
-    b(3508, "enum_eq", 2, true, fc_enum_eq),
-    b(3509, "enum_ne", 2, true, fc_enum_ne),
-    b(3510, "enum_lt", 2, true, fc_enum_lt),
-    b(3511, "enum_gt", 2, true, fc_enum_gt),
-    b(3512, "enum_le", 2, true, fc_enum_le),
-    b(3513, "enum_ge", 2, true, fc_enum_ge),
-    b(3514, "enum_cmp", 2, true, fc_enum_cmp),
-    b(3515, "hashenum", 1, true, fc_hashenum),
-    b(3414, "hashenumextended", 2, true, fc_hashenumextended),
-    b(3524, "enum_smaller", 2, true, fc_enum_smaller),
-    b(3525, "enum_larger", 2, true, fc_enum_larger),
-    b(3528, "enum_first", 1, false, fc_enum_first),
-    b(3529, "enum_last", 1, false, fc_enum_last),
-    b(3530, "enum_range_bounds", 2, false, fc_enum_range_bounds),
-    b(3531, "enum_range_all", 1, false, fc_enum_range_all),
-    b(3532, "enum_recv", 2, true, fc_enum_recv),
-    b(3533, "enum_send", 1, true, fc_enum_send),
+    builtin(3505, "anyenum_out", 1, true, false, fc_enum_out),
+    builtin(3508, "enum_eq", 2, true, false, fc_enum_eq),
+    builtin(3509, "enum_ne", 2, true, false, fc_enum_ne),
+    builtin(3510, "enum_lt", 2, true, false, fc_enum_lt),
+    builtin(3511, "enum_gt", 2, true, false, fc_enum_gt),
+    builtin(3512, "enum_le", 2, true, false, fc_enum_le),
+    builtin(3513, "enum_ge", 2, true, false, fc_enum_ge),
+    builtin(3514, "enum_cmp", 2, true, false, fc_enum_cmp),
+    builtin(3515, "hashenum", 1, true, false, fc_hashenum),
+    builtin(3414, "hashenumextended", 2, true, false, fc_hashenumextended),
+    builtin(3524, "enum_smaller", 2, true, false, fc_enum_smaller),
+    builtin(3525, "enum_larger", 2, true, false, fc_enum_larger),
+    builtin(3528, "enum_first", 1, false, false, fc_enum_first),
+    builtin(3529, "enum_last", 1, false, false, fc_enum_last),
+    builtin(3530, "enum_range_bounds", 2, false, false, fc_enum_range_bounds),
+    builtin(3531, "enum_range_all", 1, false, false, fc_enum_range_all),
+    builtin(3532, "enum_recv", 2, true, false, fc_enum_recv),
+    builtin(3533, "enum_send", 1, true, false, fc_enum_send),
 ];
