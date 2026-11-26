@@ -1,3 +1,4 @@
+#![cfg(feature = "text-loader")]
 //! The register-state pass (`promote`) and its verifier on hand-written
 //! programs (`docs/design/gravity-simple/register-state.md` §3).
 

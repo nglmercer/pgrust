@@ -1,3 +1,4 @@
+#![cfg(feature = "text-loader")]
 use gravity_ir::builder::ProgramBuilder;
 use gravity_ir::text::{parse_program, print_program};
 use gravity_ir::verify::verify;

@@ -6,7 +6,7 @@
 //
 // An integration build compiles the lib WITHOUT cfg(test), so the keeper lists are live here (the in-crate unit tests
 // bypass them). One #[test] in this binary, run on its own thread: with `std` the lists are per thread, without it they
-// are per process, and either way nothing else touches them.
+// are per process (a process-global keeper list), and either way nothing else touches them.
 //
 // Run: cargo test -p mcx --test small_keeper_freelist [--features std]
 

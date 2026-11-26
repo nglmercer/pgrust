@@ -3,6 +3,7 @@ name = "gravity_interp"
 version = "0.0.0"
 edition.workspace = true
 publish.workspace = true
+autotests = false
 
 [lib]
 name = "gravity_interp"
@@ -14,3 +15,9 @@ gravity_ir = { path = "../../ir" }
 
 [dev-dependencies]
 gravity_ir = { path = "../../ir", features = ["text-loader"] }
+
+# The integration tests that can share one process are modules of ONE test binary, gravity_interp_suite; ct keys each
+# module as the former target <stem>. tests/registered.rs enforces the process-sharing rule.
+[[test]]
+name = "gravity_interp_suite"
+path = "tests/gravity_interp_suite.rs"

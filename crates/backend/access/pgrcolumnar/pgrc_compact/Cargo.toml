@@ -3,6 +3,7 @@ name = "pgrc_compact"
 version = "0.0.0"
 edition.workspace = true
 publish.workspace = true
+autotests = false
 
 [lib]
 name = "pgrc_compact"
@@ -14,3 +15,9 @@ path = "src/lib.rs"
 pgrc_format = { path = "../pgrc_format" }
 # The cluster sort's comparator (`pgrc_write::seal::cmp`), so a sorted merge orders rows exactly as the seal would.
 pgrc_write = { path = "../pgrc_write" }
+
+# The integration tests that can share one process are modules of ONE test binary, pgrc_compact_suite; ct keys each
+# module as the former target <stem>. tests/registered.rs enforces the process-sharing rule.
+[[test]]
+name = "pgrc_compact_suite"
+path = "tests/pgrc_compact_suite.rs"

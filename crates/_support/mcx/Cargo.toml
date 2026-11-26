@@ -3,6 +3,7 @@ name = "mcx"
 version = "0.0.0"
 edition.workspace = true
 publish.workspace = true
+autotests = false
 
 [lib]
 name = "mcx"
@@ -36,3 +37,122 @@ rustc-hash = { workspace = true }
 mimalloc = { workspace = true }
 # tests/pool_source.rs: the page pool as the block source; pool_global_source.rs: and PoolAlloc as the global allocator
 pagepool = { path = "../pagepool", features = ["global"] }
+
+# The integration tests that can share one process are modules of ONE test binary, mcx_suite; ct keys each
+# module as the former target <stem>. Tests that need process isolation keep their own [[test]] entries;
+# tests/registered.rs enforces that every test file is in exactly one of the two places.
+[[test]]
+name = "mcx_suite"
+path = "tests/mcx_suite.rs"
+
+[[test]]
+name = "block_source"
+path = "tests/block_source.rs"
+
+[[test]]
+name = "block_source_no_keepers"
+path = "tests/block_source_no_keepers.rs"
+
+[[test]]
+name = "c8_mapped_block_owner"
+path = "tests/c8_mapped_block_owner.rs"
+
+[[test]]
+name = "d3992_backstop_ranks_resident"
+path = "tests/d3992_backstop_ranks_resident.rs"
+
+[[test]]
+name = "d3999_backstop_ranks_parts"
+path = "tests/d3999_backstop_ranks_parts.rs"
+
+[[test]]
+name = "d4023_backstop_waits_for_landing"
+path = "tests/d4023_backstop_waits_for_landing.rs"
+
+[[test]]
+name = "d4029_no_victim_view"
+path = "tests/d4029_no_victim_view.rs"
+
+[[test]]
+name = "d4029d_backstop_pick_allocates_nothing"
+path = "tests/d4029d_backstop_pick_allocates_nothing.rs"
+
+[[test]]
+name = "d4035_backstop_ranks_a_drifted_row_by_its_charge"
+path = "tests/d4035_backstop_ranks_a_drifted_row_by_its_charge.rs"
+
+[[test]]
+name = "d4059_backstop_reads_a_filled_region"
+path = "tests/d4059_backstop_reads_a_filled_region.rs"
+
+[[test]]
+name = "d4092_dump_top_holders"
+path = "tests/d4092_dump_top_holders.rs"
+
+[[test]]
+name = "d4395_decisions_read_measured"
+path = "tests/d4395_decisions_read_measured.rs"
+
+[[test]]
+name = "d4795_cache_giveback"
+path = "tests/d4795_cache_giveback.rs"
+
+[[test]]
+name = "d4812_block_gate"
+path = "tests/d4812_block_gate.rs"
+
+[[test]]
+name = "d4812_cancel_reads_no_residency"
+path = "tests/d4812_cancel_reads_no_residency.rs"
+
+[[test]]
+name = "d4812_stale_pick_before_the_residency_read"
+path = "tests/d4812_stale_pick_before_the_residency_read.rs"
+
+[[test]]
+name = "d4812_the_pick_is_not_stale_against_itself"
+path = "tests/d4812_the_pick_is_not_stale_against_itself.rs"
+
+[[test]]
+name = "growth_shelf"
+path = "tests/growth_shelf.rs"
+
+[[test]]
+name = "ledger2_context_owner"
+path = "tests/ledger2_context_owner.rs"
+
+[[test]]
+name = "ledger2_r6_ranks_by_the_owner_tree"
+path = "tests/ledger2_r6_ranks_by_the_owner_tree.rs"
+
+[[test]]
+name = "local_pool_kill_knob"
+path = "tests/local_pool_kill_knob.rs"
+
+[[test]]
+name = "oom_reserve"
+path = "tests/oom_reserve.rs"
+
+[[test]]
+name = "parked_keepers"
+path = "tests/parked_keepers.rs"
+
+[[test]]
+name = "pool_global_source"
+path = "tests/pool_global_source.rs"
+
+[[test]]
+name = "pool_source"
+path = "tests/pool_source.rs"
+
+[[test]]
+name = "pooled_bit"
+path = "tests/pooled_bit.rs"
+
+[[test]]
+name = "small_keeper_freelist"
+path = "tests/small_keeper_freelist.rs"
+
+[[test]]
+name = "unobserved_root"
+path = "tests/unobserved_root.rs"

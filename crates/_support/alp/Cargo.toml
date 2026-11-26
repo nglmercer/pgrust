@@ -3,9 +3,17 @@ name = "alp"
 version = "0.0.0"
 edition.workspace = true
 publish.workspace = true
+autotests = false
 
 [lib]
 name = "alp"
 path = "src/lib.rs"
 
 [dependencies]
+
+# The integration tests that can share one process are modules of ONE test binary, alp_suite; ct keys each
+# module as the former target <stem>. Tests that need process isolation keep their own [[test]] entries;
+# tests/registered.rs enforces that every test file is in exactly one of the two places.
+[[test]]
+name = "alp_suite"
+path = "tests/alp_suite.rs"

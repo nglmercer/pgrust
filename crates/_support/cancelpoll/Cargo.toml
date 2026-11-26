@@ -3,6 +3,7 @@ name = "cancelpoll"
 version = "0.1.0"
 edition.workspace = true
 publish.workspace = true
+autotests = false
 
 # D3887: the abort poll of a long host-side loop and the poll-gap probe. Near a leaf (pg_clock, and for the interrupt
 # facade only PostgreSQL's interrupt seams and the error type), so the part reader, the dictionary hosts and the Gravity
@@ -12,3 +13,54 @@ pg_clock = { path = "../../port/pg_clock" }
 pgsync = { path = "../pgsync" }
 postgres_seams = { path = "../../backend/tcop/postgres_seams" }
 types_error = { path = "../types/types_error" }
+
+# The integration tests that can share one process are modules of ONE test binary, cancelpoll_suite; ct keys each
+# module as the former target <stem>. Tests that need process isolation keep their own [[test]] entries;
+# tests/registered.rs enforces that every test file is in exactly one of the two places.
+[[test]]
+name = "cancelpoll_suite"
+path = "tests/cancelpoll_suite.rs"
+
+[[test]]
+name = "cancel_at"
+path = "tests/cancel_at.rs"
+
+[[test]]
+name = "cancel_lock"
+path = "tests/cancel_lock.rs"
+
+[[test]]
+name = "cancel_probe"
+path = "tests/cancel_probe.rs"
+
+[[test]]
+name = "cancel_probe_line"
+path = "tests/cancel_probe_line.rs"
+
+[[test]]
+name = "cancel_probe_order"
+path = "tests/cancel_probe_order.rs"
+
+[[test]]
+name = "cancel_probe_os"
+path = "tests/cancel_probe_os.rs"
+
+[[test]]
+name = "cancel_stall"
+path = "tests/cancel_stall.rs"
+
+[[test]]
+name = "cancel_step_gap"
+path = "tests/cancel_step_gap.rs"
+
+[[test]]
+name = "cancel_step_probe"
+path = "tests/cancel_step_probe.rs"
+
+[[test]]
+name = "cancel_wait"
+path = "tests/cancel_wait.rs"
+
+[[test]]
+name = "off"
+path = "tests/off.rs"

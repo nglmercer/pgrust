@@ -1,3 +1,4 @@
+#[path = "common/mod.rs"]
 mod common;
 
 use std::collections::{BTreeSet, HashMap, HashSet};

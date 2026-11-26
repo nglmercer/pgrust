@@ -1,3 +1,4 @@
+#![cfg(feature = "text-loader")]
 //! verify's messages with the site labels built only when a message is: every structural, type and dominance check
 //! that names a site (`b<i> params`, `b<i> inst <j>`, `b<i> terminator`, `b<i> terminator: edge to b<k>`) broken once,
 //! the whole text pinned. The expected strings are the messages of the eager labels (one `format!` per instruction and

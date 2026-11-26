@@ -1,3 +1,4 @@
+#![cfg(feature = "text-loader")]
 //! `verify_dominance` against the definition of dominance, on random functions (M0-GATE, main 09-24: should verify check
 //! dominance, and is the check exact). A use in a block the entry reaches is dominated when its definition comes earlier
 //! in the same block, or when the entry cannot reach the use's block without passing through the definition's block.
