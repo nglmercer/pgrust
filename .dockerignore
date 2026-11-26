@@ -1,0 +1,20 @@
+# VCS and local build output are never part of the reproducible image input.
+.git
+target
+**/target
+**/target-*
+target-mut
+mutants.out
+mutants.out.old
+
+# Large validation/demo trees are not needed to build the server binaries.
+benchmarks
+crash-simulator
+fixtures
+proofs
+regress
+wasm
+
+# Editor/local agent state.
+.claude
+.devin

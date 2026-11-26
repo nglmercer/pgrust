@@ -143,6 +143,32 @@ this release. A data volume written by v0.3 holding columnar tables needs the
 dump and restore described under
 [Stopping, restarting, cleaning up](#stopping-restarting-cleaning-up).
 
+### Building a fork image
+
+The root `Dockerfile` builds the server from this checkout and packages it in
+the official PostgreSQL 18 image shape. The stock server-side binaries are
+removed and replaced by pgrust's `postgres` and `initdb`; the stock PostgreSQL
+18 client tools (`psql`, `pg_dump`, `pg_restore`, `pg_isready`, ...) remain for
+init scripts, operator access and logical backup drills. Because pgrust does
+not use `pg_ctl`, `docker/entrypoint.sh` replaces the stock entrypoint with the
+pgrust-compatible port of the official postgres image contract (including
+`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_INITDB_ARGS` and
+`/docker-entrypoint-initdb.d`).
+
+```bash
+# dist is the default because it matches the published artifact's fat-LTO profile.
+scripts/build-image.sh
+
+# A release-profile build is faster for a local compatibility experiment.
+IMAGE_NAME=pgrust-fork:local PGRUST_CARGO_PROFILE=release scripts/build-image.sh
+```
+
+The script stamps the image with the checkout commit (`-dirty` when tracked
+files are modified). `POSTGRES_BASE` and `RUST_IMAGE` can be overridden, but
+pin production candidates by digest and record the exact image digest used in
+the evaluation. Docker builds compile the full server inside the container;
+use `CARGO_BUILD_JOBS` to limit parallelism on small machines.
+
 ### macOS
 
 ```bash
