@@ -36,7 +36,7 @@ dbcommands_seams = { path = "../../../commands/dbcommands_seams" }
 shmem_seams = { path = "../../../storage/ipc/shmem_seams" }
 
 [dev-dependencies]
-libc = "0.2"
+libc = { workspace = true }
 file_seams = { path = "../../../storage/file/file_seams" }
 sync_seams = { path = "../../../storage/sync/sync_seams" }
 pgstat_seams = { path = "../../../utils/activity/pgstat_seams" }

@@ -19,7 +19,7 @@ pgsync = { path = "../../../../_support/pgsync" }
 # D3808: the budget is the memory policy's (mempolicy::load::write_budget);
 # the crate depends on pgsync only.
 mempolicy = { path = "../../../../_support/mempolicy" }
-libc = "0.2"
+libc = { workspace = true }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(pgrust_sim)'] }

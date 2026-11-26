@@ -52,12 +52,12 @@ walreceiverfuncs = { path = "../../replication/walreceiverfuncs" }
 xact = { path = "../../access/transam/xact" }
 xloginsert = { path = "../../access/transam/xloginsert" }
 xlogrecovery = { path = "../../access/transam/xlogrecovery" }
-libc = "0.2"
-serde_json = "1"
+libc = { workspace = true }
+serde_json = { workspace = true }
 
 # The aux's TLS: vendored OpenSSL does not build for wasm32, where the aux is not built (src/wasm.rs).
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-openssl = { version = "0.10", features = ["vendored"] }
+openssl = { workspace = true }
 
 [dev-dependencies]
 guc_file = { path = "../../utils/misc/guc_file" }

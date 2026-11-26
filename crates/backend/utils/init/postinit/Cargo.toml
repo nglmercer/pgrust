@@ -77,4 +77,4 @@ pg_database_seams = { path = "../../../catalog/pg_database_seams" }
 session_seams = { path = "../../../access/session_seams" }
 slot_seams = { path = "../../../replication/slot_seams" }
 pg_db_role_setting_seams = { path = "../../../catalog/pg_db_role_setting_seams" }
-libc = "0.2"
+libc = { workspace = true }

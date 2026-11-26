@@ -45,7 +45,7 @@ elog = { path = "../../error/elog" }
 pg_rusage = { path = "../../misc/pg_rusage" }
 
 [dev-dependencies]
-libc = "0.2"
+libc = { workspace = true }
 detoast = { path = "../../../access/common/detoast" }
 pglz = { path = "../../../../common/pglz" }
 xact_seams = { path = "../../../access/transam/xact_seams" }

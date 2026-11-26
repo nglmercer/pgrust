@@ -23,7 +23,7 @@ pqcomm_seams = { path = "../../libpq/pqcomm_seams" }
 pqformat = { path = "../../libpq/pqformat" }
 procsignal = { path = "../../storage/ipc/procsignal" }
 ps_status_seams = { path = "../../utils/misc/ps_status_seams" }
-rustc-hash = { version = "2", default-features = false, features = ["std"] }
+rustc-hash = { workspace = true, features = ["std"] }
 shmem = { path = "../../storage/ipc/shmem" }
 slru = { path = "../../access/transam/slru" }
 snapmgr = { path = "../../utils/time/snapmgr" }

@@ -11,7 +11,7 @@ path = "src/lib.rs"
 [dependencies]
 # P3 (plan-time memory): a program's vectors live in its own root context (mcx SendRoot), owned by the memory ledger's
 # owner named at its birth (memledger Owner).
-allocator-api2 = { version = "0.2", default-features = false, features = ["alloc"] }
+allocator-api2 = { workspace = true }
 mcx = { path = "../../_support/mcx", features = ["std"] }
 memledger = { path = "../../_support/memledger" }
 

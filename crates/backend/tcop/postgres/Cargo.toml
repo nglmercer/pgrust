@@ -12,7 +12,7 @@ memledger = { path = "../../../_support/memledger" }
 fires = { path = "../../../_support/fires" }
 mempolicy = { path = "../../../_support/mempolicy" }
 pg_string = { path = "../../../common/string" }
-libc = "0.2"
+libc = { workspace = true }
 pg_strong_random = { path = "../../../port/pg_strong_random" }
 mcx = { path = "../../../_support/mcx" }
 # pagepool P2: a statement end hands the shelf home when the purger asks (passivate.rs)

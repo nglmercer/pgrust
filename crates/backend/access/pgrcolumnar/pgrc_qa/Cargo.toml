@@ -22,7 +22,7 @@ name = "qa_crash_harness"
 path = "src/bin/qa_crash_harness.rs"
 
 [dependencies]
-libc = "0.2"
+libc = { workspace = true }
 pgrc_codec = { path = "../pgrc_codec" }
 pgrc_format = { path = "../pgrc_format" }
 pgrc_read = { path = "../pgrc_read" }

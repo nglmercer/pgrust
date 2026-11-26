@@ -22,15 +22,15 @@ types_error = { path = "../../../_support/types/types_error" }
 # same blocks), zstd = the C binding already in-tree for the columnar
 # store's frame codec, miniz_oxide = pure-Rust inflate for GZIP pages
 # (already in the lockfile), brotli-decompressor = pure-Rust brotli.
-snap = { version = "1", optional = true }
-lz4_flex = "0.11"
-miniz_oxide = "0.8"
-brotli-decompressor = { version = "4", optional = true }
+snap = { workspace = true, optional = true }
+lz4_flex = { workspace = true }
+miniz_oxide = { workspace = true }
+brotli-decompressor = { workspace = true, optional = true }
 # Batched UTF-8 validation for string pages (dictionary values validated
 # once per chunk; fallback pages validated per batch).
-simdutf8 = "0.1"
+simdutf8 = { workspace = true }
 
 # zstd links C (zstd-sys); no wasm32 build — the wasm arm refuses the codec
 # at the decompress call site, mirroring pgrcolumnar's arrangement.
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-zstd = { version = "0.13", default-features = false }  # D4503: default features carry the pre-1.0 "legacy" frame decoders; every zstd dependent must keep them off
+zstd = { workspace = true }  # D4503: default features carry the pre-1.0 "legacy" frame decoders; every zstd dependent must keep them off

@@ -15,7 +15,7 @@ elog = { path = "../../error/elog" }
 aclchk_seams = { path = "../../../catalog/aclchk_seams" }
 fd = { path = "../../../storage/file/fd" }
 init_small = { path = "../../init/init_small" }
-libc = "0.2"
+libc = { workspace = true }
 lwlock = { path = "../../../storage/lmgr/lwlock" }
 funcapi = { path = "../../fmgr/funcapi" }
 types_fmgr = { path = "../../../../_support/types/fmgr" }

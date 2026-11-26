@@ -16,7 +16,7 @@ guc_tables = { path = "../../utils/misc/guc_tables" }
 init_small = { path = "../../utils/init/init_small" }
 ipc = { path = "../../storage/ipc/ipc" }
 latch = { path = "../../storage/ipc/latch" }
-libc = "0.2"
+libc = { workspace = true }
 libpq_pqsignal = { path = "../../libpq/libpq_pqsignal" }
 lmgr_proc = { path = "../../storage/lmgr/lmgr_proc" }
 mcx = { path = "../../../_support/mcx" }

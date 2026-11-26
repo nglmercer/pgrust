@@ -32,7 +32,7 @@ ipc_seams = { path = "../../../storage/ipc/ipc_seams" }
 shmem_seams = { path = "../../../storage/ipc/shmem_seams" }
 miscinit_seams = { path = "../miscinit_seams" }
 pqcomm_seams = { path = "../../../libpq/pqcomm_seams" }
-libc = "0.2"
+libc = { workspace = true }
 libpq_pqsignal = { path = "../../../libpq/libpq_pqsignal" }
 pg_path = { path = "../../../../port/pg_path" }
 timestamp_seams = { path = "../../adt/timestamp_seams" }

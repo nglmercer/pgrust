@@ -63,4 +63,4 @@ pg_proc = { path = "../../catalog/pg_proc" }
 typcache_seams = { path = "../../utils/cache/typcache_seams" }
 execscan = { path = "../execscan" }
 tupdesc = { path = "../../access/common/tupdesc" }
-rustc-hash = { version = "2", default-features = false }
+rustc-hash = { workspace = true }

@@ -29,7 +29,7 @@ shmem = { path = "../../storage/ipc/shmem" }
 init_small = { path = "../../utils/init/init_small" }
 fd = { path = "../../storage/file/fd" }
 crc32c = { path = "../../../port/crc32c" }
-libc = "0.2"
+libc = { workspace = true }
 origin_seams = { path = "../origin_seams" }
 transam_xlog = { path = "../../access/transam/transam_xlog" }
 transam_xlog_seams = { path = "../../access/transam/transam_xlog_seams" }

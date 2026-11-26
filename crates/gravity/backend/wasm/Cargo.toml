@@ -14,9 +14,9 @@ gravity_ir = { path = "../../ir" }
 stack_depth_core = { path = "../../../backend/utils/misc/stack_depth_core" }
 gravity_program = { path = "../../program" }
 gravity_abi = { path = "../../abi" }
-wasm-encoder = "0.259"
+wasm-encoder = { workspace = true }
 
-wasmtime = { version = "48", default-features = false, features = ["cranelift", "runtime", "std"], optional = true }
+wasmtime = { workspace = true, optional = true }
 
 # Oracle tests that run compiled code under wasmtime (cranelift). Off by default: the tests that need it
 # are compiled out, so a plain build or test run does not compile wasmtime. Run them with --features wasmtime-oracle.
@@ -25,7 +25,7 @@ wasmtime-oracle = ["dep:wasmtime"]
 
 [dev-dependencies]
 gravity_ir = { path = "../../ir", features = ["text-loader"] }
-wasm-encoder = "0.259"
+wasm-encoder = { workspace = true }
 gravity_interp = { path = "../interp" }
 gravity_decompose = { path = "../../decompose" }
 gravity_expr = { path = "../../expr" }

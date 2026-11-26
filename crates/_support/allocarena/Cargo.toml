@@ -15,9 +15,9 @@ path = "src/lib.rs"
 memledger = { path = "../memledger" }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-libmimalloc-sys = { version = "0.1", features = ["extended", "no_thp"] }
-libc = "0.2"
+libmimalloc-sys = { workspace = true }
+libc = { workspace = true }
 
 [dev-dependencies]
-mimalloc = "0.1"
+mimalloc = { workspace = true }
 init_small = { path = "../../backend/utils/init/init_small" }

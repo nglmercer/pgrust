@@ -83,7 +83,7 @@ pgtz = { path = "../../../timezone/pgtz" }
 localtime = { path = "../../../timezone/localtime" }
 strftime = { path = "../../../timezone/strftime" }
 shmem_seams = { path = "../../../storage/ipc/shmem_seams" }
-libc = "0.2"
+libc = { workspace = true }
 
 [dev-dependencies]
 shmem = { path = "../../../storage/ipc/shmem" }

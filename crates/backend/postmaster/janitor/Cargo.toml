@@ -33,7 +33,7 @@ init_small = { path = "../../utils/init/init_small" }
 interrupt = { path = "../interrupt" }
 janitor_seams = { path = "../janitor_seams" }
 latch = { path = "../../storage/ipc/latch" }
-libc = "0.2"
+libc = { workspace = true }
 lmgr_proc = { path = "../../storage/lmgr/lmgr_proc" }
 mbutils = { path = "../../utils/mb/mbutils" }
 pg_clock = { path = "../../../port/pg_clock" }

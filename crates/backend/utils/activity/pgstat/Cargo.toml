@@ -9,8 +9,8 @@ name = "pgstat"
 path = "src/lib.rs"
 
 [dependencies]
-hashbrown = { version = "0.17", default-features = false, features = ["allocator-api2", "inline-more"] }
-rustc-hash = { version = "2", default-features = false }
+hashbrown = { workspace = true }
+rustc-hash = { workspace = true }
 mcx = { path = "../../../../_support/mcx" }
 # the shared stats map in its holder's home (memsig c2, D4702)
 memledger = { path = "../../../../_support/memledger" }
@@ -26,7 +26,7 @@ guc_tables = { path = "../../misc/guc_tables" }
 init_small = { path = "../../init/init_small" }
 miscinit = { path = "../../init/miscinit" }
 fd = { path = "../../../storage/file/fd" }
-libc = "0.2"
+libc = { workspace = true }
 datum = { path = "../../../../_support/types/datum" }
 ipc_seams = { path = "../../../storage/ipc/ipc_seams" }
 slot_seams = { path = "../../../replication/slot_seams" }

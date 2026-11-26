@@ -27,7 +27,7 @@ format_type = { path = "../format_type" }
 pg_locale_seams = { path = "../pg_locale_seams" }
 pg_database_seams = { path = "../../../catalog/pg_database_seams" }
 syscache_seams = { path = "../../cache/syscache_seams" }
-libc = "0.2"
+libc = { workspace = true }
 pgstrcasecmp = { path = "../../../../port/pgstrcasecmp" }
 pgsync = { path = "../../../../_support/pgsync" }
 

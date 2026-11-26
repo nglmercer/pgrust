@@ -143,7 +143,7 @@ mbutils = { path = "../../backend/utils/mb/mbutils" }
 indexcmds_seams = { path = "../../backend/commands/indexcmds_seams" }
 adt_jsonb = { path = "../../backend/utils/adt/jsonb" }
 wchar = { path = "../../common/wchar" }
-memchr = "2"
+memchr = { workspace = true, features = ["std"] }
 gravity_parallel = { path = "../parallel" }
 test_boot = { path = "../../_support/test_boot" }
 seam_core = { path = "../../_support/seam_core" }
@@ -163,4 +163,4 @@ transam_seams = { path = "../../backend/access/transam/transam_seams" }
 
 # zstd-sys builds C, which a wasm32 check has no compiler for (the wasm gate checks every workspace member).
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-zstd = { version = "0.13", default-features = false }  # D4503: default features carry the pre-1.0 "legacy" frame decoders; every zstd dependent must keep them off
+zstd = { workspace = true }  # D4503: default features carry the pre-1.0 "legacy" frame decoders; every zstd dependent must keep them off

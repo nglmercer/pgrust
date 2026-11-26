@@ -17,4 +17,4 @@ pg_clock = { path = "../../port/pg_clock" }
 pgsync = { path = "../pgsync" }
 
 [target.'cfg(unix)'.dependencies]
-libc = "0.2"
+libc = { workspace = true }

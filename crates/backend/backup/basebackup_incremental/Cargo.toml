@@ -12,7 +12,7 @@ path = "src/lib.rs"
 blkreftable = { path = "../../../common/blkreftable" }
 elog = { path = "../../utils/error/elog" }
 fd = { path = "../../storage/file/fd" }
-libc = "0.2"
+libc = { workspace = true }
 manifest = { path = "../manifest" }
 mcx = { path = "../../../_support/mcx" }
 parse_manifest = { path = "../../../common/parse_manifest" }

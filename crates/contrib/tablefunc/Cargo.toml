@@ -25,7 +25,7 @@ tupdesc = { path = "../../backend/access/common/tupdesc" }
 heaptuple = { path = "../../backend/access/common/heaptuple" }
 spi = { path = "../../backend/executor/spi" }
 pg_prng = { path = "../../common/pg_prng" }
-rustc-hash = { version = "2", default-features = false }
+rustc-hash = { workspace = true }
 dfmgr = { path = "../../backend/utils/fmgr/dfmgr" }
 
 [dev-dependencies]

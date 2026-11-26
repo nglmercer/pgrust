@@ -13,7 +13,7 @@ file_seams = { path = "../../backend/storage/file/file_seams" }
 init_small = { path = "../../backend/utils/init/init_small" }
 ip = { path = "../../common/ip" }
 latch = { path = "../../backend/storage/ipc/latch" }
-libc = "0.2"
+libc = { workspace = true }
 mcx = { path = "../../_support/mcx" }
 pg_clock = { path = "../../port/pg_clock" }
 pg_prng = { path = "../../common/pg_prng" }
@@ -35,9 +35,9 @@ wchar = { path = "../../common/wchar" }
 # Vendored OpenSSL does not build for wasm32; the wasm arm keeps the
 # no-USE_SSL refusals (docs/design/wasm-crate-ledger.md).
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-openssl = { version = "0.10", features = ["vendored"] }
-openssl-sys = "0.9"
-foreign-types = "0.3"
+openssl = { workspace = true }
+openssl-sys = { workspace = true }
+foreign-types = { workspace = true }
 
 [dev-dependencies]
 fd = { path = "../../backend/storage/file/fd" }

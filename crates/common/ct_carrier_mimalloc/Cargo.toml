@@ -13,4 +13,4 @@ path = "src/lib.rs"
 init_small = { path = "../../backend/utils/init/init_small", features = ["pool-global"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-libmimalloc-sys = { version = "0.1", features = ["extended", "no_thp", "override"] }
+libmimalloc-sys = { workspace = true, features = ["override"] }

@@ -11,4 +11,4 @@ mcx = { path = "../mcx" }
 memledger = { path = "../memledger" }
 mempolicy = { path = "../mempolicy" }
 types_tuple = { path = "../types/types_tuple" }
-libc = "0.2"
+libc = { workspace = true }

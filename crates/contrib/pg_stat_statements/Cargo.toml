@@ -49,5 +49,5 @@ lwlock = { path = "../../backend/storage/lmgr/lwlock" }
 dynahash = { path = "../../backend/utils/hash/dynahash" }
 shmem = { path = "../../backend/storage/ipc/shmem" }
 types_hash = { path = "../../_support/types/hash" }
-rustc-hash = "2"
+rustc-hash = { workspace = true, features = ["std"] }
 exec_hooks = { path = "../exec_hooks" }

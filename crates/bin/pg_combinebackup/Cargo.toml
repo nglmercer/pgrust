@@ -9,7 +9,7 @@ name = "pg_combinebackup"
 path = "src/main.rs"
 
 [dependencies]
-libc = "0.2"
+libc = { workspace = true }
 controldata_utils = { path = "../../common/controldata_utils" }
 manifest = { path = "../../backend/backup/manifest" }
 mcx = { path = "../../_support/mcx" }

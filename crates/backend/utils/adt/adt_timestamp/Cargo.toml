@@ -37,7 +37,7 @@ types_tuple = { path = "../../../../_support/types/types_tuple" }
 types_nodes = { path = "../../../../_support/types/nodes" }
 nodes_core = { path = "../../../nodes/nodes_core" }
 mbutils = { path = "../../mb/mbutils" }
-libc = "0.2"
+libc = { workspace = true }
 
 [dev-dependencies]
 guc_tables = { path = "../../misc/guc_tables" }

@@ -11,7 +11,7 @@ catalog = { path = "../../../catalog/catalog" }
 elog = { path = "../../../utils/error/elog" }
 fd = { path = "../../../storage/file/fd" }
 init_small = { path = "../../../utils/init/init_small" }
-libc = "0.2"
+libc = { workspace = true }
 procarray = { path = "../../../storage/ipc/procarray" }
 rewriteheap_seams = { path = "../rewriteheap_seams" }
 slot_seams = { path = "../../../replication/slot_seams" }

@@ -54,13 +54,13 @@ aio_seams = { path = "../../storage/aio/aio_seams" }
 # tests/loom.rs model Builders also use it; the loom-breadth reconciliation
 # migrates the fenced models (tests/loom.rs is fenced).
 [target.'cfg(loom)'.dependencies]
-loom = "0.7"
+loom = { workspace = true }
 
 # The donor lifecycle loom model (lifecycle.rs mod tests) drives loom atomics
 # explicitly and runs under PLAIN `cargo test -p runtime` (the waiter crate
 # set this dual-declaration precedent). Dev-deps never reach release builds.
 [dev-dependencies]
-loom = "0.7"
+loom = { workspace = true }
 # permit-s4: the bitmapheap phase-mirror loom model drives the waiter Slot
 # core directly (dev-dep = codegen-inert, the loom-breadth inc-2 ruling).
 waiter = { path = "../../storage/ipc/waiter" }

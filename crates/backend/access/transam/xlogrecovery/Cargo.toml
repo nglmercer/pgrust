@@ -57,7 +57,7 @@ walsender_seams = { path = "../../../replication/walsender_seams" }
 ipc = { path = "../../../storage/ipc/ipc" }
 tablespace_seams = { path = "../../../commands/tablespace_seams" }
 waitevent_seams = { path = "../../../utils/activity/waitevent_seams" }
-libc = "0.2"
+libc = { workspace = true }
 
 bufmgr = { path = "../../../storage/buffer/bufmgr" }
 

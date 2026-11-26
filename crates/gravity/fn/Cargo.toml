@@ -23,8 +23,8 @@ mcx = { path = "../../_support/mcx" }
 memledger = { path = "../../_support/memledger" }
 # pagepool P3 (PGRUST_POOL_GRAVITY=1): an operator arena's chunks from the page pool
 pagepool = { path = "../../_support/pagepool" }
-hashbrown = { version = "0.17", default-features = false, features = ["allocator-api2", "inline-more"] }
-allocator-api2 = { version = "0.2", default-features = false, features = ["alloc"] }
+hashbrown = { workspace = true }
+allocator-api2 = { workspace = true }
 pg_qsort = { path = "../../_support/pg_qsort" }
 types_core = { path = "../../_support/types/types_core" }
 types_error = { path = "../../_support/types/types_error" }

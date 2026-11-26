@@ -21,7 +21,7 @@ types_storage = { path = "../../../_support/types/types_storage" }
 types_tuple = { path = "../../../_support/types/types_tuple" }
 datum = { path = "../../../_support/types/datum" }
 mcx = { path = "../../../_support/mcx" }
-libc = "0.2"
+libc = { workspace = true }
 elog = { path = "../../utils/error/elog" }
 cache_syscache = { path = "../../utils/cache/cache_syscache" }
 dbcommands_seams = { path = "../dbcommands_seams" }

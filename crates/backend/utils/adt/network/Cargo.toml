@@ -20,7 +20,7 @@ types_tuple = { path = "../../../../_support/types/types_tuple" }
 types_nodes = { path = "../../../../_support/types/nodes" }
 ip = { path = "../../../../common/ip" }
 init_small = { path = "../../init/init_small" }
-libc = "0.2"
+libc = { workspace = true }
 
 [dev-dependencies]
 types_startup = { path = "../../../../_support/types/types_startup" }

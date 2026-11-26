@@ -25,7 +25,7 @@ waiteventset_seams = { path = "../../storage/ipc/waiteventset_seams" }
 latch_seams = { path = "../../storage/ipc/latch_seams" }
 pqcomm_seams = { path = "../pqcomm_seams" }
 be_secure_seams = { path = "../be_secure_seams" }
-libc = "0.2"
+libc = { workspace = true }
 
 [dev-dependencies]
 pgstat_seams = { path = "../../utils/activity/pgstat_seams" }

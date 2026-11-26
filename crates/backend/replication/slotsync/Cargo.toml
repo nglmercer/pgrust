@@ -14,7 +14,7 @@ adt_pg_lsn = { path = "../../utils/adt/pg_lsn" }
 numutils = { path = "../../utils/adt/numutils" }
 timeout = { path = "../../utils/misc/timeout" }
 pgsync = { path = "../../../_support/pgsync" }
-libc = "0.2"
+libc = { workspace = true }
 mcx = { path = "../../../_support/mcx" }
 seam_core = { path = "../../../_support/seam_core" }
 types_core = { path = "../../../_support/types/types_core" }

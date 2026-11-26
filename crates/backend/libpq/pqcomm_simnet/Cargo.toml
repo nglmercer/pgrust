@@ -18,7 +18,7 @@ pqcomm = { path = "../pqcomm" }
 pqcomm_seams = { path = "../pqcomm_seams" }
 be_secure_seams = { path = "../be_secure_seams" }
 elog = { path = "../../utils/error/elog" }
-libc = "0.2"
+libc = { workspace = true }
 ip = { path = "../../../common/ip" }
 
 # `pgrust_sim` is the non-default cfg selecting the sim providers (contract

@@ -42,7 +42,7 @@ be_secure = { path = "../../libpq/be_secure" }
 be_secure_seams = { path = "../../libpq/be_secure_seams" }
 walsender_seams = { path = "../../replication/walsender_seams" }
 xlogrecovery_seams = { path = "../../access/transam/xlogrecovery_seams" }
-libc = "0.2"
+libc = { workspace = true }
 
 [dev-dependencies]
 pgstat_seams = { path = "../../utils/activity/pgstat_seams" }

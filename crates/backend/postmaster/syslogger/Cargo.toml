@@ -31,4 +31,4 @@ ps_status = { path = "../../utils/misc/ps_status" }
 strftime = { path = "../../timezone/strftime" }
 syslogger_seams = { path = "../syslogger_seams" }
 waiteventset = { path = "../../storage/ipc/waiteventset" }
-libc = "0.2"
+libc = { workspace = true }

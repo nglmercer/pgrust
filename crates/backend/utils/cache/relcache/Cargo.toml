@@ -9,7 +9,7 @@ fmgr_core = { path = "../../fmgr/fmgr_core" }
 catalog_seams = { path = "../../../catalog/catalog_seams" }
 guc_tables = { path = "../../misc/guc_tables" }
 fd = { path = "../../../storage/file/fd" }
-libc = "0.2"
+libc = { workspace = true }
 types_relscan = { path = "../../../access/index/relscan" }
 types_trigger = { path = "../../../../_support/types/types_trigger" }
 mcx = { path = "../../../../_support/mcx" }

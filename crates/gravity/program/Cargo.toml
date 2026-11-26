@@ -22,8 +22,8 @@ types_error = { path = "../../_support/types/types_error" }
 gravity_abi = { path = "../abi" }
 cost_profile = { path = "../../_support/cost_profile" }
 gravity_kernels = { path = "../kernels", optional = true }
-allocator-api2 = { version = "0.2", default-features = false, features = ["alloc"] }
-libc = "0.2"
+allocator-api2 = { workspace = true }
+libc = { workspace = true }
 
 [dev-dependencies]
 # tests/pool_arena_bit.rs: PoolAlloc as the global allocator (the server's pagepool-global build)

@@ -15,7 +15,7 @@ path = "src/lib.rs"
 antithesis = ["dep:antithesis_sdk"]
 
 [dependencies]
-antithesis_sdk = { version = "0.2.9", optional = true }
+antithesis_sdk = { workspace = true, optional = true }
 init_small = { path = "../../../utils/init/init_small" }
 postgres_seams = { path = "../../../tcop/postgres_seams" }
 types_core = { path = "../../../../_support/types/types_core" }
@@ -35,4 +35,4 @@ bufmgr_seams = { path = "../../../storage/buffer/bufmgr_seams" }
 smgr_seams = { path = "../../../storage/smgr/smgr_seams" }
 file_seams = { path = "../../../storage/file/file_seams" }
 relpath_seams = { path = "../../../../common/relpath_seams" }
-libc = "0.2"
+libc = { workspace = true }

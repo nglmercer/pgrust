@@ -18,7 +18,7 @@ hba_seams = { path = "../hba_seams" }
 ifaddr = { path = "../ifaddr" }
 init_small = { path = "../../utils/init/init_small" }
 ip = { path = "../../../common/ip" }
-libc = "0.2"
+libc = { workspace = true }
 pg_path = { path = "../../../port/pg_path" }
 pg_string = { path = "../../../common/string" }
 pgstrcasecmp = { path = "../../../port/pgstrcasecmp" }

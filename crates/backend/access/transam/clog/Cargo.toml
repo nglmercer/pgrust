@@ -30,7 +30,7 @@ xlogreader_seams = { path = "../xlogreader_seams" }
 waitevent_seams = { path = "../../../utils/activity/waitevent_seams" }
 
 [dev-dependencies]
-libc = "0.2"
+libc = { workspace = true }
 shmem_seams = { path = "../../../storage/ipc/shmem_seams" }
 file_seams = { path = "../../../storage/file/file_seams" }
 sync_seams = { path = "../../../storage/sync/sync_seams" }

@@ -13,7 +13,7 @@ publish.workspace = true
 pgsync = { path = "../../../../_support/pgsync" }
 
 [target.'cfg(loom)'.dev-dependencies]
-loom = "0.7"
+loom = { workspace = true }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(loom)"] }

@@ -15,7 +15,7 @@ mcx = { path = "../../_support/mcx" }
 memledger = { path = "../../_support/memledger" }
 mempolicy = { path = "../../_support/mempolicy" }
 types_error = { path = "../../_support/types/types_error" }
-libc = "0.2.189"
+libc = { workspace = true }
 
 [features]
 upstream-oracle = ["tpde_assembler/upstream-oracle"]

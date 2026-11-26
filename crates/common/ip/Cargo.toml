@@ -9,4 +9,4 @@ name = "ip"
 path = "src/lib.rs"
 
 [dependencies]
-libc = "0.2"
+libc = { workspace = true }

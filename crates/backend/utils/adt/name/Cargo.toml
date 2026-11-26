@@ -23,4 +23,4 @@ mbutils_seams = { path = "../../mb/mbutils_seams" }
 namespace_seams = { path = "../../../catalog/namespace_seams" }
 
 [dev-dependencies]
-libc = "0.2"
+libc = { workspace = true }

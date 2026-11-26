@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 pg_clock = { path = "../../../port/pg_clock" }
-libc = "0.2"
+libc = { workspace = true }
 elog = { path = "../../utils/error/elog" }
 mcx = { path = "../../../_support/mcx" }
 types_core = { path = "../../../_support/types/types_core" }

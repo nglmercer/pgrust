@@ -46,4 +46,4 @@ standby_seams = { path = "../../storage/ipc/standby_seams" }
 timestamp_seams = { path = "../../utils/adt/timestamp_seams" }
 transam_xlog = { path = "../../access/transam/transam_xlog" }
 waitevent_seams = { path = "../../utils/activity/waitevent_seams" }
-libc = "0.2"
+libc = { workspace = true }

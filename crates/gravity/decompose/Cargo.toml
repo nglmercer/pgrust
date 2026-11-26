@@ -16,7 +16,7 @@ gravity_abi = { path = "../abi" }
 gravity_program = { path = "../program" }
 # D2458: shapecheck fire signal (user ruling 2026-10-02 06:10Z: a fire call at each optimization's admit point)
 fires = { path = "../../_support/fires" }
-allocator-api2 = { version = "0.2", default-features = false, features = ["alloc"] }
+allocator-api2 = { workspace = true }
 mcx = { path = "../../_support/mcx" }
 order_key = { path = "../../_support/order_key" }
 # B2-31: normalize retype's session-zone casts, lent once by exec (the sanctioned OnceLock)

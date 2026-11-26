@@ -22,16 +22,16 @@ pqcomm = { path = "../pqcomm" }
 types_error = { path = "../../../_support/types/types_error" }
 types_storage = { path = "../../../_support/types/types_storage" }
 wchar = { path = "../../../common/wchar" }
-libc = "0.2"
-openssl = { version = "0.10", features = ["vendored"] }
-openssl-sys = "0.9"
-foreign-types = "0.3"
+libc = { workspace = true }
+openssl = { workspace = true }
+openssl-sys = { workspace = true }
+foreign-types = { workspace = true }
 
 [build-dependencies]
 # D4503: openssl-src's `no-dso` (no dynamic engine / module loading; engines are trimmed anyway). Feature
 # unification applies it to openssl-sys's build-dependency, and the feature change is what makes cargo re-run
 # openssl-sys's build script (and so pick up the OPENSSL_SRC_PERL trim) in target dirs built before it.
-openssl-src = { version = "300.6", features = ["no-dso"] }
+openssl-src = { workspace = true }
 
 [dev-dependencies]
 xact_seams = { path = "../../access/transam/xact_seams" }

@@ -11,7 +11,7 @@ path = "src/lib.rs"
 
 [dependencies]
 gravity_abi = { path = "../abi" }
-memchr = { version = "2", default-features = false }
+memchr = { workspace = true }
 
 [dev-dependencies]
 adt_like = { path = "../../backend/utils/adt/like" }

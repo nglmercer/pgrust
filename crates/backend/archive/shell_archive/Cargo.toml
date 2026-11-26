@@ -18,4 +18,4 @@ percentrepl = { path = "../../../common/percentrepl" }
 wait_error = { path = "../../../common/wait_error" }
 
 [dev-dependencies]
-libc = "0.2"
+libc = { workspace = true }

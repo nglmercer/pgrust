@@ -35,7 +35,7 @@ condition_variable_seams = { path = "../../lmgr/condition_variable_seams" }
 smgr_seams = { path = "../../smgr/smgr_seams" }
 mcxt_seams = { path = "../../../utils/mmgr/mcxt_seams" }
 pgsync = { path = "../../../../_support/pgsync" }
-libc = "0.2"
+libc = { workspace = true }
 
 [dev-dependencies]
 pg_sema_seams = { path = "../../../port/pg_sema_seams" }

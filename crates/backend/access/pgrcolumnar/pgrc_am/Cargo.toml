@@ -49,7 +49,7 @@ types_fmgr = { path = "../../../../_support/types/fmgr" }
 relation_seams = { path = "../../common/relation_seams" }
 # SCANSTATS: a pgrcolumnar seq scan's seq_scan / seq_tup_read (heapam's pgstat_count_heap_* rules).
 pgstat = { path = "../../../utils/activity/pgstat" }
-libc = "0.2"
+libc = { workspace = true }
 vfs = { path = "../../../storage/file/vfs" }
 # SORTRUNS-E0 L2: the run merge's reverse build spills to PG temporary files (pgsql_tmp: removed at transaction end
 # and at startup after a crash).

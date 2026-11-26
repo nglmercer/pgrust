@@ -9,7 +9,7 @@ name = "interrupt"
 path = "src/lib.rs"
 
 [dependencies]
-libc = "0.2"
+libc = { workspace = true }
 types_error = { path = "../../../_support/types/types_error" }
 types_guc = { path = "../../../_support/types/types_guc" }
 ipc = { path = "../../storage/ipc/ipc" }

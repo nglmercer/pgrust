@@ -77,7 +77,7 @@ transam_xlog_seams = { path = "../../access/transam/transam_xlog_seams" }
 xlogrecovery_seams = { path = "../../access/transam/xlogrecovery_seams" }
 postgres_seams = { path = "../../tcop/postgres_seams" }
 types_dest = { path = "../../../_support/types/types_dest" }
-libc = "0.2"
+libc = { workspace = true }
 
 [dev-dependencies]
 pmchild = { path = "../pmchild" }

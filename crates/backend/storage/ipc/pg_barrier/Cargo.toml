@@ -25,7 +25,7 @@ waitevent_seams = { path = "../../../utils/activity/waitevent_seams" }
 # loom::thread_local! (per-iteration reset — no pgsync papering exists nor
 # should: models own their registries). Sync TYPES all come from pgsync.
 [target.'cfg(loom)'.dependencies]
-loom = "0.7"
+loom = { workspace = true }
 
 [dev-dependencies]
-loom = "0.7"
+loom = { workspace = true }

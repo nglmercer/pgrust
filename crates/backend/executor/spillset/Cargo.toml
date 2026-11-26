@@ -26,4 +26,4 @@ postgres_seams = { path = "../../tcop/postgres_seams" }
 aio_seams = { path = "../../storage/aio/aio_seams" }
 waitevent_seams = { path = "../../utils/activity/waitevent_seams" }
 pgstat_seams = { path = "../../utils/activity/pgstat_seams" }
-libc = "0.2"
+libc = { workspace = true }

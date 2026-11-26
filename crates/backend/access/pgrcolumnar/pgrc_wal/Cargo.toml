@@ -40,7 +40,7 @@ xlogrecovery_seams = { path = "../../transam/xlogrecovery_seams" }
 xlogarchive_seams = { path = "../../transam/xlogarchive_seams" }
 timeline_seams = { path = "../../transam/timeline_seams" }
 mcx = { path = "../../../../_support/mcx" }
-libc = "0.2"
+libc = { workspace = true }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(loom)"] }

@@ -35,7 +35,7 @@ lmgr_proc_seams = { path = "../../lmgr/lmgr_proc_seams" }
 # + loom thread/atomic types in the test driver; src/ reaches loom only
 # through pgsync, the single cfg site).
 [target.'cfg(loom)'.dependencies]
-loom = "0.7"
+loom = { workspace = true }
 
 [dev-dependencies]
-loom = "0.7"
+loom = { workspace = true }

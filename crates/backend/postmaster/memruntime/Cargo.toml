@@ -30,12 +30,12 @@ procsignal = { path = "../../storage/ipc/procsignal" }
 pgsync = { path = "../../../_support/pgsync" }
 # D4812: memlog's drain deadline and its longest-write count
 pg_clock = { path = "../../../port/pg_clock" }
-libc = "0.2"
+libc = { workspace = true }
 
 [dev-dependencies]
 # the backstop's revoke rung test asks a live statement (mcx::revoke's registry is the std build's)
 mcx = { path = "../../../_support/mcx", features = ["std"] }
 # H3 step (2): tests/give_back_purge.rs runs the real global allocator wrapper over pgrust's arenas, as allocarena's tests do
 init_small = { path = "../../utils/init/init_small" }
-mimalloc = "0.1"
-libmimalloc-sys = { version = "0.1", features = ["extended", "no_thp"] }
+mimalloc = { workspace = true }
+libmimalloc-sys = { workspace = true }

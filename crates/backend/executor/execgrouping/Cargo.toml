@@ -15,7 +15,7 @@ executils = { path = "../executils" }
 fmgr_core = { path = "../../utils/fmgr/fmgr_core" }
 guc_tables = { path = "../../utils/misc/guc_tables" }
 heaptuple = { path = "../../access/common/heaptuple" }
-hashbrown = { version = "0.17", default-features = false, features = ["allocator-api2", "inline-more"] }
+hashbrown = { workspace = true }
 hashfn = { path = "../../../common/hashfn" }
 lsyscache = { path = "../../utils/cache/lsyscache" }
 mcx = { path = "../../../_support/mcx" }

@@ -9,7 +9,7 @@ name = "pg_walsummary"
 path = "src/main.rs"
 
 [dependencies]
-libc = "0.2"
+libc = { workspace = true }
 blkreftable = { path = "../../common/blkreftable" }
 mcx = { path = "../../_support/mcx" }
 types_core = { path = "../../_support/types/types_core" }

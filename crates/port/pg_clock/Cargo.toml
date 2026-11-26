@@ -9,7 +9,7 @@ publish.workspace = true
 # deps on this crate, so any backend dep added here would create a cycle
 # (the pg_strong_random placement precedent).
 [dependencies]
-libc = "0.2"
+libc = { workspace = true }
 
 # `pgrust_sim` is the non-default cfg selecting SimClock (contract §0.1, the
 # VFS dispatch mechanism verbatim). It is set exclusively by the sim harness's

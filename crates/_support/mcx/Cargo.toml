@@ -27,12 +27,12 @@ memledger = { path = "../memledger", optional = true }
 # The governor's refusals (fits_raw, the block-grain check) are the memory policy's (mempolicy::admit), in every build.
 mempolicy = { path = "../mempolicy" }
 types_error = { path = "../types/types_error" }
-libc = "0.2"
-allocator-api2 = { version = "0.2", default-features = false, features = ["alloc"] }
-hashbrown = { version = "0.17", default-features = false, features = ["allocator-api2", "inline-more", "default-hasher"] }
-rustc-hash = { version = "2", default-features = false }
+libc = { workspace = true }
+allocator-api2 = { workspace = true }
+hashbrown = { workspace = true, features = ["default-hasher"] }
+rustc-hash = { workspace = true }
 
 [dev-dependencies]
-mimalloc = "0.1"
+mimalloc = { workspace = true }
 # tests/pool_source.rs: the page pool as the block source; pool_global_source.rs: and PoolAlloc as the global allocator
 pagepool = { path = "../pagepool", features = ["global"] }

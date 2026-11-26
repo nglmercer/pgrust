@@ -21,7 +21,7 @@ memledger = { path = "../memledger" }
 mempolicy = { path = "../mempolicy" }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-libc = "0.2"
+libc = { workspace = true }
 pagegive = { path = "../pagegive" }
 
 # pphatch (`global`): PGRUST_ALLOCATOR=mimalloc forwards every PoolAlloc call to mimalloc, the server's other allocator
@@ -30,19 +30,19 @@ pagegive = { path = "../pagegive" }
 # Not under cfg(pagepool_tsan) (scripts/pagepool-tsan.sh): there the hatch forwards to System, so no test binary links
 # mimalloc, whose malloc override (the dev-dependency's `override` feature, unified onto it) would take malloc from TSan.
 [target.'cfg(all(not(target_family = "wasm"), not(pagepool_tsan)))'.dependencies]
-mimalloc = { version = "0.1", optional = true }
+mimalloc = { workspace = true, optional = true }
 
 [target.'cfg(loom)'.dev-dependencies]
-loom = "0.7"
+loom = { workspace = true }
 
 # The shuttle models (tests/shuttle_*.rs, RUSTFLAGS="--cfg shuttle"): src/sync.rs's scheduling points need it in the lib.
 [target.'cfg(shuttle)'.dependencies]
-shuttle = "0.9"
+shuttle = { workspace = true }
 
 # tests/microbench.rs, tests/small_bench.rs: against mimalloc as the server builds it (main_main's libmimalloc-sys features).
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
-mimalloc = "0.1"
-libmimalloc-sys = { version = "0.1", features = ["extended", "no_thp", "override"] }
+mimalloc = { workspace = true }
+libmimalloc-sys = { workspace = true, features = ["override"] }
 
 # D4855: binaries whose checks read a process-wide pool count run their tests on the main thread (tests/one_thread)
 [[test]]

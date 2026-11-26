@@ -23,7 +23,7 @@ lwlock = { path = "../../lmgr/lwlock" }
 ipc_seams = { path = "../ipc_seams" }
 pg_prng_seams = { path = "../../../../port/pg_prng_seams" }
 waitevent_seams = { path = "../../../utils/activity/waitevent_seams" }
-libc = "0.2"
+libc = { workspace = true }
 
 [dev-dependencies]
 shmem_seams = { path = "../shmem_seams" }

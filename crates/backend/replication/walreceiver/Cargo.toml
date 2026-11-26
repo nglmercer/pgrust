@@ -21,7 +21,7 @@ init_small = { path = "../../utils/init/init_small" }
 interrupt = { path = "../../postmaster/interrupt" }
 ipc = { path = "../../storage/ipc/ipc" }
 latch = { path = "../../storage/ipc/latch" }
-libc = "0.2"
+libc = { workspace = true }
 libpq_pqsignal = { path = "../../libpq/libpq_pqsignal" }
 mcx = { path = "../../../_support/mcx" }
 miscinit = { path = "../../utils/init/miscinit" }

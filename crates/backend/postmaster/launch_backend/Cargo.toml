@@ -97,7 +97,7 @@ adt_acl = { path = "../../utils/adt/acl" }
 mcxt_stats = { path = "../../utils/mmgr/mcxt_stats" }
 waiteventset = { path = "../../storage/ipc/waiteventset" }
 waiteventset_seams = { path = "../../storage/ipc/waiteventset_seams" }
-libc = "0.2"
+libc = { workspace = true }
 
 syslogger_seams = { path = "../syslogger_seams" }
 
@@ -113,4 +113,4 @@ ip = { path = "../../../common/ip" }
 libpq_pqsignal = { path = "../../libpq/libpq_pqsignal" }
 pqcomm_seams = { path = "../../libpq/pqcomm_seams" }
 types_storage = { path = "../../../_support/types/types_storage" }
-libc = "0.2"
+libc = { workspace = true }

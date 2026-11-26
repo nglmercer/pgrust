@@ -52,7 +52,7 @@ vfs = { path = "../../../../backend/storage/file/vfs" }
 # RealVfs (production); MemVfs and the sim harness never see governor ops
 # (the governor self-disarms under --cfg pgrust_sim).
 write_governor = { path = "../../../../backend/storage/file/write_governor" }
-libc = "0.2"
+libc = { workspace = true }
 # D4225: the fsync GUC (`enableFsync`), read by `wvfs::pg_fsync` as fd's pg_fsync reads it, so fsync=off reaches
 # every pgrcolumnar fsync. A globals crate pgrc_am already depends on: no cycle.
 init_small = { path = "../../../utils/init/init_small" }
@@ -77,7 +77,7 @@ waiter = { path = "../../../storage/ipc/waiter" }
 # SIMD UTF-8 validation for the per-part text-semantics claim
 # verification (elect.rs resolve_text_policy) — the same crate parquet_read
 # uses for its decode-side validators.
-simdutf8 = "0.1"
+simdutf8 = { workspace = true }
 
 [dev-dependencies]
 adt_numeric = { path = "../../../utils/adt/numeric" }
@@ -92,7 +92,7 @@ wchar = { path = "../../../../common/wchar" }
 # tests/loom.rs model builders (the pgsync pattern: the loom dependency for
 # the crate's own loom models).
 [target.'cfg(loom)'.dev-dependencies]
-loom = "0.7"
+loom = { workspace = true }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(loom)", "cfg(pgrust_sim)"] }

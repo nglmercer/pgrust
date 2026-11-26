@@ -58,7 +58,7 @@ def scan() -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]]]:
                     spec = dict(value)
                 else:
                     continue
-                if "path" in spec or "version" not in spec:
+                if "path" in spec or ("version" not in spec and spec.get("workspace") is not True):
                     continue
                 row = {
                     "manifest": rel,
@@ -77,7 +77,7 @@ def print_inventory(inventory: dict[str, list[dict[str, Any]]]) -> None:
     print(f"external dependency names: {len(inventory)}")
     print(f"external dependency entries: {sum(len(v) for v in inventory.values())}")
     for name, rows in sorted(inventory.items(), key=lambda kv: (-len(kv[1]), kv[0])):
-        versions = sorted({str(row["spec"].get("version", "")) for row in rows})
+        versions = sorted({str(row["spec"].get("version", "workspace")) for row in rows})
         inherited = sum(row["workspace"] for row in rows)
         print(f"{name}: entries={len(rows)} inherited={inherited} versions={', '.join(versions)}")
 

@@ -12,4 +12,4 @@ path = "src/lib.rs"
 elog = { path = "../../utils/error/elog" }
 pgsync = { path = "../../../_support/pgsync" }
 types_error = { path = "../../../_support/types/types_error" }
-libc = "0.2"
+libc = { workspace = true }

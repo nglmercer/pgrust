@@ -26,4 +26,4 @@ xlogutils = { path = "../../../access/transam/xlogutils" }
 sync_seams = { path = "../../sync/sync_seams" }
 relpath_seams = { path = "../../../../common/relpath_seams" }
 tablespace_seams = { path = "../../../commands/tablespace_seams" }
-libc = "0.2"
+libc = { workspace = true }

@@ -23,7 +23,7 @@ pgrc_format = { path = "../pgrc_format" }
 runtime = { path = "../../../executor/runtime" }
 
 [dev-dependencies]
-libc = "0.2"
+libc = { workspace = true }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(loom)"] }

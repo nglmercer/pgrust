@@ -12,7 +12,7 @@ path = "src/lib.rs"
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(loom)"] }
 
 [dependencies]
-libc = "0.2"
+libc = { workspace = true }
 mcx = { path = "../../../_support/mcx" }
 datum = { path = "../../../_support/types/datum" }
 types_core = { path = "../../../_support/types/types_core" }

@@ -25,7 +25,7 @@ pgstat_seams = { path = "../../activity/pgstat_seams" }
 syslogger_seams = { path = "../../../postmaster/syslogger_seams" }
 ipc_seams = { path = "../../../storage/ipc/ipc_seams" }
 pqcomm_seams = { path = "../../../libpq/pqcomm_seams" }
-libc = "0.2"
+libc = { workspace = true }
 mcx = { path = "../../../../_support/mcx" }
 mbutils_seams = { path = "../../mb/mbutils_seams" }
 

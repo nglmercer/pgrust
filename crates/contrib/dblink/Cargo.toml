@@ -9,7 +9,7 @@ name = "dblink"
 path = "src/lib.rs"
 
 [dependencies]
-rustc-hash = "2"
+rustc-hash = { workspace = true, features = ["std"] }
 hashfn = { path = "../../common/hashfn" }
 datum = { path = "../../_support/types/datum" }
 mcx = { path = "../../_support/mcx" }

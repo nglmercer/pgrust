@@ -5,7 +5,7 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
-rustc-hash = "2"
+rustc-hash = { workspace = true, features = ["std"] }
 stack_depth_core = { path = "../../misc/stack_depth_core" }
 init_small = { path = "../../init/init_small" }
 postgres_seams = { path = "../../../tcop/postgres_seams" }

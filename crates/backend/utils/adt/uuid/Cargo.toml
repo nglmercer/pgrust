@@ -9,7 +9,7 @@ pg_clock = { path = "../../../../port/pg_clock" }
 adt_datetime = { path = "../adt_datetime" }
 adt_timestamp = { path = "../adt_timestamp" }
 datum = { path = "../../../../_support/types/datum" }
-libc = "0.2"
+libc = { workspace = true }
 pg_strong_random = { path = "../../../../port/pg_strong_random" }
 hashfn = { path = "../../../../common/hashfn" }
 hyperloglog = { path = "../../../lib/hyperloglog" }

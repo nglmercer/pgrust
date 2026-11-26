@@ -25,7 +25,7 @@ guc_tables = { path = "../../../utils/misc/guc_tables" }
 pmsignal = { path = "../pmsignal" }
 acl_seams = { path = "../../../utils/adt/acl_seams" }
 postgres_seams = { path = "../../../tcop/postgres_seams" }
-libc = "0.2"
+libc = { workspace = true }
 
 [dev-dependencies]
 latch_seams = { path = "../latch_seams" }

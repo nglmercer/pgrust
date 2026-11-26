@@ -7,7 +7,7 @@ publish.workspace = true
 [dependencies]
 l2cache = { path = "../../cache/l2cache" }
 fd = { path = "../../../storage/file/fd" }
-libc = "0.2"
+libc = { workspace = true }
 predicate_seams = { path = "../../../storage/lmgr/predicate_seams" }
 mcx = { path = "../../../../_support/mcx" }
 types_core = { path = "../../../../_support/types/types_core" }

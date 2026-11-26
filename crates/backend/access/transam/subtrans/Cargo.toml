@@ -25,7 +25,7 @@ varsup_seams = { path = "../varsup_seams" }
 procarray = { path = "../../../storage/ipc/procarray" }
 
 [dev-dependencies]
-libc = "0.2"
+libc = { workspace = true }
 shmem_seams = { path = "../../../storage/ipc/shmem_seams" }
 file_seams = { path = "../../../storage/file/file_seams" }
 sync_seams = { path = "../../../storage/sync/sync_seams" }

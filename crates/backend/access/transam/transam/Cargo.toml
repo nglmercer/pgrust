@@ -18,7 +18,7 @@ procarray = { path = "../../../storage/ipc/procarray" }
 transam_seams = { path = "../transam_seams" }
 
 [dev-dependencies]
-libc = "0.2"
+libc = { workspace = true }
 init_small = { path = "../../../utils/init/init_small" }
 shmem_seams = { path = "../../../storage/ipc/shmem_seams" }
 file_seams = { path = "../../../storage/file/file_seams" }

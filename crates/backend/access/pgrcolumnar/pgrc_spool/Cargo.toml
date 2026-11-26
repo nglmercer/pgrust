@@ -17,7 +17,7 @@ path = "src/lib.rs"
 pgrc_format = { path = "../pgrc_format" }
 pgsync = { path = "../../../../_support/pgsync" }
 vfs = { path = "../../../storage/file/vfs" }
-libc = "0.2"
+libc = { workspace = true }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(loom)", "cfg(pgrust_sim)"] }

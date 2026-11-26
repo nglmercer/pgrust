@@ -24,7 +24,7 @@ catalog_storage_seams = { path = "../../../catalog/storage_seams" }
 relpath_seams = { path = "../../../../common/relpath_seams" }
 waitevent_seams = { path = "../../activity/waitevent_seams" }
 xlogreader_seams = { path = "../../../access/transam/xlogreader_seams" }
-libc = "0.2"
+libc = { workspace = true }
 
 [dev-dependencies]
 guc_tables = { path = "../../misc/guc_tables" }

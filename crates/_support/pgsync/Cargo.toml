@@ -12,7 +12,7 @@ publish.workspace = true
 # carry [target.'cfg(loom)'] loom rows do so solely for their own tests/loom.rs
 # model Builders (loom-breadth reconciliation migrates those).
 [target.'cfg(loom)'.dependencies]
-loom = "0.7"
+loom = { workspace = true }
 
 # PERMIT-S1 WS-CORE (contract §5 shared-file exception, mechanical dep rows):
 # the scheduler's SimClock lever (pg_clock::sim::advance_ns, driven mode) and
@@ -23,7 +23,7 @@ loom = "0.7"
 pagegive = { path = "../pagegive" }
 pg_clock = { path = "../../port/pg_clock" }
 pg_strong_random = { path = "../../port/pg_strong_random" }
-antithesis_sdk = { version = "0.2.9", optional = true }
+antithesis_sdk = { workspace = true, optional = true }
 
 [features]
 # Antithesis harness builds only (antithesis/ directory): the ParkLot

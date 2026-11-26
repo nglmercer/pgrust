@@ -12,7 +12,7 @@ path = "src/lib.rs"
 datum = { path = "../../../_support/types/datum" }
 elog = { path = "../../utils/error/elog" }
 format_type = { path = "../../utils/adt/format_type" }
-libc = "0.2"
+libc = { workspace = true }
 lsyscache = { path = "../../utils/cache/lsyscache" }
 mbutils = { path = "../../utils/mb/mbutils" }
 mcx = { path = "../../../_support/mcx" }

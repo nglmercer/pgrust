@@ -26,4 +26,4 @@ sync_seams = { path = "../../../storage/sync/sync_seams" }
 shmem_seams = { path = "../../../storage/ipc/shmem_seams" }
 transam_xlog_seams = { path = "../transam_xlog_seams" }
 xlogutils_seams = { path = "../xlogutils_seams" }
-libc = "0.2"
+libc = { workspace = true }

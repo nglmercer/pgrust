@@ -13,7 +13,7 @@ pgsync = { path = "../../../_support/pgsync" }
 adt_timestamp = { path = "../../utils/adt/adt_timestamp" }
 condition_variable = { path = "../../storage/lmgr/condition_variable" }
 latch = { path = "../../storage/ipc/latch" }
-libc = "0.2"
+libc = { workspace = true }
 pmsignal = { path = "../../storage/ipc/pmsignal" }
 procsignal = { path = "../../storage/ipc/procsignal" }
 shmem = { path = "../../storage/ipc/shmem" }

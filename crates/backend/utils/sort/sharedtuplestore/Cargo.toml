@@ -12,7 +12,7 @@ path = "src/lib.rs"
 elog = { path = "../../error/elog" }
 fd = { path = "../../../storage/file/fd" }
 init_small = { path = "../../init/init_small" }
-libc = "0.2"
+libc = { workspace = true }
 lwlock = { path = "../../../storage/lmgr/lwlock" }
 mcx = { path = "../../../../_support/mcx" }
 postgres_seams = { path = "../../../tcop/postgres_seams" }

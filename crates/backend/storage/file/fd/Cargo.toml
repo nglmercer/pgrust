@@ -41,7 +41,7 @@ hashfn = { path = "../../../../common/hashfn" }
 pg_clock = { path = "../../../../port/pg_clock" }
 pgsync = { path = "../../../../_support/pgsync" }
 timeout = { path = "../../../utils/misc/timeout" }
-libc = "0.2"
+libc = { workspace = true }
 
 [dev-dependencies]
 resowner = { path = "../../../utils/resowner/resowner" }

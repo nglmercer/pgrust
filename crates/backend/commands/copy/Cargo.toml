@@ -84,7 +84,7 @@ relcache = { path = "../../utils/cache/relcache" }
 tupdesc = { path = "../../access/common/tupdesc" }
 types_trigger = { path = "../../../_support/types/types_trigger" }
 trigger = { path = "../trigger" }
-libc = "0.2"
+libc = { workspace = true }
 # Morsel-parallel COPY (parallel.rs): runtime stream source + pinned RG,
 # full-identity helpers, leader-latch wakes.
 runtime = { path = "../../executor/runtime" }
@@ -102,7 +102,7 @@ types_storage = { path = "../../../_support/types/types_storage" }
 commands_analyze = { path = "../analyze" }
 heaptuple = { path = "../../access/common/heaptuple" }
 pg_prng = { path = "../../../common/pg_prng" }
-memchr = "2"
+memchr = { workspace = true, features = ["std"] }
 # FORMAT 'parquet' (fromparquet.rs): the general parquet reader + text-datum
 # construction + type names for schema-mismatch errors.
 parquet_read = { path = "../../access/parquet_read" }

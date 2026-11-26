@@ -9,7 +9,7 @@ name = "psql"
 path = "src/main.rs"
 
 [dependencies]
-libc = "0.2"
+libc = { workspace = true }
 mcx = { path = "../../_support/mcx" }
 pg_b64 = { path = "../../common/base64" }
 pg_hmac = { path = "../../common/hmac" }

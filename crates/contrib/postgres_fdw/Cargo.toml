@@ -52,8 +52,8 @@ fmgr_seams = { path = "../../backend/utils/fmgr/fmgr_seams" }
 syscache_seams = { path = "../../backend/utils/cache/syscache_seams" }
 types_guc = { path = "../../_support/types/types_guc" }
 # phase 2: connection layer + executor data flow
-rustc-hash = "2"
-libc = "0.2"
+rustc-hash = { workspace = true, features = ["std"] }
+libc = { workspace = true }
 pgclient = { path = "../../interfaces/pgclient" }
 pg_b64 = { path = "../../common/base64" }
 xact = { path = "../../backend/access/transam/xact" }

@@ -45,7 +45,7 @@ shmem = { path = "../../storage/ipc/shmem" }
 timeout_seams = { path = "../../utils/misc/timeout_seams" }
 transam_xlog = { path = "../../access/transam/transam_xlog" }
 waitevent_seams = { path = "../../utils/activity/waitevent_seams" }
-libc = "0.2"
+libc = { workspace = true }
 
 [dev-dependencies]
 xact_seams = { path = "../../access/transam/xact_seams" }

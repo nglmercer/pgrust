@@ -33,7 +33,7 @@ path = "src/bin/sitediff.rs"
 antithesis = ["dep:antithesis_sdk"]
 
 [dependencies]
-antithesis_sdk = { version = "0.2.9", optional = true }
+antithesis_sdk = { workspace = true, optional = true }
 pgsync = { path = "../../_support/pgsync" }
 # contracts: cell_id = sha256(canonical cell.json); the workspace sha2 port
 # (zero dependencies) instead of a crates.io sha2.

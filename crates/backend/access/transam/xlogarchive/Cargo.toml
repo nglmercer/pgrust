@@ -28,7 +28,7 @@ transam_xlog = { path = "../transam_xlog" }
 waitevent_seams = { path = "../../../utils/activity/waitevent_seams" }
 xlogarchive_seams = { path = "../xlogarchive_seams" }
 xlogrecovery_seams = { path = "../xlogrecovery_seams" }
-libc = "0.2"
+libc = { workspace = true }
 
 [dev-dependencies]
 xact_seams = { path = "../xact_seams" }

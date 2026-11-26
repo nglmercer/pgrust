@@ -41,7 +41,7 @@ lock_seams = { path = "../../storage/lmgr/lock_seams" }
 mcx = { path = "../../../_support/mcx" }
 xact = { path = "../../access/transam/xact" }
 pg_subscription = { path = "../../catalog/pg_subscription" }
-libc = "0.2"
+libc = { workspace = true }
 
 [dev-dependencies]
 lmgr_proc_seams = { path = "../../storage/lmgr/lmgr_proc_seams" }

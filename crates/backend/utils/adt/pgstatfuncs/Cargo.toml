@@ -41,4 +41,4 @@ types_storage = { path = "../../../../_support/types/types_storage" }
 slot = { path = "../../../replication/slot" }
 bgworker_seams = { path = "../../../postmaster/bgworker_seams" }
 launcher_seams = { path = "../../../replication/launcher_seams" }
-libc = "0.2"
+libc = { workspace = true }

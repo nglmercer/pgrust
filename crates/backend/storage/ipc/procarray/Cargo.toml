@@ -36,7 +36,7 @@ superuser_seams = { path = "../../../utils/misc/superuser_seams" }
 acl_seams = { path = "../../../utils/adt/acl_seams" }
 dbcommands_seams = { path = "../../../commands/dbcommands_seams" }
 procsignal = { path = "../procsignal" }
-libc = "0.2"
+libc = { workspace = true }
 
 miscinit_seams = { path = "../../../utils/init/miscinit_seams" }
 waitevent_seams = { path = "../../../utils/activity/waitevent_seams" }

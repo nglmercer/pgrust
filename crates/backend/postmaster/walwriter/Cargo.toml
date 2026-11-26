@@ -37,4 +37,4 @@ resowner = { path = "../../utils/resowner/resowner" }
 smgr = { path = "../../storage/smgr/smgr" }
 transam_xlog = { path = "../../access/transam/transam_xlog" }
 waitevent_seams = { path = "../../utils/activity/waitevent_seams" }
-libc = "0.2"
+libc = { workspace = true }

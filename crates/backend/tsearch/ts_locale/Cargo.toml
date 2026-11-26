@@ -15,4 +15,4 @@ oracle_compat = { package = "adt_oracle_compat", path = "../../utils/adt/oracle_
 pg_path = { path = "../../../port/pg_path" }
 init_small = { path = "../../utils/init/init_small" }
 elog = { path = "../../utils/error/elog" }
-libc = "0.2"
+libc = { workspace = true }

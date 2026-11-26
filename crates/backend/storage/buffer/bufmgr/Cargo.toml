@@ -58,7 +58,7 @@ latch = { path = "../../ipc/latch" }
 postgres_seams = { path = "../../../tcop/postgres_seams" }
 ps_status_seams = { path = "../../../utils/misc/ps_status_seams" }
 timestamp_seams = { path = "../../../utils/adt/timestamp_seams" }
-libc = "0.2"
+libc = { workspace = true }
 pg_clock = { path = "../../../../port/pg_clock" }
 funcapi = { path = "../../../utils/fmgr/funcapi" }
 heaptuple = { path = "../../../access/common/heaptuple" }

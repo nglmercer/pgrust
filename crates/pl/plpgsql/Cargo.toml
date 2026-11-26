@@ -43,7 +43,7 @@ ipc_seams = { path = "../../backend/storage/ipc/ipc_seams" }
 lsyscache = { path = "../../backend/utils/cache/lsyscache" }
 mbutils = { path = "../../backend/utils/mb/mbutils" }
 mcx = { path = "../../_support/mcx" }
-rustc-hash = { version = "2", default-features = false }
+rustc-hash = { workspace = true }
 nodes_core = { path = "../../backend/nodes/nodes_core" }
 parse_utilcmd = { path = "../../backend/parser/parse_utilcmd" }
 parser_seams = { path = "../../backend/parser/parser_seams" }

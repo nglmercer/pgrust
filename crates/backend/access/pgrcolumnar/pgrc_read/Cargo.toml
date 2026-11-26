@@ -30,7 +30,7 @@ pagepool = { path = "../../../../_support/pagepool" }
 cost_profile = { path = "../../../../_support/cost_profile" }
 # dicthandle.rs: the shapecheck fire record (dict.stream_rest).
 fires = { path = "../../../../_support/fires" }
-libc = "0.2"
+libc = { workspace = true }
 pgrc_batch = { path = "../pgrc_batch" }
 pgrc_format = { path = "../pgrc_format" }
 pgsync = { path = "../../../../_support/pgsync" }
@@ -45,7 +45,7 @@ fault-log = []
 # production sync lives in pgsync; this row exists solely for the crate's
 # own loom models).
 [target.'cfg(loom)'.dev-dependencies]
-loom = "0.7"
+loom = { workspace = true }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(loom)"] }
